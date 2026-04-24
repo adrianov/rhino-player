@@ -31,6 +31,7 @@ Rhino Player is a **desktop video and audio player** for Linux (GNOME and simila
 | Peek at a frame when hovering the seek bar | Thumbnail preview | [18-thumbnail-preview](features/18-thumbnail-preview.md) |
 | See and edit the full queue in a list | Playlist dialog | [19-playlist-dialog](features/19-playlist-dialog.md) |
 | Ship or package releases predictably | Static / release builds | [20-static-build](features/20-static-build.md) |
+| Open the app with no file and quickly resume recent media | Recent videos grid (empty launch) | [21-recent-videos-launch](features/21-recent-videos-launch.md) |
 
 ## Planned settings (illustrative)
 

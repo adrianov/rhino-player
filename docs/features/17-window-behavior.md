@@ -14,7 +14,7 @@
 
 - `inhibit` when `not pause` and not idle; remove when pausing or idle.
 - Autohide timeout default (e.g. 2s) and exceptions when popovers or menus are open.
-- **Escape** leaves fullscreen (implemented: key handler on the main window; no-op if not fullscreen).
+- **Escape** leaves fullscreen; when not fullscreen, it can return to the recent-videos view (see [Input shortcuts](13-input-shortcuts.md)).
 - **Enter** / **numpad Enter** toggles fullscreen (same behavior as double-click on the video surface).
 - Fullscreen button tooltip updates with state when that control exists.
 - Double primary-click on the video surface (`GLArea`) toggles fullscreen: windowed → fullscreen, fullscreen → windowed. Before entering fullscreen, the window is unmaximized if needed so the compositor does not keep a maximized layout. While fullscreen, `AdwToolbarView` top and bottom bars and the status line are hidden so the video is edge-to-edge, not a large window with visible chrome.

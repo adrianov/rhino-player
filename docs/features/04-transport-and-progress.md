@@ -2,7 +2,7 @@
 
 **Name:** Transport controls and progress bar
 
-**Implementation status:** Not started
+**Implementation status:** In progress (seek + time; see [22-audio-volume-mute](22-audio-volume-mute.md) for volume)
 
 **Use cases:** Control playback without leaving the app; see position and total length; adjust volume; enter fullscreen for focused viewing.
 

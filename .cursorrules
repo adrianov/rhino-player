@@ -8,7 +8,7 @@
 ## Directories
 
 - `docs/` — Feature specs **before** implementation. Index: `docs/README.md`. One file per feature area under `docs/features/`. Product and use cases: `docs/product-and-use-cases.md`.
-- `src/` — `main.rs` (entry + locale), `lib.rs`, `app.rs` (GTK shell), `mpv_embed.rs` (libmpv `RenderContext` + `GLArea`), `paths.rs` (XDG `~/.config/rhino`, mpv `watch_later` dir), `time.rs` (time formatting + tests).
+- `src/` — `main.rs` (entry + locale), `lib.rs`, `app.rs` (GTK shell, transport, volume popover, `db::init` on startup), `db.rs` (SQLite `rhino.sqlite`: history, `settings` kv, media duration/thumbs), `mpv_embed.rs` (libmpv `RenderContext` + `GLArea`, `commit_quit`), `paths.rs` (XDG config, mpv `watch_later` dir only), `history.rs` (recent list via `db`), `media_probe.rs` (watch_later scan, card data, libmpv `vo=image` + quit thumb), `recent_view.rs` (empty-launch card grid), `time.rs` (time formatting + tests), `theme.rs` (CSS).
 - `tests/` — Integration tests (e.g. libmpv smoke).
 
 ## Workflow

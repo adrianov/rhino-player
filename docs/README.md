@@ -18,7 +18,7 @@ Features are specified here **before** implementation. Each feature file lives i
 | [Video options: aspect, crop, zoom, filters](features/10-video-options.md) | Not started |
 | [Drag and drop](features/11-drag-and-drop.md) | Not started |
 | [URL and network streams (yt-dlp / protocols)](features/12-url-and-streams.md) | Not started |
-| [Keyboard, mouse, and shortcuts](features/13-input-shortcuts.md) | In progress (Space pause) |
+| [Keyboard, mouse, and shortcuts](features/13-input-shortcuts.md) | In progress (Space pause, q quit) |
 | [Preferences and persistent settings](features/14-preferences.md) | In progress (watch_later resume) |
 | [MPRIS2 (media keys, shell integration)](features/15-mpris.md) | Not started |
 | [Session: restore last playlist](features/16-session-persistence.md) | Not started |
@@ -26,6 +26,8 @@ Features are specified here **before** implementation. Each feature file lives i
 | [Thumbnails: seek bar preview](features/18-thumbnail-preview.md) | Not started |
 | [Playlist dialog (list, reorder, save m3u8)](features/19-playlist-dialog.md) | Not started |
 | [Static release binary and dependencies](features/20-static-build.md) | Not started |
+| [Recent videos grid on empty launch](features/21-recent-videos-launch.md) | In progress (grid + `rhino.sqlite` + libmpv thumbs + quit frame) |
+| [Audio: volume, mute, persistence](features/22-audio-volume-mute.md) | In progress (header popover, scroll, keys, `settings` in DB) |
 
 ## Product context
 
