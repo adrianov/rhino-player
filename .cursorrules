@@ -8,7 +8,7 @@
 ## Directories
 
 - `docs/` — Feature specs **before** implementation. Index: `docs/README.md`. One file per feature area under `docs/features/`. Product and use cases: `docs/product-and-use-cases.md`.
-- `src/` — `main.rs` (entry + locale), `lib.rs`, `app.rs` (GTK shell), `mpv_embed.rs` (libmpv `RenderContext` + `GLArea`), `time.rs` (time formatting + tests).
+- `src/` — `main.rs` (entry + locale), `lib.rs`, `app.rs` (GTK shell), `mpv_embed.rs` (libmpv `RenderContext` + `GLArea`), `paths.rs` (XDG `~/.config/rhino`, mpv `watch_later` dir), `time.rs` (time formatting + tests).
 - `tests/` — Integration tests (e.g. libmpv smoke).
 
 ## Workflow
@@ -19,4 +19,5 @@
 
 - Keep `.cursorrules` and `docs/README.md` feature list aligned with what exists in the tree.
 - Prefer clear module boundaries: UI (GTK/Adwaita), mpv control, platform (DBus, portals), persistence (settings, session).
+- **Complexity and module shape:** there is no Ruby-style `AbcSize` in Rust; use Clippy (see `clippy.toml`, `cargo qcheck`) and follow `.cursor/rules/complexity-and-module-design.mdc` (cognitive-complexity gate; if a feature touches **>6 files**, refactor toward SOLID / single reason to change per module).
 - Name length: prefer short, clear identifiers (2–3 words) for new types and functions, consistent with the rest of the file.

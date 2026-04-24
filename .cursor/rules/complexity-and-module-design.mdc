@@ -1,0 +1,34 @@
+---
+description: Complexity (Clippy) and feature-shaped modules — no Ruby AbcSize; SOLID + file-count guard.
+alwaysApply: true
+---
+
+# Complexity metrics and feature boundaries (Rust / Rhino)
+
+## There is no AbcSize in the Rust compiler
+
+**RuboCop’s `Metrics/AbcSize`** (assignments + branches + conditions) is **Ruby-only**. The Rust compiler does not ship an identical metric, and there is no standard “ABC size” for Rust source.
+
+**Practical substitute:** [Clippy](https://github.com/rust-lang/rust-clippy) is the default static analysis for Rust. The closest built-in, widely used signal is **`cognitive_complexity`**, with thresholds in **`clippy.toml`** in this repository. It is a different formula than AbcSize but pursues the same goal: **stop functions from turning into an unreadable tangle of branches and nesting**. Other useful pressure points include **arity** and **nesting** lints, enabled deliberately so they do not fight normal GUI or FFI code.
+
+## What to run in automation
+
+- **`cargo clippy` is not part of `cargo build`.** A normal compile does not run these checks. Keep quality visible by:
+  - Running **`cargo clippy`** (or the **`cargo qcheck` alias** from **`.cargo/config.toml`**) before you merge, and
+  - Wiring the same command into **CI** (recommended) on every push or pull request to `main` / your default branch.
+- Treat a failing or warning-burdened Clippy run the same class of problem as a failing test: **fix or justify** (narrow `allow` on a specific item, with a short comment) before the change is “done”.
+
+## When a feature touches “too many” files
+
+If implementing **one** user-visible feature or a single story causes changes across **more than six** Rust source or build files (or similar breadth in tests for that feature), **treat that as a design smell**, not a success metric.
+
+- **Refactor first** (same PR if small, or a split PR) so that the feature is **cohesive** and each module has **one main reason to change** (Single Responsibility), abstractions are **open for extension** where behaviour varies, and feature-specific types and control flow live together instead of piling into one place (often `app.rs` in small apps). This aligns with **SOLID** in the practical sense: **stability in the right place**, **injection of boundaries** (UI / mpv / platform), and **lean interfaces** between layers.
+- Prefer **one obvious module or directory per feature** so reviewers and future you can work in one area. If a feature is correct but scattered, **restructure in the same workstream** rather than entrenching cross-file “telepathy” for the next year.
+
+**Wording for agents:** *Do not celebrate breadth of edit; compress scope into a clear shape. If the file count is high, pause and re-home code so one module owns the feature and others depend on it through narrow APIs.*
+
+## Where configuration lives
+
+- **`clippy.toml`** — threshold for `cognitive_complexity` and other Clippy config.
+- **`Cargo.toml` → `[lints]`** — project-wide lint level for selected Clippy lints.
+- **`.cursorrules` / this rule** — human and agent policy; not a replacement for `cargo clippy` on the machine.

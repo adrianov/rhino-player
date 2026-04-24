@@ -1,0 +1,5 @@
+# Project-local Cargo aliases. See README “Code quality” and `.cursor/rules/complexity-and-module-design.mdc`.
+
+[alias]
+# Full crate + tests; respects clippy.toml and [lints] in Cargo.toml.
+qcheck = "clippy --all-targets --all-features"

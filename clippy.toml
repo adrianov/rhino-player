@@ -1,0 +1,9 @@
+# Clippy: https://doc.rust-lang.org/clippy/
+# This file is the supported way to tune complexity-related lints (no Ruby-style AbcSize in rustc).
+
+# Maximum cognitive complexity for a function (analogue to overgrown nesting/branches).
+# Lower = stricter. Tune if a real algorithm needs a single complex function; prefer splitting instead.
+cognitive-complexity-threshold = 25
+
+# Optional: guard deep nesting in addition to clippy::excessive_nesting.
+# excessive-nesting-threshold = 5

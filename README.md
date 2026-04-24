@@ -34,6 +34,18 @@ cargo build --release
 cargo test
 ```
 
+## Code quality (complexity, not AbcSize)
+
+There is no Rust equivalent of **RuboCop’s `Metrics/AbcSize`**. The usual substitute is [Clippy](https://doc.rust-lang.org/clippy/)—especially **`cognitive_complexity`**, with thresholds in **`clippy.toml`**. `cargo build` does **not** run Clippy; use it in CI and before merging:
+
+```bash
+cargo clippy --all-targets --all-features
+# or the project alias:
+cargo qcheck
+```
+
+See **`.cursor/rules/complexity-and-module-design.mdc`** for policy on when to refactor a feature that spreads across “too many” files.
+
 ## Run
 
 Requires a running display (Wayland or X11). From the project root:

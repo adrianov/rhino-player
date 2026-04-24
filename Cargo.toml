@@ -5,6 +5,8 @@ edition = "2021"
 description = "Rhino Player — mpv with GTK4 / Adwaita for Linux"
 license = "GPL-3.0-or-later"
 readme = "README.md"
+homepage = "https://github.com/adrianov/rhino-player"
+repository = "https://github.com/adrianov/rhino-player"
 rust-version = "1.74"
 
 [dependencies]
@@ -14,6 +16,10 @@ glib = { version = "0.20", features = ["v2_80"] }                 # main loop, c
 libmpv2 = { version = "5.0.3" }                                    # libmpv
 libc = "0.2"                                                       # setlocale for libmpv
 libloading = "0.8"                                                # libEGL, libGL
+
+# Clippy: cognitive complexity (see clippy.toml). Run `cargo clippy` in CI or before merge.
+[lints.clippy]
+cognitive_complexity = "warn"
 
 [profile.release]
 lto = true
