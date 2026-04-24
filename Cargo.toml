@@ -16,6 +16,7 @@ glib = { version = "0.20", features = ["v2_80"] }                 # main loop, c
 libmpv2 = { version = "5.0.3" }                                    # libmpv
 libc = "0.2"                                                       # setlocale for libmpv
 libloading = "0.8"                                                # libEGL, libGL
+rusqlite = { version = "0.32", features = ["bundled"] }           # app data (one sqlite file)
 
 # Clippy: cognitive complexity (see clippy.toml). Run `cargo clippy` in CI or before merge.
 [lints.clippy]

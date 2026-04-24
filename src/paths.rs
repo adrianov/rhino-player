@@ -8,7 +8,8 @@ pub fn app_config() -> Option<PathBuf> {
         let p = PathBuf::from(v);
         p.is_absolute().then_some(p)
     });
-    let base = base.or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    let base =
+        base.or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
     let dir = base.join("rhino");
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir)
