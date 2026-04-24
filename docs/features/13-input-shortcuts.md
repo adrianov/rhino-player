@@ -1,0 +1,17 @@
+# Keyboard, mouse, and shortcuts
+
+**Name:** Input and keyboard shortcuts
+
+**Implementation status:** Not started
+
+**Use cases:** Power users keep mpv muscle memory; casual users can view or override keys; mouse maps match typical player expectations.
+
+**Short description:** Forward keys to mpv with GTK accelerator conflicts avoided; custom `input.conf` in the config dir; built-in default bindings; optional Adwaita Shortcuts window listing effective bindings; mouse map for buttons and double-click; scroll maps to WHEEL keys.
+
+**Long description:** Load internal bindings from a memory `input.conf`, then optional user `input.conf`. Key events in capture phase translate to mpv’s `keypress`/`keyup` with modifier and key remaps. Mouse button gestures send `keypress` for mapped `MBTN_*` commands. Scroll on overlay sends wheel key combos. Optional: `?` for shortcuts dialog populated from `input-bindings` property.
+
+**Specification:**
+
+- Do not pass keys that match registered app accelerators to mpv.
+- Escape leaves fullscreen; Tab focuses UI chrome temporarily.
+- Document location of `input.conf` under `~/.config/rhino/` (TBD), following XDG.

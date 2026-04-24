@@ -1,0 +1,12 @@
+---
+description: Document-first development for Rhino Player; implement only after docs exist.
+alwaysApply: true
+---
+
+# Document-first development
+
+- **Before** adding or changing user-visible behavior, add or update the matching file under `docs/`. Every feature is described there before (or in lockstep with) code.
+- Each feature document must include, in Markdown: **name**, **implementation status**, **use cases** (who benefits and what problem it solves), **short description**, **long description**, and **specification** (testable requirements and acceptance criteria).
+- The index is `docs/README.md`. New features get a new doc linked from the index; status there should stay consistent with the feature file.
+- Prefer small, reviewable changes: one feature doc (or a focused update) per logical change when possible.
+- Product framing and use-case index: `docs/product-and-use-cases.md` (complements per-feature specs; not a replacement for `docs/features/…` acceptance criteria).

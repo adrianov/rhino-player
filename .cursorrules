@@ -1,0 +1,22 @@
+# Rhino Player — Cursor / agent context (compact)
+
+## Purpose
+
+- **Rhino Player**: mpv-backed media player for Linux (GNOME, Ubuntu, and similar) with **GTK4 / libadwaita** UI, implemented in **Rust**, targeting a **statically linked** distributable when feasible.
+- **Product context**: `docs/product-and-use-cases.md` (use cases and feature map). Behavior is specified in `docs/` first, then implemented.
+
+## Directories
+
+- `docs/` — Feature specs **before** implementation. Index: `docs/README.md`. One file per feature area under `docs/features/`. Product and use cases: `docs/product-and-use-cases.md`.
+- `src/` — `main.rs` (entry + locale), `lib.rs`, `app.rs` (GTK shell), `mpv_embed.rs` (libmpv `RenderContext` + `GLArea`), `time.rs` (time formatting + tests).
+- `tests/` — Integration tests (e.g. libmpv smoke).
+
+## Workflow
+
+- **Document-first**: see `.cursor/rules/document-first.mdc`. Do not implement substantial features without an up-to-date `docs/features/…` file (status, short/long description, specification).
+
+## Conventions
+
+- Keep `.cursorrules` and `docs/README.md` feature list aligned with what exists in the tree.
+- Prefer clear module boundaries: UI (GTK/Adwaita), mpv control, platform (DBus, portals), persistence (settings, session).
+- Name length: prefer short, clear identifiers (2–3 words) for new types and functions, consistent with the rest of the file.
