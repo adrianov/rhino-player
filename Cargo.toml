@@ -1,0 +1,20 @@
+[package]
+name = "rhino-player"
+version = "0.1.0"
+edition = "2021"
+description = "Rhino Player — mpv with GTK4 / Adwaita for Linux"
+license = "GPL-3.0-or-later"
+readme = "README.md"
+rust-version = "1.74"
+
+[dependencies]
+gtk = { version = "0.9", package = "gtk4", features = ["v4_14"] } # window, header, dialogs
+adw = { version = "0.7", package = "libadwaita", features = ["v1_5"] }
+glib = { version = "0.20", features = ["v2_80"] }                 # main loop, clones, timers
+libmpv2 = { version = "5.0.3" }                                    # libmpv
+libc = "0.2"                                                       # setlocale for libmpv
+libloading = "0.8"                                                # libEGL, libGL
+
+[profile.release]
+lto = true
+codegen-units = 1

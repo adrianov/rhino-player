@@ -1,0 +1,65 @@
+# ---- Rust / Cargo ----
+# Build outputs and incremental state (all profiles).
+/target/
+**/target/
+
+# PGO, coverage, and similar compiler outputs.
+*.profraw
+*.profdata
+*.gcno
+*.gcda
+coverage/
+lcov.info
+cobertura.xml
+tarpaulin-report.html
+*.lcov
+
+# ---- Tooling ----
+# rustfmt backup when enabled; merge/diff temp files.
+**/*.rs.bk
+*.orig
+*~
+*.swp
+*.swo
+.#*
+
+# ---- Local overrides (not shared) ----
+.cargo/config.local.toml
+.cargo/credentials.toml
+
+# ---- Environment / secrets ----
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ---- OS (Linux + common desktop) ----
+.DS_Store
+Thumbs.db
+.Spotlight-V100
+.Trashes
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---- IDE / editors ----
+.idea/
+*.iml
+.vscode/
+
+# ---- Distributing / bundling (optional) ----
+/dist/
+/pkg/
+/artifacts/
+.flathub/
+_build/
+_build_*/
+
+# ---- Ad hoc / debug ----
+*.log
+nohup.out
+*.tmp
+*.temp
+
+# ---- Windows Rust artifacts ----
+*.pdb
+*.exp
