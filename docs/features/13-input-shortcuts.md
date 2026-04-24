@@ -2,7 +2,7 @@
 
 **Name:** Input and keyboard shortcuts
 
-**Implementation status:** Not started
+**Implementation status:** In progress (Space toggles pause in app, not full mpv forwarding yet)
 
 **Use cases:** Power users keep mpv muscle memory; casual users can view or override keys; mouse maps match typical player expectations.
 
@@ -13,5 +13,7 @@
 **Specification:**
 
 - Do not pass keys that match registered app accelerators to mpv.
+- **Space** toggles play/pause via the mpv `pause` property when the main window is focused (and the player is ready).
+- **Enter** and **KP_Enter** toggle fullscreen (see [Window behavior](17-window-behavior.md)).
 - Escape leaves fullscreen; Tab focuses UI chrome temporarily.
 - Document location of `input.conf` under `~/.config/rhino/` (TBD), following XDG.
