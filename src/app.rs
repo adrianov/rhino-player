@@ -3,13 +3,85 @@ use gtk::gio;
 use gtk::glib;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::format_time;
 use crate::mpv_embed::MpvBundle;
 use crate::theme;
 
 const APP_ID: &str = "ch.rhino.RhinoPlayer";
+const IDLE_3S: Duration = Duration::from_secs(3);
+/// After chrome hides, GTK often emits spurious pointer motion/enter; ignore for this long.
+const LAYOUT_SQUELCH: Duration = Duration::from_millis(450);
+/// Ignore repeated motion with the same coordinates (reflows can re-emit the same (x, y)).
+const COORD_EPS: f64 = 1.0;
+
+fn same_xy(a: f64, b: f64) -> bool {
+    (a - b).abs() < COORD_EPS
+}
+
+fn show_pointer(gl: &gtk::GLArea) {
+    gl.remove_css_class("rp-cursor-hidden");
+    gl.set_cursor_from_name(None);
+}
+
+fn toggle_fullscreen(win: &adw::ApplicationWindow) {
+    if win.is_fullscreen() {
+        win.unfullscreen();
+    } else if win.is_maximized() {
+        win.unmaximize();
+        win.fullscreen();
+    } else {
+        win.fullscreen();
+    }
+}
+
+/// Chrome layout: when not fullscreen, always show. When fullscreen, only when
+/// `fs_overlay` is true (moved mouse recently) unless `apply_chrome` is called from
+/// fullscreened_notify with overlay cleared.
+///
+/// In fullscreen, `AdwToolbarView` content is extended to the top and bottom *edges* so
+/// the `GLArea` can fill the whole area; the header and bottom bar draw on top of the
+/// video (overlay), instead of compressing the video.
+fn apply_chrome(
+    win: &adw::ApplicationWindow,
+    root: &adw::ToolbarView,
+    status: &gtk::Label,
+    gl: &gtk::GLArea,
+    fs_overlay: &Cell<bool>,
+) {
+    let fs = win.is_fullscreen();
+    let show = if fs { fs_overlay.get() } else { true };
+    if fs {
+        root.set_extend_content_to_top_edge(true);
+        root.set_extend_content_to_bottom_edge(true);
+    } else {
+        root.set_extend_content_to_top_edge(false);
+        root.set_extend_content_to_bottom_edge(false);
+    }
+    root.set_reveal_top_bars(show);
+    root.set_reveal_bottom_bars(show);
+    status.set_visible(show);
+    gl.queue_render();
+}
+
+fn replace_timeout(s: Rc<RefCell<Option<glib::SourceId>>>, f: impl Fn() + 'static) {
+    if let Some(id) = s.borrow_mut().take() {
+        id.remove();
+    }
+    *s.borrow_mut() = Some(glib::timeout_add_local(
+        IDLE_3S,
+        glib::clone!(
+            #[strong]
+            s,
+            move || {
+                *s.borrow_mut() = None;
+                f();
+                glib::ControlFlow::Break
+            }
+        ),
+    ));
+}
 
 pub fn run() -> i32 {
     unsafe {
@@ -51,6 +123,14 @@ fn build_window(app: &adw::Application, player: &Rc<RefCell<Option<MpvBundle>>>)
         .css_classes(["rp-win"])
         .build();
 
+    let fs_overlay = Rc::new(Cell::new(false));
+    let nav_t = Rc::new(RefCell::new(None::<glib::SourceId>));
+    let cur_t = Rc::new(RefCell::new(None::<glib::SourceId>));
+    let ptr_in_gl = Rc::new(Cell::new(false));
+    let motion_squelch = Rc::new(Cell::new(None::<Instant>));
+    let last_cap_xy = Rc::new(Cell::new(None::<(f64, f64)>));
+    let last_gl_xy = Rc::new(Cell::new(None::<(f64, f64)>));
+
     let root = adw::ToolbarView::new();
 
     let header = adw::HeaderBar::new();
@@ -71,6 +151,9 @@ fn build_window(app: &adw::Application, player: &Rc<RefCell<Option<MpvBundle>>>)
     status.set_wrap_mode(gtk::pango::WrapMode::Word);
     status.set_xalign(0.0);
     status.set_vexpand(false);
+    status.set_halign(gtk::Align::Fill);
+    status.set_valign(gtk::Align::Start);
+    status.set_can_target(false);
 
     let gl_area = gtk::GLArea::new();
     gl_area.add_css_class("rp-gl");
@@ -79,6 +162,19 @@ fn build_window(app: &adw::Application, player: &Rc<RefCell<Option<MpvBundle>>>)
     gl_area.set_auto_render(false);
     gl_area.set_has_stencil_buffer(false);
     gl_area.set_has_depth_buffer(false);
+
+    let dbl = gtk::GestureClick::new();
+    dbl.set_button(gtk::gdk::BUTTON_PRIMARY);
+    dbl.set_propagation_phase(gtk::PropagationPhase::Capture);
+    {
+        let win_fs = win.clone();
+        dbl.connect_pressed(move |_, n_press, _, _| {
+            if n_press == 2 {
+                toggle_fullscreen(&win_fs);
+            }
+        });
+    }
+    gl_area.add_controller(dbl);
 
     let seek_adj = gtk::Adjustment::new(0.0, 0.0, 1.0, 0.2, 1.0, 0.0);
     let seek = gtk::Scale::new(gtk::Orientation::Horizontal, Some(&seek_adj));
@@ -101,16 +197,248 @@ fn build_window(app: &adw::Application, player: &Rc<RefCell<Option<MpvBundle>>>)
     bottom.append(&seek);
     bottom.append(&time_right);
 
-    let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    vbox.add_css_class("rp-stack");
-    vbox.append(&status);
-    vbox.append(&gl_area);
+    let ovl = gtk::Overlay::new();
+    ovl.add_css_class("rp-stack");
+    ovl.set_child(Some(&gl_area));
+    ovl.add_overlay(&status);
+    ovl.set_measure_overlay(&status, false);
 
     root.add_top_bar(&header);
-    root.set_content(Some(&vbox));
+    root.set_content(Some(&ovl));
     root.add_bottom_bar(&bottom);
 
     win.set_content(Some(&root));
+
+    {
+        let root_fs = root.clone();
+        let st_fs = status.clone();
+        let gl_fs = gl_area.clone();
+        let fov = fs_overlay.clone();
+        let nav = nav_t.clone();
+        let sq = motion_squelch.clone();
+        let lcap = last_cap_xy.clone();
+        let lgl = last_gl_xy.clone();
+        win.connect_fullscreened_notify(move |w| {
+            if let Some(id) = nav.borrow_mut().take() {
+                id.remove();
+            }
+            sq.set(None);
+            lcap.set(None);
+            lgl.set(None);
+            fov.set(false);
+            apply_chrome(w, &root_fs, &st_fs, &gl_fs, &fov);
+        });
+    }
+
+    {
+        let win_c = win.clone();
+        let root_c = root.clone();
+        let st_c = status.clone();
+        let gl_c = gl_area.clone();
+        let fov = fs_overlay.clone();
+        let nav = nav_t.clone();
+        let sq = motion_squelch.clone();
+        let lcap = last_cap_xy.clone();
+        let cap = gtk::EventControllerMotion::new();
+        cap.set_propagation_phase(gtk::PropagationPhase::Capture);
+        cap.connect_motion(
+            glib::clone!(
+                #[strong]
+                win_c,
+                #[strong]
+                root_c,
+                #[strong]
+                st_c,
+                #[strong]
+                gl_c,
+                #[strong]
+                fov,
+                #[strong]
+                nav,
+                #[strong]
+                sq,
+                #[strong]
+                lcap,
+                move |_, x, y| {
+                    if !win_c.is_fullscreen() {
+                        return;
+                    }
+                    if let Some(t) = sq.get() {
+                        if Instant::now() < t {
+                            return;
+                        }
+                    }
+                    if let Some((lx, ly)) = lcap.get() {
+                        if same_xy(x, lx) && same_xy(y, ly) {
+                            return;
+                        }
+                    }
+                    lcap.set(Some((x, y)));
+
+                    fov.set(true);
+                    apply_chrome(&win_c, &root_c, &st_c, &gl_c, &fov);
+                    replace_timeout(
+                        nav.clone(),
+                        {
+                            let win2 = win_c.clone();
+                            let root2 = root_c.clone();
+                            let st2 = st_c.clone();
+                            let gl2 = gl_c.clone();
+                            let f2 = fov.clone();
+                            let sq2 = sq.clone();
+                            move || {
+                                if !win2.is_fullscreen() {
+                                    return;
+                                }
+                                f2.set(false);
+                                apply_chrome(&win2, &root2, &st2, &gl2, &f2);
+                                sq2.set(Some(Instant::now() + LAYOUT_SQUELCH));
+                            }
+                        },
+                    );
+                }
+            ),
+        );
+        win.add_controller(cap);
+    }
+
+    {
+        let gl_c = gl_area.clone();
+        let cur = cur_t.clone();
+        let ptr = ptr_in_gl.clone();
+        let sq = motion_squelch.clone();
+        let lgl = last_gl_xy.clone();
+        let m = gtk::EventControllerMotion::new();
+        m.connect_motion(
+            glib::clone!(
+                #[strong]
+                gl_c,
+                #[strong]
+                cur,
+                #[strong]
+                ptr,
+                #[strong]
+                sq,
+                #[strong]
+                lgl,
+                move |_, x, y| {
+                    ptr.set(true);
+                    if let Some(t) = sq.get() {
+                        if Instant::now() < t {
+                            return;
+                        }
+                    }
+                    if let Some((lx, ly)) = lgl.get() {
+                        if same_xy(x, lx) && same_xy(y, ly) {
+                            return;
+                        }
+                    }
+                    lgl.set(Some((x, y)));
+                    show_pointer(&gl_c);
+                    replace_timeout(
+                        cur.clone(),
+                        {
+                            let gl2 = gl_c.clone();
+                            let ptr2 = ptr.clone();
+                            move || {
+                                if ptr2.get() {
+                                    gl2.add_css_class("rp-cursor-hidden");
+                                    gl2.set_cursor_from_name(Some("none"));
+                                }
+                            }
+                        },
+                    );
+                }
+            ),
+        );
+        m.connect_enter(
+            glib::clone!(
+                #[strong]
+                gl_c,
+                #[strong]
+                cur,
+                #[strong]
+                ptr,
+                #[strong]
+                sq,
+                move |_, _x, _y| {
+                    ptr.set(true);
+                    if let Some(t) = sq.get() {
+                        if Instant::now() < t {
+                            return;
+                        }
+                    }
+                    show_pointer(&gl_c);
+                    replace_timeout(
+                        cur.clone(),
+                        {
+                            let gl2 = gl_c.clone();
+                            let ptr2 = ptr.clone();
+                            move || {
+                                if ptr2.get() {
+                                    gl2.add_css_class("rp-cursor-hidden");
+                                    gl2.set_cursor_from_name(Some("none"));
+                                }
+                            }
+                        },
+                    );
+                }
+            ),
+        );
+        m.connect_leave(
+            glib::clone!(
+                #[strong]
+                gl_c,
+                #[strong]
+                cur,
+                #[strong]
+                ptr,
+                #[strong]
+                lgl,
+                move |_| {
+                    ptr.set(false);
+                    lgl.set(None);
+                    if let Some(id) = cur.borrow_mut().take() {
+                        id.remove();
+                    }
+                    show_pointer(&gl_c);
+                }
+            ),
+        );
+        gl_area.add_controller(m);
+    }
+
+    {
+        let p = player.clone();
+        let win_key = win.clone();
+        let k = gtk::EventControllerKey::new();
+        k.connect_key_pressed(move |_, key, _code, _m| {
+            if key == gtk::gdk::Key::Escape {
+                if win_key.is_fullscreen() {
+                    win_key.unfullscreen();
+                    return glib::Propagation::Stop;
+                }
+                return glib::Propagation::Proceed;
+            }
+            if key == gtk::gdk::Key::Return || key == gtk::gdk::Key::KP_Enter {
+                toggle_fullscreen(&win_key);
+                return glib::Propagation::Stop;
+            }
+            if key != gtk::gdk::Key::space {
+                return glib::Propagation::Proceed;
+            }
+            let g = p.borrow();
+            let Some(b) = g.as_ref() else {
+                return glib::Propagation::Proceed;
+            };
+            let paused = b.mpv.get_property::<bool>("pause").unwrap_or(false);
+            if b.mpv.set_property("pause", !paused).is_err() {
+                return glib::Propagation::Proceed;
+            }
+            glib::Propagation::Stop
+        });
+        win.add_controller(k);
+    }
 
     let p_realize = player.clone();
     let st_realize = status.clone();
@@ -266,6 +594,8 @@ fn build_window(app: &adw::Application, player: &Rc<RefCell<Option<MpvBundle>>>)
     app.set_accels_for_action("app.open", &["<Primary>o"]);
     app.set_accels_for_action("app.about", &["F1"]);
     app.set_accels_for_action("app.quit", &["<Primary>q"]);
+
+    apply_chrome(&win, &root, &status, &gl_area, &fs_overlay);
 
     win.present();
 }
