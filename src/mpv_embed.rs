@@ -3,14 +3,15 @@
 use glib::prelude::Cast;
 use glib::translate::from_glib_borrow;
 use gtk::prelude::*;
+use libloading::{Library, Symbol};
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 use libmpv2::Mpv;
-use libloading::{Library, Symbol};
 use std::os::raw::c_char;
 use std::os::raw::c_void;
 use std::path::Path;
 use std::ptr;
 
+use crate::media_probe;
 use crate::paths;
 
 type EglGetProcAddress = unsafe extern "C" fn(*const c_char) -> *mut c_void;
@@ -27,7 +28,11 @@ fn egl_proc(s: &EglState, name: &str) -> *mut c_void {
     let try_name = |n: &str| {
         std::ffi::CString::new(n).ok().and_then(|c| {
             let p = unsafe { (s.get)(c.as_ptr()) };
-            if p.is_null() { None } else { Some(p) }
+            if p.is_null() {
+                None
+            } else {
+                Some(p)
+            }
         })
     };
     try_name(name)
@@ -55,7 +60,8 @@ impl MpvBundle {
 
         let egl_get: Symbol<EglGetProcAddress> =
             unsafe { _egl.get(b"eglGetProcAddress\0") }.map_err(|e| e.to_string())?;
-        let gl_get: Symbol<GlGetIntegerv> = unsafe { _gl.get(b"glGetIntegerv\0") }.map_err(|e| e.to_string())?;
+        let gl_get: Symbol<GlGetIntegerv> =
+            unsafe { _gl.get(b"glGetIntegerv\0") }.map_err(|e| e.to_string())?;
 
         let egl_state = EglState { get: *egl_get };
         let gl_get = *gl_get;
@@ -79,6 +85,10 @@ impl MpvBundle {
 
         // Re-assert: some init options apply more reliably as properties on the open handle.
         let _ = mpv.set_property("save-position-on-quit", true);
+        // Thumbnails: prefer JPEG (fast); PNG path uses minimum compression.
+        let _ = mpv.set_property("screenshot-format", "jpeg");
+        let _ = mpv.set_property("screenshot-jpeg-quality", 70i64);
+        let _ = mpv.set_property("screenshot-png-compression", 0i64);
 
         let params: Vec<RenderParam<EglState>> = vec![
             RenderParam::ApiType(RenderParamApiType::OpenGl),
@@ -97,7 +107,9 @@ impl MpvBundle {
             let p = gl_ptr;
             mctx.clone().invoke(move || {
                 let gl = unsafe {
-                    from_glib_borrow::<*mut gtk::ffi::GtkGLArea, gtk::GLArea>(p as *mut gtk::ffi::GtkGLArea)
+                    from_glib_borrow::<*mut gtk::ffi::GtkGLArea, gtk::GLArea>(
+                        p as *mut gtk::ffi::GtkGLArea,
+                    )
                 };
                 gl.queue_render();
             });
@@ -129,27 +141,47 @@ impl MpvBundle {
         self.render.report_swap();
     }
 
+    /// End playback; call after watch-later / DB snapshot. Safe to skip before process exit.
+    pub fn stop_playback(&self) {
+        let _ = self.mpv.command("stop", &[]);
+    }
+
     /// Write the current file’s state into `watch_later` (separate from shutdown-time save).
     pub fn write_resume_snapshot(&self) {
         let _ = self.mpv.command("write-watch-later-config", &[]);
+    }
+
+    /// Last frame + duration for the recent grid (local files only); see [media_probe::persist_on_quit].
+    pub fn persist_on_quit(&self) {
+        media_probe::persist_on_quit(&self.mpv);
+    }
+
+    /// Mute+pause to silence immediately, then write `watch_later` with the **prior** mute/pause so
+    /// the next run does not resume muted or paused. Re-hush for thumbnail I/O, then [stop].
+    pub fn commit_quit(&self) {
+        let mute0 = self.mpv.get_property::<bool>("mute").unwrap_or(false);
+        let pause0 = self.mpv.get_property::<bool>("pause").unwrap_or(false);
+        let _ = self.mpv.set_property("mute", true);
+        let _ = self.mpv.set_property("pause", true);
+        let _ = self.mpv.set_property("mute", mute0);
+        let _ = self.mpv.set_property("pause", pause0);
+        let _ = self.mpv.command("write-watch-later-config", &[]);
+        let _ = self.mpv.set_property("mute", true);
+        let _ = self.mpv.set_property("pause", true);
+        self.persist_on_quit();
+        self.stop_playback();
     }
 
     /// Save the current file’s position, then `loadfile` the new path. Uses a **canonical** path
     /// string so the watch_later index matches the next open of the same file.
     pub fn load_file_path(&self, path: &Path) -> Result<(), String> {
         self.write_resume_snapshot();
+        media_probe::record_playback_for_current(&self.mpv);
         let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        let s = canonical
-            .to_str()
-            .ok_or("media path is not valid UTF-8")?;
+        let s = canonical.to_str().ok_or("media path is not valid UTF-8")?;
         self.mpv
             .command("loadfile", &[s, "replace"])
             .map_err(|e| format!("{e:?}"))
     }
 }
 
-impl Drop for MpvBundle {
-    fn drop(&mut self) {
-        self.write_resume_snapshot();
-    }
-}

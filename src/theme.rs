@@ -39,6 +39,8 @@ pub fn apply() {
         }
         .rp-time-dim { color: #9a9996; }
         scale.rp-seek { margin: 0 4px; }
+        scale.rp-vol { margin: 0; }
+        scale.rp-vol > trough { min-height: 4px; }
         scale.rp-seek > trough {
             background-color: #3d3d3d;
             min-height: 6px;
@@ -51,6 +53,20 @@ pub fn apply() {
         scale.rp-seek > trough > fill {
             background-color: #78aeed;
         }
+        .rp-page-stack, .rp-recent-scroll { background-color: #242424; }
+        .rp-recent-scroll {
+            min-height: 200px;
+        }
+        .rp-recent-card {
+            padding: 8px;
+            background-color: #2d2d2d;
+            border-radius: 8px;
+        }
+        .rp-stale { opacity: 0.6; }
+        .rp-recent-pict { color: #9a9996; }
+        progressbar.rp-recent-bar { min-height: 8px; }
+        progressbar.rp-recent-bar trough { background-color: #3d3d3d; }
+        progressbar.rp-recent-bar progress { background-color: #78aeed; }
     "#,
     );
     if let Some(d) = gtk::gdk::Display::default() {
