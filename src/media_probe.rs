@@ -98,17 +98,29 @@ fn path_tag(path: &str) -> u64 {
     h
 }
 
-/// PNG in [crate::db] `media.thumb_png`, rebuilt when the source file’s mtime changes.
-pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
+/// Current thumbnail for this path in [crate::db] when [db::file_mtime_sec] matches; **no libmpv** (use on the UI thread).
+pub fn cached_thumbnail_for_path(path: &Path) -> Option<Vec<u8>> {
     if !path.exists() {
         return None;
     }
     let can = std::fs::canonicalize(path).ok()?;
     let s = can.to_str()?;
     let mtime = db::file_mtime_sec(&can)?;
-    if let Some(png) = db::take_thumb_if_current(s, mtime) {
-        return Some(png);
+    db::take_thumb_if_current(s, mtime)
+}
+
+/// PNG in [crate::db] `media.thumb_png`, rebuilt when the source file’s mtime changes.
+/// Calls [run_libmpv_image_frame] on a **cache miss**; keep that work off the UI thread (see [crate::recent_view::schedule_thumb_backfill]).
+pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
+    if let Some(t) = cached_thumbnail_for_path(path) {
+        return Some(t);
     }
+    if !path.exists() {
+        return None;
+    }
+    let can = std::fs::canonicalize(path).ok()?;
+    let s = can.to_str()?;
+    let mtime = db::file_mtime_sec(&can)?; // match cache key used for [set_thumb]
     let tag = path_tag(s);
     let b = run_libmpv_image_frame(&can, tag)?;
     db::set_thumb(s, &b, mtime);
@@ -345,7 +357,7 @@ fn card_one(
         .or_else(|| resume_start_seconds(&abs));
     let dur = s.and_then(|k| durs.get(k).copied());
     let pct = percent_from_resume(st, dur);
-    let thumb = ensure_thumbnail(&abs);
+    let thumb = cached_thumbnail_for_path(&abs);
     CardData {
         path: abs,
         percent: pct,

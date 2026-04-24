@@ -58,9 +58,19 @@ pub fn apply() {
             min-height: 200px;
         }
         .rp-recent-card {
-            padding: 8px;
-            background-color: #2d2d2d;
+            padding: 0;
+            background-color: #1e1e1e;
             border-radius: 8px;
+        }
+        .rp-recent-bg { border-radius: 0; }
+        .rp-recent-bg-miss { background-color: #2d2d2d; }
+        .rp-recent-card-footer {
+            background: linear-gradient(
+                to top,
+                rgba(0, 0, 0, 0.75) 0%,
+                rgba(0, 0, 0, 0.25) 70%,
+                rgba(0, 0, 0, 0) 100%
+            );
         }
         .rp-stale { opacity: 0.6; }
         .rp-recent-pict { color: #9a9996; }

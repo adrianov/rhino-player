@@ -3,7 +3,9 @@ use gtk::gio;
 use gtk::glib;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
+use std::ptr::NonNull;
 use std::rc::Rc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use crate::db;
@@ -13,6 +15,7 @@ use libmpv2::Mpv;
 use crate::media_probe::{card_data_list, record_playback_for_current, CardData};
 use crate::mpv_embed::MpvBundle;
 use crate::recent_view;
+use crate::recent_view::RecentContext;
 use crate::theme;
 
 const APP_ID: &str = "ch.rhino.RhinoPlayer";
@@ -185,6 +188,7 @@ fn nudge_mpv_volume(mpv: &Mpv, delta: f64) {
 }
 
 /// Show the sheet immediately; mpv/DB/grid/stop on LOW-priority idles (after a frame paints).
+#[allow(clippy::too_many_arguments)]
 fn back_to_browse(
     player: Rc<RefCell<Option<MpvBundle>>>,
     st: &gtk::Label,
@@ -193,6 +197,7 @@ fn back_to_browse(
     row: &gtk::Box,
     on_open: RcPathFn,
     on_stale: RcPathFn,
+    recent_backfill: Rc<Cell<Option<NonNull<RecentContext>>>>,
 ) {
     let paths: Vec<PathBuf> = history::load().into_iter().take(5).collect();
     if paths.is_empty() {
@@ -224,15 +229,19 @@ fn back_to_browse(
     let op2 = on_open;
     let osl2 = on_stale;
     let paths2 = paths;
+    let rbb = recent_backfill.clone();
     let _ = glib::source::idle_add_local_once(move || {
         if let Some(b) = p_write.borrow().as_ref() {
             b.write_resume_snapshot();
             record_playback_for_current(&b.mpv);
         }
         let p3 = p_write.clone();
+        let rbb2 = rbb.clone();
         let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
             let v: Vec<CardData> = card_data_list(&paths2);
             recent_view::fill_row(&row2, v, op2.clone(), osl2.clone());
+            let n = recent_view::ensure_recent_backfill(&rbb2, &row2, op2.clone(), osl2.clone());
+            recent_view::schedule_thumb_backfill(n, paths2.clone());
             let p4 = p3.clone();
             let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
                 if let Some(b) = p4.borrow().as_ref() {
@@ -403,11 +412,24 @@ fn build_window(
         }
     });
 
+    let recent_backfill: Rc<Cell<Option<NonNull<RecentContext>>>> = Rc::new(Cell::new(None));
+    {
+        let rb = recent_backfill.clone();
+        recent_scrl.connect_destroy(move |_| {
+            if let Some(n) = rb.get() {
+                unsafe { n.as_ref() }
+                    .cancel
+                    .store(false, Ordering::Release);
+            }
+        });
+    }
+
     let h_sl: StaleSlot = Rc::new(RefCell::new(None));
     let h2 = h_sl.clone();
     let fr_sl = flow_recent.clone();
     let recent_stale = recent_scrl.clone();
     let op_s = on_open.clone();
+    let rbf = recent_backfill.clone();
     h_sl.borrow_mut().replace(Rc::new(move |path: &Path| {
         history::remove(path);
         let r: Vec<PathBuf> = history::load().into_iter().take(5).collect();
@@ -418,13 +440,21 @@ fn build_window(
         let v: Vec<CardData> = card_data_list(&r);
         if let Some(s) = h2.borrow().as_ref() {
             recent_view::fill_row(&fr_sl, v, op_s.clone(), s.clone());
+            let n = recent_view::ensure_recent_backfill(&rbf, &fr_sl, op_s.clone(), s.clone());
+            recent_view::schedule_thumb_backfill(n, r);
         }
     }));
     let on_stale = h_sl.borrow().as_ref().unwrap().clone();
 
     if want_recent {
         let paths5: Vec<PathBuf> = history::load().into_iter().take(5).collect();
-        recent_view::fill_idle(&flow_recent, paths5, on_open.clone(), on_stale.clone());
+        recent_view::fill_idle(
+            &flow_recent,
+            paths5,
+            on_open.clone(),
+            on_stale.clone(),
+            recent_backfill.clone(),
+        );
     }
 
     root.add_top_bar(&header);
@@ -624,6 +654,7 @@ fn build_window(
         let gl_esc = gl_area.clone();
         let op_esc = on_open.clone();
         let stl_esc = on_stale.clone();
+        let rbf_esc = recent_backfill.clone();
         let k = gtk::EventControllerKey::new();
         k.connect_key_pressed(move |_, key, _code, _m| {
             if key == gtk::gdk::Key::Escape {
@@ -645,6 +676,7 @@ fn build_window(
                     &flow_esc,
                     op_esc.clone(),
                     stl_esc.clone(),
+                    rbf_esc.clone(),
                 );
                 return glib::Propagation::Stop;
             }
