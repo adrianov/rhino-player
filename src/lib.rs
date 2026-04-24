@@ -2,6 +2,7 @@
 
 mod app;
 mod mpv_embed;
+mod paths;
 mod theme;
 mod time;
 

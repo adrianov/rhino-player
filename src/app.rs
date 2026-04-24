@@ -543,14 +543,13 @@ fn build_window(app: &adw::Application, player: &Rc<RefCell<Option<MpvBundle>>>)
                     st.set_label("Non-path URIs: not implemented yet.");
                     return;
                 };
-                let path_s = path.to_string_lossy();
                 let mut g = p_c.borrow_mut();
                 let Some(b) = g.as_mut() else {
                     st.set_label("Player not ready yet. Wait for GL init.");
                     return;
                 };
-                if let Err(e) = b.mpv.command("loadfile", &[path_s.as_ref(), "replace"]) {
-                    st.set_label(&format!("loadfile: {e:?}"));
+                if let Err(e) = b.load_file_path(&path) {
+                    st.set_label(&format!("loadfile: {e}"));
                     return;
                 }
                 st.set_label(&format!("Loaded: {}", path.display()));
@@ -571,7 +570,7 @@ fn build_window(app: &adw::Application, player: &Rc<RefCell<Option<MpvBundle>>>)
                 .version(env!("CARGO_PKG_VERSION"))
                 .comments("mpv with GTK 4 and libadwaita (ToolbarView: seek as bottom bar).")
                 .license_type(gtk::License::Gpl30)
-                .website("https://github.com/placeholder/rhino-player")
+                .website("https://github.com/adrianov/rhino-player")
                 .modal(true);
             if let Some(ref w) = parent {
                 b = b.transient_for(w);
@@ -582,10 +581,16 @@ fn build_window(app: &adw::Application, player: &Rc<RefCell<Option<MpvBundle>>>)
     app.add_action(&about);
 
     let quit = gio::SimpleAction::new("quit", None);
+    let p_quit = player.clone();
     quit.connect_activate(glib::clone!(
         #[weak]
         app,
+        #[strong]
+        p_quit,
         move |_, _| {
+            if let Some(b) = p_quit.borrow().as_ref() {
+                b.write_resume_snapshot();
+            }
             app.quit();
         }
     ));
@@ -594,6 +599,16 @@ fn build_window(app: &adw::Application, player: &Rc<RefCell<Option<MpvBundle>>>)
     app.set_accels_for_action("app.open", &["<Primary>o"]);
     app.set_accels_for_action("app.about", &["F1"]);
     app.set_accels_for_action("app.quit", &["<Primary>q"]);
+
+    {
+        let p = player.clone();
+        win.connect_close_request(move |_w| {
+            if let Some(b) = p.borrow().as_ref() {
+                b.write_resume_snapshot();
+            }
+            glib::Propagation::Proceed
+        });
+    }
 
     apply_chrome(&win, &root, &status, &gl_area, &fs_overlay);
 
