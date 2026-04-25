@@ -17,4 +17,4 @@
 - Application ID in reverse-DNS form (`ch.rhino.RhinoPlayer`) registered once; the same string is the **icon name** in the hicolor theme, `.desktop` `Icon=`, and window / About dialog branding. **GNOME** (and similar) resolve dash / app switcher artwork from a **Freedesktop** `applications/*.desktop` on `XDG_DATA_DIRS`, not from `GtkWindow` alone; the project ships `data/install-to-user-dirs.sh` to install into `~/.local/share` for local runs.
 - Global shortcuts: at minimum quit (q, Ctrl+Q) and open preferences (Ctrl+,) as applicable; about from app menu.
 - `activate` shows the main window; `open` receives files/URIs and forwards to the window/playlist layer (see [Open and CLI](06-open-and-cli.md)).
-- Prefer or default to dark theme for a cinema-style experience unless the user overrides (system or in-app).
+- Prefer or default to dark theme for a focused viewing experience unless the user overrides (system or in-app).

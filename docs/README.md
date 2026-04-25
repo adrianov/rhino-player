@@ -15,7 +15,9 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | [Playlist: queue, prev/next, shuffle, loop](features/05-playlist.md) | Not started |
 | [Open files: file picker, folder, CLI, single-instance](features/06-open-and-cli.md) | In progress (GTK “Open video” + **startup** path from `argv`; not: DnD, `HANDLES_OPEN`, folder-as-playlist, single-instance) |
 | [Sibling folder queue (folder playback)](features/07-sibling-folder-queue.md) | **Done** (EOF + bottom **Prev/Next**, `sibling_advance`; not: m3u playlist UI) |
-| [Tracks: audio, video, subtitles](features/08-tracks.md) | **Done (audio only)** (sound popover: **Audio** list + `aid`; not: video / subtitle pickers) |
+| [Tracks: audio, video, subtitles](features/08-tracks.md) | In progress (sound: **Audio** + `aid`; [Subtitles](features/24-subtitles.md) popover) |
+| [Subtitles: style, track picker, auto-pick](features/24-subtitles.md) | **Done** (header button, `sub-*` strings, DB + last-pick Levenshtein) |
+| [Smooth video playback (60+ Hz, judder reduction)](features/25-smooth-playback.md) | **Done** (`video-sync=display-resample`, `interpolation`, `tscale=oversample`; not: prefs UI) |
 | [Chapters: marks, menu, seek bar hover](features/09-chapters.md) | Not started |
 | [Video options: aspect, crop, zoom, filters](features/10-video-options.md) | Not started |
 | [Drag and drop](features/11-drag-and-drop.md) | Not started |
