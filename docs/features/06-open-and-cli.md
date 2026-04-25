@@ -12,7 +12,7 @@
 
 **Specification:**
 
-- File filters: video, audio, image for generic open; separate flows for subtitle and external audio.
+- The main **Open** dialog lists **video** only (`video/*` plus common video suffixes), not still images. Separate flows (later) for subtitle and external audio.
 - `HANDLES_OPEN` or Rust equivalent: activate app, load paths with `append-play` or `replace` per action.
 - `open-new-windows` preference: when off, new files go to the active window (stop current and append/replace per product rules for “open from outside”).
 - Command-line: `--new-window` where applicable for secondary instances.

@@ -13,7 +13,7 @@ Features are specified here **before** implementation. Each feature file lives i
 | [Playlist: queue, prev/next, shuffle, loop](features/05-playlist.md) | Not started |
 | [Open files: file picker, folder, CLI, single-instance](features/06-open-and-cli.md) | Not started |
 | [Sibling folder queue (folder playback)](features/07-sibling-folder-queue.md) | In progress (EOF: next file / next sibling dir) |
-| [Tracks: audio, video, subtitles](features/08-tracks.md) | Not started |
+| [Tracks: audio, video, subtitles](features/08-tracks.md) | In progress (header audio list + `aid`) |
 | [Chapters: marks, menu, seek bar hover](features/09-chapters.md) | Not started |
 | [Video options: aspect, crop, zoom, filters](features/10-video-options.md) | Not started |
 | [Drag and drop](features/11-drag-and-drop.md) | Not started |
@@ -22,12 +22,17 @@ Features are specified here **before** implementation. Each feature file lives i
 | [Preferences and persistent settings](features/14-preferences.md) | In progress (watch_later resume) |
 | [MPRIS2 (media keys, shell integration)](features/15-mpris.md) | Not started |
 | [Session: restore last playlist](features/16-session-persistence.md) | Not started |
-| [Window: size, fullscreen, UI auto-hide, inhibit idle](features/17-window-behavior.md) | In progress (dbl-click FS) |
+| [Window: size, fullscreen, UI auto-hide, inhibit idle](features/17-window-behavior.md) | In progress; **post-resize video aspect lock not implemented** (documented; retry w/ more advanced model than Composer 2 Fast) |
 | [Thumbnails: seek bar preview](features/18-thumbnail-preview.md) | Not started |
 | [Playlist dialog (list, reorder, save m3u8)](features/19-playlist-dialog.md) | Not started |
 | [Static release binary and dependencies](features/20-static-build.md) | Not started |
 | [Recent videos grid on empty launch](features/21-recent-videos-launch.md) | In progress (grid + `rhino.sqlite` + libmpv thumbs + quit frame) |
 | [Audio: volume, mute, persistence](features/22-audio-volume-mute.md) | In progress (header popover, scroll, keys, `settings` in DB) |
+| [Recent: continue vs done, thumbs, remove, undo (research / plan)](features/23-recent-continue-vs-done-research.md) | Research (planning gate; not implemented) |
+
+## Technical references (upstream APIs)
+
+- [GTK4 / GDK4: toplevel size, `compute-size`, and aspect-related notes (vs GTK3 `GdkGeometry`)](references-gtk4-toplevel-aspect.md)
 
 ## Product context
 

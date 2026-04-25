@@ -6,14 +6,14 @@
 
 **Use cases:** Adjust loudness without leaving the app; one-click mute; match expectations from other desktop players and mpv; restore last used level on the next run.
 
-**Short description:** Header control with a popover (horizontal level scale + Mute), scroll-wheel on the video to change volume, keyboard shortcuts, and `volume` / `mute` stored in the app database so the next launch matches the previous session (mpv remains the source of truth while playing).
+**Short description:** Header **Sound** control with one popover: one **horizontal line** (mute icon toggle + scale, no extra labels) and, when applicable, an **audio track** list without a section title (see [08-tracks](08-tracks.md)); scroll-wheel on the video, keyboard shortcuts, and `volume` / `mute` in the app database for the next run.
 
-**Long description:** A `MenuButton` with a symbolic icon (muted / low / medium / high) opens a popover containing a `Scale` for `0…volume-max` and a Mute `CheckButton` row. The existing transport poll updates the header when the user does not have the slider in focus (same pattern as seek). `EventControllerScroll` on the `GLArea` changes volume when the recent grid is not covering the view; scroll direction follows common “wheel down = lower volume” behavior. The SQLite `settings` table stores `master_volume` and `master_mute` strings, applied to mpv after the render context is created and written again on quit (before `commit_quit`).
+**Long description:** A `MenuButton` with a symbolic icon (muted / low / medium / high) opens a popover: **one line** (no numeric tick labels on the scale) with a **circular flat mute** `ToggleButton` (icon only, tooltips *Mute* / *Unmute*) and a horizontal `Scale` for `0…volume-max`, then a **scrollable** track list **only** if the file has at least one **audio** stream (otherwise that block is **hidden**). The transport poll updates the header icon. `EventControllerScroll` on the `GLArea` changes volume when the recent grid is not covering the view. The SQLite `settings` table stores `master_volume` and `master_mute` strings, applied to mpv after the render context is created and written again on quit (before `commit_quit`).
 
 **Specification:**
 
 - `volume` and `mute` on libmpv stay consistent with the popover, scroll wheel, and keys.
-- Popover shows the level numerically in the scale’s value label (`draw_value` = true) or a short percentage label; mute state does not change the stored volume value (unmute restores the prior level).
+- The scale does not show a numeric value label (`draw_value` = false); level is read from the slider and the header icon. Mute is the icon-only toggle in the popover; mute state does not change the stored volume value (unmute restores the prior level).
 - **Scroll (video):** vertical scroll on `GLArea` adjusts volume by 5% per notched step (smoothed trackpads aggregate sensibly; small `dy` values change volume proportionally, clamped to range).
 - **Keys (main window, player ready):** **↑** / **↓** nudge volume by 5% (clamped); **m** toggles mute. Do not add extra notifications for volume changes.
 - On startup, if settings exist, apply `volume` and `mute` to mpv after `MpvBundle` creation. Defaults: 100% volume, not muted.
