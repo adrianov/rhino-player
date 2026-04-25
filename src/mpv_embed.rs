@@ -71,6 +71,10 @@ impl MpvBundle {
             init.set_option("osc", "no")?;
             let _ = init.set_option("ao", "pulse");
             let _ = init.set_option("keep-open", "yes");
+            // Smooth presentation on 60+ Hz fixed displays: re-time frames to display refresh (not SOFI).
+            let _ = init.set_option("video-sync", "display-resample");
+            let _ = init.set_option("interpolation", "yes");
+            let _ = init.set_option("tscale", "oversample");
             if let Some(ref dir) = paths::watch_later() {
                 if let Some(s) = dir.to_str() {
                     let _ = init.set_option("save-position-on-quit", "yes");
@@ -85,6 +89,9 @@ impl MpvBundle {
 
         // Re-assert: some init options apply more reliably as properties on the open handle.
         let _ = mpv.set_property("save-position-on-quit", true);
+        let _ = mpv.set_property("video-sync", "display-resample");
+        let _ = mpv.set_property("interpolation", true);
+        let _ = mpv.set_property("tscale", "oversample");
         // Thumbnails: prefer JPEG (fast); PNG path uses minimum compression.
         let _ = mpv.set_property("screenshot-format", "jpeg");
         let _ = mpv.set_property("screenshot-jpeg-quality", 90i64);
