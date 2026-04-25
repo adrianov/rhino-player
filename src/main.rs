@@ -6,5 +6,7 @@ fn main() -> ! {
     unsafe {
         libc::setlocale(libc::LC_NUMERIC, b"C\0".as_ptr().cast());
     }
+    // Before GTK init: same string as the app id and `*.desktop` basename so the shell can match.
+    glib::set_prgname(Some(rhino_player::APP_ID));
     std::process::exit(rhino_player::run())
 }

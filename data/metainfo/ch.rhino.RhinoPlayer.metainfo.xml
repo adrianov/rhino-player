@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>ch.rhino.RhinoPlayer.desktop</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Rhino Player</name>
+  <summary>Desktop media player using mpv and GTK 4</summary>
+  <description>
+    <p>Rhino Player plays video and audio on Linux with libmpv, GTK 4, and libadwaita. It is aimed at the GNOME stack (Wayland or X11) and uses a full-color app icon in the Freedesktop hicolor theme.</p>
+  </description>
+  <launchable type="desktop-id">ch.rhino.RhinoPlayer.desktop</launchable>
+  <url type="homepage">https://github.com/adrianov/rhino-player</url>
+  <url type="bugtracker">https://github.com/adrianov/rhino-player/issues</url>
+  <content_rating type="oars-1.1"/>
+  <provides>
+    <mediatype>video/mp4</mediatype>
+    <mediatype>video/x-matroska</mediatype>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-04-25"/>
+  </releases>
+  <developer id="ch.rhino">
+    <name>Rhino Player contributors</name>
+  </developer>
+</component>

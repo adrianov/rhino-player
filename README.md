@@ -17,6 +17,21 @@ Planned behavior is specified under `docs/features/` and summarized by user need
 
 We specify behavior in `docs/` before (or in step with) implementation. The index is [docs/README.md](docs/README.md). Cursor / agent rules in `.cursor/rules/document-first.mdc` enforce this for AI-assisted work.
 
+## Desktop integration (icon, launcher, AppStream)
+
+The app id and icon name are **`ch.rhino.RhinoPlayer`** (GNOME [application id]). Bundled assets live under `data/`:
+
+- **`data/icons`**: Freedesktop [icon theme] `hicolor` tree + full master PNG; see `data/icons/README.md` (trim/margin notes and `gtk-update-icon-cache`).
+- **`data/applications/ch.rhino.RhinoPlayer.desktop`**: launcher; `Icon=`, `StartupWMClass=`, and `Exec=` for packaging.
+- **`data/metainfo/ch.rhino.RhinoPlayer.metainfo.xml`**: AppStream metadata for software centers.
+
+At runtime, `src/icons.rs` prepends the manifest `data/icons` directory to GTK’s search path so **About** and `gtk::Window::set_default_icon_name` can resolve the icon for in-app chrome.
+
+**Shell taskbar / alt+tab (GNOME, etc.):** the compositor uses the **installed** `ch.rhino.RhinoPlayer.desktop` `Icon=` entry, not the window hint alone. After building, run **`./data/install-to-user-dirs.sh`** (optionally with the path to your `rhino-player` binary) so `~/.local/share/applications` and `~/.local/share/icons/hicolor` are populated; see `data/README.md`. A **`glib::set_prgname`** in `main` matches the app id for startup notification / WM mapping.
+
+[application id]: https://developer.gnome.org/documentation/tutorials/application-id.html
+[icon theme]: https://specifications.freedesktop.org/icon-theme-spec/icon-theme-spec-latest.html
+
 ## Build
 
 **Requirements:** Rust 1.74+; system packages: **GTK 4** (`libgtk-4-dev`), **libadwaita** (`libadwaita-1-dev`), **libmpv** (`libmpv-dev`), `pkg-config`, `build-essential`.
