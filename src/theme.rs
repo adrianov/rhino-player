@@ -74,6 +74,14 @@ pub fn apply() {
         .rp-recent-card-footer label.dim-label { color: #deddda; }
         .rp-stale { opacity: 0.6; }
         .rp-recent-pict { color: #9a9996; }
+        button.rp-recent-dismiss {
+            min-width: 28px;
+            min-height: 28px;
+            padding: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        button.rp-recent-dismiss:hover { background-color: rgba(0, 0, 0, 0.68); }
+        .rp-recent-undo { margin-bottom: 4px; }
         progressbar.rp-recent-bar { min-height: 8px; }
         progressbar.rp-recent-bar trough { background-color: #3d3d3d; }
         progressbar.rp-recent-bar progress { background-color: #78aeed; }

@@ -1,6 +1,7 @@
 //! Rhino Player: GTK4 shell around libmpv. See `docs/`.
 
 mod app;
+mod audio_tracks;
 mod icons;
 mod db;
 mod history;

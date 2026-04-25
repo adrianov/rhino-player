@@ -16,8 +16,8 @@ use std::time::Duration;
 
 use crate::media_probe::{self, card_data_list, CardData};
 
-/// Scrolled, vertically and horizontally centered row of at most five cards.
-pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box) {
+/// Scrolled row of at most five cards; [undo] is the "Undo" button next to the revealer label.
+pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, gtk::Revealer, gtk::Button) {
     let h = gtk::Box::new(gtk::Orientation::Horizontal, 16);
     h.set_halign(gtk::Align::Center);
     h.set_baseline_position(gtk::BaselinePosition::Top);
@@ -34,7 +34,20 @@ pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box) {
     sp_top.set_vexpand(true);
     let sp_bot = gtk::Box::new(gtk::Orientation::Vertical, 0);
     sp_bot.set_vexpand(true);
+    let undo_b = gtk::Button::with_label("Undo");
+    undo_b.set_tooltip_text(Some("Restore the last removed item to this list"));
+    undo_b.add_css_class("suggested-action");
+    undo_b.set_halign(gtk::Align::Center);
+    let undo_r = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    undo_r.set_halign(gtk::Align::Center);
+    undo_r.append(&undo_b);
+    let undo_revealer = gtk::Revealer::new();
+    undo_revealer.set_reveal_child(false);
+    undo_revealer.set_transition_type(gtk::RevealerTransitionType::SlideUp);
+    undo_revealer.set_child(Some(&undo_r));
+    undo_revealer.add_css_class("rp-recent-undo");
     v.append(&sp_top);
+    v.append(&undo_revealer);
     v.append(&h);
     v.append(&sp_bot);
 
@@ -47,7 +60,7 @@ pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box) {
     s.set_hscrollbar_policy(gtk::PolicyType::Automatic);
     s.set_kinetic_scrolling(false);
     s.add_css_class("rp-recent-scroll");
-    (s, h)
+    (s, h, undo_revealer, undo_b)
 }
 
 fn clear(f: &gtk::Box) {
@@ -88,7 +101,7 @@ pub struct RecentContext {
     /// Same box as the grid row; used by [refill].
     row: gtk::Box,
     on_open: RcPathFn,
-    on_stale: RcPathFn,
+    on_remove: RcPathFn,
     /// Stops workers and poller; cleared in [shutdown].
     pub cancel: Arc<AtomicBool>,
     /// Worker → main: request a [refill] (no GTK types on the [Send] side).
@@ -105,18 +118,35 @@ impl RecentContext {
         let paths: Vec<std::path::PathBuf> =
             crate::history::load().into_iter().take(5).collect();
         let v: Vec<CardData> = card_data_list(&paths);
-        fill_row(&self.row, v, self.on_open.clone(), self.on_stale.clone());
+        fill_row(
+            &self.row,
+            v,
+            self.on_open.clone(),
+            self.on_remove.clone(),
+        );
     }
 
-    /// Join thumb threads, stop the poller, and drop GTK-side state. Call from the main thread when
-    /// the recent scroll is destroyed.
+    /// Stops the poller, signals workers to exit, and **detaches** worker joins to a short-lived
+    /// background thread (does **not** block the GTK main thread: [media_probe::ensure_thumbnail] can
+    /// run many seconds; cancel is checked only between files, not inside libmpv).
     pub fn shutdown(&self) {
         self.cancel.store(false, Ordering::Release);
         if let Some(id) = self.poll_id.borrow_mut().take() {
             id.remove();
         }
-        for h in self.workers.borrow_mut().drain(..) {
-            let _ = h.join();
+        let workers: Vec<JoinHandle<()>> = self.workers.borrow_mut().drain(..).collect();
+        if workers.is_empty() {
+            return;
+        }
+        if let Err(e) = std::thread::Builder::new()
+            .name("rhino-recent-join".to_string())
+            .spawn(move || {
+                for h in workers {
+                    let _ = h.join();
+                }
+            })
+        {
+            eprintln!("[rhino] recent: joiner spawn: {e}");
         }
     }
 }
@@ -126,7 +156,7 @@ pub fn ensure_recent_backfill(
     cell: &Rc<RefCell<Option<Rc<RecentContext>>>>,
     row: &gtk::Box,
     on_open: RcPathFn,
-    on_stale: RcPathFn,
+    on_remove: RcPathFn,
 ) -> Rc<RecentContext> {
     if let Some(c) = cell.borrow().as_ref() {
         return Rc::clone(c);
@@ -136,7 +166,7 @@ pub fn ensure_recent_backfill(
     let ctx = Rc::new(RecentContext {
         row: row.clone(),
         on_open,
-        on_stale,
+        on_remove,
         cancel: cancel.clone(),
         refill_tx,
         poll_id: Rc::new(RefCell::new(None)),
@@ -196,14 +226,18 @@ pub fn schedule_thumb_backfill(ctx: Rc<RecentContext>, paths: Vec<std::path::Pat
     ctx.workers.borrow_mut().push(h);
 }
 
-/// Hand on hover, primary click triggers [act] ([GestureClick] on the card, not a nested [gtk::Button]).
-/// Uses [connect_pressed] (not [GestureClick::connect_released]): [gtk::LevelBar] / scale-like
-/// children can prevent a paired `released` in the same gesture, so the handler would never run.
-fn add_click_and_pointer(card: &impl IsA<gtk::Widget>, debug_path: &str, act: UnitFn) {
+/// Hand on hover, primary click triggers [act]. [dismiss] is shown on hover (top-right remove).
+/// Uses [PropagationPhase::Target] so a nested [gtk::Button] (dismiss) receives the click first.
+fn add_click_and_pointer(
+    card: &impl IsA<gtk::Widget>,
+    debug_path: &str,
+    act: UnitFn,
+    dismiss: &gtk::Button,
+) {
     card.as_ref().set_can_target(true);
     let g = gtk::GestureClick::new();
     g.set_button(1);
-    g.set_propagation_phase(gtk::PropagationPhase::Capture);
+    g.set_propagation_phase(gtk::PropagationPhase::Target);
     let act = act.clone();
     let p = debug_path.to_string();
     g.connect_pressed(move |_, n, _x, _y| {
@@ -218,23 +252,27 @@ fn add_click_and_pointer(card: &impl IsA<gtk::Widget>, debug_path: &str, act: Un
     card.as_ref().add_controller(g);
 
     let c = card.as_ref().clone();
+    let dis = dismiss.clone();
     let m = gtk::EventControllerMotion::new();
     m.connect_enter(move |_, _x, _y| {
         c.set_cursor_from_name(Some("pointer"));
+        dis.set_visible(true);
     });
     let c = card.as_ref().clone();
+    let dis2 = dismiss.clone();
     m.connect_leave(move |_| {
         c.set_cursor_from_name(None);
+        dis2.set_visible(false);
     });
     card.as_ref().add_controller(m);
 }
 
-/// Replace all children with cards; [on_open] / [on_stale] are only called from the main thread.
+/// Replace all children with cards. [on_remove] is used to drop an entry (missing file or dismiss control).
 pub fn fill_row(
     row: &gtk::Box,
     items: Vec<CardData>,
     on_open: Rc<dyn Fn(&Path)>,
-    on_stale: Rc<dyn Fn(&Path)>,
+    on_remove: Rc<dyn Fn(&Path)>,
 ) {
     clear(row);
     for d in items {
@@ -326,9 +364,29 @@ pub fn fill_row(
         footer.append(&pro);
         card.add_overlay(&footer);
 
+        let dismiss = gtk::Button::from_icon_name("window-close-symbolic");
+        dismiss.set_valign(gtk::Align::Start);
+        dismiss.set_halign(gtk::Align::End);
+        dismiss.set_margin_top(2);
+        dismiss.set_margin_end(2);
+        dismiss.set_visible(false);
+        dismiss.set_tooltip_text(Some("Remove from list"));
+        dismiss.add_css_class("flat");
+        dismiss.add_css_class("circular");
+        dismiss.add_css_class("rp-recent-dismiss");
+        {
+            let path = c.clone();
+            let rem = on_remove.clone();
+            dismiss.connect_clicked(move |_| {
+                eprintln!("[rhino] recent: dismiss path={}", path.display());
+                rem(&path);
+            });
+        }
+        card.add_overlay(&dismiss);
+
         if miss {
             let path = c.clone();
-            let sl = on_stale.clone();
+            let rem = on_remove.clone();
             add_click_and_pointer(
                 &card,
                 &c.display().to_string(),
@@ -337,8 +395,9 @@ pub fn fill_row(
                         "[rhino] recent: stale remove callback path={}",
                         path.display()
                     );
-                    sl(&path);
+                    rem(&path);
                 }),
+                &dismiss,
             );
         } else {
             let path = c.clone();
@@ -350,6 +409,7 @@ pub fn fill_row(
                     eprintln!("[rhino] recent: open callback path={}", path.display());
                     op(&path);
                 }),
+                &dismiss,
             );
         }
 
@@ -363,12 +423,12 @@ pub fn fill_idle(
     row: &gtk::Box,
     paths: Vec<std::path::PathBuf>,
     on_open: RcPathFn,
-    on_stale: RcPathFn,
+    on_remove: RcPathFn,
     backfill: Rc<RefCell<Option<Rc<RecentContext>>>>,
 ) {
     let row = row.clone();
     let o = on_open;
-    let s = on_stale;
+    let r = on_remove;
     let _ = glib::idle_add_local(move || {
         eprintln!(
             "[rhino] recent: fill_idle build grid for {} path(s):",
@@ -377,17 +437,17 @@ pub fn fill_idle(
         for p in &paths {
             eprintln!("[rhino] recent:   candidate {}", p.display());
         }
-        let n = ensure_recent_backfill(&backfill, &row, o.clone(), s.clone());
+        let n = ensure_recent_backfill(&backfill, &row, o.clone(), r.clone());
         let v: Vec<CardData> = card_data_list(&paths);
         eprintln!("[rhino] recent: card_data done ({} cards)", v.len());
-        for d in &v {
+        for cd in &v {
             eprintln!(
                 "[rhino] recent:   card path={} missing={}",
-                d.path.display(),
-                d.missing
+                cd.path.display(),
+                cd.missing
             );
         }
-        fill_row(&row, v, o.clone(), s.clone());
+        fill_row(&row, v, o.clone(), r.clone());
         let paths_t = paths.clone();
         schedule_thumb_backfill(n, paths_t);
         glib::ControlFlow::Break

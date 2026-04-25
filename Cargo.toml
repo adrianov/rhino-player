@@ -20,6 +20,8 @@ rusqlite = { version = "0.32", features = ["bundled"] }           # app data (on
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 # Natural (numeric) + Unicode-aware lexical order for file/dir names; see `sibling_advance`.
 lexical-sort = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 # Clippy: cognitive complexity (see clippy.toml). Run `cargo clippy` in CI or before merge.
 [lints.clippy]
