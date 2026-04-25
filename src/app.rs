@@ -1,5 +1,5 @@
 use adw::prelude::*;
-use gio::prelude::{ActionExt as GioActionExt, ActionMapExt as GioActionMapExt};
+use gio::prelude::{ActionExt as GioActionExt, ActionMapExt as GioActionMapExt, ApplicationExtManual};
 use glib::prelude::ToVariant;
 use gtk::gio;
 use gtk::glib;
@@ -17,6 +17,7 @@ use crate::sub_prefs;
 use crate::sub_tracks;
 use crate::format_time;
 use crate::history;
+use crate::video_ext;
 use libmpv2::Mpv;
 use crate::icons;
 
@@ -274,15 +275,10 @@ fn schedule_window_aspect_on_resize_end(
 
 /// `GtkFileDialog` filter: video only (not images or “all files”).
 fn video_file_filter() -> gtk::FileFilter {
-    const SUFFIX: &[&str] = &[
-        "mp4", "m4v", "mkv", "webm", "avi", "mov", "wmv", "flv", "mpg", "mpeg", "m2ts", "mts",
-        "vob", "ogv", "3gp", "3g2", "asf", "ts", "mxf", "f4v", "divx", "xvid", "h264", "h265", "hevc",
-        "y4m", "yuv", "nsv", "dvr-ms", "rmp4",
-    ];
     let f = gtk::FileFilter::new();
     f.set_name(Some("Video files"));
     f.add_mime_type("video/*");
-    for s in SUFFIX {
+    for s in video_ext::SUFFIX {
         f.add_suffix(s);
     }
     f
@@ -561,7 +557,12 @@ pub fn run() -> i32 {
         return 1;
     }
 
-    let app = adw::Application::builder().application_id(APP_ID).build();
+    // Without HANDLES_OPEN, the desktop/portal rejects opening files: "This application can not open files"
+    // (https://github.com/gtk-rs/gtk4-rs/issues/1039) — `open` is used instead of argv[1].
+    let app = adw::Application::builder()
+        .application_id(APP_ID)
+        .flags(gio::ApplicationFlags::HANDLES_OPEN)
+        .build();
 
     app.connect_startup(|_app| {
         icons::register_hicolor_from_manifest();
@@ -571,13 +572,47 @@ pub fn run() -> i32 {
     });
 
     let player: Rc<RefCell<Option<MpvBundle>>> = Rc::new(RefCell::new(None));
-
+    // Queued for first GL init ([connect_realize]) or applied via [on_open] when libmpv is ready.
+    let file_boot: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+    let on_open_slot: Rc<RefCell<Option<RcPathFn>>> = Rc::new(RefCell::new(None));
+    {
+        let fb = Rc::clone(&file_boot);
+        let slot = Rc::clone(&on_open_slot);
+        let p_open = Rc::clone(&player);
+        // With HANDLES_OPEN, the default handler does **not** emit `activate` when argv lists files —
+        // only `open` (see g_application_run: files → `open` signal). Without a call to
+        // `Gio::Application::activate`, no window is created and the process exits (use count 0).
+        app.connect_open(move |app, files, _| {
+            let path = match files.first().and_then(|f| f.path()) {
+                Some(p) => p,
+                None => return,
+            };
+            if p_open.borrow().is_some() {
+                if let Some(f) = slot.borrow().as_ref() {
+                    f(&path);
+                } else {
+                    *fb.borrow_mut() = Some(path);
+                }
+                return;
+            }
+            *fb.borrow_mut() = Some(path);
+            if app.windows().is_empty() {
+                app.activate();
+            }
+        });
+    }
     {
         let p = player.clone();
+        let file_boot = Rc::clone(&file_boot);
+        let on_open_slot = Rc::clone(&on_open_slot);
         app.connect_activate(move |a: &adw::Application| {
             if a.windows().is_empty() {
-                let startup = std::env::args().nth(1).map(PathBuf::from);
-                build_window(a, &p, startup);
+                if file_boot.borrow().is_none() {
+                    if let Some(arg) = std::env::args().nth(1) {
+                        *file_boot.borrow_mut() = Some(PathBuf::from(arg));
+                    }
+                }
+                build_window(a, &p, Rc::clone(&file_boot), Rc::clone(&on_open_slot));
             }
         });
     }
@@ -1011,7 +1046,8 @@ fn schedule_quit_persist(
 fn build_window(
     app: &adw::Application,
     player: &Rc<RefCell<Option<MpvBundle>>>,
-    startup: Option<PathBuf>,
+    file_boot: Rc<RefCell<Option<PathBuf>>>,
+    on_open_slot: Rc<RefCell<Option<RcPathFn>>>,
 ) {
     let sub_pref = Rc::new(RefCell::new(db::load_sub()));
     let video_pref = Rc::new(RefCell::new(db::load_video()));
@@ -1128,7 +1164,7 @@ fn build_window(
     vol_pop.set_child(Some(&sound_col));
     let vol_menu = gtk::MenuButton::new();
     vol_menu.set_icon_name("audio-volume-high-symbolic");
-    vol_menu.set_tooltip_text(Some("Sound: volume and audio track"));
+    vol_menu.set_tooltip_text(Some("Volume and mute; audio track list if several tracks"));
     vol_menu.set_popover(Some(&vol_pop));
     vol_menu.add_css_class("flat");
 
@@ -1183,6 +1219,7 @@ fn build_window(
     sub_menu.set_tooltip_text(Some("Subtitles: tracks and style"));
     sub_menu.set_popover(Some(&sub_pop));
     sub_menu.add_css_class("flat");
+    sub_menu.set_visible(false);
 
     let menu_btn = gtk::MenuButton::new();
     menu_btn.set_icon_name("open-menu-symbolic");
@@ -1339,6 +1376,7 @@ fn build_window(
         let rec = recent_scrl.clone();
         let bot = bottom.clone();
         let appvf = app_fl.clone();
+        let sub_m_btn = sub_menu.clone();
         move || {
             let p2 = p.clone();
             let sp2 = sp.clone();
@@ -1347,8 +1385,10 @@ fn build_window(
             let b3 = bshow.clone();
             let r3 = rec.clone();
             let bot2 = bot.clone();
+            let sub320 = sub_m_btn.clone();
             let _ = glib::timeout_add_local(Duration::from_millis(320), move || {
                 if let Some(b) = p2.borrow().as_ref() {
+                    sub320.set_visible(sub_tracks::has_subtitle_tracks(&b.mpv));
                     let pr = sp2.borrow();
                     sub_prefs::apply_mpv(&b.mpv, &pr);
                     let show = if r3.is_visible() { true } else { b3.get() };
@@ -1363,8 +1403,10 @@ fn build_window(
             let vp_vf = Rc::clone(&vp2);
             let g_vf = g2.clone();
             let app450 = appvf.clone();
+            let sub450 = sub_m_btn.clone();
             let _ = glib::timeout_add_local(Duration::from_millis(450), move || {
                 if let Some(b) = p_vf.borrow().as_ref() {
+                    sub450.set_visible(sub_tracks::has_subtitle_tracks(&b.mpv));
                     let off = {
                         let mut g = vp_vf.borrow_mut();
                         video_pref::apply_mpv_video(&b.mpv, &mut g)
@@ -1444,7 +1486,7 @@ fn build_window(
     }
     gl_area.add_controller(dbl);
 
-    let want_recent = startup.is_none() && !history::load().is_empty();
+    let want_recent = file_boot.borrow().is_none() && !history::load().is_empty();
     recent_scrl.set_visible(want_recent);
 
     let ch_hide = Rc::new(ChromeBarHide {
@@ -1548,6 +1590,7 @@ fn build_window(
             eprintln!("[rhino] on_open: try_load error: {e}");
         }
     });
+    *on_open_slot.borrow_mut() = Some(on_open.clone());
 
     {
         let p = player.clone();
@@ -2099,7 +2142,7 @@ fn build_window(
     let last_rz = last_path.clone();
     let on_vid_rz = on_video_chrome.clone();
     let ol_rz = Rc::clone(&on_file_loaded);
-    let st_path = startup;
+    let file_boot_rz = Rc::clone(&file_boot);
     let wa_st = Rc::clone(&win_aspect);
     gl_area.connect_realize(move |area| {
         area.make_current();
@@ -2132,9 +2175,9 @@ fn build_window(
                 if let Some(bundle) = p_realize.borrow_mut().as_mut() {
                     let _ = bundle.mpv.disable_deprecated_events();
                 }
-                if let Some(ref p) = st_path {
+                if let Some(p) = file_boot_rz.replace(None) {
                     if let Err(e) = try_load(
-                        p,
+                        &p,
                         &p_realize,
                         &win_rz,
                         &gl_rz,

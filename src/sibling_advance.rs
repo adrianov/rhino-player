@@ -6,35 +6,10 @@
 //!
 //! [ICU]: https://github.com/unicode-org/icu4x
 
+use crate::video_ext;
 use lexical_sort::{natural_lexical_cmp, PathSort};
 use std::fs;
 use std::path::{Path, PathBuf};
-
-/// Whether [Path] is treated as a local video for folder chaining (non-recursive directory lists).
-fn is_video_file(p: &Path) -> bool {
-    p.is_file()
-        && p.extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| {
-                matches!(
-                    e.to_ascii_lowercase().as_str(),
-                    "mkv" | "mp4"
-                        | "m4v"
-                        | "webm"
-                        | "avi"
-                        | "mov"
-                        | "wmv"
-                        | "flv"
-                        | "ogv"
-                        | "mpeg"
-                        | "mpg"
-                        | "m2ts"
-                        | "ts"
-                        | "3gp"
-                        | "asf"
-                )
-            })
-}
 
 /// Sorted, canonical, unique paths to video **files** directly under `dir`.
 fn list_videos_in_dir(dir: &Path) -> Option<Vec<PathBuf>> {
@@ -42,7 +17,7 @@ fn list_videos_in_dir(dir: &Path) -> Option<Vec<PathBuf>> {
         .ok()?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| is_video_file(p))
+        .filter(|p| video_ext::is_video_path(p))
         .filter_map(|p| fs::canonicalize(&p).ok())
         .collect();
     v.path_sort_unstable(natural_lexical_cmp);
@@ -258,6 +233,19 @@ mod tests {
         fs::write(&vc, b"x").unwrap();
         let n = next_after_eof(&va).unwrap();
         assert_eq!(fs::canonicalize(n).unwrap(), fs::canonicalize(&vc).unwrap());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn vob_sibling_uses_shared_ext_list() {
+        let base = unique_tmp("rhino_sib_vob");
+        fs::create_dir_all(&base).unwrap();
+        let a = base.join("a.vob");
+        let b = base.join("b.vob");
+        fs::write(&a, b"x").unwrap();
+        fs::write(&b, b"x").unwrap();
+        let n = next_after_eof(&a).unwrap();
+        assert_eq!(fs::canonicalize(n).unwrap(), fs::canonicalize(&b).unwrap());
         let _ = fs::remove_dir_all(&base);
     }
 }

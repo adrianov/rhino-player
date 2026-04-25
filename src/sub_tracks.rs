@@ -69,6 +69,11 @@ fn sub_rows(mpv: &Mpv) -> Vec<Row> {
     v
 }
 
+/// `track-list` has at least one `type: sub` entry.
+pub fn has_subtitle_tracks(mpv: &Mpv) -> bool {
+    !sub_rows(mpv).is_empty()
+}
+
 /// Seeding string for Levenshtein: last hand-picked track label, else a short [LANG] hint.
 pub fn autoseed(prefs: &SubPrefs) -> String {
     let t = prefs.last_sub_label.trim();

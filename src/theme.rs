@@ -1,9 +1,7 @@
 /// Extra styling on top of libadwaita: opaque content area, custom seek / time look.
+/// Dark style comes from [adw::StyleManager::set_color_scheme] in `app.rs` — do not set
+/// `gtk-application-prefer-dark-theme` (unsupported with libadwaita).
 pub fn apply() {
-    if let Some(s) = gtk::Settings::default() {
-        s.set_gtk_application_prefer_dark_theme(true);
-    }
-
     let p = gtk::CssProvider::new();
     p.load_from_string(
         r#"
@@ -62,9 +60,6 @@ pub fn apply() {
             border-radius: 8px;
             min-width: 200px;
             min-height: 120px;
-            max-width: 400px;
-            /* One card must not use the full viewport: huge GtkPicture nat size pushed the footer under toolbars. */
-            max-height: 280px;
         }
         .rp-recent-bg { border-radius: 0; }
         .rp-recent-bg-miss { background-color: #2d2d2d; }

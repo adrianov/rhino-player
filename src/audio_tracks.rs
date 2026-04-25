@@ -76,7 +76,7 @@ fn set_aid(mpv: &Mpv, id: i64) {
     }
 }
 
-/// Rebuilds radio rows. Returns **true** if at least one audio track exists (show the block). Clears the box if there is no player.
+/// Rebuilds radio rows. Returns **true** if there are **at least two** audio tracks (the block is a choice, not a duplicate for one track). Clears the box if there is no player or 0–1 track.
 pub fn rebuild_popover(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     bx: &gtk::Box,
@@ -92,7 +92,7 @@ pub fn rebuild_popover(
     };
     let mpv = &b.mpv;
     let rows = audio_rows(mpv);
-    if rows.is_empty() {
+    if rows.len() < 2 {
         return false;
     }
     let want = current_aid(mpv);
