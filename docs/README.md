@@ -17,7 +17,8 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | [Sibling folder queue (folder playback)](features/07-sibling-folder-queue.md) | **Done** (EOF + bottom **Prev/Next**, `sibling_advance`; not: m3u playlist UI) |
 | [Tracks: audio, video, subtitles](features/08-tracks.md) | In progress (sound: **Audio** + `aid`; [Subtitles](features/24-subtitles.md) popover) |
 | [Subtitles: style, track picker, auto-pick](features/24-subtitles.md) | **Done** (header button, `sub-*` strings, DB + last-pick Levenshtein) |
-| [Smooth video playback (60+ Hz, judder reduction)](features/25-smooth-playback.md) | **Done** (`video-sync=display-resample`, `interpolation`, `tscale=oversample`; not: prefs UI) |
+| [Smooth video playback (display-resample) — removed](features/25-smooth-playback.md) | **Removed** (superseded by [26](features/26-sixty-fps-motion.md)) |
+| [~60 fps motion (VapourSynth)](features/26-sixty-fps-motion.md) | **Done** (menu **Video** → **Smooth video (60 FPS)**; `video_smooth_60`, `video_vs_path`; bundled `data/vs/*.vpy`) |
 | [Chapters: marks, menu, seek bar hover](features/09-chapters.md) | Not started |
 | [Video options: aspect, crop, zoom, filters](features/10-video-options.md) | Not started |
 | [Drag and drop](features/11-drag-and-drop.md) | Not started |
