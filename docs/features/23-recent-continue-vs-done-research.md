@@ -2,7 +2,7 @@
 
 **Name:** Recent history semantics, removal, and undo
 
-**Implementation status:** Research / plan only (not implemented)
+**Implementation status:** Research / plan for full “finished” semantics and DB rules; **partial** UI (card dismiss, undo bar) is implemented under [Recent videos grid](21-recent-videos-launch.md).
 
 **Use cases:** Keep the recent grid aligned with **shows in progress** (not a dump of everything ever opened). Avoid useless or misleading thumbnails at **end of file**. Let users **drop** an entry with one click, with a **safe undo** if it was accidental.
 
