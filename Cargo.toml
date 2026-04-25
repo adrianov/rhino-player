@@ -17,6 +17,9 @@ libmpv2 = { version = "5.0.3" }                                    # libmpv
 libc = "0.2"                                                       # setlocale for libmpv
 libloading = "0.8"                                                # libEGL, libGL
 rusqlite = { version = "0.32", features = ["bundled"] }           # app data (one sqlite file)
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+# Natural (numeric) + Unicode-aware lexical order for file/dir names; see `sibling_advance`.
+lexical-sort = "0.3"
 
 # Clippy: cognitive complexity (see clippy.toml). Run `cargo clippy` in CI or before merge.
 [lints.clippy]

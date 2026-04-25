@@ -63,6 +63,15 @@ pub fn init() {
     {
         // Column already present (e.g. new DB) — ignore.
     }
+    if conn
+        .execute(
+            "ALTER TABLE media ADD COLUMN thumb_time_pos_sec REAL",
+            [],
+        )
+        .is_err()
+    {
+        // Column already present — ignore.
+    }
     if let Err(e) = import_legacy(&conn) {
         eprintln!("[rhino] db: legacy import: {e}");
     }
@@ -270,6 +279,37 @@ pub fn set_playback(path: &Path, duration_sec: f64, time_pos_sec: f64) {
     });
 }
 
+/// Do not re-capture a quit-time screenshot if the on-disk file is unchanged and
+/// [time_pos] is still within this many seconds of the frame we stored. (See [set_thumb] `thumb_time_pos_sec`.)
+const THUMB_TPOS_SKIP_EPS: f64 = 0.5;
+
+/// Returns `true` when an existing DB thumbnail is for the same file revision and the same
+/// `time-pos` (within [THUMB_TPOS_SKIP_EPS]) so a new [screenshot-to-file] is unnecessary.
+pub fn should_skip_quit_thumb(path: &str, file_mtime_sec: i64, time_pos: f64) -> bool {
+    if !time_pos.is_finite() || time_pos < 0.0 {
+        return false;
+    }
+    type Row = (Option<Vec<u8>>, Option<i64>, Option<f64>);
+    with_conn(|c| {
+        let r: Option<Row> = c
+            .query_row(
+                "SELECT thumb_png, source_mtime_sec, thumb_time_pos_sec FROM media WHERE path = ?1",
+                params![path],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        Ok(match r {
+            Some((Some(b), Some(m), Some(tp)))
+                if !b.is_empty() && m == file_mtime_sec && tp.is_finite() =>
+            {
+                (time_pos - tp).abs() < THUMB_TPOS_SKIP_EPS
+            }
+            _ => false,
+        })
+    })
+    .unwrap_or(false)
+}
+
 /// PNG bytes if we have a thumb for this mtime of the file on disk.
 pub fn take_thumb_if_current(path: &str, file_mtime_sec: i64) -> Option<Vec<u8>> {
     with_conn(|c| {
@@ -288,17 +328,19 @@ pub fn take_thumb_if_current(path: &str, file_mtime_sec: i64) -> Option<Vec<u8>>
     .flatten()
 }
 
-pub fn set_thumb(path: &str, png: &[u8], source_mtime_sec: i64) {
+/// `thumb_time_pos` is the libmpv [time-pos] (seconds) of the frame in [png] (the stored raster).
+pub fn set_thumb(path: &str, png: &[u8], source_mtime_sec: i64, thumb_time_pos: f64) {
     if png.is_empty() {
         return;
     }
     let _ = with_conn(|c| {
         c.execute(
-            "INSERT INTO media (path, thumb_png, source_mtime_sec) VALUES (?1, ?2, ?3)
+            "INSERT INTO media (path, thumb_png, source_mtime_sec, thumb_time_pos_sec) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(path) DO UPDATE SET
                thumb_png = excluded.thumb_png,
-               source_mtime_sec = excluded.source_mtime_sec",
-            params![path, png, source_mtime_sec],
+               source_mtime_sec = excluded.source_mtime_sec,
+               thumb_time_pos_sec = excluded.thumb_time_pos_sec",
+            params![path, png, source_mtime_sec, thumb_time_pos],
         )?;
         Ok(())
     });

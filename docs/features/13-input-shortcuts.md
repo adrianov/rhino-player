@@ -18,6 +18,6 @@
 - **Up** / **Down** adjust volume by 5% (clamped).
 - **q** and **Ctrl+Q** run `app.quit` (resume snapshot, then exit).
 - **Enter** and **KP_Enter** toggle fullscreen (see [Window behavior](17-window-behavior.md)).
-- Escape leaves fullscreen first; a **second** Escape (when not fullscreen) stops playback, saves resume/DB, and returns to the **recent-videos** card screen when there is history (same as empty launch; otherwise the overlay stays hidden and the status invites opening a file).
+- Escape leaves fullscreen first; a **second** Escape (when not fullscreen) **pauses** at once (so sound stops) while the app finishes resume/DB work and returns to the **recent-videos** card screen when there is history, then `stop` runs in the main-loop idle chain (same as empty launch; otherwise the overlay stays hidden and the status invites opening a file).
 - Tab focuses UI chrome temporarily.
 - Document location of `input.conf` under `~/.config/rhino/` (TBD), following XDG.

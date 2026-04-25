@@ -5,12 +5,14 @@ use gtk::gdk;
 use gtk::glib;
 use gtk::prelude::EventControllerExt;
 use gtk::prelude::IsA;
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::path::Path;
-use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::Arc;
+use std::thread::JoinHandle;
+use std::time::Duration;
 
 use crate::media_probe::{self, card_data_list, CardData};
 
@@ -81,15 +83,20 @@ fn full_bleed_icon(icon: &'static str) -> gtk::Widget {
 type UnitFn = Rc<dyn Fn(()) + 'static>;
 type RcPathFn = Rc<dyn Fn(&Path) + 'static>;
 
-/// Per-window state for the recent row: used to [refill] after a background thumb finishes.
-/// [cancel] is cleared when the [gtk::ScrolledWindow] is destroyed; the heap box may be leaked
-/// to avoid [Drop] on a non-main thread.
+/// Per-window state for the recent row: [refill] after background thumbs, [shutdown] on scroll destroy.
 pub struct RecentContext {
     /// Same box as the grid row; used by [refill].
     row: gtk::Box,
     on_open: RcPathFn,
     on_stale: RcPathFn,
+    /// Stops workers and poller; cleared in [shutdown].
     pub cancel: Arc<AtomicBool>,
+    /// Worker → main: request a [refill] (no GTK types on the [Send] side).
+    refill_tx: mpsc::Sender<()>,
+    /// Main-loop timer that drains [refill_tx] and calls [refill] on this context.
+    poll_id: Rc<RefCell<Option<glib::SourceId>>>,
+    /// Background thumb threads (joined in [shutdown]).
+    workers: Rc<RefCell<Vec<JoinHandle<()>>>>,
 }
 
 impl RecentContext {
@@ -100,40 +107,71 @@ impl RecentContext {
         let v: Vec<CardData> = card_data_list(&paths);
         fill_row(&self.row, v, self.on_open.clone(), self.on_stale.clone());
     }
+
+    /// Join thumb threads, stop the poller, and drop GTK-side state. Call from the main thread when
+    /// the recent scroll is destroyed.
+    pub fn shutdown(&self) {
+        self.cancel.store(false, Ordering::Release);
+        if let Some(id) = self.poll_id.borrow_mut().take() {
+            id.remove();
+        }
+        for h in self.workers.borrow_mut().drain(..) {
+            let _ = h.join();
+        }
+    }
 }
 
-/// Creates or reuses a [RecentContext] pointer in [cell] (one per window).
+/// Creates or reuses a [RecentContext] in [cell] (one per window).
 pub fn ensure_recent_backfill(
-    cell: &Rc<Cell<Option<NonNull<RecentContext>>>>,
+    cell: &Rc<RefCell<Option<Rc<RecentContext>>>>,
     row: &gtk::Box,
     on_open: RcPathFn,
     on_stale: RcPathFn,
-) -> NonNull<RecentContext> {
-    if let Some(n) = cell.get() {
-        return n;
+) -> Rc<RecentContext> {
+    if let Some(c) = cell.borrow().as_ref() {
+        return Rc::clone(c);
     }
-    let c = Arc::new(AtomicBool::new(true));
-    let b = Box::new(RecentContext {
+    let cancel = Arc::new(AtomicBool::new(true));
+    let (refill_tx, refill_rx) = mpsc::channel();
+    let ctx = Rc::new(RecentContext {
         row: row.clone(),
         on_open,
         on_stale,
-        cancel: c,
+        cancel: cancel.clone(),
+        refill_tx,
+        poll_id: Rc::new(RefCell::new(None)),
+        workers: Rc::new(RefCell::new(Vec::new())),
     });
-    let n = NonNull::new(Box::into_raw(b)).expect("recent context alloc");
-    cell.set(Some(n));
-    n
+    let c_poll = Rc::clone(&ctx);
+    // [Receiver] is main-thread only; the timer callback runs on the GTK main thread.
+    let rxm = Rc::new(RefCell::new(refill_rx));
+    let c_rx = Rc::clone(&rxm);
+    let id = glib::source::timeout_add_local(Duration::from_millis(32), move || {
+        let mut n = 0u32;
+        {
+            let g = c_rx.borrow_mut();
+            while g.try_recv().is_ok() {
+                n += 1;
+            }
+        }
+        if n > 0 {
+            c_poll.refill();
+        }
+        glib::ControlFlow::Continue
+    });
+    *ctx.poll_id.borrow_mut() = Some(id);
+    *cell.borrow_mut() = Some(Rc::clone(&ctx));
+    ctx
 }
 
-/// For each path, if the file is present and the DB has no up-to-date thumb, runs [media_probe::ensure_thumbnail] on a **worker** thread, then [RecentContext::refill] on the main loop.
+/// For each path, if the file is present and the DB has no up-to-date thumb, runs [media_probe::ensure_thumbnail] on a **worker** thread, then [RecentContext::refill] on the main loop via a [Send] channel.
 /// Safe to call from the main thread: does not block on libmpv.
-pub fn schedule_thumb_backfill(ctx: NonNull<RecentContext>, paths: Vec<std::path::PathBuf>) {
-    // Address token only (no [NonNull] in [Send] thread closures).
-    let token = ctx.as_ptr() as usize;
-    std::thread::spawn(move || {
+pub fn schedule_thumb_backfill(ctx: Rc<RecentContext>, paths: Vec<std::path::PathBuf>) {
+    let tx = ctx.refill_tx.clone();
+    let c = ctx.cancel.clone();
+    let h = std::thread::spawn(move || {
         for p in paths {
-            let ctx = std::ptr::NonNull::new(token as *mut RecentContext)
-                .expect("recent context non-null");
-            if !unsafe { ctx.as_ref() }.cancel.load(Ordering::Acquire) {
+            if !c.load(Ordering::Acquire) {
                 return;
             }
             if !p.exists() {
@@ -147,20 +185,15 @@ pub fn schedule_thumb_backfill(ctx: NonNull<RecentContext>, paths: Vec<std::path
                 continue;
             }
             let _ = media_probe::ensure_thumbnail(&can);
-            if !unsafe { ctx.as_ref() }.cancel.load(Ordering::Acquire) {
+            if !c.load(Ordering::Acquire) {
                 return;
             }
-            let t2 = token;
-            glib::MainContext::default().invoke(move || {
-                let c2 = std::ptr::NonNull::new(t2 as *mut RecentContext)
-                    .expect("recent context ptr");
-                if !unsafe { c2.as_ref() }.cancel.load(Ordering::Acquire) {
-                    return;
-                }
-                unsafe { c2.as_ref() }.refill();
-            });
+            if tx.send(()).is_err() {
+                return;
+            }
         }
     });
+    ctx.workers.borrow_mut().push(h);
 }
 
 /// Hand on hover, primary click triggers [act] ([GestureClick] on the card, not a nested [gtk::Button]).
@@ -267,10 +300,13 @@ pub fn fill_row(
 
         let label = gtk::Label::new(Some(&name));
         no_target(&label);
-        label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
-        label.set_max_width_chars(24);
+        label.set_ellipsize(gtk::pango::EllipsizeMode::None);
+        label.set_max_width_chars(-1);
+        label.set_wrap(true);
+        label.set_natural_wrap_mode(gtk::NaturalWrapMode::Word);
         label.set_tooltip_text(c.to_str());
-        label.set_halign(gtk::Align::Start);
+        label.set_halign(gtk::Align::Fill);
+        label.set_xalign(0.0);
 
         let pro = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         no_target(&pro);
@@ -328,7 +364,7 @@ pub fn fill_idle(
     paths: Vec<std::path::PathBuf>,
     on_open: RcPathFn,
     on_stale: RcPathFn,
-    backfill: Rc<Cell<Option<NonNull<RecentContext>>>>,
+    backfill: Rc<RefCell<Option<Rc<RecentContext>>>>,
 ) {
     let row = row.clone();
     let o = on_open;

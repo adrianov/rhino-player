@@ -87,7 +87,7 @@ impl MpvBundle {
         let _ = mpv.set_property("save-position-on-quit", true);
         // Thumbnails: prefer JPEG (fast); PNG path uses minimum compression.
         let _ = mpv.set_property("screenshot-format", "jpeg");
-        let _ = mpv.set_property("screenshot-jpeg-quality", 70i64);
+        let _ = mpv.set_property("screenshot-jpeg-quality", 90i64);
         let _ = mpv.set_property("screenshot-png-compression", 0i64);
 
         let params: Vec<RenderParam<EglState>> = vec![

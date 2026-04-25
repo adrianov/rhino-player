@@ -7,12 +7,12 @@ Features are specified here **before** implementation. Each feature file lives i
 | Document | Status |
 |----------|--------|
 | [Cargo project and build layout](features/01-cargo-skeleton.md) | In progress (GTK/mpv build OK) |
-| [Application shell (Adwaita app, lifecycle)](features/02-application-shell.md) | In progress (`adw` app/window, `ToolbarView`, menu) |
+| [Application shell (Adwaita app, lifecycle)](features/02-application-shell.md) | In progress (`adw` app/window, `ToolbarView`, play/pause + menu) |
 | [mpv embed: render context and video surface](features/03-mpv-embedding.md) | In progress (GLArea + `libmpv` render) |
-| [Transport: play, pause, seek, progress UI](features/04-transport-and-progress.md) | Not started |
+| [Transport: play, pause, seek, progress UI](features/04-transport-and-progress.md) | In progress (seek, times, bottom bar play/pause) |
 | [Playlist: queue, prev/next, shuffle, loop](features/05-playlist.md) | Not started |
 | [Open files: file picker, folder, CLI, single-instance](features/06-open-and-cli.md) | Not started |
-| [Sibling folder queue (folder playback)](features/07-sibling-folder-queue.md) | Not started |
+| [Sibling folder queue (folder playback)](features/07-sibling-folder-queue.md) | In progress (EOF: next file / next sibling dir) |
 | [Tracks: audio, video, subtitles](features/08-tracks.md) | Not started |
 | [Chapters: marks, menu, seek bar hover](features/09-chapters.md) | Not started |
 | [Video options: aspect, crop, zoom, filters](features/10-video-options.md) | Not started |

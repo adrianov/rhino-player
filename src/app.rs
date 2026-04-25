@@ -3,22 +3,36 @@ use gtk::gio;
 use gtk::glib;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
-use std::ptr::NonNull;
 use std::rc::Rc;
-use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use crate::db;
 use crate::format_time;
 use crate::history;
 use libmpv2::Mpv;
-use crate::media_probe::{card_data_list, record_playback_for_current, CardData};
+use crate::icons;
+
+use crate::media_probe::{
+    card_data_list, local_file_from_mpv, record_playback_for_current, save_cached_thumb, CardData,
+};
 use crate::mpv_embed::MpvBundle;
 use crate::recent_view;
 use crate::recent_view::RecentContext;
+use crate::sibling_advance;
 use crate::theme;
 
-const APP_ID: &str = "ch.rhino.RhinoPlayer";
+/// Application and icon name ([reverse-DNS] for GTK, desktop, and AppStream).
+///
+/// [reverse-DNS]: https://developer.gnome.org/documentation/tutorials/application-id.html
+pub const APP_ID: &str = "ch.rhino.RhinoPlayer";
+const APP_WIN_TITLE: &str = "Rhino Player";
+
+fn title_for_open_path(path: &Path) -> String {
+    match path.file_name().and_then(|n| n.to_str()) {
+        Some(name) => format!("{name} — {APP_WIN_TITLE}"),
+        None => format!("{} — {APP_WIN_TITLE}", path.display()),
+    }
+}
 const IDLE_3S: Duration = Duration::from_secs(3);
 /// After chrome hides, GTK often emits spurious pointer motion/enter; ignore for this long.
 const LAYOUT_SQUELCH: Duration = Duration::from_millis(450);
@@ -58,7 +72,6 @@ fn toggle_fullscreen(win: &adw::ApplicationWindow) {
 fn apply_chrome(
     win: &adw::ApplicationWindow,
     root: &adw::ToolbarView,
-    status: &gtk::Label,
     gl: &gtk::GLArea,
     fs_overlay: &Cell<bool>,
 ) {
@@ -73,7 +86,6 @@ fn apply_chrome(
     }
     root.set_reveal_top_bars(show);
     root.set_reveal_bottom_bars(show);
-    status.set_visible(show);
     gl.queue_render();
 }
 
@@ -108,6 +120,7 @@ pub fn run() -> i32 {
     let app = adw::Application::builder().application_id(APP_ID).build();
 
     app.connect_startup(|_app| {
+        icons::register_hicolor_from_manifest();
         adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
         db::init();
         theme::apply();
@@ -127,21 +140,34 @@ pub fn run() -> i32 {
     app.run().into()
 }
 
-/// Load a file, hide the recent grid overlay, show video; [record] appends to recent history.
+/// Options for [try_load] (keeps the arity clippy limit without `allow`).
+struct LoadOpts {
+    record: bool,
+    play_on_start: bool,
+    /// Filled on success so [maybe_advance_sibling_on_eof] can resolve a path if mpv clears it at idle EOF.
+    last_path: Rc<RefCell<Option<PathBuf>>>,
+}
+
+/// Load a file, hide the recent grid overlay, show video; [LoadOpts::record] appends to recent history.
+/// [play_on_start]: clear `pause` so playback runs (watch_later can restore a paused file after load; a
+/// short delayed [set_property] catches that). **false** for CLI open-on-launch to respect saved state.
 fn try_load(
     path: &Path,
-    player: &RefCell<Option<MpvBundle>>,
-    st: &gtk::Label,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    win: &impl IsA<gtk::Window>,
     gl: &gtk::GLArea,
     recent_layer: &impl IsA<gtk::Widget>,
-    record: bool,
+    o: &LoadOpts,
 ) -> Result<(), String> {
+    let play_on_start = o.play_on_start;
+    let record = o.record;
     eprintln!(
-        "[rhino] try_load: path={} exists={} record={} player_ready={}",
+        "[rhino] try_load: path={} exists={} record={} player_ready={} play={}",
         path.display(),
         path.exists(),
         record,
-        player.borrow().is_some()
+        player.borrow().is_some(),
+        play_on_start
     );
     let mut g = player.borrow_mut();
     let b = g.as_mut().ok_or("Player not ready. Wait for GL init.")?;
@@ -150,12 +176,27 @@ fn try_load(
         return Err(e);
     }
     eprintln!("[rhino] try_load: loadfile ok");
+    *o.last_path.borrow_mut() = std::fs::canonicalize(path).ok();
     if record {
         history::record(path);
     }
-    st.set_label(&format!("Loaded: {}", path.display()));
+    let t = title_for_open_path(path);
+    win.upcast_ref::<gtk::Window>().set_title(Some(t.as_str()));
     recent_layer.set_visible(false);
     gl.queue_render();
+    if play_on_start {
+        let _ = b.mpv.set_property("pause", false);
+        let p2 = Rc::clone(player);
+        let _ = glib::source::timeout_add_local(
+            std::time::Duration::from_millis(100),
+            move || {
+                if let Some(b) = p2.borrow().as_ref() {
+                    let _ = b.mpv.set_property("pause", false);
+                }
+                glib::ControlFlow::Break
+            },
+        );
+    }
     Ok(())
 }
 
@@ -177,6 +218,54 @@ fn vol_icon(muted: bool, vol: f64) -> &'static str {
     }
 }
 
+/// `eof-reached` is the reliable signal for “finished” with `keep-open` (unlike [wait_event] + EndFile, which
+/// may not be surfaced the same for libmpv+render). `sibling_eof_done` allows one pass per idle EOF; it clears
+/// when `eof-reached` is false (new file or seek back).
+fn maybe_advance_sibling_on_eof(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    win: &adw::ApplicationWindow,
+    gl: &gtk::GLArea,
+    recent: &gtk::ScrolledWindow,
+    last_path: &Rc<RefCell<Option<PathBuf>>>,
+    sibling_eof_done: &Cell<bool>,
+) {
+    let g = match player.try_borrow() {
+        Ok(b) => b,
+        Err(_) => return,
+    };
+    let Some(pl) = g.as_ref() else {
+        return;
+    };
+    let eof = pl.mpv.get_property::<bool>("eof-reached").unwrap_or(false);
+    if !eof {
+        sibling_eof_done.set(false);
+        return;
+    }
+    if sibling_eof_done.get() {
+        return;
+    }
+    let finished = local_file_from_mpv(&pl.mpv)
+        .or_else(|| last_path.borrow().clone());
+    let Some(finished) = finished else {
+        sibling_eof_done.set(true);
+        return;
+    };
+    let next = sibling_advance::next_after_eof(&finished);
+    drop(g);
+    sibling_eof_done.set(true);
+    if let Some(np) = next {
+        let o = LoadOpts {
+            record: true,
+            play_on_start: true,
+            last_path: Rc::clone(last_path),
+        };
+        if let Err(e) = try_load(&np, player, win, gl, recent, &o) {
+            eprintln!("[rhino] sibling advance: {e}");
+            sibling_eof_done.set(false);
+        }
+    }
+}
+
 fn nudge_mpv_volume(mpv: &Mpv, delta: f64) {
     let max = mpv.get_property::<f64>("volume-max").unwrap_or(100.0).max(1.0);
     let cur = mpv.get_property::<f64>("volume").unwrap_or(0.0);
@@ -187,29 +276,41 @@ fn nudge_mpv_volume(mpv: &Mpv, delta: f64) {
     }
 }
 
-/// Show the sheet immediately; mpv/DB/grid/stop on LOW-priority idles (after a frame paints).
-#[allow(clippy::too_many_arguments)]
-fn back_to_browse(
+/// Shared handles for leaving playback and repainting the recent grid (Escape path).
+struct BackToBrowseCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
-    st: &gtk::Label,
+    on_open: RcPathFn,
+    on_stale: RcPathFn,
+    recent_backfill: Rc<RefCell<Option<Rc<RecentContext>>>>,
+    last_path: Rc<RefCell<Option<PathBuf>>>,
+    sibling_eof_done: Rc<Cell<bool>>,
+}
+
+/// Show the sheet immediately; mpv/DB/grid/stop on LOW-priority idles (after a frame paints).
+fn back_to_browse(
+    c: &BackToBrowseCtx,
+    win: &impl IsA<gtk::Window>,
     gl: &gtk::GLArea,
     recent: &gtk::ScrolledWindow,
     row: &gtk::Box,
-    on_open: RcPathFn,
-    on_stale: RcPathFn,
-    recent_backfill: Rc<Cell<Option<NonNull<RecentContext>>>>,
 ) {
+    *c.last_path.borrow_mut() = None;
+    c.sibling_eof_done.set(false);
     let paths: Vec<PathBuf> = history::load().into_iter().take(5).collect();
     if paths.is_empty() {
         recent.set_visible(false);
     } else {
         recent.set_visible(true);
     }
-    st.set_label("Open a file (Ctrl+O).");
+    win.upcast_ref::<gtk::Window>().set_title(Some(APP_WIN_TITLE));
     gl.queue_render();
+    // Cut audio right away; `stop` stays in idlers so a last-frame screenshot can run first.
+    if let Some(b) = c.player.borrow().as_ref() {
+        let _ = b.mpv.set_property("pause", true);
+    }
 
     if paths.is_empty() {
-        let p2 = player.clone();
+        let p2 = c.player.clone();
         let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
             if let Some(b) = p2.borrow().as_ref() {
                 b.write_resume_snapshot();
@@ -224,15 +325,17 @@ fn back_to_browse(
 
     // FnOnce chain: `idle_add_local_full` requires FnMut, so the second/third steps are
     // scheduled from a one-shot idle (paint can run first at DEFAULT_IDLE priority).
-    let p_write = player.clone();
+    let p_write = c.player.clone();
     let row2 = row.clone();
-    let op2 = on_open;
-    let osl2 = on_stale;
+    let op2 = c.on_open.clone();
+    let osl2 = c.on_stale.clone();
     let paths2 = paths;
-    let rbb = recent_backfill.clone();
+    let rbb = c.recent_backfill.clone();
     let _ = glib::source::idle_add_local_once(move || {
         if let Some(b) = p_write.borrow().as_ref() {
             b.write_resume_snapshot();
+            // DB row for % in the grid; avoid `persist_on_quit` here — its screenshot blocks
+            // the main loop until after the sheet is filled (Escape feels instant).
             record_playback_for_current(&b.mpv);
         }
         let p3 = p_write.clone();
@@ -242,12 +345,19 @@ fn back_to_browse(
             recent_view::fill_row(&row2, v, op2.clone(), osl2.clone());
             let n = recent_view::ensure_recent_backfill(&rbb2, &row2, op2.clone(), osl2.clone());
             recent_view::schedule_thumb_backfill(n, paths2.clone());
-            let p4 = p3.clone();
+            let p_thumb = p3.clone();
+            let p_stop = p3.clone();
             let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
-                if let Some(b) = p4.borrow().as_ref() {
-                    b.persist_on_quit();
-                    b.stop_playback();
+                if let Some(b) = p_thumb.borrow().as_ref() {
+                    save_cached_thumb(&b.mpv);
                 }
+                let p_end = p_stop.clone();
+                let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
+                    if let Some(b) = p_end.borrow().as_ref() {
+                        b.stop_playback();
+                    }
+                    glib::ControlFlow::Break
+                });
                 glib::ControlFlow::Break
             });
             glib::ControlFlow::Break
@@ -281,7 +391,8 @@ fn build_window(
 ) {
     let win = adw::ApplicationWindow::builder()
         .application(app)
-        .title("Rhino Player")
+        .title(APP_WIN_TITLE)
+        .icon_name(APP_ID)
         .default_width(960)
         .default_height(540)
         .css_classes(["rp-win"])
@@ -294,11 +405,18 @@ fn build_window(
     let motion_squelch = Rc::new(Cell::new(None::<Instant>));
     let last_cap_xy = Rc::new(Cell::new(None::<(f64, f64)>));
     let last_gl_xy = Rc::new(Cell::new(None::<(f64, f64)>));
+    let last_path = Rc::new(RefCell::new(None::<PathBuf>));
+    let sibling_eof_done = Rc::new(Cell::new(false));
 
     let root = adw::ToolbarView::new();
 
     let header = adw::HeaderBar::new();
     header.add_css_class("rpb-header");
+    let play_pause = gtk::Button::from_icon_name("media-playback-start-symbolic");
+    play_pause.add_css_class("flat");
+    play_pause.add_css_class("rpb-play");
+    play_pause.set_tooltip_text(Some("Play (Space)"));
+    play_pause.set_sensitive(false);
     let menu = gio::Menu::new();
     menu.append(Some("Open…"), Some("app.open"));
     menu.append(Some("About Rhino Player"), Some("app.about"));
@@ -331,16 +449,6 @@ fn build_window(
     header.pack_end(&menu_btn);
     header.pack_end(&vol_menu);
 
-    let status = gtk::Label::new(Some("Initializing video…"));
-    status.add_css_class("rp-status");
-    status.set_wrap(true);
-    status.set_wrap_mode(gtk::pango::WrapMode::Word);
-    status.set_xalign(0.0);
-    status.set_vexpand(false);
-    status.set_halign(gtk::Align::Fill);
-    status.set_valign(gtk::Align::Start);
-    status.set_can_target(false);
-
     let gl_area = gtk::GLArea::new();
     gl_area.add_css_class("rp-gl");
     gl_area.set_hexpand(true);
@@ -348,6 +456,25 @@ fn build_window(
     gl_area.set_auto_render(false);
     gl_area.set_has_stencil_buffer(false);
     gl_area.set_has_depth_buffer(false);
+
+    {
+        let p_btn = player.clone();
+        let glbtn = gl_area.clone();
+        play_pause.connect_clicked(move |_| {
+            let g = p_btn.borrow();
+            let Some(b) = g.as_ref() else {
+                return;
+            };
+            if b.mpv.get_property::<f64>("duration").unwrap_or(0.0) <= 0.0 {
+                return;
+            }
+            let paused = b.mpv.get_property::<bool>("pause").unwrap_or(false);
+            if b.mpv.set_property("pause", !paused).is_err() {
+                return;
+            }
+            glbtn.queue_render();
+        });
+    }
 
     let dbl = gtk::GestureClick::new();
     dbl.set_button(gtk::gdk::BUTTON_PRIMARY);
@@ -379,6 +506,8 @@ fn build_window(
     let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     bottom.add_css_class("rp-bottom");
     bottom.set_vexpand(false);
+    play_pause.set_valign(gtk::Align::Center);
+    bottom.append(&play_pause);
     bottom.append(&time_left);
     bottom.append(&seek);
     bottom.append(&time_right);
@@ -387,8 +516,6 @@ fn build_window(
     ovl.add_css_class("rp-stack");
     ovl.add_css_class("rp-page-stack");
     ovl.set_child(Some(&gl_area));
-    ovl.add_overlay(&status);
-    ovl.set_measure_overlay(&status, false);
 
     let (recent_scrl, flow_recent) = recent_view::new_scroll();
     recent_scrl.set_vexpand(true);
@@ -401,25 +528,34 @@ fn build_window(
     recent_scrl.set_visible(want_recent);
 
     let p_openr = player.clone();
-    let st_op = status.clone();
+    let win_menu = win.clone();
     let gl_op = gl_area.clone();
     let recent_on_top = recent_scrl.clone();
+    let last_open = last_path.clone();
     let on_open: RcPathFn = Rc::new(move |path: &Path| {
         eprintln!("[rhino] on_open from recent/menu: {}", path.display());
-        if let Err(e) = try_load(path, p_openr.as_ref(), &st_op, &gl_op, &recent_on_top, true) {
+        if let Err(e) = try_load(
+            path,
+            &p_openr,
+            &win_menu,
+            &gl_op,
+            &recent_on_top,
+            &LoadOpts {
+                record: true,
+                play_on_start: true,
+                last_path: last_open.clone(),
+            },
+        ) {
             eprintln!("[rhino] on_open: try_load error: {e}");
-            st_op.set_label(&e);
         }
     });
 
-    let recent_backfill: Rc<Cell<Option<NonNull<RecentContext>>>> = Rc::new(Cell::new(None));
+    let recent_backfill: Rc<RefCell<Option<Rc<RecentContext>>>> = Rc::new(RefCell::new(None));
     {
         let rb = recent_backfill.clone();
         recent_scrl.connect_destroy(move |_| {
-            if let Some(n) = rb.get() {
-                unsafe { n.as_ref() }
-                    .cancel
-                    .store(false, Ordering::Release);
+            if let Some(ctx) = rb.borrow_mut().take() {
+                ctx.shutdown();
             }
         });
     }
@@ -465,7 +601,6 @@ fn build_window(
 
     {
         let root_fs = root.clone();
-        let st_fs = status.clone();
         let gl_fs = gl_area.clone();
         let fov = fs_overlay.clone();
         let nav = nav_t.clone();
@@ -480,14 +615,13 @@ fn build_window(
             lcap.set(None);
             lgl.set(None);
             fov.set(false);
-            apply_chrome(w, &root_fs, &st_fs, &gl_fs, &fov);
+            apply_chrome(w, &root_fs, &gl_fs, &fov);
         });
     }
 
     {
         let win_c = win.clone();
         let root_c = root.clone();
-        let st_c = status.clone();
         let gl_c = gl_area.clone();
         let fov = fs_overlay.clone();
         let nav = nav_t.clone();
@@ -500,8 +634,6 @@ fn build_window(
             win_c,
             #[strong]
             root_c,
-            #[strong]
-            st_c,
             #[strong]
             gl_c,
             #[strong]
@@ -529,11 +661,10 @@ fn build_window(
                 lcap.set(Some((x, y)));
 
                 fov.set(true);
-                apply_chrome(&win_c, &root_c, &st_c, &gl_c, &fov);
+                apply_chrome(&win_c, &root_c, &gl_c, &fov);
                 replace_timeout(nav.clone(), {
                     let win2 = win_c.clone();
                     let root2 = root_c.clone();
-                    let st2 = st_c.clone();
                     let gl2 = gl_c.clone();
                     let f2 = fov.clone();
                     let sq2 = sq.clone();
@@ -542,7 +673,7 @@ fn build_window(
                             return;
                         }
                         f2.set(false);
-                        apply_chrome(&win2, &root2, &st2, &gl2, &f2);
+                        apply_chrome(&win2, &root2, &gl2, &f2);
                         sq2.set(Some(Instant::now() + LAYOUT_SQUELCH));
                     }
                 });
@@ -650,11 +781,12 @@ fn build_window(
         let win_key = win.clone();
         let recent_esc = recent_scrl.clone();
         let flow_esc = flow_recent.clone();
-        let st_esc = status.clone();
         let gl_esc = gl_area.clone();
         let op_esc = on_open.clone();
         let stl_esc = on_stale.clone();
         let rbf_esc = recent_backfill.clone();
+        let last_esc = last_path.clone();
+        let sib_esc = sibling_eof_done.clone();
         let k = gtk::EventControllerKey::new();
         k.connect_key_pressed(move |_, key, _code, _m| {
             if key == gtk::gdk::Key::Escape {
@@ -669,14 +801,18 @@ fn build_window(
                     return glib::Propagation::Stop;
                 }
                 back_to_browse(
-                    p.clone(),
-                    &st_esc,
+                    &BackToBrowseCtx {
+                        player: p.clone(),
+                        on_open: op_esc.clone(),
+                        on_stale: stl_esc.clone(),
+                        recent_backfill: rbf_esc.clone(),
+                        last_path: last_esc.clone(),
+                        sibling_eof_done: sib_esc.clone(),
+                    },
+                    &win_key,
                     &gl_esc,
                     &recent_esc,
                     &flow_esc,
-                    op_esc.clone(),
-                    stl_esc.clone(),
-                    rbf_esc.clone(),
                 );
                 return glib::Propagation::Stop;
             }
@@ -728,9 +864,10 @@ fn build_window(
     }
 
     let p_realize = player.clone();
-    let st_realize = status.clone();
+    let win_rz = win.clone();
     let gl_rz = gl_area.clone();
     let recent_rz = recent_scrl.clone();
+    let last_rz = last_path.clone();
     let st_path = startup;
     gl_area.connect_realize(move |area| {
         area.make_current();
@@ -740,17 +877,27 @@ fn build_window(
                 let _ = b.mpv.set_property("volume", av);
                 let _ = b.mpv.set_property("mute", am);
                 *p_realize.borrow_mut() = Some(b);
+                if let Some(bundle) = p_realize.borrow_mut().as_mut() {
+                    let _ = bundle.mpv.disable_deprecated_events();
+                }
                 if let Some(ref p) = st_path {
-                    if let Err(e) =
-                        try_load(p, p_realize.as_ref(), &st_realize, &gl_rz, &recent_rz, true)
-                    {
-                        st_realize.set_label(&e);
+                    if let Err(e) = try_load(
+                        p,
+                        &p_realize,
+                        &win_rz,
+                        &gl_rz,
+                        &recent_rz,
+                        &LoadOpts {
+                            record: true,
+                            play_on_start: false,
+                            last_path: last_rz.clone(),
+                        },
+                    ) {
+                        eprintln!("[rhino] try_load (startup): {e}");
                     }
-                } else {
-                    st_realize.set_label("Open a file (Ctrl+O).");
                 }
             }
-            Err(e) => st_realize.set_label(&format!("OpenGL / mpv: {e}")),
+            Err(e) => eprintln!("[rhino] OpenGL / mpv: {e}"),
         }
     });
 
@@ -875,9 +1022,15 @@ fn build_window(
     }
 
     let p_poll = player.clone();
+    let win_poll = win.clone();
+    let gl_poll = gl_area.clone();
+    let rec_poll = recent_scrl.clone();
+    let last_poll = last_path.clone();
+    let sib_poll = sibling_eof_done.clone();
     let s_flag = seek_sync.clone();
     let tw_l = time_left.downgrade();
     let tw_r = time_right.downgrade();
+    let ppw = play_pause.downgrade();
     let sw = seek.clone();
     let adj = seek_adj.clone();
     let vi_poll = vol_menu.clone();
@@ -889,7 +1042,25 @@ fn build_window(
         glib::clone!(
             #[strong]
             p_poll,
+            #[strong]
+            win_poll,
+            #[strong]
+            gl_poll,
+            #[strong]
+            rec_poll,
+            #[strong]
+            last_poll,
+            #[strong]
+            sib_poll,
             move || {
+                maybe_advance_sibling_on_eof(
+                    &p_poll,
+                    &win_poll,
+                    &gl_poll,
+                    &rec_poll,
+                    &last_poll,
+                    &sib_poll,
+                );
                 let Some(tl) = tw_l.upgrade() else {
                     return glib::ControlFlow::Break;
                 };
@@ -898,12 +1069,34 @@ fn build_window(
                 };
                 let g = p_poll.borrow();
                 let Some(pl) = g.as_ref() else {
+                    if let Some(pp) = ppw.upgrade() {
+                        pp.set_sensitive(false);
+                        pp.set_icon_name("media-playback-start-symbolic");
+                        pp.set_tooltip_text(Some("No media"));
+                    }
                     return glib::ControlFlow::Continue;
                 };
                 let pos = pl.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
                 let dur = pl.mpv.get_property::<f64>("duration").unwrap_or(0.0);
                 tl.set_label(&format_time(pos));
                 tr.set_label(&format_time(dur));
+                if let Some(pp) = ppw.upgrade() {
+                    if dur > 0.0 {
+                        pp.set_sensitive(true);
+                        let paused = pl.mpv.get_property::<bool>("pause").unwrap_or(false);
+                        if paused {
+                            pp.set_icon_name("media-playback-start-symbolic");
+                            pp.set_tooltip_text(Some("Play (Space)"));
+                        } else {
+                            pp.set_icon_name("media-playback-pause-symbolic");
+                            pp.set_tooltip_text(Some("Pause (Space)"));
+                        }
+                    } else {
+                        pp.set_sensitive(false);
+                        pp.set_icon_name("media-playback-start-symbolic");
+                        pp.set_tooltip_text(Some("No media"));
+                    }
+                }
                 if dur > 0.0 {
                     sw.set_sensitive(true);
                     adj.set_lower(0.0);
@@ -937,9 +1130,9 @@ fn build_window(
     // Open
     let open = gio::SimpleAction::new("open", None);
     let p_open = player.clone();
-    let st = status.clone();
     let gl_w = gl_area.clone();
     let recent_choose = recent_scrl.clone();
+    let last_filepicker = last_path.clone();
     open.connect_activate(glib::clone!(
         #[weak]
         app,
@@ -952,19 +1145,31 @@ fn build_window(
                 .modal(true)
                 .build();
             let p_c = p_open.clone();
-            let st = st.clone();
+            let w_f = w.clone();
             let gl_w = gl_w.clone();
             let recent_choose = recent_choose.clone();
+            let last_fp = last_filepicker.clone();
             dialog.open(Some(&w), None::<&gio::Cancellable>, move |res| {
                 let Ok(file) = res else {
                     return;
                 };
                 let Some(path) = file.path() else {
-                    st.set_label("Non-path URIs: not implemented yet.");
+                    eprintln!("[rhino] open: non-path URIs not implemented yet");
                     return;
                 };
-                if let Err(e) = try_load(&path, p_c.as_ref(), &st, &gl_w, &recent_choose, true) {
-                    st.set_label(&e);
+                if let Err(e) = try_load(
+                    &path,
+                    &p_c,
+                    &w_f,
+                    &gl_w,
+                    &recent_choose,
+                    &LoadOpts {
+                        record: true,
+                        play_on_start: true,
+                        last_path: last_fp.clone(),
+                    },
+                ) {
+                    eprintln!("[rhino] open: try_load: {e}");
                 }
             });
         }
@@ -980,6 +1185,7 @@ fn build_window(
             let mut b = gtk::AboutDialog::builder()
                 .program_name("Rhino Player")
                 .version(env!("CARGO_PKG_VERSION"))
+                .logo_icon_name(APP_ID)
                 .comments("mpv with GTK 4 and libadwaita (ToolbarView: seek as bottom bar).")
                 .license_type(gtk::License::Gpl30)
                 .website("https://github.com/adrianov/rhino-player")
@@ -1030,7 +1236,7 @@ fn build_window(
         ));
     }
 
-    apply_chrome(&win, &root, &status, &gl_area, &fs_overlay);
+    apply_chrome(&win, &root, &gl_area, &fs_overlay);
 
     win.present();
 }

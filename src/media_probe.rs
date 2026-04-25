@@ -86,6 +86,48 @@ fn percent_from_resume(start: Option<f64>, duration: Option<f64>) -> f64 {
     }
 }
 
+/// Linear size divisor vs source frame (1/6 width & height) for [ensure_thumbnail] `vo=image` only.
+const THUMB_SIZE_DIV: u32 = 6;
+
+/// Quit-time `screenshot-to-file` thumbs: max edge fit inside this box, aspect ratio preserved, never upscaled.
+const SCREENSHOT_MAX_W: u32 = 960;
+const SCREENSHOT_MAX_H: u32 = 540;
+const SCREENSHOT_JPEG_Q: u8 = 90;
+
+/// Downsize quit-time screenshots to fit inside [SCREENSHOT_MAX_W]×[SCREENSHOT_MAX_H] when larger; Lanczos3 + JPEG. Returns [None] when already within bounds (caller keeps mpv’s bytes).
+fn downscale_screenshot_raster(b: &[u8]) -> Option<Vec<u8>> {
+    use image::codecs::jpeg::JpegEncoder;
+    use image::imageops::FilterType;
+    use image::ImageEncoder;
+    let img = image::load_from_memory(b).ok()?;
+    let (w, h) = (img.width(), img.height());
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let sw = w as f32;
+    let sh = h as f32;
+    let scale = (SCREENSHOT_MAX_W as f32 / sw)
+        .min(SCREENSHOT_MAX_H as f32 / sh)
+        .min(1.0f32);
+    if scale >= 1.0 {
+        return None;
+    }
+    let nw = ((sw * scale).round() as u32).clamp(1, SCREENSHOT_MAX_W);
+    let nh = ((sh * scale).round() as u32).clamp(1, SCREENSHOT_MAX_H);
+    let out = img.resize(nw, nh, FilterType::Lanczos3);
+    let rgb = out.to_rgb8();
+    let mut buf = vec![];
+    JpegEncoder::new_with_quality(&mut buf, SCREENSHOT_JPEG_Q)
+        .write_image(
+            rgb.as_raw(),
+            rgb.width(),
+            rgb.height(),
+            image::ExtendedColorType::Rgb8,
+        )
+        .ok()?;
+    Some(buf)
+}
+
 /// Hash for cache filename (FNV-1a on UTF-8 path bytes).
 fn path_tag(path: &str) -> u64 {
     const OFFSET: u64 = 14695981039346656037;
@@ -98,37 +140,40 @@ fn path_tag(path: &str) -> u64 {
     h
 }
 
+/// DB hit for a **canonical** path (avoids a second [canonicalize] in [ensure_thumbnail]).
+fn db_thumb_for_canon_path(can: &Path) -> Option<Vec<u8>> {
+    let s = can.to_str()?;
+    let mtime = db::file_mtime_sec(can)?;
+    db::take_thumb_if_current(s, mtime)
+}
+
 /// Current thumbnail for this path in [crate::db] when [db::file_mtime_sec] matches; **no libmpv** (use on the UI thread).
 pub fn cached_thumbnail_for_path(path: &Path) -> Option<Vec<u8>> {
     if !path.exists() {
         return None;
     }
     let can = std::fs::canonicalize(path).ok()?;
-    let s = can.to_str()?;
-    let mtime = db::file_mtime_sec(&can)?;
-    db::take_thumb_if_current(s, mtime)
+    db_thumb_for_canon_path(&can)
 }
 
 /// PNG in [crate::db] `media.thumb_png`, rebuilt when the source file’s mtime changes.
 /// Calls [run_libmpv_image_frame] on a **cache miss**; keep that work off the UI thread (see [crate::recent_view::schedule_thumb_backfill]).
 pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
-    if let Some(t) = cached_thumbnail_for_path(path) {
-        return Some(t);
-    }
     if !path.exists() {
         return None;
     }
     let can = std::fs::canonicalize(path).ok()?;
+    if let Some(t) = db_thumb_for_canon_path(&can) {
+        return Some(t);
+    }
     let s = can.to_str()?;
-    let mtime = db::file_mtime_sec(&can)?; // match cache key used for [set_thumb]
+    let mtime = db::file_mtime_sec(&can)?;
     let tag = path_tag(s);
     let b = run_libmpv_image_frame(&can, tag)?;
-    db::set_thumb(s, &b, mtime);
+    const VO_IMAGE_START_SEC: f64 = 2.0;
+    db::set_thumb(s, &b, mtime, VO_IMAGE_START_SEC);
     Some(b)
 }
-
-/// Target width for probe thumbs (~card width); smaller = faster file I/O and encode.
-const THUMB_GRID_W: i32 = 200;
 
 /// One frame via a short-lived [Mpv] with `vo=image` (writes a frame into a temp outdir; see `vo=image` in mpv’s `vo.rst`).
 fn run_libmpv_image_frame(src: &Path, path_tag: u64) -> Option<Vec<u8>> {
@@ -153,14 +198,14 @@ fn run_libmpv_image_frame(src: &Path, path_tag: u64) -> Option<Vec<u8>> {
         // Default VO is jpg; keep explicit + fast encode.
         i.set_option("vo-image-format", "jpg")?;
         i.set_option("vo-image-outdir", out_s)?;
-        i.set_option("vo-image-jpeg-quality", "70")?;
+        i.set_option("vo-image-jpeg-quality", "85")?;
         // High ``optimize`` can spend time on smaller files; 0 = faster writes.
         i.set_option("vo-image-jpeg-optimize", "0")?;
         i.set_option("vo-image-png-compression", "0")?;
-        // Downscale before encode (card ~200px wide). ``neighbor`` is fastest.
+        // 1/6 linear (≈1/36 pixels) for sharper on-card display; bilinear for looks.
         i.set_option(
             "vf",
-            format!("scale={THUMB_GRID_W}:-2:flags=neighbor"),
+            format!("scale=iw/{}:-2:flags=bilinear", THUMB_SIZE_DIV),
         )?;
         i.set_option("start", "2")?;
         i.set_option("frames", 1i64)?;
@@ -266,7 +311,7 @@ fn path_from_mpv_str(path_s: &str) -> Option<PathBuf> {
 }
 
 /// Loaded local file, canonical, or `None` (idle, stream, or missing file).
-fn local_file_from_mpv(mpv: &Mpv) -> Option<PathBuf> {
+pub(crate) fn local_file_from_mpv(mpv: &Mpv) -> Option<PathBuf> {
     let s = match mpv.get_property::<String>("path") {
         Ok(s) if !s.is_empty() => s,
         _ => match mpv.get_property::<String>("filename") {
@@ -285,8 +330,13 @@ fn save_thumb_to_cache(mpv: &Mpv, can: &Path) -> bool {
         Some(m) => m,
         None => return false,
     };
+    let t = mpv.get_property::<f64>("time-pos").unwrap_or(f64::NAN);
+    if t.is_finite() && db::should_skip_quit_thumb(s, mtime, t) {
+        return true;
+    }
+    let t_store = if t.is_finite() { t } else { 0.0 };
     let _ = mpv.set_property("screenshot-format", "jpeg");
-    let _ = mpv.set_property("screenshot-jpeg-quality", 70i64);
+    let _ = mpv.set_property("screenshot-jpeg-quality", 90i64);
     let _ = mpv.set_property("screenshot-png-compression", 0i64);
     let out = std::env::temp_dir().join(format!("rhino-qt-{}-{:x}.jpg", path_tag(s), s.len()));
     let Some(out_s) = out.to_str() else {
@@ -297,10 +347,11 @@ fn save_thumb_to_cache(mpv: &Mpv, can: &Path) -> bool {
     }
     let b = read_nonempty(&out);
     let _ = std::fs::remove_file(&out);
-    let Some(img) = b else {
+    let Some(raw) = b else {
         return false;
     };
-    db::set_thumb(s, &img, mtime);
+    let img = downscale_screenshot_raster(&raw).unwrap_or(raw);
+    db::set_thumb(s, &img, mtime, t_store);
     true
 }
 
@@ -325,8 +376,8 @@ pub fn record_playback_for_current(mpv: &Mpv) {
     }
 }
 
-/// Screenshot and playback state for the open local file. Called on window close.
-pub fn persist_on_quit(mpv: &Mpv) {
+/// Screenshot of the current frame into the thumb cache. Heavy; call after the UI is responsive.
+pub fn save_cached_thumb(mpv: &Mpv) {
     let Some(can) = local_file_from_mpv(mpv) else {
         return;
     };
@@ -334,6 +385,11 @@ pub fn persist_on_quit(mpv: &Mpv) {
         // libmpv `screenshot-to-file` can fail; fill DB with a decoded frame (same as grid).
         let _ = ensure_thumbnail(&can);
     }
+}
+
+/// Screenshot and playback state for the open local file. Called on window close.
+pub fn persist_on_quit(mpv: &Mpv) {
+    save_cached_thumb(mpv);
     record_playback_for_current(mpv);
 }
 

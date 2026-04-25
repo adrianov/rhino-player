@@ -20,17 +20,14 @@ pub fn apply() {
         .rp-stack {
             background-color: #242424;
         }
-        .rp-status {
-            color: #9a9996;
-            font-size: 0.9em;
-            margin: 8px 14px 4px 14px;
-        }
         .rp-gl { background: #000000; min-height: 120px; }
         .rp-bottom {
             background-color: #1e1e1e;
             border-top: 1px solid #3d3d3d;
             padding: 8px 14px 12px 14px;
         }
+        /* LTR: space before elapsed time; GTK CSS has no margin-end in all releases */
+        .rp-bottom .rpb-play { margin-right: 6px; }
         .rp-time {
             color: #c0bfbc;
             font-family: monospace, monospace;
@@ -65,13 +62,16 @@ pub fn apply() {
         .rp-recent-bg { border-radius: 0; }
         .rp-recent-bg-miss { background-color: #2d2d2d; }
         .rp-recent-card-footer {
-            background: linear-gradient(
+            /* Solid strip + gradient so file name and progress read on any frame. */
+            background-color: rgba(0, 0, 0, 0.55);
+            background-image: linear-gradient(
                 to top,
-                rgba(0, 0, 0, 0.75) 0%,
-                rgba(0, 0, 0, 0.25) 70%,
-                rgba(0, 0, 0, 0) 100%
+                rgba(0, 0, 0, 0.5) 0%,
+                rgba(0, 0, 0, 0.12) 100%
             );
         }
+        .rp-recent-card-footer label { color: #f6f5f4; }
+        .rp-recent-card-footer label.dim-label { color: #deddda; }
         .rp-stale { opacity: 0.6; }
         .rp-recent-pict { color: #9a9996; }
         progressbar.rp-recent-bar { min-height: 8px; }

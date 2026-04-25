@@ -2,7 +2,7 @@
 
 **Name:** Transport controls and progress bar
 
-**Implementation status:** In progress (seek + time; see [22-audio-volume-mute](22-audio-volume-mute.md) for volume)
+**Implementation status:** In progress (seek + time, bottom bar play/pause; see [22-audio-volume-mute](22-audio-volume-mute.md) for volume)
 
 **Use cases:** Control playback without leaving the app; see position and total length; adjust volume; enter fullscreen for focused viewing.
 
@@ -12,7 +12,7 @@
 
 **Specification:**
 
-- Properties observed: `time-pos`, `duration`, `pause`, `mute`, `volume`, `volume-max`, `fullscreen` (or window fullscreen state), `media-title` for window title.
+- Properties observed: `time-pos`, `duration`, `pause`, `mute`, `volume`, `volume-max`, `fullscreen` (or window fullscreen state), `media-title` for window title. Play/pause in the **bottom** bar: icon button to the **left** of the elapsed time (left in LTR), `sensitive` only when `duration` > 0, toggles `pause` (same as Space; see [Input shortcuts](13-input-shortcuts.md)).
 - Seek bar: upper bound = duration; disabled when duration unknown/zero.
 - User setting toggles between elapsed and negative remaining time (`show-remaining`).
 - Match at least 5s/10s style keyboard seeks via [Input shortcuts](13-input-shortcuts.md).
