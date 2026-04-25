@@ -83,7 +83,47 @@ pub fn apply() {
             background-color: rgba(0, 0, 0, 0.5);
         }
         button.rp-recent-dismiss:hover { background-color: rgba(0, 0, 0, 0.68); }
-        .rp-recent-undo { margin-bottom: 4px; }
+        /* Undo shell: zero paint so only the pill (.rp-undo-toast) is visible. */
+        .rp-undo-shell {
+            background: none;
+            background-color: transparent;
+            border: none;
+            box-shadow: none;
+            padding: 0;
+            outline: none;
+        }
+        /* Continue list: file-manager style snack (pill, blur) — only on the inner box */
+        .rp-undo-toast {
+            min-height: 40px;
+            padding: 6px 8px 6px 16px;
+            /* Darker + frosted vs .rp-recent-scroll so the pill reads on top, not a flat 24/24/24 */
+            background-color: rgba(18, 18, 20, 0.94);
+            border-radius: 9999px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(20px);
+            color: #f6f5f4;
+        }
+        .rp-undo-toast:backdrop { background-color: rgba(18, 18, 20, 0.96); }
+        .rp-undo-toast label.rp-undo-toast-text { color: #f6f5f4; }
+        .rp-undo-toast-undo,
+        .rp-undo-toast button.rp-undo-toast-undo {
+            color: #f6f5f4;
+            font-weight: 600;
+            min-height: 32px;
+            padding-left: 12px;
+            padding-right: 12px;
+            border-radius: 8px;
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        .rp-undo-toast-undo:hover { background-color: rgba(255, 255, 255, 0.16); }
+        button.rp-undo-toast-close {
+            min-width: 32px;
+            min-height: 32px;
+            padding: 0;
+            color: #f6f5f4;
+        }
+        button.rp-undo-toast-close:hover { background-color: rgba(255, 255, 255, 0.12); }
         progressbar.rp-recent-bar { min-height: 8px; }
         progressbar.rp-recent-bar trough { background-color: #3d3d3d; }
         progressbar.rp-recent-bar progress { background-color: #78aeed; }

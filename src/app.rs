@@ -7,7 +7,7 @@ use gtk::glib::prelude::ObjectExt;
 use gtk::prelude::{GestureExt, GtkWindowExt, NativeExt, WidgetExt};
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -22,7 +22,7 @@ use libmpv2::Mpv;
 use crate::icons;
 
 use crate::media_probe::{
-    card_data_list, local_file_from_mpv, record_playback_for_current, save_cached_thumb, CardData,
+    card_data_list, is_natural_end, local_file_from_mpv, save_cached_thumb, CardData,
 };
 use crate::mpv_embed::MpvBundle;
 use crate::recent_view;
@@ -92,21 +92,6 @@ fn win_normal_size(win: &adw::ApplicationWindow) -> (i32, i32) {
         (w, h)
     } else {
         (WIN_INIT_W, WIN_INIT_H)
-    }
-}
-
-/// True when the current file looks fully played, so we can drop it from the continue list on switch.
-/// Aligns with [media_probe] near-end for 100%: EOF or last ~3s of a known duration.
-fn mpv_fully_watched(mpv: &Mpv) -> bool {
-    if mpv.get_property::<bool>("eof-reached").unwrap_or(false) {
-        return true;
-    }
-    match (
-        mpv.get_property::<f64>("time-pos"),
-        mpv.get_property::<f64>("duration"),
-    ) {
-        (Ok(p), Ok(d)) if p.is_finite() && d > 0.0 => d - p <= 3.0,
-        _ => false,
     }
 }
 
@@ -658,10 +643,12 @@ fn try_load(
         let mut g = player.borrow_mut();
         let b = g.as_mut().ok_or("Player not ready. Wait for GL init.")?;
         let prev = local_file_from_mpv(&b.mpv).or_else(|| o.last_path.borrow().clone());
+        let clear_outgoing_resume =
+            is_natural_end(&b.mpv) && local_file_from_mpv(&b.mpv).is_some();
         let drop_from_history = prev
             .as_ref()
-            .is_some_and(|p| !same_open_target(p, path) && mpv_fully_watched(&b.mpv));
-        if let Err(e) = b.load_file_path(path) {
+            .is_some_and(|p| !same_open_target(p, path) && is_natural_end(&b.mpv));
+        if let Err(e) = b.load_file_path(path, clear_outgoing_resume) {
             eprintln!("[rhino] try_load: loadfile failed: {e}");
             return Err(e);
         }
@@ -903,21 +890,54 @@ fn reflow_continue_cards(
     recent_view::schedule_thumb_backfill(n, r);
 }
 
-/// LIFO stack of paths removed in this run; Undo pops the newest and re-adds to history.
-fn sync_undo_reveal(btn: &gtk::Button, rev: &gtk::Revealer, pending: usize) {
-    rev.set_reveal_child(pending > 0);
-    match pending {
-        0 => btn.set_tooltip_text(None),
+fn cancel_undo_timer(src: &RefCell<Option<glib::source::SourceId>>) {
+    if let Some(id) = src.borrow_mut().take() {
+        id.remove();
+    }
+}
+
+/// LIFO stack: label shows the file that **Undo** will restore; dismiss / timeout discards that undo target only.
+fn sync_undo_bar(
+    label: &gtk::Label,
+    btn: &gtk::Button,
+    shell: &gtk::Box,
+    stack: &RefCell<Vec<PathBuf>>,
+) {
+    let n = stack.borrow().len();
+    shell.set_visible(n > 0);
+    if n == 0 {
+        label.set_label("");
+        btn.set_tooltip_text(None);
+        return;
+    }
+    match n {
         1 => btn.set_tooltip_text(Some(
             "Put the most recently removed file back on the list (this session).",
         )),
         n => {
             let s = format!(
-                "Put back the most recent removal. {n} file(s) on the session undo stack (one per click, newest first)."
+                "Restores the most recent removal. {n} file(s) on the stack (one per click, newest first)."
             );
             btn.set_tooltip_text(Some(s.as_str()));
         }
     }
+    if let Some(p) = stack.borrow().last() {
+        let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("file");
+        let line = format!("\u{201c}{name}\u{201d} removed from continue list");
+        label.set_label(&line);
+    }
+}
+
+fn rearm_undo_dismiss(
+    do_commit: &Rc<dyn Fn() + 'static>,
+    undo_source: &RefCell<Option<glib::source::SourceId>>,
+) {
+    cancel_undo_timer(undo_source);
+    let c = do_commit.clone();
+    *undo_source.borrow_mut() = Some(glib::timeout_add_seconds_local(10, move || {
+        c();
+        glib::ControlFlow::Break
+    }));
 }
 
 /// Shared handles for leaving playback and repainting the recent grid (Escape path).
@@ -931,8 +951,10 @@ struct BackToBrowseCtx {
     win_aspect: Rc<Cell<Option<f64>>>,
     /// Show bars; cancel auto-hide. Call after [gtk::ScrolledWindow::set_visible] for the grid.
     on_browse: Rc<dyn Fn()>,
-    undo_revealer: gtk::Revealer,
+    undo_shell: gtk::Box,
+    undo_label: gtk::Label,
     undo_btn: gtk::Button,
+    undo_timer: Rc<RefCell<Option<glib::source::SourceId>>>,
     /// Stack of removed paths, newest at the end; [Undo] pops from the end.
     undo_remove_stack: Rc<RefCell<Vec<PathBuf>>>,
 }
@@ -945,8 +967,14 @@ fn back_to_browse(
     recent: &gtk::ScrolledWindow,
     row: &gtk::Box,
 ) {
+    cancel_undo_timer(&c.undo_timer);
     *c.undo_remove_stack.borrow_mut() = Vec::new();
-    sync_undo_reveal(&c.undo_btn, &c.undo_revealer, 0);
+        sync_undo_bar(
+        &c.undo_label,
+        &c.undo_btn,
+        &c.undo_shell,
+        &c.undo_remove_stack,
+    );
     c.win_aspect.set(None);
     *c.last_path.borrow_mut() = None;
     c.sibling_seof.done.set(false);
@@ -969,9 +997,12 @@ fn back_to_browse(
         let p2 = c.player.clone();
         let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
             if let Some(b) = p2.borrow().as_ref() {
-                b.write_resume_snapshot();
-                record_playback_for_current(&b.mpv);
-                b.persist_on_quit();
+                b.snapshot_outgoing_before_leave();
+                if is_natural_end(&b.mpv) {
+                    save_cached_thumb(&b.mpv);
+                } else {
+                    b.persist_on_quit();
+                }
                 b.stop_playback();
             }
             glib::ControlFlow::Break
@@ -989,10 +1020,7 @@ fn back_to_browse(
     let rbb = c.recent_backfill.clone();
     let _ = glib::source::idle_add_local_once(move || {
         if let Some(b) = p_write.borrow().as_ref() {
-            b.write_resume_snapshot();
-            // DB row for % in the grid; avoid `persist_on_quit` here — its screenshot blocks
-            // the main loop until after the sheet is filled (Escape feels instant).
-            record_playback_for_current(&b.mpv);
+            b.snapshot_outgoing_before_leave();
         }
         let p3 = p_write.clone();
         let rbb2 = rbb.clone();
@@ -1359,12 +1387,15 @@ fn build_window(
     ovl.add_css_class("rp-page-stack");
     ovl.set_child(Some(&gl_area));
 
-    let (recent_scrl, flow_recent, undo_revealer, undo_btn) = recent_view::new_scroll();
+    let (recent_scrl, flow_recent, undo_bar) = recent_view::new_scroll();
     recent_scrl.set_vexpand(true);
     recent_scrl.set_hexpand(true);
     recent_scrl.set_halign(gtk::Align::Fill);
     recent_scrl.set_valign(gtk::Align::Fill);
     ovl.add_overlay(&recent_scrl);
+    let undo_shell = undo_bar.shell.clone();
+    let undo_label = undo_bar.label.clone();
+    let undo_btn = undo_bar.undo.clone();
 
     let app_fl = app.clone();
     let on_file_loaded: Rc<dyn Fn()> = Rc::new({
@@ -1710,26 +1741,63 @@ fn build_window(
     }
 
     let undo_remove_stack = Rc::new(RefCell::new(Vec::<PathBuf>::new()));
+    let undo_timer = Rc::new(RefCell::new(None::<glib::source::SourceId>));
+    type DismissTopRef = Rc<RefCell<Option<Weak<dyn Fn() + 'static>>>>;
+    let do_commit_weak: DismissTopRef = Rc::new(RefCell::new(None));
+    let ush_d = undo_shell.clone();
+    let ul_d = undo_label.clone();
+    let ub_d = undo_btn.clone();
+    let urs_d = undo_remove_stack.clone();
+    let uts_d = undo_timer.clone();
+    let wk_d = do_commit_weak.clone();
+    let do_commit: Rc<dyn Fn() + 'static> = Rc::new(move || {
+        cancel_undo_timer(uts_d.as_ref());
+        if urs_d.borrow_mut().pop().is_none() {
+            return;
+        }
+        sync_undo_bar(&ul_d, &ub_d, &ush_d, &urs_d);
+        if !urs_d.borrow().is_empty() {
+            if let Some(f) = wk_d
+                .borrow()
+                .as_ref()
+                .and_then(|w| w.upgrade())
+            {
+                *uts_d.borrow_mut() = Some(glib::timeout_add_seconds_local(10, move || {
+                    f();
+                    glib::ControlFlow::Break
+                }));
+            }
+        }
+    });
+    *do_commit_weak.borrow_mut() = Some(Rc::downgrade(&do_commit));
     let on_remove_cell: Rc<RefCell<Option<RcPathFn>>> = Rc::new(RefCell::new(None));
     let fr_sl = flow_recent.clone();
     let recent_rm = recent_scrl.clone();
     let op_s = on_open.clone();
     let rbf_rm = recent_backfill.clone();
     let ur_stack = undo_remove_stack.clone();
-    let urev_rm = undo_revealer.clone();
+    let u_sh_rm = undo_shell.clone();
     let undo_t_rm = undo_btn.clone();
+    let u_la_rm = undo_label.clone();
+    let ut_rm = undo_timer.clone();
+    let do_rm = do_commit.clone();
     let cell_rm = on_remove_cell.clone();
     let on_remove: RcPathFn = Rc::new(move |path: &Path| {
         history::remove(path);
         ur_stack.borrow_mut().push(path.to_path_buf());
-        let n = ur_stack.borrow().len();
-        sync_undo_reveal(&undo_t_rm, &urev_rm, n);
+        sync_undo_bar(
+            &u_la_rm,
+            &undo_t_rm,
+            &u_sh_rm,
+            &ur_stack,
+        );
         let f = cell_rm
             .borrow()
             .as_ref()
             .expect("on_remove not wired")
             .clone();
         reflow_continue_cards(&fr_sl, &recent_rm, op_s.clone(), f, &rbf_rm);
+        rearm_undo_dismiss(&do_rm, ut_rm.as_ref());
     });
     *on_remove_cell.borrow_mut() = Some(on_remove.clone());
 
@@ -1739,8 +1807,11 @@ fn build_window(
         let op_u = on_open.clone();
         let rbf_u = recent_backfill.clone();
         let ur_u = undo_remove_stack.clone();
-        let urev_u = undo_revealer.clone();
+        let u_sh_u = undo_shell.clone();
         let undo_t_u = undo_btn.clone();
+        let u_la_u = undo_label.clone();
+        let ut_u = undo_timer.clone();
+        let do_u = do_commit.clone();
         let cell_u = on_remove_cell.clone();
         undo_btn.connect_clicked(glib::clone!(
             #[strong]
@@ -1754,18 +1825,24 @@ fn build_window(
             #[strong]
             ur_u,
             #[strong]
-            urev_u,
+            u_sh_u,
             #[strong]
             undo_t_u,
             #[strong]
+            u_la_u,
+            #[strong]
+            ut_u,
+            #[strong]
+            do_u,
+            #[strong]
             cell_u,
             move |_| {
+                cancel_undo_timer(ut_u.as_ref());
                 let Some(pb) = ur_u.borrow_mut().pop() else {
                     return;
                 };
                 history::record(&pb);
-                let n = ur_u.borrow().len();
-                sync_undo_reveal(&undo_t_u, &urev_u, n);
+                sync_undo_bar(&u_la_u, &undo_t_u, &u_sh_u, &ur_u);
                 rec_u.set_visible(true);
                 let f = cell_u
                     .borrow()
@@ -1773,8 +1850,17 @@ fn build_window(
                     .expect("on_remove not wired")
                     .clone();
                 reflow_continue_cards(&fr_u, &rec_u, op_u.clone(), f, &rbf_u);
+                if !ur_u.borrow().is_empty() {
+                    rearm_undo_dismiss(&do_u, ut_u.as_ref());
+                }
             }
         ));
+    }
+    {
+        let dc = do_commit.clone();
+        undo_bar.close.connect_clicked(move |_| {
+            dc();
+        });
     }
 
     if want_recent {
@@ -2045,7 +2131,9 @@ fn build_window(
         let lu_key = last_unmax.clone();
         let skip_key = skip_max_to_fs.clone();
         let wa_esc = win_aspect.clone();
-        let urev_k = undo_revealer.clone();
+        let ush_k = undo_shell.clone();
+        let ula_k = undo_label.clone();
+        let uti_k = undo_timer.clone();
         let ur_k = undo_remove_stack.clone();
         let undo_t_esc = undo_btn.clone();
         let k = gtk::EventControllerKey::new();
@@ -2072,8 +2160,10 @@ fn build_window(
                         sibling_seof: seof_esc.clone(),
                         win_aspect: wa_esc.clone(),
                         on_browse: browse_esc.clone(),
-                        undo_revealer: urev_k.clone(),
+                        undo_shell: ush_k.clone(),
+                        undo_label: ula_k.clone(),
                         undo_btn: undo_t_esc.clone(),
+                        undo_timer: uti_k.clone(),
                         undo_remove_stack: ur_k.clone(),
                     },
                     &win_key,

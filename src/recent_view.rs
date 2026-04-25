@@ -16,8 +16,69 @@ use std::time::Duration;
 
 use crate::media_probe::{self, card_data_list, CardData};
 
-/// Scrolled row of at most five cards; [undo] is the "Undo" button next to the revealer label.
-pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, gtk::Revealer, gtk::Button) {
+/// Session undo: title, **Undo**, close (dismisses without restoring). Placed in [new_scroll] under the card row.
+/// Plain [gtk::Box] shell (not [gtk::Revealer]) so GTK does not paint an extra background plane behind the pill.
+pub struct UndoBar {
+    /// Wraps the pill; visibility toggles; must stay visually transparent.
+    pub shell: gtk::Box,
+    pub label: gtk::Label,
+    pub undo: gtk::Button,
+    pub close: gtk::Button,
+}
+
+/// Pill-style bar; inserted in the continue [gtk::Box] directly below the thumbnail row.
+fn new_undo_bar() -> UndoBar {
+    let label = gtk::Label::new(None);
+    label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+    label.set_max_width_chars(44);
+    label.set_xalign(0.0);
+    label.set_halign(gtk::Align::Start);
+    label.set_valign(gtk::Align::Center);
+    label.set_single_line_mode(true);
+    label.set_hexpand(true);
+    label.add_css_class("rp-undo-toast-text");
+
+    let undo = gtk::Button::with_label("Undo");
+    undo.set_tooltip_text(Some("Put the most recently removed file back on the continue list"));
+    undo.set_valign(gtk::Align::Center);
+    undo.set_halign(gtk::Align::Center);
+    undo.add_css_class("flat");
+    undo.add_css_class("rp-undo-toast-undo");
+
+    let close = gtk::Button::from_icon_name("window-close-symbolic");
+    close.set_valign(gtk::Align::Center);
+    close.set_halign(gtk::Align::Center);
+    close.set_tooltip_text(Some("Dismiss"));
+    close.add_css_class("circular");
+    close.add_css_class("flat");
+    close.add_css_class("rp-undo-toast-close");
+
+    let bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    bar.set_spacing(6);
+    bar.set_halign(gtk::Align::Center);
+    bar.set_valign(gtk::Align::Center);
+    bar.append(&label);
+    bar.append(&undo);
+    bar.append(&close);
+    bar.add_css_class("rp-undo-toast");
+
+    let shell = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    shell.set_halign(gtk::Align::Center);
+    shell.set_valign(gtk::Align::Start);
+    shell.set_vexpand(false);
+    shell.set_hexpand(false);
+    shell.set_visible(false);
+    shell.set_margin_top(4);
+    shell.set_margin_start(16);
+    shell.set_margin_end(16);
+    shell.add_css_class("rp-undo-shell");
+    shell.append(&bar);
+
+    UndoBar { shell, label, undo, close }
+}
+
+/// Scrolled row of at most five continue cards, with the undo snackbar **under** the strip (in-layout, not under the window bottom toolbar).
+pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, UndoBar) {
     let h = gtk::Box::new(gtk::Orientation::Horizontal, 16);
     h.set_halign(gtk::Align::Center);
     h.set_baseline_position(gtk::BaselinePosition::Top);
@@ -36,21 +97,10 @@ pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, gtk::Revealer, gtk::Butto
     sp_top.set_vexpand(true);
     let sp_bot = gtk::Box::new(gtk::Orientation::Vertical, 0);
     sp_bot.set_vexpand(true);
-    let undo_b = gtk::Button::with_label("Undo");
-    undo_b.set_tooltip_text(Some("Session undo stack: each click restores the most recent removal"));
-    undo_b.add_css_class("suggested-action");
-    undo_b.set_halign(gtk::Align::Center);
-    let undo_r = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    undo_r.set_halign(gtk::Align::Center);
-    undo_r.append(&undo_b);
-    let undo_revealer = gtk::Revealer::new();
-    undo_revealer.set_reveal_child(false);
-    undo_revealer.set_transition_type(gtk::RevealerTransitionType::SlideUp);
-    undo_revealer.set_child(Some(&undo_r));
-    undo_revealer.add_css_class("rp-recent-undo");
+    let undo_bar = new_undo_bar();
     v.append(&sp_top);
-    v.append(&undo_revealer);
     v.append(&h);
+    v.append(&undo_bar.shell);
     v.append(&sp_bot);
 
     let s = gtk::ScrolledWindow::new();
@@ -62,7 +112,7 @@ pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, gtk::Revealer, gtk::Butto
     s.set_hscrollbar_policy(gtk::PolicyType::Automatic);
     s.set_kinetic_scrolling(false);
     s.add_css_class("rp-recent-scroll");
-    (s, h, undo_revealer, undo_b)
+    (s, h, undo_bar)
 }
 
 fn clear(f: &gtk::Box) {
