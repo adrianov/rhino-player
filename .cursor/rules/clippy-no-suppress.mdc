@@ -1,0 +1,24 @@
+---
+description: Do not silence Clippy with allow attributes — fix or refactor the design instead.
+alwaysApply: true
+---
+
+# Clippy: no warning suppression
+
+**Policy:** Do not add or expand **`#[allow(clippy::…)]`**, **`#![allow(clippy::…)]`**, or other attributes whose main purpose is to **dismiss** Clippy without a real fix. Run **`cargo clippy --all-targets --all-features`** (or **`cargo qcheck`**) and treat every Clippy **warning** as something to **resolve in code** before the change is done.
+
+**Existing** `allow` on legacy code is **debt**: remove it when you touch that code, or schedule a small refactor; do not copy the pattern.
+
+## Refactor levers (prefer these over allows)
+
+| Lint / problem | Direction |
+|----------------|------------|
+| **`cognitive_complexity`**, **`too_many_lines`** | Extract pure helpers, subfunctions, or a dedicated module; replace nested `if` chains with early returns, `match`, or a small state type. |
+| **`too_many_arguments`**, many `Rc`/`RefCell` parameters | **Group parameters** in a `struct` (context, builder, “wiring” bundle); **narrow ownership** with clearer module boundaries. |
+| **`type_complexity`** | **`type` aliases**, newtype wrappers, or splitting generic-heavy code. |
+| **`module_inception`**, **large files** | **Feature-shaped modules** (see `complexity-and-module-design.mdc`): one area per file, **dependency injection** at boundaries (UI / mpv / storage). |
+| **GUI/FFI “noise”** | Move raw bindings to a **thin `unsafe` or FFI layer** with safe wrappers, instead of silencing lints on the whole app. |
+
+**Rare rustc-only** allows (e.g. `unused` in `include!` or generated code) are **not** Clippy; keep them local and commented when unavoidable.
+
+**CI (recommended):** `cargo clippy --all-targets --all-features -D warnings` so warnings cannot merge unnoticed; the table above is how to stay green **without** `allow`.

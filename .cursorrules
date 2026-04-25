@@ -7,8 +7,9 @@
 
 ## Directories
 
+- `data/` — Freedesktop assets: `data/icons` (hicolor, `source/*` design + `rebuild-png-assets.sh`; see `data/icons/README.md`), `data/applications/*.desktop`, `data/metainfo` (AppStream), `install-to-user-dirs.sh` (installs to `~/.local/share` for shell/taskbar icon). Index: `data/README.md`.
 - `docs/` — Feature specs **before** implementation. Index: `docs/README.md`. One file per feature area under `docs/features/`. Product and use cases: `docs/product-and-use-cases.md`.
-- `src/` — `main.rs` (entry + locale), `lib.rs`, `app.rs` (GTK shell, transport, volume popover, `db::init` on startup), `db.rs` (SQLite `rhino.sqlite`: history, `settings` kv, media duration/thumbs), `mpv_embed.rs` (libmpv `RenderContext` + `GLArea`, `commit_quit`), `paths.rs` (XDG config, mpv `watch_later` dir only), `history.rs` (recent list via `db`), `media_probe.rs` (watch_later scan, card data, libmpv `vo=image` + quit thumb), `recent_view.rs` (empty-launch card grid), `time.rs` (time formatting + tests), `theme.rs` (CSS).
+- `src/` — `main.rs` (entry + locale), `lib.rs`, `app.rs` (GTK shell, `APP_ID`, bottom-bar transport + play/pause, header volume + menu, `db::init` on startup, `eof-reached` → `sibling_advance`), `icons.rs` (hicolor search path for `cargo run`), `db.rs` (SQLite `rhino.sqlite`: history, `settings` kv, media duration/thumbs), `mpv_embed.rs` (libmpv `RenderContext` + `GLArea`, `commit_quit`), `paths.rs` (XDG config, mpv `watch_later` dir only), `history.rs` (recent list via `db`), `media_probe.rs` (watch_later scan, card data, libmpv `vo=image` + quit thumb), `sibling_advance.rs` (next local file after EOF: same dir → next sibling subfolder), `recent_view.rs` (empty-launch card grid), `time.rs` (time formatting + tests), `theme.rs` (CSS).
 - `tests/` — Integration tests (e.g. libmpv smoke).
 
 ## Workflow
@@ -19,5 +20,7 @@
 
 - Keep `.cursorrules` and `docs/README.md` feature list aligned with what exists in the tree.
 - Prefer clear module boundaries: UI (GTK/Adwaita), mpv control, platform (DBus, portals), persistence (settings, session).
+- **Clippy:** run `cargo qcheck` (or `cargo clippy --all-targets --all-features`); do not add `#[allow(clippy::…)]`—fix by refactoring (see `.cursor/rules/clippy-no-suppress.mdc`).
 - **Complexity and module shape:** there is no Ruby-style `AbcSize` in Rust; use Clippy (see `clippy.toml`, `cargo qcheck`) and follow `.cursor/rules/complexity-and-module-design.mdc` (cognitive-complexity gate; if a feature touches **>6 files**, refactor toward SOLID / single reason to change per module).
+- **UI / IO timing:** prefer event subscriptions over periodic polls; see `.cursor/rules/events-over-polling.mdc`.
 - Name length: prefer short, clear identifiers (2–3 words) for new types and functions, consistent with the rest of the file.

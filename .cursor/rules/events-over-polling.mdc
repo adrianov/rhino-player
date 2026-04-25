@@ -1,0 +1,15 @@
+---
+description: Prefer event subscriptions over timers when the stack exposes specific events; restrict polling to justified cases.
+alwaysApply: true
+---
+
+# Events over polling
+
+- **Default:** Do **not** add periodic timers (`glib::timeout_add*`, `interval`, busy loops on the main thread) to mirror state that already changes on **known events**. Wire **those** events instead.
+- **Where to look for events**
+  - **GTK / libadwaita:** widget signals, `connect_*` handlers, action `activate`, `notify::*` for GObject properties, `PropertyBinding`, controllers (scroll, key, click).
+  - **GIO / GLib:** `Cancellable` + async completion, `FileMonitor`, signals on `Application` / `ActionGroup`, not “poll every N ms to see if something changed” when a signal or callback exists.
+  - **libmpv:** `observe_property` for properties you care about; `set_wakeup_callback` only to **schedule work on the main thread**; on the main thread, drain with `wait_event(0)` in a loop until idle. **Never** call other mpv APIs from **inside** the wakeup callback.
+- **When a timer is still OK:** Only if there is **no** reliable event (or the API explicitly recommends a tick), or you need a **documented** fallback (e.g. rare case where property observation is too costly and product accepts coarser updates). If you add a timer, state **why** a subscription was insufficient and keep the interval as large as the UX allows.
+
+**Existing code:** A legacy timer (e.g. transport UI) is not a pattern to copy without replacing it with the event-driven path above when touching that area.

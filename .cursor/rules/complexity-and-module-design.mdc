@@ -16,7 +16,7 @@ alwaysApply: true
 - **`cargo clippy` is not part of `cargo build`.** A normal compile does not run these checks. Keep quality visible by:
   - Running **`cargo clippy`** (or the **`cargo qcheck` alias** from **`.cargo/config.toml`**) before you merge, and
   - Wiring the same command into **CI** (recommended) on every push or pull request to `main` / your default branch.
-- Treat a failing or warning-burdened Clippy run the same class of problem as a failing test: **fix or justify** (narrow `allow` on a specific item, with a short comment) before the change is “done”.
+- Treat a failing or warning-burdened Clippy run the same class of problem as a failing test: **fix by refactoring**; do not silence Clippy with `allow` (see `clippy-no-suppress.mdc`).
 
 ## When a feature touches “too many” files
 
