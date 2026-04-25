@@ -2,7 +2,7 @@ use adw::prelude::*;
 use gtk::gio;
 use gtk::glib;
 use gtk::glib::prelude::ObjectExt;
-use gtk::prelude::{GtkWindowExt, NativeExt, WidgetExt};
+use gtk::prelude::{GestureExt, GtkWindowExt, NativeExt, WidgetExt};
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -287,8 +287,10 @@ fn toggle_fullscreen(
     win: &adw::ApplicationWindow,
     fs_restore: &RefCell<Option<(i32, i32)>>,
     last_unmax: &RefCell<(i32, i32)>,
+    skip_max_to_fs: &Cell<bool>,
 ) {
     if win.is_fullscreen() {
+        skip_max_to_fs.set(true);
         win.unfullscreen();
         // unmaximize + set_default_size run in `connect_fullscreened_notify` (leave) if `fs_restore` was set
     } else if !win.is_maximized() {
@@ -559,6 +561,43 @@ const SIBLING_POS_EPS: f64 = 0.04;
 struct SiblingEofState {
     done: Cell<bool>,
     stall: Cell<(f64, u8)>,
+    /// Last canonical path for which `nav_sensitivity` was computed; avoids `prev` / `next` directory walks every 200ms.
+    nav_key: RefCell<Option<PathBuf>>,
+    nav_can_prev: Cell<bool>,
+    nav_can_next: Cell<bool>,
+}
+
+impl SiblingEofState {
+    /// Prev/next button sensitivity for `cur`. Reuses cached fs work while the file path is unchanged.
+    fn nav_sensitivity(&self, cur: &Path) -> (bool, bool) {
+        if !cur.is_file() {
+            *self.nav_key.borrow_mut() = None;
+            return (false, false);
+        }
+        let can = match std::fs::canonicalize(cur) {
+            Ok(p) => p,
+            Err(_) => {
+                *self.nav_key.borrow_mut() = None;
+                return (false, false);
+            }
+        };
+        {
+            let k = self.nav_key.borrow();
+            if k.as_ref() == Some(&can) {
+                return (self.nav_can_prev.get(), self.nav_can_next.get());
+            }
+        }
+        let cp = sibling_advance::prev_before_current(cur).is_some();
+        let cn = sibling_advance::next_after_eof(cur).is_some();
+        *self.nav_key.borrow_mut() = Some(can);
+        self.nav_can_prev.set(cp);
+        self.nav_can_next.set(cn);
+        (cp, cn)
+    }
+
+    fn clear_nav_sensitivity(&self) {
+        *self.nav_key.borrow_mut() = None;
+    }
 }
 
 /// `eof-reached` is the usual “finished” signal, but with `keep-open` and the GL render path it can stay
@@ -668,6 +707,23 @@ fn reflow_continue_cards(
     recent_view::schedule_thumb_backfill(n, r);
 }
 
+/// LIFO stack of paths removed in this run; Undo pops the newest and re-adds to history.
+fn sync_undo_reveal(btn: &gtk::Button, rev: &gtk::Revealer, pending: usize) {
+    rev.set_reveal_child(pending > 0);
+    match pending {
+        0 => btn.set_tooltip_text(None),
+        1 => btn.set_tooltip_text(Some(
+            "Put the most recently removed file back on the list (this session).",
+        )),
+        n => {
+            let s = format!(
+                "Put back the most recent removal. {n} file(s) on the session undo stack (one per click, newest first)."
+            );
+            btn.set_tooltip_text(Some(s.as_str()));
+        }
+    }
+}
+
 /// Shared handles for leaving playback and repainting the recent grid (Escape path).
 struct BackToBrowseCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
@@ -680,8 +736,9 @@ struct BackToBrowseCtx {
     /// Show bars; cancel auto-hide. Call after [gtk::ScrolledWindow::set_visible] for the grid.
     on_browse: Rc<dyn Fn()>,
     undo_revealer: gtk::Revealer,
-    last_removed: Rc<RefCell<Option<PathBuf>>>,
-    undo_hide: Rc<RefCell<Option<glib::SourceId>>>,
+    undo_btn: gtk::Button,
+    /// Stack of removed paths, newest at the end; [Undo] pops from the end.
+    undo_remove_stack: Rc<RefCell<Vec<PathBuf>>>,
 }
 
 /// Show the sheet immediately; mpv/DB/grid/stop on LOW-priority idles (after a frame paints).
@@ -692,11 +749,8 @@ fn back_to_browse(
     recent: &gtk::ScrolledWindow,
     row: &gtk::Box,
 ) {
-    c.undo_revealer.set_reveal_child(false);
-    if let Some(id) = c.undo_hide.borrow_mut().take() {
-        id.remove();
-    }
-    *c.last_removed.borrow_mut() = None;
+    *c.undo_remove_stack.borrow_mut() = Vec::new();
+    sync_undo_reveal(&c.undo_btn, &c.undo_revealer, 0);
     c.win_aspect.set(None);
     *c.last_path.borrow_mut() = None;
     c.sibling_seof.done.set(false);
@@ -816,8 +870,14 @@ fn build_window(
     let sibling_seof = Rc::new(SiblingEofState {
         done: Cell::new(false),
         stall: Cell::new((0.0, 0u8)),
+        nav_key: RefCell::new(None),
+        nav_can_prev: Cell::new(false),
+        nav_can_next: Cell::new(false),
     });
     let fs_restore = Rc::new(RefCell::new(None::<(i32, i32)>));
+    // Stops `connect_maximized_notify` from re-calling `fullscreen` in the `maximized && !fullscreen`
+    // case right after `unfullscreen` (same event tick as leaving fullscreen).
+    let skip_max_to_fs = Rc::new(Cell::new(false));
     let last_unmax = Rc::new(RefCell::new((WIN_INIT_W, WIN_INIT_H)));
     let win_aspect = Rc::new(Cell::new(None::<f64>));
     let aspect_resize_end_deb = Rc::new(RefCell::new(None::<glib::SourceId>));
@@ -832,6 +892,16 @@ fn build_window(
     play_pause.add_css_class("rpb-play");
     play_pause.set_tooltip_text(Some("Play (Space)"));
     play_pause.set_sensitive(false);
+    let btn_prev = gtk::Button::from_icon_name("go-previous-symbolic");
+    btn_prev.add_css_class("flat");
+    btn_prev.add_css_class("rpb-prev");
+    btn_prev.set_tooltip_text(Some("Previous file in folder order (same rules as end-of-file advance)"));
+    btn_prev.set_sensitive(false);
+    let btn_next = gtk::Button::from_icon_name("go-next-symbolic");
+    btn_next.add_css_class("flat");
+    btn_next.add_css_class("rpb-next");
+    btn_next.set_tooltip_text(Some("Next file in folder order (same rules as end-of-file advance)"));
+    btn_next.set_sensitive(false);
     let menu = gio::Menu::new();
     menu.append(Some("Open video…"), Some("app.open"));
     menu.append(Some("About Rhino Player"), Some("app.about"));
@@ -933,27 +1003,15 @@ fn build_window(
         });
     }
 
-    let dbl = gtk::GestureClick::new();
-    dbl.set_button(gtk::gdk::BUTTON_PRIMARY);
-    {
-        let win_fs = win.clone();
-        let fr = fs_restore.clone();
-        let lu = last_unmax.clone();
-        dbl.connect_pressed(move |_, n_press, _, _| {
-            if n_press == 2 {
-                toggle_fullscreen(&win_fs, &fr, &lu);
-            }
-        });
-    }
-    gl_area.add_controller(dbl);
-
     let rpp = gtk::GestureClick::new();
     rpp.set_button(gtk::gdk::BUTTON_SECONDARY);
     rpp.set_propagation_phase(gtk::PropagationPhase::Capture);
     {
         let p_btn = player.clone();
         let glbtn = gl_area.clone();
-        rpp.connect_pressed(move |_, n_press, _, _| {
+        rpp.connect_pressed(move |gest, n_press, _, _| {
+            // Stops the compositor / shell default (e.g. window context menu) on the video surface.
+            let _ = gest.set_state(gtk::EventSequenceState::Claimed);
             if n_press != 1 {
                 return;
             }
@@ -991,7 +1049,11 @@ fn build_window(
     bottom.add_css_class("rp-bottom");
     bottom.set_vexpand(false);
     play_pause.set_valign(gtk::Align::Center);
+    btn_prev.set_valign(gtk::Align::Center);
+    btn_next.set_valign(gtk::Align::Center);
+    bottom.append(&btn_prev);
     bottom.append(&play_pause);
+    bottom.append(&btn_next);
     bottom.append(&time_left);
     bottom.append(&seek);
     bottom.append(&time_right);
@@ -1007,6 +1069,30 @@ fn build_window(
     recent_scrl.set_halign(gtk::Align::Fill);
     recent_scrl.set_valign(gtk::Align::Fill);
     ovl.add_overlay(&recent_scrl);
+
+    // Double-tap fullscreen on the video (GLArea = hit target). Use **connect_pressed** and
+    // `n_press == 2` on the *second* press (same as pre–skip/notify refactors) — on some stacks
+    // `connect_released` does not report `n_press == 2` reliably for leaving fullscreen.
+    let dbl = gtk::GestureClick::new();
+    dbl.set_button(gtk::gdk::BUTTON_PRIMARY);
+    {
+        let win_fs = win.clone();
+        let fr = fs_restore.clone();
+        let lu = last_unmax.clone();
+        let skip_dbl = skip_max_to_fs.clone();
+        let rec_dbl = recent_scrl.clone();
+        dbl.connect_pressed(move |gest, n_press, _, _| {
+            if n_press != 2 {
+                return;
+            }
+            if rec_dbl.is_visible() {
+                return;
+            }
+            let _ = gest.set_state(gtk::EventSequenceState::Claimed);
+            toggle_fullscreen(&win_fs, &fr, &lu, &skip_dbl);
+        });
+    }
+    gl_area.add_controller(dbl);
 
     let want_recent = startup.is_none() && !history::load().is_empty();
     recent_scrl.set_visible(want_recent);
@@ -1068,6 +1154,7 @@ fn build_window(
         })
     };
     let on_open_vid = on_video_chrome.clone();
+    let on_start_menu = on_open_vid.clone();
     let p_openr = player.clone();
     let win_menu = win.clone();
     let gl_op = gl_area.clone();
@@ -1086,13 +1173,112 @@ fn build_window(
                 record: true,
                 play_on_start: true,
                 last_path: last_open.clone(),
-                on_start: Some(Rc::clone(&on_open_vid)),
+                on_start: Some(Rc::clone(&on_start_menu)),
                 win_aspect: wa_on.clone(),
             },
         ) {
             eprintln!("[rhino] on_open: try_load error: {e}");
         }
     });
+
+    {
+        let p = player.clone();
+        let w = win.clone();
+        let gla = gl_area.clone();
+        let rec = recent_scrl.clone();
+        let lp = last_path.clone();
+        let ovid = on_open_vid.clone();
+        let wa = win_aspect.clone();
+        let seof = sibling_seof.clone();
+        btn_prev.connect_clicked(glib::clone!(
+            #[strong]
+            p,
+            #[strong]
+            w,
+            #[strong]
+            gla,
+            #[strong]
+            rec,
+            #[strong]
+            lp,
+            #[strong]
+            ovid,
+            #[strong]
+            wa,
+            #[strong]
+            seof,
+            move |_| {
+                let g = p.borrow();
+                let Some(pl) = g.as_ref() else {
+                    return;
+                };
+                let cur = local_file_from_mpv(&pl.mpv).or_else(|| lp.borrow().clone());
+                let Some(cur) = cur.filter(|c| c.is_file()) else {
+                    return;
+                };
+                let Some(np) = sibling_advance::prev_before_current(&cur) else {
+                    return;
+                };
+                seof.done.set(false);
+                seof.stall.set((0.0, 0));
+                drop(g);
+                let o = LoadOpts {
+                    record: true,
+                    play_on_start: true,
+                    last_path: Rc::clone(&lp),
+                    on_start: Some(Rc::clone(&ovid)),
+                    win_aspect: Rc::clone(&wa),
+                };
+                if let Err(e) = try_load(&np, &p, &w, &gla, &rec, &o) {
+                    eprintln!("[rhino] previous: {e}");
+                }
+            }
+        ));
+        btn_next.connect_clicked(glib::clone!(
+            #[strong]
+            p,
+            #[strong]
+            w,
+            #[strong]
+            gla,
+            #[strong]
+            rec,
+            #[strong]
+            lp,
+            #[strong]
+            ovid,
+            #[strong]
+            wa,
+            #[strong]
+            seof,
+            move |_| {
+                let g = p.borrow();
+                let Some(pl) = g.as_ref() else {
+                    return;
+                };
+                let cur = local_file_from_mpv(&pl.mpv).or_else(|| lp.borrow().clone());
+                let Some(cur) = cur.filter(|c| c.is_file()) else {
+                    return;
+                };
+                let Some(np) = sibling_advance::next_after_eof(&cur) else {
+                    return;
+                };
+                seof.done.set(false);
+                seof.stall.set((0.0, 0));
+                drop(g);
+                let o = LoadOpts {
+                    record: true,
+                    play_on_start: true,
+                    last_path: Rc::clone(&lp),
+                    on_start: Some(Rc::clone(&ovid)),
+                    win_aspect: Rc::clone(&wa),
+                };
+                if let Err(e) = try_load(&np, &p, &w, &gla, &rec, &o) {
+                    eprintln!("[rhino] next: {e}");
+                }
+            }
+        ));
+    }
 
     let recent_backfill: Rc<RefCell<Option<Rc<RecentContext>>>> = Rc::new(RefCell::new(None));
     {
@@ -1104,47 +1290,27 @@ fn build_window(
         });
     }
 
-    let last_removed = Rc::new(RefCell::new(None::<PathBuf>));
-    let undo_hide = Rc::new(RefCell::new(None::<glib::SourceId>));
+    let undo_remove_stack = Rc::new(RefCell::new(Vec::<PathBuf>::new()));
     let on_remove_cell: Rc<RefCell<Option<RcPathFn>>> = Rc::new(RefCell::new(None));
     let fr_sl = flow_recent.clone();
     let recent_rm = recent_scrl.clone();
     let op_s = on_open.clone();
     let rbf_rm = recent_backfill.clone();
-    let lr_rm = last_removed.clone();
+    let ur_stack = undo_remove_stack.clone();
     let urev_rm = undo_revealer.clone();
-    let uto_rm = undo_hide.clone();
+    let undo_t_rm = undo_btn.clone();
     let cell_rm = on_remove_cell.clone();
     let on_remove: RcPathFn = Rc::new(move |path: &Path| {
-        if let Some(id) = uto_rm.borrow_mut().take() {
-            id.remove();
-        }
         history::remove(path);
-        *lr_rm.borrow_mut() = Some(path.to_path_buf());
-        urev_rm.set_reveal_child(true);
+        ur_stack.borrow_mut().push(path.to_path_buf());
+        let n = ur_stack.borrow().len();
+        sync_undo_reveal(&undo_t_rm, &urev_rm, n);
         let f = cell_rm
             .borrow()
             .as_ref()
             .expect("on_remove not wired")
             .clone();
         reflow_continue_cards(&fr_sl, &recent_rm, op_s.clone(), f, &rbf_rm);
-        *uto_rm.borrow_mut() = Some(glib::timeout_add_local(
-            Duration::from_secs(8),
-            glib::clone!(
-                #[strong]
-                urev_rm,
-                #[strong]
-                lr_rm,
-                #[strong]
-                uto_rm,
-                move || {
-                    urev_rm.set_reveal_child(false);
-                    lr_rm.borrow_mut().take();
-                    uto_rm.borrow_mut().take();
-                    glib::ControlFlow::Break
-                }
-            ),
-        ));
     });
     *on_remove_cell.borrow_mut() = Some(on_remove.clone());
 
@@ -1153,9 +1319,9 @@ fn build_window(
         let rec_u = recent_scrl.clone();
         let op_u = on_open.clone();
         let rbf_u = recent_backfill.clone();
-        let lr_u = last_removed.clone();
+        let ur_u = undo_remove_stack.clone();
         let urev_u = undo_revealer.clone();
-        let uto_u = undo_hide.clone();
+        let undo_t_u = undo_btn.clone();
         let cell_u = on_remove_cell.clone();
         undo_btn.connect_clicked(glib::clone!(
             #[strong]
@@ -1167,22 +1333,20 @@ fn build_window(
             #[strong]
             rbf_u,
             #[strong]
-            lr_u,
+            ur_u,
             #[strong]
             urev_u,
             #[strong]
-            uto_u,
+            undo_t_u,
             #[strong]
             cell_u,
             move |_| {
-                if let Some(id) = uto_u.borrow_mut().take() {
-                    id.remove();
-                }
-                let Some(pb) = lr_u.borrow_mut().take() else {
+                let Some(pb) = ur_u.borrow_mut().pop() else {
                     return;
                 };
                 history::record(&pb);
-                urev_u.set_reveal_child(false);
+                let n = ur_u.borrow().len();
+                sync_undo_reveal(&undo_t_u, &urev_u, n);
                 rec_u.set_visible(true);
                 let f = cell_u
                     .borrow()
@@ -1224,6 +1388,7 @@ fn build_window(
         let lcap = last_cap_xy.clone();
         let lgl = last_gl_xy.clone();
         let fr = fs_restore.clone();
+        let skip_fs = skip_max_to_fs.clone();
         win.connect_fullscreened_notify(move |w| {
             if let Some(id) = nav.borrow_mut().take() {
                 id.remove();
@@ -1235,6 +1400,7 @@ fn build_window(
             // force redraw — always clearing `bar_show` on both transitions left a hidden-ToolbarView
             // state that could paint a full-screen black layer behind a restored windowed frame (GNOME).
             if w.is_fullscreen() {
+                skip_fs.set(false);
                 if !w.is_maximized() {
                     *fr.borrow_mut() = Some(win_normal_size(w));
                     w.maximize();
@@ -1248,6 +1414,14 @@ fn build_window(
                     }
                     w.set_default_size(gw, gh);
                 }
+                // Do not `skip_max_to_fs = false` here. `unfullscreen` is often followed in the same
+                // event batch by `connect_maximized_notify` with (maximized && !fullscreen), which
+                // would call `fullscreen()` again if we already cleared the skip flag. Clear on idle
+                // after that notify runs.
+                let s = skip_fs.clone();
+                let _ = glib::source::idle_add_local_once(move || {
+                    s.set(false);
+                });
             }
             apply_chrome(&root_fs, &gl_fs, &b, &recent_fs);
             gl_fs.queue_render();
@@ -1267,12 +1441,17 @@ fn build_window(
     {
         let fr = fs_restore.clone();
         let lu = last_unmax.clone();
+        let skip_fs = skip_max_to_fs.clone();
         win.connect_maximized_notify(move |w| {
             if !w.is_maximized() && !w.is_fullscreen() {
                 *lu.borrow_mut() = win_normal_size(w);
             } else if !w.is_maximized() && w.is_fullscreen() {
+                skip_fs.set(true);
                 w.unfullscreen();
             } else if w.is_maximized() && !w.is_fullscreen() {
+                if skip_fs.get() {
+                    return;
+                }
                 if fr.borrow().is_none() {
                     *fr.borrow_mut() = Some(*lu.borrow());
                 }
@@ -1437,14 +1616,16 @@ fn build_window(
         let browse_esc = browse_chrome.clone();
         let fr_key = fs_restore.clone();
         let lu_key = last_unmax.clone();
+        let skip_key = skip_max_to_fs.clone();
         let wa_esc = win_aspect.clone();
         let urev_k = undo_revealer.clone();
-        let lr_k = last_removed.clone();
-        let uto_k = undo_hide.clone();
+        let ur_k = undo_remove_stack.clone();
+        let undo_t_esc = undo_btn.clone();
         let k = gtk::EventControllerKey::new();
         k.connect_key_pressed(move |_, key, _code, _m| {
             if key == gtk::gdk::Key::Escape {
                 if win_key.is_fullscreen() {
+                    skip_key.set(true);
                     win_key.unfullscreen();
                     return glib::Propagation::Stop;
                 }
@@ -1465,8 +1646,8 @@ fn build_window(
                         win_aspect: wa_esc.clone(),
                         on_browse: browse_esc.clone(),
                         undo_revealer: urev_k.clone(),
-                        last_removed: lr_k.clone(),
-                        undo_hide: uto_k.clone(),
+                        undo_btn: undo_t_esc.clone(),
+                        undo_remove_stack: ur_k.clone(),
                     },
                     &win_key,
                     &gl_esc,
@@ -1476,7 +1657,7 @@ fn build_window(
                 return glib::Propagation::Stop;
             }
             if key == gtk::gdk::Key::Return || key == gtk::gdk::Key::KP_Enter {
-                toggle_fullscreen(&win_key, &fr_key, &lu_key);
+                toggle_fullscreen(&win_key, &fr_key, &lu_key, &skip_key);
                 return glib::Propagation::Stop;
             }
             if key == gtk::gdk::Key::m || key == gtk::gdk::Key::M {
@@ -1768,6 +1949,8 @@ fn build_window(
     let tw_l = time_left.downgrade();
     let tw_r = time_right.downgrade();
     let ppw = play_pause.downgrade();
+    let ppw_prev = btn_prev.downgrade();
+    let ppw_next = btn_next.downgrade();
     let sw = seek.clone();
     let adj = seek_adj.clone();
     let vi_poll = vol_menu.clone();
@@ -1813,10 +1996,17 @@ fn build_window(
                 };
                 let g = p_poll.borrow();
                 let Some(pl) = g.as_ref() else {
+                    seof_poll.clear_nav_sensitivity();
                     if let Some(pp) = ppw.upgrade() {
                         pp.set_sensitive(false);
                         pp.set_icon_name("media-playback-start-symbolic");
                         pp.set_tooltip_text(Some("No media"));
+                    }
+                    if let Some(p) = ppw_prev.upgrade() {
+                        p.set_sensitive(false);
+                    }
+                    if let Some(n) = ppw_next.upgrade() {
+                        n.set_sensitive(false);
                     }
                     return glib::ControlFlow::Continue;
                 };
@@ -1841,6 +2031,24 @@ fn build_window(
                         pp.set_icon_name("media-playback-start-symbolic");
                         pp.set_tooltip_text(Some("No media"));
                     }
+                }
+                let (can_prev, can_next) = if dur > 0.0 {
+                    let cur = local_file_from_mpv(&pl.mpv).or_else(|| last_poll.borrow().clone());
+                    if let Some(ref c) = cur.filter(|p| p.is_file()) {
+                        seof_poll.nav_sensitivity(c)
+                    } else {
+                        seof_poll.clear_nav_sensitivity();
+                        (false, false)
+                    }
+                } else {
+                    seof_poll.clear_nav_sensitivity();
+                    (false, false)
+                };
+                if let Some(p) = ppw_prev.upgrade() {
+                    p.set_sensitive(can_prev);
+                }
+                if let Some(n) = ppw_next.upgrade() {
+                    n.set_sensitive(can_next);
                 }
                 if dur > 0.0 {
                     sw.set_sensitive(true);

@@ -21,6 +21,8 @@ pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, gtk::Revealer, gtk::Butto
     let h = gtk::Box::new(gtk::Orientation::Horizontal, 16);
     h.set_halign(gtk::Align::Center);
     h.set_baseline_position(gtk::BaselinePosition::Top);
+    h.set_vexpand(false);
+    h.set_hexpand(false);
     h.add_css_class("rp-recent-row");
 
     let v = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -35,7 +37,7 @@ pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, gtk::Revealer, gtk::Butto
     let sp_bot = gtk::Box::new(gtk::Orientation::Vertical, 0);
     sp_bot.set_vexpand(true);
     let undo_b = gtk::Button::with_label("Undo");
-    undo_b.set_tooltip_text(Some("Restore the last removed item to this list"));
+    undo_b.set_tooltip_text(Some("Session undo stack: each click restores the most recent removal"));
     undo_b.add_css_class("suggested-action");
     undo_b.set_halign(gtk::Align::Center);
     let undo_r = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -82,7 +84,7 @@ fn full_bleed_icon(icon: &'static str) -> gtk::Widget {
     bx.set_valign(gtk::Align::Fill);
     bx.add_css_class("rp-recent-bg-miss");
     let im = gtk::Image::from_icon_name(icon);
-    im.set_vexpand(true);
+    im.set_vexpand(false);
     im.set_valign(gtk::Align::Center);
     im.set_halign(gtk::Align::Center);
     im.set_icon_size(gtk::IconSize::Large);
@@ -286,6 +288,8 @@ pub fn fill_row(
         let a11y = format!("{name}, {p:.0} percent played");
 
         let card = gtk::Overlay::new();
+        card.set_vexpand(false);
+        card.set_hexpand(false);
         card.set_size_request(200, 120);
         card.set_width_request(200);
         card.set_overflow(gtk::Overflow::Hidden);
@@ -311,6 +315,7 @@ pub fn fill_row(
             if let Ok(tex) = gdk::Texture::from_bytes(&b) {
                 let pic = gtk::Picture::for_paintable(&tex);
                 pic.set_content_fit(gtk::ContentFit::Cover);
+                pic.set_can_shrink(true);
                 pic.set_vexpand(true);
                 pic.set_hexpand(true);
                 pic.set_halign(gtk::Align::Fill);
@@ -413,7 +418,10 @@ pub fn fill_row(
             );
         }
 
-        row.append(&card);
+        let wrap = adw::Clamp::new();
+        wrap.set_maximum_size(400);
+        wrap.set_child(Some(&card));
+        row.append(&wrap);
     }
 }
 

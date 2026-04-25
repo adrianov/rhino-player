@@ -73,7 +73,13 @@ fn first_video_in_dir(dir: &Path) -> Option<PathBuf> {
     list_videos_in_dir(dir).and_then(|v| v.into_iter().next())
 }
 
-/// After natural EOF, play this local file next, or [None] to stop.
+/// Last (sorted) video in `dir`, or [None] if none.
+fn last_video_in_dir(dir: &Path) -> Option<PathBuf> {
+    list_videos_in_dir(dir).and_then(|v| v.into_iter().last())
+}
+
+/// Local file that follows `current` in the same **sorted** folder, then the same sibling-folder
+/// rules as on EOF. Used for both automatic advance at end and the **Next** control.
 pub(crate) fn next_after_eof(current: &Path) -> Option<PathBuf> {
     let current = fs::canonicalize(current).ok()?;
     if !current.is_file() {
@@ -97,6 +103,42 @@ pub(crate) fn next_after_eof(current: &Path) -> Option<PathBuf> {
         let idx = subs.iter().position(|s| s.file_name() == Some(my))?;
         for sdir in subs.iter().skip(idx + 1) {
             if let Some(f) = first_video_in_dir(sdir) {
+                return Some(f);
+            }
+        }
+        folder = parent.to_path_buf();
+    }
+}
+
+/// Symmetric to [next_after_eof]: the previous file in the same folder, or the **last** video in the
+/// **previous** sibling subfolder, walking up like forward navigation.
+pub(crate) fn prev_before_current(current: &Path) -> Option<PathBuf> {
+    let current = fs::canonicalize(current).ok()?;
+    if !current.is_file() {
+        return None;
+    }
+    let dir = current.parent()?;
+
+    if let Some(videos) = list_videos_in_dir(dir) {
+        if let Some(i) = index_in_list(&videos, &current) {
+            if i > 0 {
+                return Some(videos[i - 1].clone());
+            }
+        } else {
+            return None;
+        }
+    } else {
+        return None;
+    }
+
+    let mut folder = dir.to_path_buf();
+    loop {
+        let parent = folder.parent()?;
+        let my = folder.file_name()?;
+        let subs = child_dirs_sorted(parent);
+        let idx = subs.iter().position(|s| s.file_name() == Some(my))?;
+        for sdir in subs.iter().take(idx).rev() {
+            if let Some(f) = last_video_in_dir(sdir) {
                 return Some(f);
             }
         }
@@ -171,6 +213,36 @@ mod tests {
         let v1 = s1.join("e.mp4");
         fs::write(&v1, b"x").unwrap();
         assert!(next_after_eof(&v1).is_none());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn prev_same_folder() {
+        let base = unique_tmp("rhino_prev1");
+        fs::create_dir_all(&base).unwrap();
+        let a = base.join("a.mp4");
+        let b = base.join("b.mp4");
+        fs::write(&a, b"x").unwrap();
+        fs::write(&b, b"x").unwrap();
+        let ca = fs::canonicalize(&a).unwrap();
+        assert_eq!(prev_before_current(&b).unwrap(), ca);
+        assert!(prev_before_current(&a).is_none());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn prev_from_first_in_folder_to_previous_sibling_last() {
+        let base = unique_tmp("rhino_prev2");
+        let s1 = base.join("S1");
+        let s2 = base.join("S2");
+        fs::create_dir_all(&s1).unwrap();
+        fs::create_dir_all(&s2).unwrap();
+        let v1 = s1.join("a.mp4");
+        let v2 = s2.join("z.mp4");
+        fs::write(&v1, b"x").unwrap();
+        fs::write(&v2, b"x").unwrap();
+        let p = prev_before_current(&v2).unwrap();
+        assert_eq!(fs::canonicalize(p).unwrap(), fs::canonicalize(&v1).unwrap());
         let _ = fs::remove_dir_all(&base);
     }
 

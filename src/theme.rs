@@ -27,7 +27,9 @@ pub fn apply() {
             padding: 8px 14px 12px 14px;
         }
         /* LTR: space before elapsed time; GTK CSS has no margin-end in all releases */
-        .rp-bottom .rpb-play { margin-right: 6px; }
+        .rp-bottom .rpb-prev { margin-right: 2px; }
+        .rp-bottom .rpb-play { margin-left: 2px; margin-right: 2px; }
+        .rp-bottom .rpb-next { margin-right: 6px; }
         .rp-time {
             color: #c0bfbc;
             font-family: monospace, monospace;
@@ -58,6 +60,11 @@ pub fn apply() {
             padding: 0;
             background-color: #1e1e1e;
             border-radius: 8px;
+            min-width: 200px;
+            min-height: 120px;
+            max-width: 400px;
+            /* One card must not use the full viewport: huge GtkPicture nat size pushed the footer under toolbars. */
+            max-height: 280px;
         }
         .rp-recent-bg { border-radius: 0; }
         .rp-recent-bg-miss { background-color: #2d2d2d; }
