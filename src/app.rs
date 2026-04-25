@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 
 use crate::audio_tracks;
 use crate::db;
+use crate::sub_prefs;
+use crate::sub_tracks;
 use crate::format_time;
 use crate::history;
 use libmpv2::Mpv;
@@ -56,15 +58,18 @@ fn same_xy(a: f64, b: f64) -> bool {
     (a - b).abs() < COORD_EPS
 }
 
-/// State for 3s auto-hide: header [gtk::MenuButton]s delay hiding while open (sound + main menu; audio tracks are inside the sound popover).
+/// State for 3s auto-hide: header [gtk::MenuButton]s delay hiding while open (sound + subs + main menu; audio tracks are inside the sound popover).
 struct ChromeBarHide {
     nav: Rc<RefCell<Option<glib::SourceId>>>,
     vol: gtk::MenuButton,
+    sub: gtk::MenuButton,
     main: gtk::MenuButton,
     root: adw::ToolbarView,
     gl: gtk::GLArea,
     bar_show: Rc<Cell<bool>>,
     recent: gtk::ScrolledWindow,
+    bottom: gtk::Box,
+    player: Rc<RefCell<Option<MpvBundle>>>,
     squelch: Rc<Cell<Option<Instant>>>,
 }
 
@@ -315,6 +320,8 @@ fn apply_chrome(
     gl: &gtk::GLArea,
     bar_show: &Cell<bool>,
     recent: &impl IsA<gtk::Widget>,
+    bottom: &gtk::Box,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
 ) {
     root.set_extend_content_to_top_edge(true);
     root.set_extend_content_to_bottom_edge(true);
@@ -322,6 +329,9 @@ fn apply_chrome(
     root.set_reveal_top_bars(show);
     root.set_reveal_bottom_bars(show);
     gl.queue_render();
+    if let Some(b) = player.borrow().as_ref() {
+        sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, bottom.height(), gl.height());
+    }
 }
 
 fn replace_timeout(s: Rc<RefCell<Option<glib::SourceId>>>, f: impl Fn() + 'static) {
@@ -346,11 +356,18 @@ fn schedule_bars_autohide(ctx: Rc<ChromeBarHide>) {
     replace_timeout(Rc::clone(&ctx.nav), {
         let ctx2 = Rc::clone(&ctx);
         move || {
-            if ctx2.vol.is_active() || ctx2.main.is_active() {
+            if ctx2.vol.is_active() || ctx2.sub.is_active() || ctx2.main.is_active() {
                 schedule_bars_autohide(Rc::clone(&ctx2));
             } else {
                 ctx2.bar_show.set(false);
-                apply_chrome(&ctx2.root, &ctx2.gl, &ctx2.bar_show, &ctx2.recent);
+                apply_chrome(
+                    &ctx2.root,
+                    &ctx2.gl,
+                    &ctx2.bar_show,
+                    &ctx2.recent,
+                    &ctx2.bottom,
+                    &ctx2.player,
+                );
                 ctx2
                     .squelch
                     .set(Some(Instant::now() + LAYOUT_SQUELCH));
@@ -458,6 +475,8 @@ struct LoadOpts {
     on_start: Option<Rc<dyn Fn()>>,
     /// `Some(w/h)` for [sync_window_aspect_from_mpv] / [apply_window_video_aspect]; cleared with no video.
     win_aspect: Rc<Cell<Option<f64>>>,
+    /// Fuzzy subtitle auto-pick + hook after a successful `loadfile`.
+    on_loaded: Option<Rc<dyn Fn()>>,
 }
 
 /// Load a file, hide the recent grid overlay, show video; [LoadOpts::record] appends to recent history.
@@ -481,20 +500,22 @@ fn try_load(
         player.borrow().is_some(),
         play_on_start
     );
-    let mut g = player.borrow_mut();
-    let b = g.as_mut().ok_or("Player not ready. Wait for GL init.")?;
-    let prev = local_file_from_mpv(&b.mpv).or_else(|| o.last_path.borrow().clone());
-    let drop_from_history = prev
-        .as_ref()
-        .is_some_and(|p| !same_open_target(p, path) && mpv_fully_watched(&b.mpv));
-    if let Err(e) = b.load_file_path(path) {
-        eprintln!("[rhino] try_load: loadfile failed: {e}");
-        return Err(e);
-    }
-    eprintln!("[rhino] try_load: loadfile ok");
-    if drop_from_history {
-        if let Some(p) = prev {
-            history::remove(&p);
+    {
+        let mut g = player.borrow_mut();
+        let b = g.as_mut().ok_or("Player not ready. Wait for GL init.")?;
+        let prev = local_file_from_mpv(&b.mpv).or_else(|| o.last_path.borrow().clone());
+        let drop_from_history = prev
+            .as_ref()
+            .is_some_and(|p| !same_open_target(p, path) && mpv_fully_watched(&b.mpv));
+        if let Err(e) = b.load_file_path(path) {
+            eprintln!("[rhino] try_load: loadfile failed: {e}");
+            return Err(e);
+        }
+        eprintln!("[rhino] try_load: loadfile ok");
+        if drop_from_history {
+            if let Some(p) = prev {
+                history::remove(&p);
+            }
         }
     }
     *o.last_path.borrow_mut() = std::fs::canonicalize(path).ok();
@@ -504,12 +525,15 @@ fn try_load(
     let t = title_for_open_path(path);
     win.set_title(Some(t.as_str()));
     recent_layer.set_visible(false);
+    // on_start may call apply_chrome, which borrow()s the player; drop the try_load borrow_mut first.
     if let Some(f) = o.on_start.as_ref() {
         f();
     }
     gl.queue_render();
     if play_on_start {
-        let _ = b.mpv.set_property("pause", false);
+        if let Some(b) = player.borrow().as_ref() {
+            let _ = b.mpv.set_property("pause", false);
+        }
         let p2 = Rc::clone(player);
         let _ = glib::source::timeout_add_local(
             std::time::Duration::from_millis(100),
@@ -521,8 +545,13 @@ fn try_load(
             },
         );
     }
-    sync_window_aspect_from_mpv(&b.mpv, o.win_aspect.as_ref());
+    if let Some(b) = player.borrow().as_ref() {
+        sync_window_aspect_from_mpv(&b.mpv, o.win_aspect.as_ref());
+    }
     schedule_window_fit_h_video(Rc::clone(player), win.clone());
+    if let Some(f) = o.on_loaded.clone() {
+        glib::source::idle_add_local_once(move || f());
+    }
     Ok(())
 }
 
@@ -530,6 +559,17 @@ fn save_mpv_audio(mpv: &Mpv) {
     let vol = mpv.get_property::<f64>("volume").unwrap_or(100.0);
     let muted = mpv.get_property::<bool>("mute").unwrap_or(false);
     db::save_audio(vol, muted);
+}
+
+fn save_mpv_state(mpv: &Mpv, sub: &RefCell<db::SubPrefs>) {
+    save_mpv_audio(mpv);
+    let mut p = sub.borrow_mut();
+    if let Ok(sc) = mpv.get_property::<f64>("sub-scale") {
+        if sc.is_finite() {
+            p.scale = sc;
+        }
+    }
+    db::save_sub(&p);
 }
 
 fn vol_icon(muted: bool, vol: f64) -> &'static str {
@@ -615,6 +655,7 @@ fn maybe_advance_sibling_on_eof(
     seof: &SiblingEofState,
     on_start: &Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
+    on_loaded: Option<Rc<dyn Fn()>>,
 ) {
     let g = match player.try_borrow() {
         Ok(b) => b,
@@ -668,6 +709,7 @@ fn maybe_advance_sibling_on_eof(
             last_path: Rc::clone(last_path),
             on_start: Some(Rc::clone(on_start)),
             win_aspect: Rc::clone(&win_aspect),
+            on_loaded: on_loaded.as_ref().map(Rc::clone),
         };
         if let Err(e) = try_load(&np, player, win, gl, recent, &o) {
             eprintln!("[rhino] sibling advance: {e}");
@@ -831,13 +873,15 @@ fn schedule_quit_persist(
     app: &adw::Application,
     win: &adw::ApplicationWindow,
     player: &Rc<RefCell<Option<MpvBundle>>>,
+    sub: &Rc<RefCell<db::SubPrefs>>,
 ) {
     win.set_visible(false);
     let p = player.clone();
     let a = app.clone();
+    let sp = Rc::clone(sub);
     let _ = glib::idle_add_local(move || {
         if let Some(b) = p.borrow().as_ref() {
-            save_mpv_audio(&b.mpv);
+            save_mpv_state(&b.mpv, &sp);
             b.commit_quit();
         }
         a.quit();
@@ -850,6 +894,8 @@ fn build_window(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     startup: Option<PathBuf>,
 ) {
+    let sub_pref = Rc::new(RefCell::new(db::load_sub()));
+
     let win = adw::ApplicationWindow::builder()
         .application(app)
         .title(APP_WIN_TITLE)
@@ -958,12 +1004,65 @@ fn build_window(
     vol_menu.set_popover(Some(&vol_pop));
     vol_menu.add_css_class("flat");
 
+    let sp_init = sub_pref.borrow().clone();
+    let sub_tracks_block = Rc::new(Cell::new(false));
+    let sub_tracks_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    sub_tracks_box.set_margin_top(2);
+    let sub_tracks_scrl = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .propagate_natural_width(true)
+        .propagate_natural_height(true)
+        .min_content_width(360)
+        .max_content_height(280)
+        .child(&sub_tracks_box)
+        .build();
+    let sub_tracks_section = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    sub_tracks_section.append(&sub_tracks_scrl);
+    sub_tracks_section.set_visible(false);
+
+    let sub_scale_adj = gtk::Adjustment::new(sp_init.scale, 0.3, 2.0, 0.05, 0.1, 0.0);
+    let sub_scale = gtk::Scale::new(gtk::Orientation::Horizontal, Some(&sub_scale_adj));
+    sub_scale.set_draw_value(true);
+    sub_scale.set_digits(2);
+    sub_scale.set_hexpand(true);
+    sub_scale.set_size_request(240, -1);
+    sub_scale.set_tooltip_text(Some("Subtitle size (mpv sub-scale)"));
+
+    let sub_color_btn = gtk::ColorDialogButton::new(None::<gtk::ColorDialog>);
+    sub_color_btn.set_rgba(&sub_prefs::u32_to_rgba(sp_init.color));
+    sub_color_btn.set_tooltip_text(Some("Subtitle text color"));
+
+    let sub_opts = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    sub_opts.append(&gtk::Label::new(Some("Size")));
+    sub_opts.append(&sub_scale);
+    sub_opts.append(&gtk::Label::new(Some("Text color")));
+    sub_opts.append(&sub_color_btn);
+
+    let sub_col = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    sub_col.set_margin_start(8);
+    sub_col.set_margin_end(8);
+    sub_col.set_margin_top(8);
+    sub_col.set_margin_bottom(6);
+    sub_col.append(&gtk::Label::new(Some("Tracks")));
+    sub_col.append(&sub_tracks_section);
+    sub_col.append(&sub_opts);
+
+    let sub_pop = gtk::Popover::new();
+    sub_pop.set_child(Some(&sub_col));
+    let sub_menu = gtk::MenuButton::new();
+    sub_menu.set_icon_name("media-view-subtitles-symbolic");
+    sub_menu.set_tooltip_text(Some("Subtitles: tracks and style"));
+    sub_menu.set_popover(Some(&sub_pop));
+    sub_menu.add_css_class("flat");
+
     let menu_btn = gtk::MenuButton::new();
     menu_btn.set_icon_name("open-menu-symbolic");
     menu_btn.set_tooltip_text(Some("Main menu"));
     menu_btn.set_menu_model(Some(&menu));
     header.pack_end(&menu_btn);
     header.pack_end(&vol_menu);
+    header.pack_end(&sub_menu);
 
     let gl_area = gtk::GLArea::new();
     {
@@ -974,6 +1073,38 @@ fn build_window(
         let sec = audio_tracks_section.clone();
         vol_pop.connect_show(move |_| {
             let show = audio_tracks::rebuild_popover(&p, &bx, &blk, &gla);
+            sec.set_visible(show);
+        });
+    }
+    {
+        let p = player.clone();
+        let sp_pick = sub_pref.clone();
+        let sp_off = sub_pref.clone();
+        let bx = sub_tracks_box.clone();
+        let blk = Rc::clone(&sub_tracks_block);
+        let gla = gl_area.clone();
+        let sec = sub_tracks_section.clone();
+        let on_sub_pick: Rc<dyn Fn(&str)> = Rc::new(move |label: &str| {
+            {
+                let mut s = sp_pick.borrow_mut();
+                s.last_sub_label = label.to_string();
+                s.sub_off = false;
+            }
+            db::save_sub(&sp_pick.borrow());
+        });
+        let on_sub_off: Rc<dyn Fn()> = Rc::new(move || {
+            sp_off.borrow_mut().sub_off = true;
+            db::save_sub(&sp_off.borrow());
+        });
+        sub_pop.connect_show(move |_| {
+            let show = sub_tracks::rebuild_popover(
+                &p,
+                &bx,
+                &blk,
+                &gla,
+                Some(Rc::clone(&on_sub_pick)),
+                Some(Rc::clone(&on_sub_off)),
+            );
             sec.set_visible(show);
         });
     }
@@ -1070,6 +1201,74 @@ fn build_window(
     recent_scrl.set_valign(gtk::Align::Fill);
     ovl.add_overlay(&recent_scrl);
 
+    let on_file_loaded: Rc<dyn Fn()> = Rc::new({
+        let p = player.clone();
+        let sp = sub_pref.clone();
+        let g2 = gl_area.clone();
+        let bshow = bar_show.clone();
+        let rec = recent_scrl.clone();
+        let bot = bottom.clone();
+        move || {
+            let p2 = p.clone();
+            let sp2 = sp.clone();
+            let g3 = g2.clone();
+            let b3 = bshow.clone();
+            let r3 = rec.clone();
+            let bot2 = bot.clone();
+            let _ = glib::timeout_add_local(Duration::from_millis(320), move || {
+                if let Some(b) = p2.borrow().as_ref() {
+                    let pr = sp2.borrow();
+                    sub_prefs::apply_mpv(&b.mpv, &pr);
+                    let show = if r3.is_visible() { true } else { b3.get() };
+                    sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, bot2.height(), g3.height());
+                    sub_tracks::autopick_sub_track(&b.mpv, &pr);
+                }
+                glib::ControlFlow::Break
+            });
+        }
+    });
+    {
+        let p = player.clone();
+        let sp = sub_pref.clone();
+        let gll = gl_area.clone();
+        let adj = sub_scale_adj.clone();
+        let bshow = bar_show.clone();
+        let rec = recent_scrl.clone();
+        let bot = bottom.clone();
+        sub_scale_adj.connect_value_changed(move |_| {
+            let v = adj.value();
+            sp.borrow_mut().scale = v;
+            if let Some(b) = p.borrow().as_ref() {
+                let pr = sp.borrow();
+                sub_prefs::apply_mpv(&b.mpv, &pr);
+                let show = if rec.is_visible() { true } else { bshow.get() };
+                sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, bot.height(), gll.height());
+            }
+            db::save_sub(&sp.borrow());
+            gll.queue_render();
+        });
+    }
+    {
+        let p = player.clone();
+        let sp = sub_pref.clone();
+        let gll = gl_area.clone();
+        let btn = sub_color_btn.clone();
+        let bshow = bar_show.clone();
+        let rec = recent_scrl.clone();
+        let bot = bottom.clone();
+        sub_color_btn.connect_rgba_notify(move |_| {
+            sp.borrow_mut().color = sub_prefs::rgba_to_u32(&btn.rgba());
+            if let Some(b) = p.borrow().as_ref() {
+                let pr = sp.borrow();
+                sub_prefs::apply_mpv(&b.mpv, &pr);
+                let show = if rec.is_visible() { true } else { bshow.get() };
+                sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, bot.height(), gll.height());
+            }
+            db::save_sub(&sp.borrow());
+            gll.queue_render();
+        });
+    }
+
     // Double-tap fullscreen on the video (GLArea = hit target). Use **connect_pressed** and
     // `n_press == 2` on the *second* press (same as pre–skip/notify refactors) — on some stacks
     // `connect_released` does not report `n_press == 2` reliably for leaving fullscreen.
@@ -1100,11 +1299,14 @@ fn build_window(
     let ch_hide = Rc::new(ChromeBarHide {
         nav: nav_t.clone(),
         vol: vol_menu.clone(),
+        sub: sub_menu.clone(),
         main: menu_btn.clone(),
         root: root.clone(),
         gl: gl_area.clone(),
         bar_show: bar_show.clone(),
         recent: recent_scrl.clone(),
+        bottom: bottom.clone(),
+        player: player.clone(),
         squelch: motion_squelch.clone(),
     });
 
@@ -1113,30 +1315,41 @@ fn build_window(
         let gl = gl_area.clone();
         let b = bar_show.clone();
         let recent = recent_scrl.clone();
+        let bot = bottom.clone();
+        let p = player.clone();
         let chh = Rc::clone(&ch_hide);
         Rc::new(move || {
             b.set(true);
-            apply_chrome(&root, &gl, &b, &recent);
+            apply_chrome(&root, &gl, &b, &recent, &bot, &p);
             schedule_bars_autohide(Rc::clone(&chh));
         })
     };
     {
         let ch = Rc::clone(&ch_hide);
         let h = Rc::new(move || {
-            let any = ch.vol.is_active() || ch.main.is_active();
+            let any = ch.vol.is_active() || ch.sub.is_active() || ch.main.is_active();
             if any {
                 if let Some(id) = ch.nav.borrow_mut().take() {
                     id.remove();
                 }
                 ch.bar_show.set(true);
-                apply_chrome(&ch.root, &ch.gl, &ch.bar_show, &ch.recent);
+                apply_chrome(
+                    &ch.root,
+                    &ch.gl,
+                    &ch.bar_show,
+                    &ch.recent,
+                    &ch.bottom,
+                    &ch.player,
+                );
             } else {
                 schedule_bars_autohide(Rc::clone(&ch));
             }
         });
         let h1 = Rc::clone(&h);
         let h2 = Rc::clone(&h);
+        let h3 = Rc::clone(&h);
         vol_menu.connect_active_notify(move |_| h1());
+        sub_menu.connect_active_notify(move |_| h3());
         menu_btn.connect_active_notify(move |_| h2());
     }
     let browse_chrome: Rc<dyn Fn()> = {
@@ -1144,17 +1357,20 @@ fn build_window(
         let gl = gl_area.clone();
         let b = bar_show.clone();
         let recent = recent_scrl.clone();
+        let bot = bottom.clone();
+        let p = player.clone();
         let nav = nav_t.clone();
         Rc::new(move || {
             if let Some(id) = nav.borrow_mut().take() {
                 id.remove();
             }
             b.set(true);
-            apply_chrome(&root, &gl, &b, &recent);
+            apply_chrome(&root, &gl, &b, &recent, &bot, &p);
         })
     };
     let on_open_vid = on_video_chrome.clone();
     let on_start_menu = on_open_vid.clone();
+    let ol_open = Rc::clone(&on_file_loaded);
     let p_openr = player.clone();
     let win_menu = win.clone();
     let gl_op = gl_area.clone();
@@ -1175,6 +1391,7 @@ fn build_window(
                 last_path: last_open.clone(),
                 on_start: Some(Rc::clone(&on_start_menu)),
                 win_aspect: wa_on.clone(),
+                on_loaded: Some(Rc::clone(&ol_open)),
             },
         ) {
             eprintln!("[rhino] on_open: try_load error: {e}");
@@ -1190,6 +1407,7 @@ fn build_window(
         let ovid = on_open_vid.clone();
         let wa = win_aspect.clone();
         let seof = sibling_seof.clone();
+        let ol = Rc::clone(&on_file_loaded);
         btn_prev.connect_clicked(glib::clone!(
             #[strong]
             p,
@@ -1207,6 +1425,8 @@ fn build_window(
             wa,
             #[strong]
             seof,
+            #[strong]
+            ol,
             move |_| {
                 let g = p.borrow();
                 let Some(pl) = g.as_ref() else {
@@ -1228,12 +1448,14 @@ fn build_window(
                     last_path: Rc::clone(&lp),
                     on_start: Some(Rc::clone(&ovid)),
                     win_aspect: Rc::clone(&wa),
+                    on_loaded: Some(Rc::clone(&ol)),
                 };
                 if let Err(e) = try_load(&np, &p, &w, &gla, &rec, &o) {
                     eprintln!("[rhino] previous: {e}");
                 }
             }
         ));
+        let ol2 = Rc::clone(&on_file_loaded);
         btn_next.connect_clicked(glib::clone!(
             #[strong]
             p,
@@ -1251,6 +1473,8 @@ fn build_window(
             wa,
             #[strong]
             seof,
+            #[strong]
+            ol2,
             move |_| {
                 let g = p.borrow();
                 let Some(pl) = g.as_ref() else {
@@ -1272,6 +1496,7 @@ fn build_window(
                     last_path: Rc::clone(&lp),
                     on_start: Some(Rc::clone(&ovid)),
                     win_aspect: Rc::clone(&wa),
+                    on_loaded: Some(Rc::clone(&ol2)),
                 };
                 if let Err(e) = try_load(&np, &p, &w, &gla, &rec, &o) {
                     eprintln!("[rhino] next: {e}");
@@ -1382,6 +1607,8 @@ fn build_window(
         let root_fs = root.clone();
         let gl_fs = gl_area.clone();
         let recent_fs = recent_scrl.clone();
+        let bottom_fs = bottom.clone();
+        let p_fs = player.clone();
         let b = bar_show.clone();
         let nav = nav_t.clone();
         let sq = motion_squelch.clone();
@@ -1423,7 +1650,7 @@ fn build_window(
                     s.set(false);
                 });
             }
-            apply_chrome(&root_fs, &gl_fs, &b, &recent_fs);
+            apply_chrome(&root_fs, &gl_fs, &b, &recent_fs, &bottom_fs, &p_fs);
             gl_fs.queue_render();
             w.queue_draw();
             if !w.is_fullscreen() {
@@ -1464,6 +1691,8 @@ fn build_window(
         let root_c = root.clone();
         let gl_c = gl_area.clone();
         let recent_c = recent_scrl.clone();
+        let bottom_c = bottom.clone();
+        let p_c = player.clone();
         let b = bar_show.clone();
         let sq = motion_squelch.clone();
         let lcap = last_cap_xy.clone();
@@ -1476,6 +1705,10 @@ fn build_window(
             gl_c,
             #[strong]
             recent_c,
+            #[strong]
+            bottom_c,
+            #[strong]
+            p_c,
             #[strong]
             b,
             #[strong]
@@ -1501,7 +1734,7 @@ fn build_window(
                 lcap.set(Some((x, y)));
 
                 b.set(true);
-                apply_chrome(&root_c, &gl_c, &b, &recent_c);
+                apply_chrome(&root_c, &gl_c, &b, &recent_c, &bottom_c, &p_c);
                 schedule_bars_autohide(Rc::clone(&ch_hide));
             }
         ));
@@ -1704,11 +1937,15 @@ fn build_window(
     }
 
     let p_realize = player.clone();
+    let sp_realize = sub_pref.clone();
     let win_rz = win.clone();
     let gl_rz = gl_area.clone();
     let recent_rz = recent_scrl.clone();
+    let bshow_rz = bar_show.clone();
+    let bottom_rz = bottom.clone();
     let last_rz = last_path.clone();
     let on_vid_rz = on_video_chrome.clone();
+    let ol_rz = Rc::clone(&on_file_loaded);
     let st_path = startup;
     let wa_st = Rc::clone(&win_aspect);
     gl_area.connect_realize(move |area| {
@@ -1718,7 +1955,20 @@ fn build_window(
                 let (av, am) = db::load_audio();
                 let _ = b.mpv.set_property("volume", av);
                 let _ = b.mpv.set_property("mute", am);
+                {
+                    let s = sp_realize.borrow();
+                    sub_prefs::apply_mpv(&b.mpv, &s);
+                }
                 *p_realize.borrow_mut() = Some(b);
+                if let Some(pl) = p_realize.borrow().as_ref() {
+                    let show = if recent_rz.is_visible() { true } else { bshow_rz.get() };
+                    sub_prefs::apply_sub_pos_for_toolbar(
+                        &pl.mpv,
+                        show,
+                        bottom_rz.height(),
+                        area.height(),
+                    );
+                }
                 if let Some(bundle) = p_realize.borrow_mut().as_mut() {
                     let _ = bundle.mpv.disable_deprecated_events();
                 }
@@ -1735,6 +1985,7 @@ fn build_window(
                             last_path: last_rz.clone(),
                             on_start: Some(Rc::clone(&on_vid_rz)),
                             win_aspect: wa_st.clone(),
+                            on_loaded: Some(Rc::clone(&ol_rz)),
                         },
                     ) {
                         eprintln!("[rhino] try_load (startup): {e}");
@@ -1977,6 +2228,8 @@ fn build_window(
             on_poll,
             #[strong]
             wa_poll,
+            #[strong]
+            on_file_loaded,
             move || {
                 maybe_advance_sibling_on_eof(
                     &p_poll,
@@ -1987,6 +2240,7 @@ fn build_window(
                     seof_poll.as_ref(),
                     &on_poll,
                     Rc::clone(&wa_poll),
+                    Some(Rc::clone(&on_file_loaded)),
                 );
                 let Some(tl) = tw_l.upgrade() else {
                     return glib::ControlFlow::Break;
@@ -2097,6 +2351,8 @@ fn build_window(
         ovc_open,
         #[strong]
         wa_dlg,
+        #[strong]
+        on_file_loaded,
         move |_, _| {
             let Some(w) = app.active_window() else {
                 return;
@@ -2117,6 +2373,7 @@ fn build_window(
             let last_fp = last_filepicker.clone();
             let ovc2 = ovc_open.clone();
             let wa2 = Rc::clone(&wa_dlg);
+            let oload = Rc::clone(&on_file_loaded);
             dialog.open(Some(&w), None::<&gio::Cancellable>, move |res| {
                 let Ok(file) = res else {
                     return;
@@ -2140,6 +2397,7 @@ fn build_window(
                         last_path: last_fp.clone(),
                         on_start: Some(ovc2),
                         win_aspect: wa2.clone(),
+                        on_loaded: Some(oload),
                     },
                 ) {
                     eprintln!("[rhino] open: try_load: {e}");
@@ -2158,6 +2416,7 @@ fn build_window(
             let mut b = gtk::AboutDialog::builder()
                 .program_name("Rhino Player")
                 .version(env!("CARGO_PKG_VERSION"))
+                .copyright("Copyright (c) Peter Adrianov, 2026")
                 .logo_icon_name(APP_ID)
                 .comments("mpv with GTK 4 and libadwaita (ToolbarView: seek as bottom bar).")
                 .license_type(gtk::License::Gpl30)
@@ -2175,6 +2434,7 @@ fn build_window(
     let quit = gio::SimpleAction::new("quit", None);
     let p_quit = player.clone();
     let win_q = win.clone();
+    let sp_quit = sub_pref.clone();
     quit.connect_activate(glib::clone!(
         #[strong]
         app_q,
@@ -2182,8 +2442,10 @@ fn build_window(
         p_quit,
         #[strong]
         win_q,
+        #[strong]
+        sp_quit,
         move |_, _| {
-            schedule_quit_persist(&app_q, &win_q, &p_quit);
+            schedule_quit_persist(&app_q, &win_q, &p_quit, &sp_quit);
         }
     ));
     app.add_action(&quit);
@@ -2195,6 +2457,7 @@ fn build_window(
     {
         let p = player.clone();
         let w = win.clone();
+        let sp_close = sub_pref.clone();
         win.connect_close_request(glib::clone!(
             #[strong]
             app_q,
@@ -2202,14 +2465,40 @@ fn build_window(
             p,
             #[strong]
             w,
+            #[strong]
+            sp_close,
             move |_win| {
-                schedule_quit_persist(&app_q, &w, &p);
+                schedule_quit_persist(&app_q, &w, &p, &sp_close);
                 glib::Propagation::Stop
             }
         ));
     }
 
-    apply_chrome(&root, &gl_area, &bar_show, &recent_scrl);
+    apply_chrome(
+        &root,
+        &gl_area,
+        &bar_show,
+        &recent_scrl,
+        &bottom,
+        player,
+    );
+    {
+        let pz = player.clone();
+        let bz = bar_show.clone();
+        let rz = recent_scrl.clone();
+        let botz = bottom.clone();
+        let glz = gl_area.clone();
+        let on_sz = Rc::new(move || {
+            if let Some(b) = pz.borrow().as_ref() {
+                let show = if rz.is_visible() { true } else { bz.get() };
+                sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, botz.height(), glz.height());
+            }
+        });
+        let a = Rc::clone(&on_sz);
+        let b = on_sz;
+        gl_area.connect_notify_local(Some("height"), move |_, _| a());
+        bottom.connect_notify_local(Some("height"), move |_, _| b());
+    }
 
     win.present();
 }
