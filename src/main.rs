@@ -1,4 +1,6 @@
 //! Rhino Player — binary entry.
+//!
+//! Copyright (c) Peter Adrianov, 2026.
 
 fn main() -> ! {
     // libmpv checks the locale at init; keep numeric C rules before any other setup.

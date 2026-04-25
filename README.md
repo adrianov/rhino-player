@@ -4,7 +4,7 @@ A media player for Linux (GNOME, Ubuntu, and similar) that uses **mpv** for deco
 
 ## Current state
 
-A working **single-window** player shell is in place: `Adw` application + `ToolbarView` (header, video area, bottom transport + seek + times). Video is **libmpv** render output into a **`GtkGLArea`** (OpenGL / EGL) on X11 and Wayland. The main content is wrapped in **`GtkWindowHandle`** (same pattern as [Cine](https://github.com/diegopvlk/Cine)) so you can **drag the window from the video area** as well as the titlebar. UI chrome (header and bottom bar) can **auto-hide** after idle; the pointer can hide over the video.
+A working **single-window** player shell is in place: `Adw` application + `ToolbarView` (header, video area, bottom transport + seek + times). Video is **libmpv** render output into a **`GtkGLArea`** (OpenGL / EGL) on X11 and Wayland. The main content is wrapped in **`GtkWindowHandle`** so you can **drag the window from the video area** as well as the titlebar. UI chrome (header and bottom bar) can **auto-hide** after idle; the pointer can hide over the video.
 
 **Playback and data:** play / pause, seek bar and keyboard shortcuts, **volume** and **mute** (header and scroll on the video, persisted in **SQLite**), **audio track** selection in the sound popover, and **libmpv** `watch-later`–style **resume** via a dedicated XDG `watch_later` directory. **Open** from the main menu (Ctrl+O) and optional **CLI** path on launch.
 
@@ -72,6 +72,10 @@ cargo run
 
 You can pass a file path on the **command line** or use **Open video…** (Ctrl+O). **Audio** uses `ao=pulse` (PipeWire’s Pulse layer on many setups). If the picture is black or there is no sound, check `mpv`’s `hwdec` / `ao` when preferences land.
 
+## Copyright
+
+Copyright (c) Peter Adrianov, 2026
+
 ## License
 
-GPL-3.0-or-later (see `Cargo.toml`).
+GPL-3.0-or-later (see `Cargo.toml` and `COPYRIGHT`).
