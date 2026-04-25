@@ -443,6 +443,23 @@ pub fn set_playback(path: &Path, duration_sec: f64, time_pos_sec: f64) {
     });
 }
 
+/// Clear stored resume so the next open starts from 0 (watch_later is removed separately in [media_probe]).
+pub fn clear_resume_position(path: &Path) {
+    let Some(s) = std::fs::canonicalize(path)
+        .ok()
+        .and_then(|p| p.to_str().map(str::to_string))
+    else {
+        return;
+    };
+    let _ = with_conn(|c| {
+        c.execute(
+            "UPDATE media SET time_pos_sec = NULL WHERE path = ?1",
+            params![&s],
+        )?;
+        Ok(())
+    });
+}
+
 /// Do not re-capture a quit-time screenshot if the on-disk file is unchanged and
 /// [time_pos] is still within this many seconds of the frame we stored. (See [set_thumb] `thumb_time_pos_sec`.)
 const THUMB_TPOS_SKIP_EPS: f64 = 0.5;

@@ -169,25 +169,61 @@ impl MpvBundle {
 
     /// Mute+pause to silence immediately, then write `watch_later` with the **prior** mute/pause so
     /// the next run does not resume muted or paused. Re-hush for thumbnail I/O, then [stop].
+    /// If playback was at the **natural end**, resume data is [cleared](media_probe::clear_resume_for_path) instead of saved.
     pub fn commit_quit(&self) {
+        let at_end = media_probe::is_natural_end(&self.mpv);
+        if at_end {
+            if let Some(p) = media_probe::local_file_from_mpv(&self.mpv) {
+                media_probe::clear_resume_for_path(&p);
+            }
+        }
         let mute0 = self.mpv.get_property::<bool>("mute").unwrap_or(false);
         let pause0 = self.mpv.get_property::<bool>("pause").unwrap_or(false);
         let _ = self.mpv.set_property("mute", true);
         let _ = self.mpv.set_property("pause", true);
         let _ = self.mpv.set_property("mute", mute0);
         let _ = self.mpv.set_property("pause", pause0);
-        let _ = self.mpv.command("write-watch-later-config", &[]);
+        if !at_end {
+            let _ = self.mpv.command("write-watch-later-config", &[]);
+        }
         let _ = self.mpv.set_property("mute", true);
         let _ = self.mpv.set_property("pause", true);
-        self.persist_on_quit();
+        if at_end {
+            media_probe::save_cached_thumb(&self.mpv);
+        } else {
+            self.persist_on_quit();
+        }
         self.stop_playback();
+    }
+
+    /// Write resume for the current file, or clear it if playback finished (EOF / within ~3s of end).
+    pub fn snapshot_outgoing_before_leave(&self) {
+        if let Some(p) = media_probe::local_file_from_mpv(&self.mpv) {
+            if media_probe::is_natural_end(&self.mpv) {
+                media_probe::clear_resume_for_path(&p);
+            } else {
+                let _ = self.mpv.command("write-watch-later-config", &[]);
+                media_probe::record_playback_for_current(&self.mpv);
+            }
+        } else {
+            let _ = self.mpv.command("write-watch-later-config", &[]);
+            media_probe::record_playback_for_current(&self.mpv);
+        }
     }
 
     /// Save the current file’s position, then `loadfile` the new path. Uses a **canonical** path
     /// string so the watch_later index matches the next open of the same file.
-    pub fn load_file_path(&self, path: &Path) -> Result<(), String> {
-        self.write_resume_snapshot();
-        media_probe::record_playback_for_current(&self.mpv);
+    /// When [clear_outgoing_resume] is true, the outgoing file reached the end: drop watch_later + DB
+    /// position (next open from 0) and do not write a final end snapshot.
+    pub fn load_file_path(&self, path: &Path, clear_outgoing_resume: bool) -> Result<(), String> {
+        if clear_outgoing_resume {
+            if let Some(p) = media_probe::local_file_from_mpv(&self.mpv) {
+                media_probe::clear_resume_for_path(&p);
+            }
+        } else {
+            self.write_resume_snapshot();
+            media_probe::record_playback_for_current(&self.mpv);
+        }
         let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let s = canonical.to_str().ok_or("media path is not valid UTF-8")?;
         self.mpv

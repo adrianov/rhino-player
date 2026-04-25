@@ -12,6 +12,9 @@ use libmpv2::Mpv;
 use crate::db;
 use crate::paths;
 
+/// Near-end window (seconds); matches [percent_from_resume] and `app` sibling/continue rules.
+const NEAR_END: f64 = 3.0;
+
 /// Data for one recent-movie card.
 pub struct CardData {
     pub path: PathBuf,
@@ -37,6 +40,28 @@ fn read_start_from_wl(p: &Path) -> Option<f64> {
 /// Find mpv’s watch_later file for this path. libmpv 0.35+ with
 /// `write-filename-in-watch-later-config` stores the path in a line `# /full/path` (not `filename=…`).
 /// Older or other builds may use `filename=…` — we accept both.
+/// Remove per-file `watch_later` sidecar and DB `time_pos` so the next `loadfile` starts at 0.
+pub fn clear_resume_for_path(media: &Path) {
+    if let Some(wl) = watch_later_config_for(media) {
+        let _ = std::fs::remove_file(wl);
+    }
+    db::clear_resume_position(media);
+}
+
+/// True at EOF or in the last ~3s of a known duration (same rule as the continue / sibling queue).
+pub fn is_natural_end(mpv: &Mpv) -> bool {
+    if mpv.get_property::<bool>("eof-reached").unwrap_or(false) {
+        return true;
+    }
+    match (
+        mpv.get_property::<f64>("time-pos"),
+        mpv.get_property::<f64>("duration"),
+    ) {
+        (Ok(p), Ok(d)) if p.is_finite() && d > 0.0 => d - p <= NEAR_END,
+        _ => false,
+    }
+}
+
 fn watch_later_config_for(media: &Path) -> Option<PathBuf> {
     let dir = paths::watch_later()?;
     let can = std::fs::canonicalize(media).ok()?;
@@ -69,9 +94,6 @@ fn resume_start_seconds(path: &Path) -> Option<f64> {
     let wl = watch_later_config_for(path)?;
     read_start_from_wl(&wl)
 }
-
-/// Near-end threshold (seconds) to show 100% progress.
-const NEAR_END: f64 = 3.0;
 
 fn percent_from_resume(start: Option<f64>, duration: Option<f64>) -> f64 {
     match (start, duration) {
