@@ -2,7 +2,7 @@
 
 **Name:** Cargo project and build layout
 
-**Implementation status:** In progress
+**Implementation status:** Done (see [20-static-build](20-static-build.md) for static release)
 
 **Use cases:** Contributors and CI can build and test with one toolchain; packagers get a clear dependency list; the project stays maintainable as modules grow.
 

@@ -2,7 +2,7 @@
 
 **Name:** System volume, mute, and last level persistence
 
-**Implementation status:** In progress
+**Implementation status:** Done
 
 **Use cases:** Adjust loudness without leaving the app; one-click mute; match expectations from other desktop players and mpv; restore last used level on the next run.
 

@@ -2,7 +2,7 @@
 
 **Name:** Window and presentation
 
-**Implementation status:** In progress (fullscreen + overlay + pointer idle + **`GtkWindowHandle`** on `ToolbarView` content for move-from-video). **Post-resize video aspect lock** (see below): **not implemented** — attempt documented as failed; **revisit later** with a more advanced model (initial implementation pass used **Composer 2 Fast** in Cursor; reliable Wayland/GTK4 behavior not achieved to acceptance).
+**Implementation status:** In progress (fullscreen, chrome autohide, pointer hide, `GtkWindowHandle` move-from-video, idle inhibit, fit-on-open are **done**; **post-resize video aspect lock** is **not** done — see below, attempt documented as failed, revisit later).
 
 **Use cases:** Immersive fullscreen; chrome hides when not needed; the screen does not lock during a movie; when opening a file, the window can resize to match **landscape** (wider than tall) video aspect; portrait or square does not change the window size in this way. **Intended (not done):** after the user **finishes** resizing the window, the shell snaps to the **current** display video aspect (mpv `dwidth`/`dheight`); that behavior is **not** reliably in effect — see **Post-resize aspect lock** under specification.
 

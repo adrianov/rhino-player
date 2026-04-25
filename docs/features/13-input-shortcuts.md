@@ -2,7 +2,7 @@
 
 **Name:** Input and keyboard shortcuts
 
-**Implementation status:** In progress (Space toggles pause in app, not full mpv forwarding yet)
+**Implementation status:** Done for in-app shortcuts in `app.rs` (not: forwarding arbitrary keys to mpv from user `input.conf`, Shortcuts help window)
 
 **Use cases:** Power users keep mpv muscle memory; casual users can view or override keys; mouse maps match typical player expectations.
 

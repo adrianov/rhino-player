@@ -2,7 +2,7 @@
 
 **Name:** Multi-track selection
 
-**Implementation status:** In progress (audio track selection; subtitles / video / external tracks later)
+**Implementation status:** Done for **audio** track selection; subtitles / video / external tracks: not started
 
 **Use cases:** Watch in the right language, load a better subtitle file, or pick an alternate video stream when the file contains several.
 

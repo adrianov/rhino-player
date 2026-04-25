@@ -2,7 +2,7 @@
 
 **Name:** Transport controls and progress bar
 
-**Implementation status:** In progress (seek + time, bottom bar play/pause; see [22-audio-volume-mute](22-audio-volume-mute.md) for volume)
+**Implementation status:** Done (seek + time, bottom bar prev / play / pause / next; prev/next per sibling order — [07](07-sibling-folder-queue.md); volume — [22](22-audio-volume-mute.md); shuffle/loop: [05](05-playlist.md))
 
 **Use cases:** Control playback without leaving the app; see position and total length; adjust volume; enter fullscreen for focused viewing.
 
@@ -12,7 +12,7 @@
 
 **Specification:**
 
-- Properties observed: `time-pos`, `duration`, `pause`, `mute`, `volume`, `volume-max`, `fullscreen` (or window fullscreen state), `media-title` for window title. Play/pause in the **bottom** bar: icon button to the **left** of the elapsed time (left in LTR), `sensitive` only when `duration` > 0, toggles `pause` (same as Space; see [Input shortcuts](13-input-shortcuts.md)).
+- Properties observed: `time-pos`, `duration`, `pause`, `mute`, `volume`, `volume-max`, `fullscreen` (or window fullscreen state), `media-title` for window title. In the **bottom** bar (LTR order): **Previous** and **Next** to skip by sibling-folder rules when applicable (see [07](07-sibling-folder-queue.md)), then play/pause, then elapsed and seek. Play/pause is `sensitive` only when `duration` > 0, toggles `pause` (same as Space; see [Input shortcuts](13-input-shortcuts.md)). **Previous/Next** are `sensitive` when a skip target exists in that order (often disabled at the first or last file in the chain).
 - Seek bar: upper bound = duration; disabled when duration unknown/zero.
 - User setting toggles between elapsed and negative remaining time (`show-remaining`).
 - Match at least 5s/10s style keyboard seeks via [Input shortcuts](13-input-shortcuts.md).

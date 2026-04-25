@@ -2,7 +2,7 @@
 
 **Name:** Application shell (Adwaita app, lifecycle)
 
-**Implementation status:** In progress
+**Implementation status:** Done (no separate preferences or Shortcuts help window yet; [06-open-and-cli](06-open-and-cli.md) for `open` scope)
 
 **Use cases:** Users get a familiar GNOME-style app: one icon, standard menus, predictable quit/open behavior, and a window that fits the rest of the desktop.
 

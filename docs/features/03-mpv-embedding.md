@@ -2,7 +2,7 @@
 
 **Name:** mpv render integration (libmpv + OpenGL)
 
-**Implementation status:** In progress
+**Implementation status:** Done
 
 **Use cases:** Video and audio render inside the app window on typical Linux desktops; users get standard mpv behavior without a separate player window.
 
