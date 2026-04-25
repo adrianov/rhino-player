@@ -193,6 +193,7 @@ fn run_libmpv_image_frame(src: &Path, path_tag: u64) -> Option<Vec<u8>> {
     let mut m = Mpv::with_initializer(|i| {
         i.set_option("vo", "image")?;
         i.set_option("ao", "null")?;
+        let _ = i.set_option("vd-lavc-threads", "0");
         i.set_option("load-scripts", false)?;
         i.set_option("resume-playback", false)?;
         // Default VO is jpg; keep explicit + fast encode.

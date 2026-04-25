@@ -11,8 +11,10 @@ use std::os::raw::c_void;
 use std::path::Path;
 use std::ptr;
 
+use crate::db::VideoPrefs;
 use crate::media_probe;
 use crate::paths;
+use crate::video_pref::apply_mpv_video;
 
 type EglGetProcAddress = unsafe extern "C" fn(*const c_char) -> *mut c_void;
 type GlGetIntegerv = unsafe extern "C" fn(u32, *mut i32);
@@ -54,7 +56,9 @@ pub struct MpvBundle {
 
 impl MpvBundle {
     /// Call with a current GL context on `gl_area` (e.g. inside `GLArea::realize`).
-    pub fn new(gl_area: &gtk::GLArea) -> Result<Self, String> {
+    /// [VideoPrefs] (optional VapourSynth 60 fps `vf`) from SQLite; see [apply_mpv_video].
+    /// The `bool` is `true` when **Smooth video (60 FPS)** was auto-disabled (VapourSynth `vf` rejected); sync UI.
+    pub fn new(gl_area: &gtk::GLArea, video: &mut VideoPrefs) -> Result<(Self, bool), String> {
         let _egl = unsafe { Library::new("libEGL.so.1") }.map_err(|e| e.to_string())?;
         let _gl = unsafe { Library::new("libGL.so.1") }.map_err(|e| e.to_string())?;
 
@@ -69,12 +73,11 @@ impl MpvBundle {
         let mut mpv = Mpv::with_initializer(|init| {
             init.set_option("vo", "libmpv")?;
             init.set_option("osc", "no")?;
+            // 0 = auto: libavcodec can use multiple CPU threads for software decode
+            // (independent of heavy single-threaded sections in some filters / MVTools).
+            let _ = init.set_option("vd-lavc-threads", "0");
             let _ = init.set_option("ao", "pulse");
             let _ = init.set_option("keep-open", "yes");
-            // Smooth presentation on 60+ Hz fixed displays: re-time frames to display refresh (not SOFI).
-            let _ = init.set_option("video-sync", "display-resample");
-            let _ = init.set_option("interpolation", "yes");
-            let _ = init.set_option("tscale", "oversample");
             if let Some(ref dir) = paths::watch_later() {
                 if let Some(s) = dir.to_str() {
                     let _ = init.set_option("save-position-on-quit", "yes");
@@ -89,9 +92,7 @@ impl MpvBundle {
 
         // Re-assert: some init options apply more reliably as properties on the open handle.
         let _ = mpv.set_property("save-position-on-quit", true);
-        let _ = mpv.set_property("video-sync", "display-resample");
-        let _ = mpv.set_property("interpolation", true);
-        let _ = mpv.set_property("tscale", "oversample");
+        let auto_off = apply_mpv_video(&mpv, video);
         // Thumbnails: prefer JPEG (fast); PNG path uses minimum compression.
         let _ = mpv.set_property("screenshot-format", "jpeg");
         let _ = mpv.set_property("screenshot-jpeg-quality", 90i64);
@@ -122,14 +123,17 @@ impl MpvBundle {
             });
         });
 
-        Ok(Self {
-            _egl,
-            _gl,
-            gl_get,
-            mpv,
-            render,
-            gl_ptr,
-        })
+        Ok((
+            Self {
+                _egl,
+                _gl,
+                gl_get,
+                mpv,
+                render,
+                gl_ptr,
+            },
+            auto_off,
+        ))
     }
 
     pub fn draw(&self, area: &gtk::GLArea) {

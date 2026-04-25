@@ -148,6 +148,61 @@ pub fn save_audio(volume: f64, muted: bool) {
     });
 }
 
+// --- video: optional VapourSynth ~60 fps vf (see docs/features/26-sixty-fps-motion.md) ---
+
+/// Current key; bool `0`/`1`. Legacy `video_frame60` is read once if this is missing.
+const K_VIDEO_SMOOTH_60: &str = "video_smooth_60";
+const K_VIDEO_FRAME60_LEGACY: &str = "video_frame60";
+const K_VIDEO_VS: &str = "video_vs_path";
+
+#[derive(Debug, Clone)]
+pub struct VideoPrefs {
+    /// When set: add mpv `vf=vapoursynth` with [vs_path] or bundled `.vpy` (no `display-resample`).
+    pub smooth_60: bool,
+    /// Absolute path to a `.vpy` for mpv’s `vapoursynth` filter, or empty for bundled script.
+    pub vs_path: String,
+}
+
+impl Default for VideoPrefs {
+    fn default() -> Self {
+        Self {
+            // Bundled multicore (or fast) .vpy when `video_vs_path` is empty; see paths.rs
+            smooth_60: true,
+            vs_path: String::new(),
+        }
+    }
+}
+
+fn norm_frame60_legacy(s: &str) -> String {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "off" => "off".into(),
+        "vs" | "vapoursynth" | "lavfi" => "vs".into(),
+        _ => "off".into(),
+    }
+}
+
+pub fn load_video() -> VideoPrefs {
+    let mut p = VideoPrefs::default();
+    if let Some(s) = get_setting_str(K_VIDEO_SMOOTH_60) {
+        p.smooth_60 = s == "1" || s.eq_ignore_ascii_case("true");
+    } else if let Some(s) = get_setting_str(K_VIDEO_FRAME60_LEGACY) {
+        // One-time migration from `video_frame60` = `off` | `vs` (ignore legacy `video_mpv_smooth`).
+        p.smooth_60 = norm_frame60_legacy(&s) == "vs";
+    }
+    if let Some(s) = get_setting_str(K_VIDEO_VS) {
+        p.vs_path = s;
+    }
+    p
+}
+
+pub fn save_video(p: &VideoPrefs) {
+    put_setting(
+        K_VIDEO_SMOOTH_60,
+        if p.smooth_60 { "1" } else { "0" },
+    );
+    put_setting(K_VIDEO_VS, &p.vs_path);
+}
+
 // --- subtitle appearance + last manual track label (see docs/features/24-subtitles.md) ---
 
 const K_SUB_COLOR: &str = "sub_color";

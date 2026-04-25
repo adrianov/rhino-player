@@ -1,4 +1,6 @@
 use adw::prelude::*;
+use gio::prelude::{ActionExt as GioActionExt, ActionMapExt as GioActionMapExt};
+use glib::prelude::ToVariant;
 use gtk::gio;
 use gtk::glib;
 use gtk::glib::prelude::ObjectExt;
@@ -26,6 +28,7 @@ use crate::recent_view;
 use crate::recent_view::RecentContext;
 use crate::sibling_advance;
 use crate::theme;
+use crate::video_pref;
 
 /// Application and icon name ([reverse-DNS] for GTK, desktop, and AppStream).
 ///
@@ -283,6 +286,122 @@ fn video_file_filter() -> gtk::FileFilter {
         f.add_suffix(s);
     }
     f
+}
+
+fn vpy_file_filter() -> gtk::FileFilter {
+    let f = gtk::FileFilter::new();
+    f.set_name(Some("VapourSynth scripts"));
+    f.add_suffix("vpy");
+    f
+}
+
+fn sync_smooth_60_to_off(app: &adw::Application) {
+    if let Some(a) = app.lookup_action("smooth-60") {
+        a.change_state(&false.to_variant());
+    }
+}
+
+/// Main menu: [db::VideoPrefs] and `app.*` actions for `gio::Menu` (before [win::present]).
+fn register_video_app_actions(
+    app: &adw::Application,
+    win: &adw::ApplicationWindow,
+    gl_area: &gtk::GLArea,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
+) {
+    let v0 = video_pref.borrow().clone();
+    let app_s = app.clone();
+    let smooth_60 = gio::SimpleAction::new_stateful("smooth-60", None, &v0.smooth_60.to_variant());
+    {
+        let p = Rc::clone(&video_pref);
+        let pl = Rc::clone(player);
+        let gla = gl_area.clone();
+        smooth_60.connect_change_state(move |a, s| {
+            let Some(s) = s else {
+                return;
+            };
+            let Some(b) = s.get::<bool>() else {
+                return;
+            };
+            a.set_state(s);
+            {
+                let mut g = p.borrow_mut();
+                g.smooth_60 = b;
+                db::save_video(&g);
+            }
+            if let Some(plr) = pl.borrow().as_ref() {
+                let off = {
+                    let mut g = p.borrow_mut();
+                    video_pref::apply_mpv_video(&plr.mpv, &mut g)
+                };
+                if off {
+                    sync_smooth_60_to_off(&app_s);
+                }
+            }
+            gla.queue_render();
+        });
+    }
+    app.add_action(&smooth_60);
+
+    let choose = gio::SimpleAction::new("choose-vs", None);
+    {
+        let app2 = app.clone();
+        let w = win.clone();
+        let p = Rc::clone(&video_pref);
+        let pl = Rc::clone(player);
+        let gla = gl_area.clone();
+        choose.connect_activate(move |_, _| {
+            let vf = vpy_file_filter();
+            let filters = gio::ListStore::new::<gtk::FileFilter>();
+            filters.append(&vf);
+            let dialog = gtk::FileDialog::builder()
+                .title("VapourSynth script")
+                .modal(true)
+                .filters(&filters)
+                .default_filter(&vf)
+                .build();
+            let app3 = app2.clone();
+            let p2 = p.clone();
+            let pl2 = Rc::clone(&pl);
+            let gl2 = gla.clone();
+            dialog.open(Some(&w), None::<&gio::Cancellable>, move |res| {
+                let Ok(file) = res else {
+                    return;
+                };
+                let Some(path) = file.path() else {
+                    eprintln!("[rhino] choose-vs: path required");
+                    return;
+                };
+                {
+                    let mut g = p2.borrow_mut();
+                    g.vs_path = path.to_str().unwrap_or("").to_string();
+                    g.smooth_60 = true;
+                    db::save_video(&g);
+                }
+                if let Some(plr) = pl2.borrow().as_ref() {
+                    let off = {
+                        let mut g = p2.borrow_mut();
+                        video_pref::apply_mpv_video(&plr.mpv, &mut g)
+                    };
+                    if off {
+                        sync_smooth_60_to_off(&app3);
+                    } else if let Some(sa) = app3
+                        .lookup_action("smooth-60")
+                        .and_then(|a| a.downcast::<gio::SimpleAction>().ok())
+                    {
+                        sa.set_state(&p2.borrow().smooth_60.to_variant());
+                    }
+                } else if let Some(sa) = app3
+                    .lookup_action("smooth-60")
+                    .and_then(|a| a.downcast::<gio::SimpleAction>().ok())
+                {
+                    sa.set_state(&true.to_variant());
+                }
+                gl2.queue_render();
+            });
+        });
+    }
+    app.add_action(&choose);
 }
 
 /// Fullscreen and **maximized** are tied so the titlebar restore / unmaximize control matches
@@ -895,6 +1014,7 @@ fn build_window(
     startup: Option<PathBuf>,
 ) {
     let sub_pref = Rc::new(RefCell::new(db::load_sub()));
+    let video_pref = Rc::new(RefCell::new(db::load_video()));
 
     let win = adw::ApplicationWindow::builder()
         .application(app)
@@ -948,8 +1068,16 @@ fn build_window(
     btn_next.add_css_class("rpb-next");
     btn_next.set_tooltip_text(Some("Next file in folder order (same rules as end-of-file advance)"));
     btn_next.set_sensitive(false);
+    let video_menu = gio::Menu::new();
+    video_menu.append(Some("Smooth video (60 FPS)"), Some("app.smooth-60"));
+    video_menu.append(
+        Some("Choose VapourSynth script (.vpy)…"),
+        Some("app.choose-vs"),
+    );
+
     let menu = gio::Menu::new();
     menu.append(Some("Open video…"), Some("app.open"));
+    menu.append_submenu(Some("Video"), &video_menu);
     menu.append(Some("About Rhino Player"), Some("app.about"));
     menu.append(Some("Quit"), Some("app.quit"));
     let vol_adj = gtk::Adjustment::new(100.0, 0.0, 100.0, 1.0, 5.0, 0.0);
@@ -1029,7 +1157,7 @@ fn build_window(
     sub_scale.set_size_request(240, -1);
     sub_scale.set_tooltip_text(Some("Subtitle size (mpv sub-scale)"));
 
-    let sub_color_btn = gtk::ColorDialogButton::new(None::<gtk::ColorDialog>);
+    let sub_color_btn = gtk::ColorDialogButton::new(Some(gtk::ColorDialog::new()));
     sub_color_btn.set_rgba(&sub_prefs::u32_to_rgba(sp_init.color));
     sub_color_btn.set_tooltip_text(Some("Subtitle text color"));
 
@@ -1044,7 +1172,7 @@ fn build_window(
     sub_col.set_margin_end(8);
     sub_col.set_margin_top(8);
     sub_col.set_margin_bottom(6);
-    sub_col.append(&gtk::Label::new(Some("Tracks")));
+    sub_col.append(&gtk::Label::new(Some("Subtitles")));
     sub_col.append(&sub_tracks_section);
     sub_col.append(&sub_opts);
 
@@ -1201,16 +1329,20 @@ fn build_window(
     recent_scrl.set_valign(gtk::Align::Fill);
     ovl.add_overlay(&recent_scrl);
 
+    let app_fl = app.clone();
     let on_file_loaded: Rc<dyn Fn()> = Rc::new({
         let p = player.clone();
         let sp = sub_pref.clone();
+        let vp = Rc::clone(&video_pref);
         let g2 = gl_area.clone();
         let bshow = bar_show.clone();
         let rec = recent_scrl.clone();
         let bot = bottom.clone();
+        let appvf = app_fl.clone();
         move || {
             let p2 = p.clone();
             let sp2 = sp.clone();
+            let vp2 = Rc::clone(&vp);
             let g3 = g2.clone();
             let b3 = bshow.clone();
             let r3 = rec.clone();
@@ -1223,6 +1355,25 @@ fn build_window(
                     sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, bot2.height(), g3.height());
                     sub_tracks::autopick_sub_track(&b.mpv, &pr);
                 }
+                glib::ControlFlow::Break
+            });
+            // Re-apply 60 fps vf after load, but *after* demux/decoder settle (VapourSynth vf is CPU-heavy;
+            // doing it in the same 320ms tick as sub prefs can freeze the process).
+            let p_vf = p.clone();
+            let vp_vf = Rc::clone(&vp2);
+            let g_vf = g2.clone();
+            let app450 = appvf.clone();
+            let _ = glib::timeout_add_local(Duration::from_millis(450), move || {
+                if let Some(b) = p_vf.borrow().as_ref() {
+                    let off = {
+                        let mut g = vp_vf.borrow_mut();
+                        video_pref::apply_mpv_video(&b.mpv, &mut g)
+                    };
+                    if off {
+                        sync_smooth_60_to_off(&app450);
+                    }
+                }
+                g_vf.queue_render();
                 glib::ControlFlow::Break
             });
         }
@@ -1938,6 +2089,8 @@ fn build_window(
 
     let p_realize = player.clone();
     let sp_realize = sub_pref.clone();
+    let vp_realize = Rc::clone(&video_pref);
+    let app_realize = app.clone();
     let win_rz = win.clone();
     let gl_rz = gl_area.clone();
     let recent_rz = recent_scrl.clone();
@@ -1950,8 +2103,15 @@ fn build_window(
     let wa_st = Rc::clone(&win_aspect);
     gl_area.connect_realize(move |area| {
         area.make_current();
-        match MpvBundle::new(area) {
-            Ok(b) => {
+        let init = {
+            let mut v = vp_realize.borrow_mut();
+            MpvBundle::new(area, &mut v)
+        };
+        match init {
+            Ok((b, auto_off)) => {
+                if auto_off {
+                    sync_smooth_60_to_off(&app_realize);
+                }
                 let (av, am) = db::load_audio();
                 let _ = b.mpv.set_property("volume", av);
                 let _ = b.mpv.set_property("mute", am);
@@ -2449,6 +2609,8 @@ fn build_window(
         }
     ));
     app.add_action(&quit);
+
+    register_video_app_actions(app, &win, &gl_area, player, Rc::clone(&video_pref));
 
     app.set_accels_for_action("app.open", &["<Primary>o"]);
     app.set_accels_for_action("app.about", &["F1"]);

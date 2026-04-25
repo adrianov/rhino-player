@@ -16,6 +16,7 @@ mod recent_view;
 mod sibling_advance;
 mod theme;
 mod time;
+mod video_pref;
 
 pub use app::{run, APP_ID};
 pub use time::format_time;

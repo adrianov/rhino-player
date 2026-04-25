@@ -1,6 +1,6 @@
-//! XDG config: `~/.config/rhino/…`.
+//! XDG config: `~/.config/rhino/…` and project data paths (bundled [`.vpy`] for VapourSynth).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// `~/.config/rhino` (created if possible). `None` if `HOME` / config base is missing.
 pub fn app_config() -> Option<PathBuf> {
@@ -20,4 +20,27 @@ pub fn watch_later() -> Option<PathBuf> {
     let d = app_config()?.join("watch_later");
     std::fs::create_dir_all(&d).ok()?;
     Some(d)
+}
+
+/// Bundled `data/vs/…` when **Video → VapourSynth** and DB `video_vs_path` is empty.
+/// Prefers `rhino_60_mvtools_multicore.vpy`, else `rhino_60_mvtools.vpy` (fast preset).
+pub fn bundled_mvtools_60() -> Option<PathBuf> {
+    for name in [
+        "rhino_60_mvtools_multicore.vpy",
+        "rhino_60_mvtools.vpy",
+    ] {
+        let dev = Path::new(env!("CARGO_MANIFEST_DIR")).join("data/vs").join(name);
+        if dev.is_file() {
+            return Some(dev);
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let c = dir.join(format!("../share/rhino-player/vs/{name}"));
+                if c.is_file() {
+                    return std::fs::canonicalize(&c).ok().or(Some(c));
+                }
+            }
+        }
+    }
+    None
 }
