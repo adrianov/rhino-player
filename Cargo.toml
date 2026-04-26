@@ -12,13 +12,13 @@ rust-version = "1.74"
 
 [dependencies]
 gtk = { version = "0.9", package = "gtk4", features = ["v4_14"] } # window, header, dialogs
+gdk-pixbuf = { version = "0.20" } # JPEG → GdkTexture (not gdk::Texture::from_bytes — that is for serialized textures)
 adw = { version = "0.7", package = "libadwaita", features = ["v1_5"] }
 glib = { version = "0.20", features = ["v2_80"] }                 # main loop, clones, timers
 libmpv2 = { version = "5.0.3" }                                    # libmpv
 libc = "0.2"                                                       # setlocale for libmpv
 libloading = "0.8"                                                # libEGL, libGL
 rusqlite = { version = "0.32", features = ["bundled"] }           # app data (one sqlite file)
-image = { version = "0.25", default-features = false, features = ["jpeg"] }
 # Natural (numeric) + Unicode-aware lexical order for file/dir names; see `sibling_advance`.
 lexical-sort = "0.3"
 serde = { version = "1.0", features = ["derive"] }
