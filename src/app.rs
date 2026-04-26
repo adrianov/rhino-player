@@ -46,7 +46,12 @@ const APP_WIN_TITLE: &str = "Rhino Player";
 /// **Preferences** row for `video_smooth_60`: stores **intent**; the bundled `.vpy` runs only at ~**1.0×**.
 const SMOOTH60_MENU_LABEL: &str = "Smooth video (~60 FPS at 1.0×)";
 const SEEK_BAR_MENU_LABEL: &str = "Progress bar preview";
-const LICENSE_NOTICE: &str = "GPL-3.0-or-later";
+const LICENSE_NOTICE: &str = concat!(
+    "Rhino Player is licensed as GPL-3.0-or-later.\n\n",
+    include_str!("../COPYRIGHT"),
+    "\n\n",
+    include_str!("../LICENSE")
+);
 
 fn title_for_open_path(path: &Path) -> String {
     match path.file_name().and_then(|n| n.to_str()) {
@@ -64,6 +69,8 @@ const FIT_H_VIDEO_W: i32 = 960;
 const FIT_H_VIDEO_MAX_H: i32 = 900;
 /// Delay so mpv can populate `dwidth` / `dheight` (or `width` / `height`) after `loadfile`.
 const FIT_WINDOW_DELAY_MS: u32 = 220;
+const SUB_SCAN_TICKS: u8 = 8;
+const SUB_SCAN_MS: u64 = 180;
 const WIN_INIT_W: i32 = 960;
 const WIN_INIT_H: i32 = 540;
 
@@ -115,6 +122,24 @@ fn same_open_target(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(x), Ok(y)) => x == y,
         _ => false,
+    }
+}
+
+fn resync_warm_continue(mpv: &Mpv) {
+    let dur = mpv.get_property::<f64>("duration").unwrap_or(0.0);
+    if !dur.is_finite() || dur <= 0.0 {
+        return;
+    }
+    let Ok(pos) = mpv.get_property::<f64>("time-pos") else {
+        return;
+    };
+    if !pos.is_finite() || pos < 0.12 {
+        return;
+    }
+    let t = pos.clamp(0.0, (dur - 0.05).max(0.0));
+    let s = format!("{t:.4}");
+    if mpv.command("seek", &[s.as_str(), "absolute+keyframes"]).is_err() {
+        let _ = mpv.set_property("time-pos", t);
     }
 }
 
@@ -720,6 +745,31 @@ fn drain_recent_backfill(pending: &Rc<RefCell<Option<RecentBackfillJob>>>) {
     }
 }
 
+fn schedule_sub_button_scan(
+    player: Rc<RefCell<Option<MpvBundle>>>,
+    button: gtk::MenuButton,
+) {
+    button.set_visible(false);
+    let tries = Rc::new(Cell::new(0u8));
+    let _ = glib::timeout_add_local(Duration::from_millis(SUB_SCAN_MS), move || {
+        let has_subs = player
+            .borrow()
+            .as_ref()
+            .is_some_and(|b| sub_tracks::has_subtitle_tracks(&b.mpv));
+        button.set_visible(has_subs);
+        if has_subs {
+            return glib::ControlFlow::Break;
+        }
+        let next = tries.get().saturating_add(1);
+        tries.set(next);
+        if next >= SUB_SCAN_TICKS {
+            glib::ControlFlow::Break
+        } else {
+            glib::ControlFlow::Continue
+        }
+    });
+}
+
 fn preload_first_continue(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     video: &Rc<RefCell<db::VideoPrefs>>,
@@ -931,6 +981,9 @@ fn try_load(
         // Raise the window if the app was in the background (another app focused / minimized).
         win.present();
         if let Some(b) = player.borrow().as_ref() {
+            if warm_hit {
+                resync_warm_continue(&b.mpv);
+            }
             let _ = b.mpv.set_property("pause", false);
         }
         let p2 = Rc::clone(player);
@@ -1907,7 +1960,7 @@ fn build_window(
             let app_320 = app_onload.clone();
             let _ = glib::timeout_add_local(Duration::from_millis(320), move || {
                 if let Some(b) = p2.borrow().as_ref() {
-                    sub320.set_visible(sub_tracks::has_subtitle_tracks(&b.mpv));
+                    schedule_sub_button_scan(p2.clone(), sub320.clone());
                     let pr = sp2.borrow();
                     sub_prefs::apply_mpv(&b.mpv, &pr);
                     let show = if r3.is_visible() { true } else { b3.get() };
@@ -2120,9 +2173,10 @@ fn build_window(
     let last_open = last_path.clone();
     let wa_on = Rc::clone(&win_aspect);
     let reapply_on_open = reapply_60.clone();
+    let sub_scan_on_open = sub_menu.clone();
     let on_open: RcPathFn = Rc::new(move |path: &Path| {
         eprintln!("[rhino] on_open from recent/menu: {}", path.display());
-        if let Err(e) = try_load(
+        let loaded = try_load(
             path,
             &p_openr,
             &win_menu,
@@ -2137,8 +2191,12 @@ fn build_window(
                 on_loaded: Some(Rc::clone(&ol_open)),
                 reapply_60: Some(reapply_on_open.clone()),
             },
-        ) {
-            eprintln!("[rhino] on_open: try_load error: {e}");
+        );
+        match loaded {
+            Ok(()) => schedule_sub_button_scan(p_openr.clone(), sub_scan_on_open.clone()),
+            Err(e) => {
+                eprintln!("[rhino] on_open: try_load error: {e}");
+            }
         }
     });
     *on_open_slot.borrow_mut() = Some(on_open.clone());
