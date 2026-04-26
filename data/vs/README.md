@@ -13,13 +13,9 @@ Rhino uses the **system** `libmpv` (see `ldd` on the binary). The error is **not
 - **Check:** `mpv -vf help 2>&1 | grep -E '^\s+vapoursynth\b'` — if there is **no** line, you must **replace** `libmpv`+`mpv` with a build that has VapourSynth (see `../scripts/ensure-vapoursynth-debian.sh`), or [build mpv](https://github.com/mpv-player/mpv) with `-Dvapoursynth=enabled` after VapourSynth is installed.
 - **Then** install the [mvtools] plugin (`.so` for VapourSynth) so `core.mv` works in the bundled script.
 
-## Bundled scripts (default 60 fps mode)
+## Bundled script (default 60 fps mode)
 
-When **Preferences → Smooth video (60 FPS)** is on and the DB has **no** custom **Choose VapourSynth script** path, the app picks (in order):
-
-1. **`rhino_60_mvtools_multicore.vpy`** — [MVTools] **BlockFPS** to ~**60** fps, **quality** preset: `pel=4` super, `Analyse` with 4×4 blocks + `dct=1`, **`Recalculate`** to refine vectors, then **BlockFPS** `mode=3`. Sets **`core.num_threads`** to the logical CPU count and **`core.max_cache_size` = 8192** MB for **mpv**’s `concurrent-frames=auto`. **Much** heavier than the fast script; use **`rhino_60_mvtools.vpy`** or uncheck **Smooth video (60 FPS)** if the machine cannot keep up.
-
-2. **`rhino_60_mvtools.vpy`** — same pipeline, tuned for **speed** (larger blocks, `pel=1`, etc.), if the multicore file is not installed (e.g. old `share` tree).
+When **Preferences → Smooth video (60 FPS)** is on and the DB has **no** custom **Choose VapourSynth script** path, the app uses **`rhino_60_mvtools.vpy`** only: [MVTools] **FlowFPS** to **60/1** fps (lighter than an old **BlockFPS**+**Recalculate** preset), with **`core.num_threads`** = logical CPU count, **`max_cache_size` = 4096** MB (enough for mpv `concurrent-frames=auto` without the old 8192 MB cap), `LoadPlugin` for `libmvtools.so`, `pel=1` `Super` + `Analyse` (single pass, `overlap=0`, `search=0`) + `FlowFPS` with `mask=0`, `chroma=True` on `Super`. The app locates `libmvtools.so` (order: **`RHINO_MVTOOLS_LIB`**, then a path **cached in SQLite** (`video_mvtools_lib`) if that file still exists—**no full rescan**—else Debian-style paths, pipx/vsrepo under `~/.local`, then a bounded search of the rest of `~/.local`), sets **`RHINO_MVTOOLS_LIB`**, and prints **`libmvtools -> <path>`** to stderr. **Override** with `export RHINO_MVTOOLS_LIB=/path/to/libmvtools.so`.
 
 - **VapourSynth** + the **mvtools** plugin must be installed so `core.mv.*` works.
 - **mpv** (the same one linked as **libmpv** for this app) must include the `vapoursynth` [vf] (`mpv -vf help`).
@@ -36,11 +32,23 @@ If **vf** add still fails, Rhino turns **Smooth video (60 FPS)** off, saves that
 
 The [darealshinji collection](https://github.com/darealshinji/vapoursynth-plugins) (and the old `vapoursynth-extra-plugins` / `ppa:djcj/vapoursynth` idea) is **archived** and **stuck on years-old** plugin versions (e.g. mvtools from that era, FFmpeg 3.x-era build glue). It is **not** a good baseline for **2024+** distros. Prefer **current** [vapoursynth-mvtools] from your distro or [vsrepo], and a **current** [VapourSynth] API (Rhino’s bundled scripts target **R55+** with **MVTools** only).
 
-**Why Rhino does not depend on that bundle:** the default `.vpy` files must work when the system has **only** `core.mv` (and **mpv** with `vapoursynth` vf). Pulling in **AWarpSharp2**, **BM3D**, **NNEDI3**, **waifu2x**, etc. would **fail** on machines without those `.so` files and is often **not real-time** at 1080p anyway.
+**Why Rhino does not depend on that bundle:** the bundled `.vpy` must work when the system has **only** `core.mv` (and **mpv** with `vapoursynth` vf). Pulling in **AWarpSharp2**, **BM3D**, **NNEDI3**, **waifu2x**, etc. would **fail** on machines without those `.so` files and is often **not real-time** at 1080p anyway.
 
 **If you install more plugins yourself** (see [vsrepo]), you can use **Preferences** → **Choose VapourSynth script** with a **custom** `.vpy** that chains e.g. a **mild** spatial sharpen **after** interpolation (some people use **awarpsharp2**-style filters to counter softness from BlockFPS) or a **light** denoise **before** `Super` to stabilize vectors — at the cost of more CPU and tuning per source. We do **not** ship such scripts: they are **content- and install-specific**.
 
 **Stronger** “looks like 60p” than MVTools is usually **separate** ML filters (e.g. **RIFE** / ncnn) — not from that static list, and not bundled here; see `docs/features/26-sixty-fps-motion.md`.
+
+## `mpv` from the command line (not Rhino)
+
+Use an absolute path to the script (or `$HOME/...`); the filter syntax is
+`vapoursynth:file=/path/to/rhino_60_mvtools.vpy:buffered-frames=8` (or `…` in `--vf=…` with quoting as needed). The bundled script searches the same way (env, `/usr/…/vapoursynth/`, then pipx/vsrepo path under `~/.local`, then broader `~/.local`) to **`LoadPlugin`**, matching the Rhino app. If mvtools is only on your system under a path we do not search, set:
+
+```bash
+export RHINO_MVTOOLS_LIB=/full/path/to/libmvtools.so
+mpv --vf=append=vapoursynth:file=\"$HOME/rhino-player/data/vs/rhino_60_mvtools.vpy\":buffered-frames=8 The.File.mkv
+```
+
+(Adjust the `file=` path; escape colons in paths if you use the `file=/a:/b` style on Windows — on Linux, prefer `file=[/path with spaces/…]`.)
 
 ## Your own script
 
