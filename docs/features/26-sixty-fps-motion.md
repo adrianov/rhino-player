@@ -8,7 +8,7 @@
 
 **Short description:** A user-supplied [`.vpy` script](https://vapoursynth.com/doc) using `core.std` and plugins from [vsrepo] (e.g. **MVTools** for motion, or **RIFE-ncnn** / VSGAN for ML quality). The app ships one **MVTools FlowFPS** ~60p baseline when no custom path is set.
 
-**Long description:** The **VapourSynth** community uses filters such as [MVTools] block motion, [RIFE] / ncnn, or DAIN exports for fluid motion; there is no single “official” 60p preset—**quality, speed, and GPU use depend on the script and plugins**. The **mpv** [vapoursynth] filter runs a **Python** script with a global `video_in` clip; a separate mpv build may omit the filter, so the app only adds the vf when the feature exists (otherwise stderr notes). **Integrated** graphics: VapourSynth + ncnn/ML filters may use the GPU in some builds, but **MVTools** is **CPU**-oriented; lower resolution or a stronger CPU helps. If the database still has legacy **`video_frame60`** and no `video_smooth_60`, load migrates: **`vs` →** toggle **on**, **`off` →** toggle **off** (values like old `lavfi` normalize like before).
+**Long description:** The **VapourSynth** community uses filters such as [MVTools] block motion, [RIFE] / ncnn, or DAIN exports for fluid motion; there is no single “official” 60p preset—**quality, speed, and GPU use depend on the script and plugins**. The **mpv** [vapoursynth] filter runs a **Python** script with a global `video_in` clip; a separate mpv build may omit the filter, so the app only adds the vf when the feature exists (otherwise stderr notes). **Integrated** graphics: VapourSynth + ncnn/ML filters may use the GPU in some builds, but **MVTools** is **CPU**-oriented; lower resolution or a stronger CPU helps.
 
 **Specification:**
 

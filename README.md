@@ -30,6 +30,7 @@ At runtime, `src/icons.rs` prepends the manifest `data/icons` directory to GTK�
 
 [application id]: https://developer.gnome.org/documentation/tutorials/application-id.html
 [icon theme]: https://specifications.freedesktop.org/icon-theme-spec/icon-theme-spec-latest.html
+[vapoursynth-mvtools]: https://github.com/dubhater/vapoursynth-mvtools
 
 ## Build
 
@@ -41,6 +42,59 @@ cargo build --release
 ```
 
 **Note:** libmpv requires a C locale for numbers. The binary sets `LC_NUMERIC=C` and `setlocale(LC_NUMERIC, "C")` before starting mpv.
+
+## Smooth 60 FPS on Ubuntu
+
+Rhino’s **Preferences → Smooth video (~60 FPS at 1.0×)** uses mpv’s native **VapourSynth** video filter plus **MVTools** (`libmvtools.so`). Ubuntu’s default `mpv` / `libmpv` packages often do **not** include the `vapoursynth` filter, so installing only Rhino is not enough.
+
+Check the current system first:
+
+```bash
+mpv -vf help 2>&1 | grep -E '^[[:space:]]*vapoursynth[[:space:]]'
+python3 -c 'import vapoursynth as vs; print(vs.core.mv)'
+```
+
+The first command must print a `vapoursynth` filter. The second command must print an MVTools object instead of failing. If either check fails, use the project helper:
+
+```bash
+./scripts/ensure-vapoursynth-debian.sh
+```
+
+If the helper says Ubuntu’s stock or PPA mpv is missing VapourSynth support, build mpv + libmpv with VapourSynth enabled:
+
+```bash
+./scripts/build-mpv-vapoursynth-system.sh
+```
+
+That script builds mpv/libmpv to `/usr/local` with `-Dvapoursynth=enabled`. Afterward, make sure Rhino loads that libmpv, for example:
+
+```bash
+export LD_LIBRARY_PATH=/usr/local/lib/x86_64-linux-gnu:/usr/local/lib:$LD_LIBRARY_PATH
+cargo run
+```
+
+Install MVTools through the distro package when available:
+
+```bash
+sudo apt-get install vapoursynth vapoursynth-python3 vapoursynth-mvtools
+```
+
+If `vapoursynth-mvtools` is unavailable, install MVTools with `vsrepo` or build [vapoursynth-mvtools] from source. Rhino looks for `libmvtools.so` in common system locations, pipx/vsrepo under `~/.local`, and a bounded `~/.local` search. You can also force the path:
+
+```bash
+export RHINO_MVTOOLS_LIB=/full/path/to/libmvtools.so
+```
+
+Once the checks pass, start Rhino, open a video, and enable **Preferences → Smooth video (~60 FPS at 1.0×)**. The built-in `data/vs/rhino_60_mvtools.vpy` script is used by default; **Choose VapourSynth script…** is only needed for a custom `.vpy`.
+
+Notes:
+
+- Smooth 60 runs only at about **1.0×** playback speed. At 1.5× / 2.0× Rhino intentionally skips the filter.
+- While the VapourSynth filter is active, Rhino forces software decode (`hwdec=no`) so frames pass through the CPU filter path. Expect higher CPU use; 1080p may need a strong CPU.
+- A brief black frame while the graph starts is normal. Judge motion on camera pans; subtitles are drawn after the video filter and are not a reliable test.
+- If mpv rejects the filter, Rhino turns the preference off and saves that state. Fix mpv/VapourSynth/MVTools, then enable the menu item again.
+
+More detail: [docs/features/26-sixty-fps-motion.md](docs/features/26-sixty-fps-motion.md) and [data/vs/README.md](data/vs/README.md).
 
 ## Test
 
