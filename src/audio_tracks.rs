@@ -79,13 +79,21 @@ fn set_aid(mpv: &Mpv, id: i64) {
 /// After [loadfile], make sure an audio stream is actually selected. With **one** [audio] track
 /// there is no popover to pick it, and some files leave [aid] as `no` or unresolved until
 /// [aid] is set explicitly. With **several** tracks, only fix explicit `aid=no` (e.g. stale state).
+///
+/// Do **not** set `aid` when that track is already active: repeating `set_property` on the same id
+/// can re-open the audio path and leave A/V slightly out of sync (noticeable on Next / Previous,
+/// where the delayed subtitle/audio hook runs after every `loadfile`).
 pub fn ensure_playable_audio(mpv: &Mpv) {
     let rows = audio_rows(mpv);
     if rows.is_empty() {
         return;
     }
     if rows.len() == 1 {
-        set_aid(mpv, rows[0].id);
+        let want = rows[0].id;
+        if current_aid(mpv) == Some(want) {
+            return;
+        }
+        set_aid(mpv, want);
         return;
     }
     if let Ok(s) = mpv.get_property::<String>("aid") {
