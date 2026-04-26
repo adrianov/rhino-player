@@ -50,27 +50,87 @@ pub fn apply() {
         scale.rp-seek > trough > fill {
             background-color: #78aeed;
         }
+        /* Header popovers: one shared layout for sound, subtitles, and speed. */
+        popover.rp-header-popover > contents {
+            padding: 0;
+        }
+        .rp-popover-box {
+            padding: 12px;
+            border-spacing: 10px;
+            min-width: 240px;
+        }
+        .rp-popover-box scrolledwindow {
+            min-height: 0;
+        }
+        .rp-popover-box list.rich-list {
+            background: none;
+        }
+        /* Seek hover preview (see docs/features/18-thumbnail-preview.md) */
+        popover.rp-seek-popover {
+            background: none;
+            background-color: transparent;
+            border: none;
+            box-shadow: none;
+            padding: 0;
+        }
+        popover.rp-seek-popover > contents {
+            background: none;
+            background-color: transparent;
+            border: none;
+            box-shadow: none;
+            padding: 0;
+        }
+        frame.rp-seek-thumb-frame {
+            padding: 3px;
+            background-color: #2d2d2d;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 8px;
+            box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+        }
+        frame.rp-seek-thumb-frame > border {
+            border: none;
+        }
+        frame.rp-seek-thumb-frame glarea {
+            border-radius: 5px;
+        }
+        label.rp-seek-thumb-time {
+            color: #c0bfbc;
+            font-size: 0.82em;
+            font-family: monospace, monospace;
+            font-feature-settings: "tnum";
+            padding: 0 2px 1px 2px;
+        }
         .rp-page-stack, .rp-recent-scroll { background-color: #242424; }
         .rp-recent-scroll {
             min-height: 200px;
         }
+        .rp-recent-row {
+            padding: 10px;
+        }
         .rp-recent-card {
             padding: 0;
-            background-color: #1e1e1e;
-            border-radius: 8px;
-            min-width: 200px;
-            min-height: 120px;
+            background-color: rgba(18, 18, 20, 0.94);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.50);
+            min-width: 220px;
+            min-height: 132px;
+        }
+        .rp-recent-card:hover {
+            border-color: rgba(255, 255, 255, 0.18);
+            box-shadow: 0 14px 34px rgba(0, 0, 0, 0.58);
         }
         .rp-recent-bg { border-radius: 0; }
         .rp-recent-bg-miss { background-color: #2d2d2d; }
         .rp-recent-card-footer {
             /* Solid strip + gradient so file name and progress read on any frame. */
-            background-color: rgba(0, 0, 0, 0.55);
+            background-color: rgba(0, 0, 0, 0.62);
             background-image: linear-gradient(
                 to top,
-                rgba(0, 0, 0, 0.5) 0%,
-                rgba(0, 0, 0, 0.12) 100%
+                rgba(0, 0, 0, 0.56) 0%,
+                rgba(0, 0, 0, 0.16) 100%
             );
+            border-radius: 0 0 12px 12px;
         }
         .rp-recent-card-footer label { color: #f6f5f4; }
         .rp-recent-card-footer label.dim-label { color: #deddda; }

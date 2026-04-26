@@ -1,7 +1,6 @@
 //! Recent video cards for empty launch. See [docs/features/21-recent-videos-launch.md].
 
 use adw::prelude::*;
-use gtk::gdk;
 use gtk::glib;
 use gtk::prelude::EventControllerExt;
 use gtk::prelude::IsA;
@@ -15,6 +14,11 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::media_probe::{self, card_data_list, CardData};
+
+const CARD_ASPECT: f64 = 5.0 / 3.0;
+const CARD_MIN_W: i32 = 220;
+const CARD_MAX_W: i32 = 620;
+const CARD_GAP: i32 = 16;
 
 /// Session undo: title, **Undo**, close (dismisses without restoring). Placed in [new_scroll] under the card row.
 /// Plain [gtk::Box] shell (not [gtk::Revealer]) so GTK does not paint an extra background plane behind the pill.
@@ -138,6 +142,30 @@ pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, [gtk::Box; 4], UndoBar) {
 fn clear(f: &gtk::Box) {
     while let Some(c) = f.first_child() {
         c.unparent();
+    }
+}
+
+fn card_width(row_w: i32, count: usize) -> i32 {
+    let count = count.max(1) as i32;
+    let avail = (row_w - CARD_GAP * (count - 1)).max(CARD_MIN_W);
+    let target = if count == 1 {
+        (f64::from(row_w) * 0.40).round() as i32
+    } else {
+        avail / count
+    };
+    target.clamp(CARD_MIN_W, CARD_MAX_W)
+}
+
+fn sync_card_sizes(row: &gtk::Box, cards: &[gtk::Overlay]) {
+    if cards.is_empty() {
+        return;
+    }
+    let w = card_width(row.width(), cards.len());
+    let h = (f64::from(w) / CARD_ASPECT).round() as i32;
+    for card in cards {
+        card.set_size_request(w, h);
+        card.set_width_request(w);
+        card.set_height_request(h);
     }
 }
 
@@ -357,6 +385,7 @@ pub fn fill_row(
     on_trash: Rc<dyn Fn(&Path)>,
 ) {
     clear(row);
+    let cards = Rc::new(RefCell::new(Vec::<gtk::Overlay>::new()));
     for d in items {
         let c = d.path.clone();
         let miss = d.missing;
@@ -370,8 +399,6 @@ pub fn fill_row(
         let card = gtk::Overlay::new();
         card.set_vexpand(false);
         card.set_hexpand(false);
-        card.set_size_request(200, 120);
-        card.set_width_request(200);
         card.set_overflow(gtk::Overflow::Hidden);
         card.add_css_class("rp-recent-card");
         if miss {
@@ -391,8 +418,7 @@ pub fn fill_row(
         let bg: gtk::Widget = if miss {
             full_bleed_icon("image-missing-symbolic")
         } else if let Some(ref bytes) = d.thumb {
-            let b = glib::Bytes::from(bytes.as_slice());
-            if let Ok(tex) = gdk::Texture::from_bytes(&b) {
+            if let Some(tex) = crate::jpeg_texture::texture_from_jpeg(bytes.as_slice()) {
                 let pic = gtk::Picture::for_paintable(&tex);
                 pic.set_content_fit(gtk::ContentFit::Cover);
                 pic.set_can_shrink(true);
@@ -525,10 +551,16 @@ pub fn fill_row(
         }
 
         let wrap = adw::Clamp::new();
-        wrap.set_maximum_size(400);
+        wrap.set_maximum_size(CARD_MAX_W);
         wrap.set_child(Some(&card));
+        cards.borrow_mut().push(card.clone());
         row.append(&wrap);
     }
+    sync_card_sizes(row, &cards.borrow());
+    let cards2 = Rc::clone(&cards);
+    row.connect_notify_local(Some("width"), move |r, _| {
+        sync_card_sizes(r, &cards2.borrow());
+    });
 }
 
 /// Probes each path in an idle; [card_data_list] is DB-only (no libmpv) on the main thread, then
