@@ -3,7 +3,7 @@
 ## Purpose
 
 - **Rhino Player**: mpv-backed media player for Linux (GNOME, Ubuntu, and similar) with **GTK4 / libadwaita** UI, implemented in **Rust**, targeting a **statically linked** distributable when feasible.
-- **Product context**: `docs/product-and-use-cases.md` (use cases and feature map). Behavior is specified in `docs/` first, then implemented. Copyright © Peter Adrianov, 2026; see root `COPYRIGHT` and the About dialog.
+- **Product context**: `docs/product-and-use-cases.md` (use cases and feature map). Behavior is specified in `docs/` first, then implemented. Copyright (C) 2026 Peter Adrianov; license `GPL-3.0-or-later` in root `LICENSE` / `COPYRIGHT` and the About dialog.
 
 ## Directories
 

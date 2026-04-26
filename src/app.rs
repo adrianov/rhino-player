@@ -46,6 +46,7 @@ const APP_WIN_TITLE: &str = "Rhino Player";
 /// **Preferences** row for `video_smooth_60`: stores **intent**; the bundled `.vpy` runs only at ~**1.0×**.
 const SMOOTH60_MENU_LABEL: &str = "Smooth video (~60 FPS at 1.0×)";
 const SEEK_BAR_MENU_LABEL: &str = "Progress bar preview";
+const LICENSE_NOTICE: &str = "GPL-3.0-or-later";
 
 fn title_for_open_path(path: &Path) -> String {
     match path.file_name().and_then(|n| n.to_str()) {
@@ -3661,10 +3662,11 @@ fn build_window(
             let mut b = gtk::AboutDialog::builder()
                 .program_name("Rhino Player")
                 .version(env!("CARGO_PKG_VERSION"))
-                .copyright("Copyright © Peter Adrianov, 2026")
+                .copyright("Copyright (C) 2026 Peter Adrianov")
                 .logo_icon_name(APP_ID)
                 .comments("mpv with GTK 4 and libadwaita.")
-                .license_type(gtk::License::Gpl30)
+                .license(LICENSE_NOTICE)
+                .license_type(gtk::License::Custom)
                 .website("https://github.com/adrianov/rhino-player")
                 .modal(true);
             if let Some(ref w) = parent {

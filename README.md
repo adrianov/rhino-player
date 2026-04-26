@@ -128,8 +128,8 @@ You can pass a file path on the **command line** or use **Open video…** (Ctrl+
 
 ## Copyright
 
-Copyright © Peter Adrianov, 2026
+Copyright (C) 2026 Peter Adrianov
 
 ## License
 
-GPL-3.0-or-later (see `Cargo.toml` and `COPYRIGHT`).
+GPL-3.0-or-later (see `LICENSE`, `COPYRIGHT`, and `Cargo.toml`).

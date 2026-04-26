@@ -1,6 +1,6 @@
 //! Rhino Player — binary entry.
 //!
-//! Copyright © Peter Adrianov, 2026.
+//! Copyright (C) 2026 Peter Adrianov. GPL-3.0-or-later.
 
 fn main() -> ! {
     // Before GLib / GTK: on Linux, best-effort I/O scheduling *class* (not niceness); see `sched`.

@@ -1,6 +1,6 @@
 //! Rhino Player: GTK4 shell around libmpv. See `docs/`.
 //!
-//! Copyright © Peter Adrianov, 2026. GPL-3.0-or-later.
+//! Copyright (C) 2026 Peter Adrianov. GPL-3.0-or-later.
 
 mod app;
 mod continue_undo;
