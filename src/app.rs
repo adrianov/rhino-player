@@ -69,8 +69,8 @@ const FIT_H_VIDEO_W: i32 = 960;
 const FIT_H_VIDEO_MAX_H: i32 = 900;
 /// Delay so mpv can populate `dwidth` / `dheight` (or `width` / `height`) after `loadfile`.
 const FIT_WINDOW_DELAY_MS: u32 = 220;
-const SUB_SCAN_TICKS: u8 = 8;
-const SUB_SCAN_MS: u64 = 180;
+const SUB_SCAN_TICKS: u8 = 24;
+const SUB_SCAN_MS: u64 = 250;
 const WIN_INIT_W: i32 = 960;
 const WIN_INIT_H: i32 = 540;
 

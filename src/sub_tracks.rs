@@ -71,7 +71,20 @@ fn sub_rows(mpv: &Mpv) -> Vec<Row> {
 
 /// `track-list` has at least one `type: sub` entry.
 pub fn has_subtitle_tracks(mpv: &Mpv) -> bool {
-    !sub_rows(mpv).is_empty()
+    !sub_rows(mpv).is_empty() || has_subtitle_track_props(mpv)
+}
+
+fn has_subtitle_track_props(mpv: &Mpv) -> bool {
+    let Ok(count) = mpv.get_property::<i64>("track-list/count") else {
+        return false;
+    };
+    for i in 0..count.max(0) {
+        let key = format!("track-list/{i}/type");
+        if mpv.get_property::<String>(&key).is_ok_and(|s| s == "sub") {
+            return true;
+        }
+    }
+    false
 }
 
 /// Seeding string for Levenshtein: last hand-picked track label, else a short [LANG] hint.
