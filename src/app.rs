@@ -67,6 +67,7 @@ const WIN_INIT_W: i32 = 960;
 const WIN_INIT_H: i32 = 540;
 
 type RcPathFn = Rc<dyn Fn(&Path)>;
+type RecentBackfillJob = (Rc<RecentContext>, Vec<PathBuf>);
 
 fn same_xy(a: f64, b: f64) -> bool {
     (a - b).abs() < COORD_EPS
@@ -428,7 +429,7 @@ fn register_video_app_actions(
                     sync_smooth_60_to_off(&app_c);
                 }
             }
-            video_pref_submenu_rebuild(&pref, &*p.borrow(), &app_c);
+            video_pref_submenu_rebuild(&pref, &p.borrow(), &app_c);
             gla.queue_render();
         });
     }
@@ -491,7 +492,7 @@ fn register_video_app_actions(
                 {
                     sa.set_state(&true.to_variant());
                 }
-                video_pref_submenu_rebuild(&pref2, &*p2.borrow(), &app3);
+                video_pref_submenu_rebuild(&pref2, &p2.borrow(), &app3);
                 gl2.queue_render();
             });
         });
@@ -699,6 +700,47 @@ fn schedule_window_fit_h_video(
     );
 }
 
+fn schedule_or_defer_recent_backfill(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    pending: &Rc<RefCell<Option<RecentBackfillJob>>>,
+    ctx: Rc<RecentContext>,
+    paths: Vec<PathBuf>,
+) {
+    if player.borrow().is_some() {
+        recent_view::schedule_thumb_backfill(ctx, paths);
+    } else {
+        *pending.borrow_mut() = Some((ctx, paths));
+    }
+}
+
+fn drain_recent_backfill(pending: &Rc<RefCell<Option<RecentBackfillJob>>>) {
+    if let Some((ctx, paths)) = pending.borrow_mut().take() {
+        recent_view::schedule_thumb_backfill(ctx, paths);
+    }
+}
+
+fn preload_first_continue(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    video: &Rc<RefCell<db::VideoPrefs>>,
+    recent: &impl IsA<gtk::Widget>,
+) -> Option<bool> {
+    let has_file = player
+        .borrow()
+        .as_ref()
+        .and_then(|b| local_file_from_mpv(&b.mpv))
+        .is_some();
+    if !recent.is_visible() || has_file {
+        return None;
+    }
+    let path = history::load().into_iter().next()?;
+    let mut p = player.borrow_mut();
+    let b = p.as_mut()?;
+    let _ = b.mpv.set_property("pause", true);
+    b.load_file_path(&path, false).ok()?;
+    let _ = b.mpv.set_property("pause", true);
+    Some(video_pref::apply_mpv_video(&b.mpv, &mut video.borrow_mut(), None).smooth_auto_off)
+}
+
 pub fn run() -> i32 {
     unsafe {
         libc::setlocale(libc::LC_NUMERIC, b"C\0".as_ptr().cast());
@@ -814,53 +856,63 @@ fn try_load(
         player.borrow().is_some(),
         play_on_start
     );
+    let mut warm_hit = false;
     {
         let mut g = player.borrow_mut();
         let b = g.as_mut().ok_or("Player not ready. Wait for GL init.")?;
         let prev = local_file_from_mpv(&b.mpv).or_else(|| o.last_path.borrow().clone());
-        let clear_outgoing_resume = is_done_enough_to_drop_continue(&b.mpv)
-            && local_file_from_mpv(&b.mpv).is_some();
-        let drop_from_history = prev.as_ref().is_some_and(|p| {
-            !same_open_target(p, path) && is_done_enough_to_drop_continue(&b.mpv)
-        });
-        if let Err(e) = b.load_file_path(path, clear_outgoing_resume) {
-            eprintln!("[rhino] try_load: loadfile failed: {e}");
-            return Err(e);
-        }
-        eprintln!("[rhino] try_load: loadfile ok");
-        if drop_from_history {
-            if let Some(p) = prev {
-                remove_continue_entry(&p);
+        let already_loaded = recent_layer.is_visible()
+            && prev.as_ref().is_some_and(|p| same_open_target(p, path));
+        if already_loaded {
+            warm_hit = true;
+            eprintln!("[rhino] try_load: warm preload hit");
+        } else {
+            let clear_outgoing_resume = is_done_enough_to_drop_continue(&b.mpv)
+                && local_file_from_mpv(&b.mpv).is_some();
+            let drop_from_history = prev.as_ref().is_some_and(|p| {
+                !same_open_target(p, path) && is_done_enough_to_drop_continue(&b.mpv)
+            });
+            if let Err(e) = b.load_file_path(path, clear_outgoing_resume) {
+                eprintln!("[rhino] try_load: loadfile failed: {e}");
+                return Err(e);
+            }
+            eprintln!("[rhino] try_load: loadfile ok");
+            if drop_from_history {
+                if let Some(p) = prev {
+                    remove_continue_entry(&p);
+                }
             }
         }
     }
-    if let Some(r) = o.reapply_60.as_ref() {
-        let p = Rc::clone(player);
-        let r0 = r.clone();
-        let _ = glib::idle_add_local_once(move || {
-            if let Some(b) = p.borrow().as_ref() {
-                let a = {
-                    let mut g = r0.vp.borrow_mut();
-                    video_pref::apply_mpv_video(&b.mpv, &mut *g, None)
-                };
-                if a.smooth_auto_off {
-                    sync_smooth_60_to_off(&r0.app);
-                }
-            }
-            let p2 = Rc::clone(&p);
-            let r1 = r0.clone();
+    if !warm_hit {
+        if let Some(r) = o.reapply_60.as_ref() {
+            let p = Rc::clone(player);
+            let r0 = r.clone();
             let _ = glib::idle_add_local_once(move || {
-                if let Some(b) = p2.borrow().as_ref() {
-                    let off = {
-                        let mut g = r1.vp.borrow_mut();
-                        video_pref::reapply_60_if_still_missing(&b.mpv, &mut *g)
+                if let Some(b) = p.borrow().as_ref() {
+                    let a = {
+                        let mut g = r0.vp.borrow_mut();
+                        video_pref::apply_mpv_video(&b.mpv, &mut g, None)
                     };
-                    if off {
-                        sync_smooth_60_to_off(&r1.app);
+                    if a.smooth_auto_off {
+                        sync_smooth_60_to_off(&r0.app);
                     }
                 }
+                let p2 = Rc::clone(&p);
+                let r1 = r0.clone();
+                let _ = glib::idle_add_local_once(move || {
+                    if let Some(b) = p2.borrow().as_ref() {
+                        let off = {
+                            let mut g = r1.vp.borrow_mut();
+                            video_pref::reapply_60_if_still_missing(&b.mpv, &mut g)
+                        };
+                        if off {
+                            sync_smooth_60_to_off(&r1.app);
+                        }
+                    }
+                });
             });
-        });
+        }
     }
     *o.last_path.borrow_mut() = std::fs::canonicalize(path).ok();
     if record {
@@ -895,8 +947,10 @@ fn try_load(
         sync_window_aspect_from_mpv(&b.mpv, o.win_aspect.as_ref());
     }
     schedule_window_fit_h_video(Rc::clone(player), win.clone());
-    if let Some(f) = o.on_loaded.clone() {
-        glib::source::idle_add_local_once(move || f());
+    if !warm_hit {
+        if let Some(f) = o.on_loaded.clone() {
+            glib::source::idle_add_local_once(move || f());
+        }
     }
     Ok(())
 }
@@ -1237,7 +1291,8 @@ struct BackToBrowseCtx {
     undo_remove_stack: Rc<RefCell<Vec<ContinueBarUndo>>>,
 }
 
-/// Show the sheet immediately; mpv/DB/grid/stop on LOW-priority idles (after a frame paints).
+/// Show the sheet immediately; save state and repaint cards after a frame while keeping the
+/// current file paused as a warm reopen target when the continue list is non-empty.
 fn back_to_browse(
     c: &BackToBrowseCtx,
     win: &impl IsA<gtk::Window>,
@@ -1287,8 +1342,8 @@ fn back_to_browse(
         return;
     }
 
-    // FnOnce chain: `idle_add_local_full` requires FnMut, so the second/third steps are
-    // scheduled from a one-shot idle (paint can run first at DEFAULT_IDLE priority).
+    // FnOnce chain: `idle_add_local_full` requires FnMut, so the grid refill is scheduled from
+    // a one-shot idle (paint can run first at DEFAULT_IDLE priority).
     let p_write = c.player.clone();
     let row2 = row.clone();
     let op2 = c.on_open.clone();
@@ -1300,7 +1355,6 @@ fn back_to_browse(
         if let Some(b) = p_write.borrow().as_ref() {
             b.snapshot_outgoing_before_leave();
         }
-        let p3 = p_write.clone();
         let rbb2 = rbb.clone();
         let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
             let v: Vec<CardData> = card_data_list(&paths2);
@@ -1313,17 +1367,6 @@ fn back_to_browse(
                 otr2.clone(),
             );
             recent_view::schedule_thumb_backfill(n, paths2.clone());
-            let p_stop = p3.clone();
-            let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
-                let p_end = p_stop.clone();
-                let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
-                    if let Some(b) = p_end.borrow().as_ref() {
-                        b.stop_playback();
-                    }
-                    glib::ControlFlow::Break
-                });
-                glib::ControlFlow::Break
-            });
             glib::ControlFlow::Break
         });
     });
@@ -1785,7 +1828,7 @@ fn build_window(
                 let _ = glib::idle_add_local_once(move || {
                     if let Some(pl) = bref.borrow().as_ref() {
                         let mut g = vp2.borrow_mut();
-                        if video_pref::refresh_smooth_for_playback_speed(&pl.mpv, &mut *g, Some(vh)) {
+                        if video_pref::refresh_smooth_for_playback_speed(&pl.mpv, &mut g, Some(vh)) {
                             sync_smooth_60_to_off(&ap2);
                         }
                     }
@@ -1810,7 +1853,7 @@ fn build_window(
     let seek_state = seek_bar_preview::connect(
         &seek,
         &seek_adj,
-        Rc::clone(&player),
+        Rc::clone(player),
         Rc::clone(&last_path),
         Rc::clone(&seek_bar_on),
     );
@@ -2213,9 +2256,18 @@ fn build_window(
     }
 
     let recent_backfill: Rc<RefCell<Option<Rc<RecentContext>>>> = Rc::new(RefCell::new(None));
+    let pending_recent_backfill: Rc<RefCell<Option<RecentBackfillJob>>> =
+        Rc::new(RefCell::new(None));
+    let recent_backfill_start: Rc<dyn Fn(Rc<RecentContext>, Vec<PathBuf>)> = {
+        let p = player.clone();
+        let pending = pending_recent_backfill.clone();
+        Rc::new(move |ctx, paths| schedule_or_defer_recent_backfill(&p, &pending, ctx, paths))
+    };
     {
         let rb = recent_backfill.clone();
+        let pending = pending_recent_backfill.clone();
         recent_scrl.connect_destroy(move |_| {
+            pending.borrow_mut().take();
             if let Some(ctx) = rb.borrow_mut().take() {
                 ctx.shutdown();
             }
@@ -2438,6 +2490,7 @@ fn build_window(
             on_remove.clone(),
             on_trash.clone(),
             recent_backfill.clone(),
+            recent_backfill_start.clone(),
         );
     }
 
@@ -3042,6 +3095,7 @@ fn build_window(
     let file_boot_rz = Rc::clone(&file_boot);
     let wa_st = Rc::clone(&win_aspect);
     let reapply_rz = reapply_60.clone();
+    let pending_rz = pending_recent_backfill.clone();
     gl_area.connect_realize(move |area| {
         area.make_current();
         let init = {
@@ -3061,6 +3115,41 @@ fn build_window(
                     sub_prefs::apply_mpv(&b.mpv, &s);
                 }
                 *p_realize.borrow_mut() = Some(b);
+                let preload_auto_off = preload_first_continue(&p_realize, &vp_realize, &recent_rz);
+                if preload_auto_off == Some(true) {
+                    sync_smooth_60_to_off(&app_realize);
+                }
+                if preload_auto_off.is_some() {
+                    let p_pause = p_realize.clone();
+                    let r_pause = recent_rz.clone();
+                    let _ = glib::timeout_add_local(Duration::from_millis(100), move || {
+                        if r_pause.is_visible() {
+                            if let Some(b) = p_pause.borrow().as_ref() {
+                                let _ = b.mpv.set_property("pause", true);
+                            }
+                        }
+                        glib::ControlFlow::Break
+                    });
+                    let p_60 = p_realize.clone();
+                    let r_60 = reapply_rz.clone();
+                    let rec_60 = recent_rz.clone();
+                    let app_60 = app_realize.clone();
+                    let _ = glib::idle_add_local_once(move || {
+                        if !rec_60.is_visible() {
+                            return;
+                        }
+                        if let Some(b) = p_60.borrow().as_ref() {
+                            let off = {
+                                let mut g = r_60.vp.borrow_mut();
+                                video_pref::reapply_60_if_still_missing(&b.mpv, &mut g)
+                            };
+                            if off {
+                                sync_smooth_60_to_off(&app_60);
+                            }
+                        }
+                    });
+                }
+                drain_recent_backfill(&pending_rz);
                 sync_close_video_action(&close_video_rz, &p_realize, &recent_rz);
                 sync_trash_action(&move_trash_rz, &p_realize, &recent_rz);
                 if let Some(pl) = p_realize.borrow().as_ref() {
@@ -3424,7 +3513,7 @@ fn build_window(
                     None
                 };
                 let (can_prev, can_next) = if dur > 0.0 {
-                    if let Some(ref c) = cur.as_ref().filter(|p| p.is_file()) {
+                    if let Some(c) = cur.as_ref().filter(|p| p.is_file()) {
                         seof_poll.nav_sensitivity(c)
                     } else {
                         seof_poll.clear_nav_sensitivity();
