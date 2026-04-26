@@ -15,6 +15,7 @@ mod idle_inhibit;
 mod media_probe;
 mod mpv_embed;
 mod paths;
+mod playback_speed;
 mod recent_view;
 pub mod sched;
 mod sibling_advance;

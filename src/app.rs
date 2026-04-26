@@ -35,12 +35,15 @@ use crate::recent_view::RecentContext;
 use crate::sibling_advance;
 use crate::theme;
 use crate::video_pref;
+use crate::playback_speed;
 
 /// Application and icon name ([reverse-DNS] for GTK, desktop, and AppStream).
 ///
 /// [reverse-DNS]: https://developer.gnome.org/documentation/tutorials/application-id.html
 pub const APP_ID: &str = "ch.rhino.RhinoPlayer";
 const APP_WIN_TITLE: &str = "Rhino Player";
+/// **Preferences** row for `video_smooth_60`: stores **intent**; the bundled `.vpy` runs only at ~**1.0×**.
+const SMOOTH60_MENU_LABEL: &str = "Smooth video (~60 FPS at 1.0×)";
 
 fn title_for_open_path(path: &Path) -> String {
     match path.file_name().and_then(|n| n.to_str()) {
@@ -67,11 +70,12 @@ fn same_xy(a: f64, b: f64) -> bool {
     (a - b).abs() < COORD_EPS
 }
 
-/// State for 3s auto-hide: header [gtk::MenuButton]s delay hiding while open (sound + subs + main menu; audio tracks are inside the sound popover).
+/// State for 3s auto-hide: header [gtk::MenuButton]s delay hiding while open (sound + subs + speed + main; audio tracks are inside the sound popover).
 struct ChromeBarHide {
     nav: Rc<RefCell<Option<glib::SourceId>>>,
     vol: gtk::MenuButton,
     sub: gtk::MenuButton,
+    speed: gtk::MenuButton,
     main: gtk::MenuButton,
     root: adw::ToolbarView,
     gl: gtk::GLArea,
@@ -295,7 +299,7 @@ fn video_pref_submenu_rebuild(
     app: &adw::Application,
 ) {
     m.remove_all();
-    m.append(Some("Smooth video (60 FPS)"), Some("app.smooth-60"));
+    m.append(Some(SMOOTH60_MENU_LABEL), Some("app.smooth-60"));
     if !p.vs_path.trim().is_empty() {
         let name = std::path::Path::new(p.vs_path.trim())
             .file_name()
@@ -347,7 +351,7 @@ fn register_video_app_actions(
             if let Some(plr) = pl.borrow().as_ref() {
                 let off = {
                     let mut g = p.borrow_mut();
-                    video_pref::apply_mpv_video(&plr.mpv, &mut g)
+                    video_pref::apply_mpv_video(&plr.mpv, &mut g, None)
                 }
                 .smooth_auto_off;
                 if off {
@@ -392,7 +396,7 @@ fn register_video_app_actions(
             if let Some(plr) = pl.borrow().as_ref() {
                 let off = {
                     let mut g = p.borrow_mut();
-                    video_pref::apply_mpv_video(&plr.mpv, &mut g)
+                    video_pref::apply_mpv_video(&plr.mpv, &mut g, None)
                 }
                 .smooth_auto_off;
                 if off {
@@ -445,7 +449,7 @@ fn register_video_app_actions(
                 if let Some(plr) = pl2.borrow().as_ref() {
                     let off = {
                         let mut g = p2.borrow_mut();
-                        video_pref::apply_mpv_video(&plr.mpv, &mut g)
+                        video_pref::apply_mpv_video(&plr.mpv, &mut g, None)
                     }
                     .smooth_auto_off;
                     if off {
@@ -542,7 +546,11 @@ fn schedule_bars_autohide(ctx: Rc<ChromeBarHide>) {
     replace_timeout(Rc::clone(&ctx.nav), {
         let ctx2 = Rc::clone(&ctx);
         move || {
-            if ctx2.vol.is_active() || ctx2.sub.is_active() || ctx2.main.is_active() {
+            if ctx2.vol.is_active()
+                || ctx2.sub.is_active()
+                || ctx2.speed.is_active()
+                || ctx2.main.is_active()
+            {
                 schedule_bars_autohide(Rc::clone(&ctx2));
             } else {
                 ctx2.bar_show.set(false);
@@ -574,7 +582,7 @@ fn header_popover_non_modal(pop: &gtk::Popover) {
 
 /// No built-in “menu button group.” Before the [gtk::MenuButton] default: close other menus,
 /// then an idle [set_active] if the first press did not open the target (e.g. lost to popover stack).
-fn header_menubtns_switch(menus: [gtk::MenuButton; 3]) {
+fn header_menubtns_switch(menus: [gtk::MenuButton; 4]) {
     for (i, menu) in menus.iter().enumerate() {
         let g = gtk::GestureClick::new();
         g.set_button(gtk::gdk::BUTTON_PRIMARY);
@@ -743,8 +751,6 @@ pub fn run() -> i32 {
 struct VideoReapply60 {
     vp: Rc<RefCell<db::VideoPrefs>>,
     app: adw::Application,
-    /// Shared with [video_pref::tick_reconcile_failed_vapoursynth] (runtime `vf` drop vs prefs).
-    vs_gone_ticks: Rc<Cell<u8>>,
 }
 
 /// Options for [try_load] (keeps the arity clippy limit without `allow`).
@@ -804,33 +810,31 @@ fn try_load(
         }
     }
     if let Some(r) = o.reapply_60.as_ref() {
-        r.vs_gone_ticks.set(0);
         let p = Rc::clone(player);
         let r0 = r.clone();
         let _ = glib::idle_add_local_once(move || {
             if let Some(b) = p.borrow().as_ref() {
                 let a = {
                     let mut g = r0.vp.borrow_mut();
-                    video_pref::apply_mpv_video(&b.mpv, &mut *g)
+                    video_pref::apply_mpv_video(&b.mpv, &mut *g, None)
                 };
                 if a.smooth_auto_off {
                     sync_smooth_60_to_off(&r0.app);
                 }
             }
-        });
-        let p2 = Rc::clone(player);
-        let r1 = r.clone();
-        let _ = glib::timeout_add_local(Duration::from_millis(600), move || {
-            if let Some(b) = p2.borrow().as_ref() {
-                let off = {
-                    let mut g = r1.vp.borrow_mut();
-                    video_pref::reapply_60_if_still_missing(&b.mpv, &mut *g)
-                };
-                if off {
-                    sync_smooth_60_to_off(&r1.app);
+            let p2 = Rc::clone(&p);
+            let r1 = r0.clone();
+            let _ = glib::idle_add_local_once(move || {
+                if let Some(b) = p2.borrow().as_ref() {
+                    let off = {
+                        let mut g = r1.vp.borrow_mut();
+                        video_pref::reapply_60_if_still_missing(&b.mpv, &mut *g)
+                    };
+                    if off {
+                        sync_smooth_60_to_off(&r1.app);
+                    }
                 }
-            }
-            glib::ControlFlow::Break
+            });
         });
     }
     *o.last_path.borrow_mut() = std::fs::canonicalize(path).ok();
@@ -1369,7 +1373,6 @@ fn build_window(
     let reapply_60 = VideoReapply60 {
         vp: Rc::clone(&video_pref),
         app: app.clone(),
-        vs_gone_ticks: Rc::new(Cell::new(0)),
     };
 
     let win = adw::ApplicationWindow::builder()
@@ -1432,7 +1435,7 @@ fn build_window(
     wrap_next.set_tooltip_text(Some("Next file in folder"));
     btn_next.set_has_tooltip(false);
     let pref_menu = gio::Menu::new();
-    pref_menu.append(Some("Smooth video (60 FPS)"), Some("app.smooth-60"));
+    pref_menu.append(Some(SMOOTH60_MENU_LABEL), Some("app.smooth-60"));
     pref_menu.append(
         Some("Choose VapourSynth script (.vpy)…"),
         Some("app.choose-vs"),
@@ -1552,6 +1555,40 @@ fn build_window(
     sub_menu.add_css_class("flat");
     sub_menu.set_visible(false);
 
+    let speed_list = gtk::ListBox::new();
+    speed_list.set_activate_on_single_click(true);
+    speed_list.add_css_class("rich-list");
+    for s in &["1.0×", "1.5×", "2.0×"] {
+        let row = gtk::ListBoxRow::new();
+        let lab = gtk::Label::new(Some(*s));
+        lab.set_halign(gtk::Align::Start);
+        lab.set_margin_start(10);
+        lab.set_margin_end(10);
+        lab.set_margin_top(6);
+        lab.set_margin_bottom(6);
+        row.set_child(Some(&lab));
+        speed_list.append(&row);
+    }
+    let speed_caption = gtk::Label::new(Some("Playback speed"));
+    speed_caption.set_halign(gtk::Align::Start);
+    speed_caption.add_css_class("heading");
+    let speed_col = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    speed_col.set_margin_start(8);
+    speed_col.set_margin_end(8);
+    speed_col.set_margin_top(8);
+    speed_col.set_margin_bottom(6);
+    speed_col.append(&speed_caption);
+    speed_col.append(&speed_list);
+    let speed_pop = gtk::Popover::new();
+    speed_pop.set_child(Some(&speed_col));
+    header_popover_non_modal(&speed_pop);
+    let speed_mbtn = gtk::MenuButton::new();
+    speed_mbtn.set_icon_name("speedometer-symbolic");
+    speed_mbtn.set_tooltip_text(Some("Playback speed"));
+    speed_mbtn.set_popover(Some(&speed_pop));
+    speed_mbtn.set_sensitive(false);
+    speed_mbtn.add_css_class("flat");
+
     let menu_btn = gtk::MenuButton::new();
     menu_btn.set_icon_name("open-menu-symbolic");
     menu_btn.set_tooltip_text(Some("Main menu"));
@@ -1577,7 +1614,8 @@ fn build_window(
     header.pack_end(&menu_btn);
     header.pack_end(&vol_menu);
     header.pack_end(&sub_menu);
-    header_menubtns_switch([vol_menu.clone(), sub_menu.clone(), menu_btn.clone()]);
+    header.pack_end(&speed_mbtn);
+    header_menubtns_switch([speed_mbtn.clone(), sub_menu.clone(), vol_menu.clone(), menu_btn.clone()]);
 
     let gl_area = gtk::GLArea::new();
     {
@@ -1700,6 +1738,49 @@ fn build_window(
     bottom.append(&wrap_prev);
     bottom.append(&play_pause);
     bottom.append(&wrap_next);
+    let speed_sync = Rc::new(Cell::new(false));
+    let vp_speed = Rc::clone(&video_pref);
+    let app_speed = app.clone();
+    {
+        let p = player.clone();
+        let glr = gl_area.clone();
+        let sy = speed_sync.clone();
+        let smb = speed_mbtn.clone();
+        let vp = Rc::clone(&vp_speed);
+        let ap = app_speed.clone();
+        speed_list.connect_row_activated(move |list2, row| {
+            if sy.get() {
+                return;
+            }
+            let i: u32 = (0i32..3)
+                .find(|&ix| {
+                    list2
+                        .row_at_index(ix)
+                        .is_some_and(|r| r == *row)
+                })
+                .unwrap_or(0) as u32;
+            let v = playback_speed::value_at(i);
+            if let Some(b) = p.borrow().as_ref() {
+                let _ = b.mpv.set_property("speed", v);
+                glr.queue_render();
+                // Defer [vf] rebuild: libmpv can still report the old [speed] on the same GTK tick as
+                // [set_property]; [mvtools_vf_eligible] + [add_smooth_60] must see 1.0× when returning from 1.5/2.0.
+                let bref = p.clone();
+                let vp2 = Rc::clone(&vp);
+                let ap2 = ap.clone();
+                let vh = v;
+                let _ = glib::idle_add_local_once(move || {
+                    if let Some(pl) = bref.borrow().as_ref() {
+                        let mut g = vp2.borrow_mut();
+                        if video_pref::refresh_smooth_for_playback_speed(&pl.mpv, &mut *g, Some(vh)) {
+                            sync_smooth_60_to_off(&ap2);
+                        }
+                    }
+                });
+            }
+            smb.set_active(false);
+        });
+    }
     bottom.append(&time_left);
     bottom.append(&seek);
     bottom.append(&time_right);
@@ -1741,6 +1822,10 @@ fn build_window(
         let sub_m_btn = sub_menu.clone();
         let close_a = Rc::clone(&close_act_for_sync);
         let trash_a = Rc::clone(&trash_act_for_sync);
+        let syf = speed_sync.clone();
+        let sl = speed_list.clone();
+        let vp_onload = Rc::clone(&video_pref);
+        let app_onload = app.clone();
         move || {
             let p2 = p.clone();
             let sp2 = sp.clone();
@@ -1751,6 +1836,10 @@ fn build_window(
             let sub320 = sub_m_btn.clone();
             let close_a2 = Rc::clone(&close_a);
             let trash_a2 = Rc::clone(&trash_a);
+            let syf320 = syf.clone();
+            let sl320 = sl.clone();
+            let vp_320 = Rc::clone(&vp_onload);
+            let app_320 = app_onload.clone();
             let _ = glib::timeout_add_local(Duration::from_millis(320), move || {
                 if let Some(b) = p2.borrow().as_ref() {
                     sub320.set_visible(sub_tracks::has_subtitle_tracks(&b.mpv));
@@ -1760,6 +1849,20 @@ fn build_window(
                     sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, bot2.height(), g3.height());
                     audio_tracks::ensure_playable_audio(&b.mpv);
                     sub_tracks::autopick_sub_track(&b.mpv, &pr);
+                    let listed = playback_speed::sync_list(&b.mpv, &syf320, &sl320);
+                    let mut g = vp_320.borrow_mut();
+                    if g.smooth_60 {
+                        let off = if let Some(s) = listed {
+                            video_pref::refresh_smooth_for_playback_speed(&b.mpv, &mut g, Some(s))
+                        } else if video_pref::needs_playback_speed_env_resync(&b.mpv) {
+                            video_pref::refresh_smooth_for_playback_speed(&b.mpv, &mut g, None)
+                        } else {
+                            video_pref::resync_smooth_if_speed_mismatch(&b.mpv, &mut g)
+                        };
+                        if off {
+                            sync_smooth_60_to_off(&app_320);
+                        }
+                    }
                 }
                 if let Some(a) = close_a2.borrow().as_ref() {
                     sync_close_video_action(a, &p2, &r3);
@@ -1769,7 +1872,8 @@ fn build_window(
                 }
                 glib::ControlFlow::Break
             });
-            // 60p VapourSynth: [try_load] schedules idle + 600ms reapply; do not do vf here (same thread as subs).
+            // 60p: [try_load] chains a second idle to [reapply_60_if_still_missing]. This 320ms hook
+            // catches watch-later [speed] / list snap and [vf] vs [mvtools_vf_eligible] in one pass.
         }
     });
     {
@@ -1866,6 +1970,7 @@ fn build_window(
         nav: nav_t.clone(),
         vol: vol_menu.clone(),
         sub: sub_menu.clone(),
+        speed: speed_mbtn.clone(),
         main: menu_btn.clone(),
         root: root.clone(),
         gl: gl_area.clone(),
@@ -1893,7 +1998,10 @@ fn build_window(
     {
         let ch = Rc::clone(&ch_hide);
         let h = Rc::new(move || {
-            let any = ch.vol.is_active() || ch.sub.is_active() || ch.main.is_active();
+            let any = ch.vol.is_active()
+                || ch.sub.is_active()
+                || ch.speed.is_active()
+                || ch.main.is_active();
             if any {
                 if let Some(id) = ch.nav.borrow_mut().take() {
                     id.remove();
@@ -1914,8 +2022,10 @@ fn build_window(
         let h1 = Rc::clone(&h);
         let h2 = Rc::clone(&h);
         let h3 = Rc::clone(&h);
+        let h4 = Rc::clone(&h);
         vol_menu.connect_active_notify(move |_| h1());
         sub_menu.connect_active_notify(move |_| h3());
+        speed_mbtn.connect_active_notify(move |_| h4());
         menu_btn.connect_active_notify(move |_| h2());
     }
     let browse_chrome: Rc<dyn Fn()> = {
@@ -3178,6 +3288,7 @@ fn build_window(
     let wpw_next = wrap_next.downgrade();
     let bpw_prev = btn_prev.downgrade();
     let bpw_next = btn_next.downgrade();
+    let spdm = speed_mbtn.downgrade();
     let sw = seek.clone();
     let adj = seek_adj.clone();
     let vi_poll = vol_menu.clone();
@@ -3208,6 +3319,8 @@ fn build_window(
             on_file_loaded,
             #[strong]
             reapply_60,
+            #[strong]
+            spdm,
             move || {
                 maybe_advance_sibling_on_eof(
                     &p_poll,
@@ -3249,20 +3362,14 @@ fn build_window(
                         n.set_sensitive(false);
                         n.set_can_target(false);
                     }
+                    if let Some(sb) = spdm.upgrade() {
+                        sb.set_sensitive(false);
+                    }
                     return glib::ControlFlow::Continue;
                 };
                 sync_window_aspect_from_mpv(&pl.mpv, wa_poll.as_ref());
                 let pos = pl.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
                 let dur = pl.mpv.get_property::<f64>("duration").unwrap_or(0.0);
-                if video_pref::tick_reconcile_failed_vapoursynth(
-                    &pl.mpv,
-                    &reapply_60.vp,
-                    reapply_60.vs_gone_ticks.as_ref(),
-                    pos,
-                    dur,
-                ) {
-                    sync_smooth_60_to_off(&reapply_60.app);
-                }
                 tl.set_label(&format_time(pos));
                 tr.set_label(&format_time(dur));
                 if let Some(pp) = ppw.upgrade() {
@@ -3316,6 +3423,9 @@ fn build_window(
                 }
                 if dur > 0.0 {
                     sw.set_sensitive(true);
+                    if let Some(sb) = spdm.upgrade() {
+                        sb.set_sensitive(true);
+                    }
                     adj.set_lower(0.0);
                     adj.set_upper(dur);
                     s_flag.set(true);
@@ -3323,6 +3433,9 @@ fn build_window(
                     s_flag.set(false);
                 } else {
                     sw.set_sensitive(false);
+                    if let Some(sb) = spdm.upgrade() {
+                        sb.set_sensitive(false);
+                    }
                 }
                 let vol = pl.mpv.get_property::<f64>("volume").unwrap_or(0.0);
                 let muted = pl.mpv.get_property::<bool>("mute").unwrap_or(false);

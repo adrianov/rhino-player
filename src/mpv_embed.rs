@@ -57,7 +57,7 @@ pub struct MpvBundle {
 impl MpvBundle {
     /// Call with a current GL context on `gl_area` (e.g. inside `GLArea::realize`).
     /// [VideoPrefs] (optional VapourSynth 60 fps `vf`) from SQLite; see [apply_mpv_video].
-    /// The `bool` is `true` when **Smooth video (60 FPS)** was auto-disabled (VapourSynth `vf` rejected); sync UI.
+    /// The `bool` is `true` when **Smooth video (~60 FPS at 1.0×)** was auto-disabled (VapourSynth `vf` rejected); sync UI.
     pub fn new(gl_area: &gtk::GLArea, video: &mut VideoPrefs) -> Result<(Self, bool), String> {
         let _egl = unsafe { Library::new("libEGL.so.1") }.map_err(|e| e.to_string())?;
         let _gl = unsafe { Library::new("libGL.so.1") }.map_err(|e| e.to_string())?;
@@ -92,7 +92,7 @@ impl MpvBundle {
 
         // Re-assert: some init options apply more reliably as properties on the open handle.
         let _ = mpv.set_property("save-position-on-quit", true);
-        let auto_off = apply_mpv_video(&mpv, video).smooth_auto_off;
+        let auto_off = apply_mpv_video(&mpv, video, None).smooth_auto_off;
         // Thumbnails: prefer JPEG (fast); PNG path uses minimum compression.
         let _ = mpv.set_property("screenshot-format", "jpeg");
         let _ = mpv.set_property("screenshot-jpeg-quality", 90i64);

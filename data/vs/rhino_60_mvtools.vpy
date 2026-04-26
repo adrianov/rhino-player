@@ -1,18 +1,22 @@
-# Rhino Player — single ~60 fps preset: **FlowFPS** (lighter than old BlockFPS+Recalc) with
-# **all CPU threads** and a **moderate** frame cache for mpv `concurrent-frames=auto`.
+# Rhino Player — **FlowFPS** toward ~60 fps; interpolation scales with [RHINO_PLAYBACK_SPEED].
+# `AssumeFPS(× speed)` *before* Super/Analyse/FlowFPS so, e.g. at 2×, natural ~48 fps (24×2) → 60
+# only needs the **missing** in-betweens (~12 of 60), not a full 24→60.
 # Loads `libmvtools`: Rhino sets `RHINO_MVTOOLS_LIB` when it finds the .so, else paths below.
 #
 # libmpv provides global `video_in` (see mpv vf=vapoursynth). Requires: mvtools, VS R55+.
-# **mpv from a shell** does not set `RHINO_MVTOOLS_LIB` (the Rhino app does). This script also
-# searches `~/.local` for `libmvtools.so` (vsrepo / pipx), same idea as `src/paths.rs` in Rhino.
+# **mpv from a shell** does not set `RHINO_PLAYBACK_SPEED` (Rhino sets it from mpv `speed` when adding vf).
+import math
 import os
 from collections import deque
+from fractions import Fraction
 
 import vapoursynth as vs
 
 _MVTOOLS_SO = "libmvtools.so"
 _LOCAL_MAX_DEPTH = 14
 _LOCAL_MAX_DIR_READS = 8000
+_TARGET_NUM = 60
+_TARGET_DEN = 1
 
 
 def _mvtools_paths():
@@ -28,8 +32,6 @@ def _mvtools_paths():
 
 
 def _mvtools_in_pipx_venvs():
-    # ~/.local/share/pipx/venvs/<venv>/lib/python*/site-packages/vapoursynth/plugins/vsrepo/
-    # (before scanning all of ~/.local)
     home = os.environ.get("HOME")
     if not home:
         return None
@@ -108,6 +110,37 @@ def _load_mvtools(core):
         return
 
 
+def _speed_frac_from_env() -> Fraction:
+    """Exact 1, 1.5, 2 — avoids float/Fraction drift that can skew FlowFPS timebase (A/V at 1×)."""
+    t = (os.environ.get("RHINO_PLAYBACK_SPEED") or "1").strip() or "1"
+    if t in ("1", "1.0", "1.00"):
+        return Fraction(1, 1)
+    if t in ("1.5", "1.50"):
+        return Fraction(3, 2)
+    if t in ("2", "2.0", "2.00"):
+        return Fraction(2, 1)
+    try:
+        x = float(t)
+    except ValueError:
+        return Fraction(1, 1)
+    if not (0.01 < x < 8.0):
+        return Fraction(1, 1)
+    return Fraction(x).limit_denominator(4)
+
+
+def _mul_src_fps_rational(num: int, den: int, speed_frac: Fraction) -> tuple[int, int]:
+    a = Fraction(num, den) * speed_frac
+    n, d = a.numerator, a.denominator
+    g = math.gcd(n, d)
+    return n // g, d // g
+
+
+def _as_float(n: int, d: int) -> float:
+    if d == 0:
+        return 0.0
+    return n / d
+
+
 core = vs.core
 _load_mvtools(core)
 if not hasattr(core, "mv"):
@@ -117,17 +150,34 @@ if not hasattr(core, "mv"):
         "From a shell:  export RHINO_MVTOOLS_LIB=/path/to/libmvtools.so"
     )
 core.num_threads = os.cpu_count() or 1
-# mpv can decode ahead; 8192 MB was the old “multicore” max — keep RAM use down on laptops.
 core.max_cache_size = 4096
 
 clip = video_in
+spd_frac = _speed_frac_from_env()
 src_num = clip.fps_num if clip.fps_num > 0 else 24000
 src_den = clip.fps_den if clip.fps_den > 0 else 1001
+if _as_float(src_num, src_den) <= 0:
+    src_num, src_den = 24000, 1000
 clip = core.std.AssumeFPS(clip, fpsnum=src_num, fpsden=src_den)
 
-sup = core.mv.Super(clip, pel=1, sharp=1, chroma=True)
-v_backward = core.mv.Analyse(sup, blksize=32, overlap=0, search=0, isb=True)
-v_forward = core.mv.Analyse(sup, blksize=32, overlap=0, search=0, isb=False)
-clip = core.mv.FlowFPS(clip, sup, v_backward, v_forward, num=60, den=1, mask=0)
-
-clip.set_output()
+base_src = Fraction(src_num, src_den)
+# Passthrough mvtools only when (source fps × speed) is **already** ≥ 60/1 in **rational** math.
+# Do **not** use `float` + ε here: common tags like 60000/1001 (≈59.94) plus 0.2 hit ≥60 and
+# accidentally skipped **FlowFPS** (regression: “24p” looked un-smoothed when mpv reported ~59.94).
+if base_src * spd_frac >= Fraction(60, 1):
+    clip.set_output()
+else:
+    # 1.0×: do **not** re-tag the clip; second AssumeFPS(×1) + FlowFPS can skew duration vs
+    # audio (mvtools/mpv clock). 1.5/2.0: retime so FlowFPS only fills toward 60 from (fps×S).
+    if spd_frac == 1:
+        work = clip
+    else:
+        sn, sd = _mul_src_fps_rational(src_num, src_den, spd_frac)
+        work = core.std.AssumeFPS(clip, fpsnum=sn, fpsden=sd)
+    sup = core.mv.Super(work, pel=1, sharp=1, chroma=True)
+    v_backward = core.mv.Analyse(sup, blksize=32, overlap=0, search=0, isb=True)
+    v_forward = core.mv.Analyse(sup, blksize=32, overlap=0, search=0, isb=False)
+    clip = core.mv.FlowFPS(
+        work, sup, v_backward, v_forward, num=_TARGET_NUM, den=_TARGET_DEN, mask=0
+    )
+    clip.set_output()
