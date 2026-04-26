@@ -120,7 +120,8 @@ fn mvtools_in_pipx_venvs(local: &Path) -> Option<PathBuf> {
 }
 
 /// Breadth-first search for `file_name` under `root`, at most `max_depth` directory levels from
-/// `root`, stopping after `max_dir_reads` `read_dir` calls (avoids huge trees).
+/// `root`, stopping after `max_dir_reads` `read_dir` calls (avoids huge trees). Symlink directories
+/// are not descended (same idea as Python `follow_symlinks=False`), so cycles do not burn the read budget.
 fn find_file_breadth_first(
     root: &Path,
     file_name: &str,
@@ -144,8 +145,12 @@ fn find_file_breadth_first(
             Err(_) => continue,
         };
         for e in read.flatten() {
+            let Ok(ft) = e.file_type() else {
+                continue;
+            };
             let p = e.path();
-            if p.is_dir() {
+            // Do not follow symlink directories (avoids cycles and matches Python's follow_symlinks=False).
+            if ft.is_dir() && !ft.is_symlink() {
                 if depth < max_depth {
                     q.push_back((p, depth + 1));
                 }
