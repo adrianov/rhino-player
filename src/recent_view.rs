@@ -195,6 +195,7 @@ fn full_bleed_icon(icon: &'static str) -> gtk::Widget {
 
 type UnitFn = Rc<dyn Fn(()) + 'static>;
 type RcPathFn = Rc<dyn Fn(&Path) + 'static>;
+type BackfillFn = Rc<dyn Fn(Rc<RecentContext>, Vec<std::path::PathBuf>) + 'static>;
 
 /// Per-window state for the recent row: [refill] after background thumbs, [shutdown] on scroll destroy.
 pub struct RecentContext {
@@ -356,7 +357,7 @@ fn add_click_and_pointer(
     card.as_ref().add_controller(g);
 
     let c = card.as_ref().clone();
-    let show: Vec<gtk::Button> = show_on_hover.iter().cloned().collect();
+    let show: Vec<gtk::Button> = show_on_hover.to_vec();
     let m = gtk::EventControllerMotion::new();
     m.connect_enter(move |_, _x, _y| {
         c.set_cursor_from_name(Some("pointer"));
@@ -365,7 +366,7 @@ fn add_click_and_pointer(
         }
     });
     let c = card.as_ref().clone();
-    let hide: Vec<gtk::Button> = show_on_hover.iter().cloned().collect();
+    let hide: Vec<gtk::Button> = show_on_hover.to_vec();
     m.connect_leave(move |_| {
         c.set_cursor_from_name(None);
         for b in &hide {
@@ -437,18 +438,15 @@ pub fn fill_row(
         };
         card.set_child(Some(&bg));
 
-        let footer = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        let footer = gtk::Box::new(gtk::Orientation::Vertical, 6);
         footer.set_halign(gtk::Align::Fill);
         footer.set_valign(gtk::Align::End);
         no_target(&footer);
         footer.add_css_class("rp-recent-card-footer");
-        footer.set_margin_start(8);
-        footer.set_margin_end(8);
-        footer.set_margin_bottom(6);
-        footer.set_margin_top(6);
 
         let label = gtk::Label::new(Some(&name));
         no_target(&label);
+        label.add_css_class("rp-recent-card-title");
         label.set_ellipsize(gtk::pango::EllipsizeMode::None);
         label.set_max_width_chars(-1);
         label.set_wrap(true);
@@ -457,8 +455,9 @@ pub fn fill_row(
         label.set_halign(gtk::Align::Fill);
         label.set_xalign(0.0);
 
-        let pro = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        let pro = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         no_target(&pro);
+        pro.add_css_class("rp-recent-progress-row");
         let bar = gtk::ProgressBar::new();
         no_target(&bar);
         bar.set_fraction(p / 100.0);
@@ -467,7 +466,7 @@ pub fn fill_row(
         bar.add_css_class("rp-recent-bar");
         let lp = gtk::Label::new(Some(&format!("{p:.0}%")));
         no_target(&lp);
-        lp.add_css_class("dim-label");
+        lp.add_css_class("rp-recent-percent");
         pro.append(&bar);
         pro.append(&lp);
 
@@ -564,7 +563,7 @@ pub fn fill_row(
 }
 
 /// Probes each path in an idle; [card_data_list] is DB-only (no libmpv) on the main thread, then
-/// [schedule_thumb_backfill] for missing cache entries.
+/// [schedule_backfill] starts missing-cache work when the owner decides it will not compete with startup.
 pub fn fill_idle(
     row: &gtk::Box,
     paths: Vec<std::path::PathBuf>,
@@ -572,6 +571,7 @@ pub fn fill_idle(
     on_remove: RcPathFn,
     on_trash: RcPathFn,
     backfill: Rc<RefCell<Option<Rc<RecentContext>>>>,
+    schedule_backfill: BackfillFn,
 ) {
     let row = row.clone();
     let o = on_open;
@@ -597,7 +597,7 @@ pub fn fill_idle(
         }
         fill_row(&row, v, o.clone(), r.clone(), t.clone());
         let paths_t = paths.clone();
-        schedule_thumb_backfill(n, paths_t);
+        schedule_backfill(n, paths_t);
         glib::ControlFlow::Break
     });
 }

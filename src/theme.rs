@@ -123,17 +123,34 @@ pub fn apply() {
         .rp-recent-bg { border-radius: 0; }
         .rp-recent-bg-miss { background-color: #2d2d2d; }
         .rp-recent-card-footer {
-            /* Solid strip + gradient so file name and progress read on any frame. */
-            background-color: rgba(0, 0, 0, 0.62);
+            padding: 30px 12px 10px 12px;
+            background-color: transparent;
             background-image: linear-gradient(
                 to top,
-                rgba(0, 0, 0, 0.56) 0%,
-                rgba(0, 0, 0, 0.16) 100%
+                rgba(0, 0, 0, 0.76) 0%,
+                rgba(0, 0, 0, 0.54) 46%,
+                rgba(0, 0, 0, 0.00) 100%
             );
             border-radius: 0 0 12px 12px;
         }
-        .rp-recent-card-footer label { color: #f6f5f4; }
-        .rp-recent-card-footer label.dim-label { color: #deddda; }
+        label.rp-recent-card-title {
+            color: #ffffff;
+            font-weight: 600;
+            font-size: 0.98em;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+        }
+        .rp-recent-progress-row {
+            min-height: 18px;
+        }
+        label.rp-recent-percent {
+            min-width: 42px;
+            padding: 2px 7px;
+            border-radius: 9999px;
+            background-color: rgba(255, 255, 255, 0.12);
+            color: #f6f5f4;
+            font-size: 0.82em;
+            font-weight: 600;
+        }
         .rp-stale { opacity: 0.6; }
         .rp-recent-pict { color: #9a9996; }
         button.rp-recent-dismiss {
@@ -184,9 +201,17 @@ pub fn apply() {
             color: #f6f5f4;
         }
         button.rp-undo-toast-close:hover { background-color: rgba(255, 255, 255, 0.12); }
-        progressbar.rp-recent-bar { min-height: 8px; }
-        progressbar.rp-recent-bar trough { background-color: #3d3d3d; }
-        progressbar.rp-recent-bar progress { background-color: #78aeed; }
+        progressbar.rp-recent-bar { min-height: 5px; }
+        progressbar.rp-recent-bar trough {
+            min-height: 5px;
+            border-radius: 9999px;
+            background-color: rgba(255, 255, 255, 0.22);
+        }
+        progressbar.rp-recent-bar progress {
+            min-height: 5px;
+            border-radius: 9999px;
+            background-color: #62a0ea;
+        }
 
         /* Hand on interactive controls; not-allowed when disabled. Skip entry, textview, drawing
            (video): they do not use these node names. */
