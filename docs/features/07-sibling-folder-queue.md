@@ -2,7 +2,7 @@
 
 **Name:** Sibling media expansion
 
-**Implementation status:** Done (EOF auto-advance; **Prev/Next** on the bottom bar use the same folder + sibling ordering as EOF; full m3u playlist UI: [05](05-playlist.md))
+**Implementation status:** Done (EOF auto-advance; **Prev/Next** on the bottom bar use the same folder + sibling ordering as EOF; full m3u playlist UI: [05](05-playlist.md). **Prev/Next filename tooltips** are **not achieved in user testing** — see specification.)
 
 **Use cases:** After one file finishes, continue with the next file in the same directory; when that folder is exhausted, continue in the next **sibling subfolder** under the same parent (e.g. next season folder) without a manual “Open” each time.
 
@@ -17,6 +17,7 @@
 - **Same directory:** list video files in the file’s **parent** (canonical paths, same extension set as the implementation), sort, advance to the next after the current file.
 - **Last in directory:** list **subdirectories** of the parent of that folder, sort; take the next directory after the current one; the next play is the first (sorted) video in that directory; if that directory is empty, continue to the next sibling directory; repeat.
 - **No next sibling (walk up until root):** when there is no “next” directory at any level, **stop** (no loop to the first folder).
-- **Bottom bar** **Previous** / **Next** (when a **local** file is open and has duration) use the same folder + sibling order as automatic EOF: `sibling_advance::prev_before_current` / `next_after_eof`, then `try_load` in `app.rs`; sibling EOF one-shot state is reset on manual skip. Tooltips on those buttons show the **file name** of the previous/next target when available, or a short “no previous/next in folder order” (or “No media” with no player). **Not in this slice** yet: a generated m3u/playlist, shuffle, MIME probing — may align with [Playlist](05-playlist.md) later.
+- **Bottom bar** **Previous** / **Next** (when a **local** file is open and has duration) use the same folder + sibling order as automatic EOF: `sibling_advance::prev_before_current` / `next_after_eof`, then `try_load` in `app.rs`; sibling EOF one-shot state is reset on manual skip.
+- **Prev/Next filename tooltips — not achieved (current pass).** Target: show the **next/previous file name** (or a short “no neighbor” line) on hover via `GtkWidget:set-tooltip-text` (see [Gtk.Widget.set_tooltip_text](https://docs.gtk.org/gtk4/method.Widget.set_tooltip_text.html)). The app has attempted wrapper `GtkBox` + `set_can_target` on the buttons; **tooltips did not appear in maintainer testing** on GNOME/Wayland. **Do not treat as shipped.** Marked **could not be implemented reliably** in the current **Composer 2 Fast** (Cursor) pass; **revisit** with another model or GTK event/pick inspection. **Not in this slice** yet: a generated m3u/playlist, shuffle, MIME probing — may align with [Playlist](05-playlist.md) later.
 
 **Current code:** `sibling_advance::next_after_eof` (`src/sibling_advance.rs`); `maybe_advance_sibling_on_eof` and the 200ms transport tick in `app.rs`.
