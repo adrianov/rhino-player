@@ -12,13 +12,14 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | [Application shell (Adwaita app, lifecycle)](features/02-application-shell.md) | **Done** (`adw` app/window, `ToolbarView`, header + sound + main menu, open / **close video** / **move to trash** (local file) / about / quit, dark; not: full preferences window, `open` for remote files — see [06](features/06-open-and-cli.md)) |
 | [mpv embed: render context and video surface](features/03-mpv-embedding.md) | **Done** (`GtkGLArea` + `libmpv` render, watch-later dir, resume) |
 | [Transport: play, pause, seek, progress UI](features/04-transport-and-progress.md) | **Done** (seek, times, bottom bar; prev/next per sibling order — not: shuffle/loop from [05](features/05-playlist.md)) |
+| [Playback speed: 1.0x / 1.5x / 2.0x](features/28-playback-speed.md) | **Done** (header `speedometer-symbolic` + list popover; left of other header popovers; libmpv `speed`) |
 | [Playlist: queue, prev/next, shuffle, loop](features/05-playlist.md) | Not started |
 | [Open files: file picker, folder, CLI, single-instance](features/06-open-and-cli.md) | In progress (GTK “Open video” + **startup** path from `argv`; not: DnD, `HANDLES_OPEN`, folder-as-playlist, single-instance) |
 | [Sibling folder queue (folder playback)](features/07-sibling-folder-queue.md) | **Done** (EOF + bottom **Prev/Next**, `sibling_advance`; **not:** m3u playlist UI; **Prev/Next filename tooltips** — not achieved in testing; see file) |
 | [Tracks: audio, video, subtitles](features/08-tracks.md) | In progress (sound: **Audio** + `aid`; [Subtitles](features/24-subtitles.md) popover) |
 | [Subtitles: style, track picker, auto-pick](features/24-subtitles.md) | **Done** (header button, `sub-*` strings, DB + last-pick Levenshtein) |
 | [Smooth video playback (display-resample) — removed](features/25-smooth-playback.md) | **Removed** (superseded by [26](features/26-sixty-fps-motion.md)) |
-| [~60 fps motion (VapourSynth)](features/26-sixty-fps-motion.md) | **Done** (menu **Preferences** → **Smooth video (60 FPS)**; `video_smooth_60`, `video_vs_path`, `video_mvtools_lib` cache; bundled `data/vs/*.vpy`) |
+| [~60 fps motion (VapourSynth)](features/26-sixty-fps-motion.md) | **Done** (menu **Preferences** → **Smooth video (~60 FPS at 1.0×)**; `video_smooth_60`, `video_vs_path`, `video_mvtools_lib` cache; bundled `data/vs/*.vpy`) |
 | [Move current file to trash](features/27-move-to-trash.md) | **Done** (main menu **Move to Trash**; `app.move-to-trash`; [Delete] / [KP_Delete] when a local file is playing) |
 | [Chapters: marks, menu, seek bar hover](features/09-chapters.md) | Not started |
 | [Video options: aspect, crop, zoom, filters](features/10-video-options.md) | Not started |
