@@ -2,7 +2,7 @@
 
 | Path (repo) | Typical install | Role |
 |---------------|-----------------|------|
-| [vs/](vs/README.md) (`rhino_60_mvtools.vpy` + install notes) | (not installed) | Bundled **VapourSynth** + **MVTools** when **Preferences** → **Smooth video (60 FPS)** is on and no custom `.vpy` is set |
+| [vs/](vs/README.md) (`rhino_60_mvtools.vpy` + install notes) | (not installed) | Bundled **VapourSynth** + **MVTools** when **Preferences** → **Smooth video (~60 FPS at 1.0×)** is on, **speed ~1.0×**, and no custom `.vpy` is set |
 | [icons/README.md](icons/README.md) | `share/icons` | hicolor PNGs, name `ch.rhino.RhinoPlayer` |
 | `applications/ch.rhino.RhinoPlayer.desktop` | `share/applications` | Launcher, `Icon=` and `StartupWMClass=` |
 | `metainfo/ch.rhino.RhinoPlayer.metainfo.xml` | `share/metainfo` | AppStream catalog |

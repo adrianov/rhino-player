@@ -2,7 +2,7 @@
 
 **Name:** Transport controls and progress bar
 
-**Implementation status:** Done (seek + time, bottom bar prev / play / pause / next; prev/next per sibling order — [07](07-sibling-folder-queue.md); volume — [22](22-audio-volume-mute.md); shuffle/loop: [05](05-playlist.md))
+**Implementation status:** Done (seek + time, bottom bar prev / play / next; **speed** 1.0× / 1.5× / 2.0× in **header** — [28](28-playback-speed.md); prev/next per sibling order — [07](07-sibling-folder-queue.md); volume — [22](22-audio-volume-mute.md); shuffle/loop: [05](05-playlist.md))
 
 **Use cases:** Control playback without leaving the app; see position and total length; adjust volume; enter fullscreen for focused viewing.
 
@@ -12,7 +12,7 @@
 
 **Specification:**
 
-- Properties observed: `time-pos`, `duration`, `pause`, `mute`, `volume`, `volume-max`, `fullscreen` (or window fullscreen state), `media-title` for window title. In the **bottom** bar (LTR order): **Previous** and **Next** to skip by sibling-folder rules when applicable (see [07](07-sibling-folder-queue.md)), then play/pause, then elapsed and seek. Play/pause is `sensitive` only when `duration` > 0, toggles `pause` (same as Space; see [Input shortcuts](13-input-shortcuts.md)). **Previous/Next** are `sensitive` when a skip target exists in that order (often disabled at the first or last file in the chain).
+- Properties observed: `time-pos`, `duration`, `pause`, `mute`, `volume`, `volume-max`, `speed`, `fullscreen` (or window fullscreen state), `media-title` for window title. **Speed** 1.0× / 1.5× / 2.0× is in the **header** only (left of subtitle/volume/main-menu popovers; see [28](28-playback-speed.md)). In the **bottom** bar (LTR order): **Previous** and **Next** to skip by sibling-folder rules when applicable (see [07](07-sibling-folder-queue.md)), then play/pause, then elapsed and seek. Play/pause is `sensitive` only when `duration` > 0, toggles `pause` (same as Space; see [Input shortcuts](13-input-shortcuts.md)). **Previous/Next** are `sensitive` when a skip target exists in that order (often disabled at the first or last file in the chain). **Speed** in the header is `sensitive` when the seek bar is (duration > 0).
 - Seek bar: upper bound = duration; disabled when duration unknown/zero.
 - User setting toggles between elapsed and negative remaining time (`show-remaining`).
 - Match at least 5s/10s style keyboard seeks via [Input shortcuts](13-input-shortcuts.md).
