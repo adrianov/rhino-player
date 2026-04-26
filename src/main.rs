@@ -1,8 +1,10 @@
 //! Rhino Player — binary entry.
 //!
-//! Copyright (c) Peter Adrianov, 2026.
+//! Copyright © Peter Adrianov, 2026.
 
 fn main() -> ! {
+    // Before GLib / GTK: prefer CPU and (on Linux) I/O scheduling for smooth decode.
+    rhino_player::sched::raise_process_priority();
     // libmpv checks the locale at init; keep numeric C rules before any other setup.
     std::env::set_var("LC_NUMERIC", "C");
     unsafe {

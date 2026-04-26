@@ -14,6 +14,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use crate::audio_tracks;
+use crate::continue_undo::{apply as apply_bar_undo, ContinueBarUndo};
 use crate::db;
 use crate::sub_prefs;
 use crate::sub_tracks;
@@ -25,9 +26,9 @@ use crate::icons;
 
 use crate::media_probe::{
     capture_list_remove_undo, card_data_list, is_done_enough_to_drop_continue, is_natural_end,
-    local_file_from_mpv, remove_continue_entry, restore_list_remove_undo, save_cached_thumb,
-    CardData, ListRemoveUndo,
+    local_file_from_mpv, remove_continue_entry, save_cached_thumb, CardData,
 };
+use crate::trash_xdg;
 use crate::mpv_embed::MpvBundle;
 use crate::recent_view;
 use crate::recent_view::RecentContext;
@@ -540,7 +541,6 @@ pub fn run() -> i32 {
     unsafe {
         libc::setlocale(libc::LC_NUMERIC, b"C\0".as_ptr().cast());
     }
-    crate::sched::raise_process_priority();
 
     if let Err(e) = adw::init() {
         eprintln!("libadwaita: {e}");
@@ -998,7 +998,7 @@ fn sync_undo_bar(
     label: &gtk::Label,
     btn: &gtk::Button,
     shell: &gtk::Box,
-    stack: &RefCell<Vec<ListRemoveUndo>>,
+    stack: &RefCell<Vec<ContinueBarUndo>>,
 ) {
     let n = stack.borrow().len();
     shell.set_visible(n > 0);
@@ -1009,22 +1009,33 @@ fn sync_undo_bar(
     }
     match n {
         1 => btn.set_tooltip_text(Some(
-            "Put the most recently removed file back on the list (this session), with prior resume and cache.",
+            "Undo: put the file back on the list with prior resume/cache, or restore from trash when the last action was trash.",
         )),
         n => {
             let s = format!(
-                "Restores the most recent removal. {n} file(s) on the stack (one per click, newest first)."
+                "Restores the most recent action. {n} step(s) on the stack (one per click, newest first)."
             );
             btn.set_tooltip_text(Some(s.as_str()));
         }
     }
     if let Some(p) = stack.borrow().last() {
-        let name = p
-            .path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("file");
-        let line = format!("\u{201c}{name}\u{201d} removed from continue list");
+        let (name, tail) = match p {
+            ContinueBarUndo::ListRemove(u) => (
+                u.path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("file"),
+                "removed from continue list",
+            ),
+            ContinueBarUndo::Trash { snap, .. } => (
+                snap.path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("file"),
+                "moved to trash",
+            ),
+        };
+        let line = format!("\u{201c}{name}\u{201d} {tail}");
         label.set_label(&line);
     }
 }
@@ -1057,8 +1068,8 @@ struct BackToBrowseCtx {
     undo_label: gtk::Label,
     undo_btn: gtk::Button,
     undo_timer: Rc<RefCell<Option<glib::source::SourceId>>>,
-    /// Stack of removed entries, newest at the end; [Undo] pops from the end.
-    undo_remove_stack: Rc<RefCell<Vec<ListRemoveUndo>>>,
+    /// Stack of removed/trashed entries, newest at the end; [Undo] pops from the end.
+    undo_remove_stack: Rc<RefCell<Vec<ContinueBarUndo>>>,
 }
 
 /// Show the sheet immediately; mpv/DB/grid/stop on LOW-priority idles (after a frame paints).
@@ -1068,15 +1079,18 @@ fn back_to_browse(
     gl: &gtk::GLArea,
     recent: &gtk::ScrolledWindow,
     row: &gtk::Box,
+    clear_undo: bool,
 ) {
     cancel_undo_timer(&c.undo_timer);
-    *c.undo_remove_stack.borrow_mut() = Vec::new();
+    if clear_undo {
+        *c.undo_remove_stack.borrow_mut() = Vec::new();
         sync_undo_bar(
-        &c.undo_label,
-        &c.undo_btn,
-        &c.undo_shell,
-        &c.undo_remove_stack,
-    );
+            &c.undo_label,
+            &c.undo_btn,
+            &c.undo_shell,
+            &c.undo_remove_stack,
+        );
+    }
     c.win_aspect.set(None);
     *c.last_path.borrow_mut() = None;
     c.sibling_seof.done.set(false);
@@ -1268,9 +1282,9 @@ fn build_window(
     btn_next.add_css_class("flat");
     btn_next.add_css_class("rpb-next");
     btn_next.set_sensitive(false);
-    let video_menu = gio::Menu::new();
-    video_menu.append(Some("Smooth video (60 FPS)"), Some("app.smooth-60"));
-    video_menu.append(
+    let pref_menu = gio::Menu::new();
+    pref_menu.append(Some("Smooth video (60 FPS)"), Some("app.smooth-60"));
+    pref_menu.append(
         Some("Choose VapourSynth script (.vpy)…"),
         Some("app.choose-vs"),
     );
@@ -1279,7 +1293,7 @@ fn build_window(
     menu.append(Some("Open video…"), Some("app.open"));
     menu.append(Some("Close video"), Some("app.close-video"));
     menu.append(Some("Move to Trash"), Some("app.move-to-trash"));
-    menu.append_submenu(Some("Video"), &video_menu);
+    menu.append_submenu(Some("Preferences"), &pref_menu);
     menu.append(Some("About Rhino Player"), Some("app.about"));
     menu.append(Some("Quit"), Some("app.quit"));
     let vol_adj = gtk::Adjustment::new(100.0, 0.0, 100.0, 1.0, 5.0, 0.0);
@@ -1906,7 +1920,7 @@ fn build_window(
         });
     }
 
-    let undo_remove_stack = Rc::new(RefCell::new(Vec::<ListRemoveUndo>::new()));
+    let undo_remove_stack = Rc::new(RefCell::new(Vec::<ContinueBarUndo>::new()));
     let undo_timer = Rc::new(RefCell::new(None::<glib::source::SourceId>));
     type DismissTopRef = Rc<RefCell<Option<Weak<dyn Fn() + 'static>>>>;
     let do_commit_weak: DismissTopRef = Rc::new(RefCell::new(None));
@@ -1950,30 +1964,51 @@ fn build_window(
     let do_rm = do_commit.clone();
     let cell_rm = on_remove_cell.clone();
     let cell_t = on_trash_slot.clone();
-    let fr_t = fr_sl.clone();
-    let rec_t = recent_rm.clone();
-    let op_t = op_s.clone();
-    let rbf_t = rbf_rm.clone();
-    let on_trash: RcPathFn = Rc::new(move |path: &Path| {
-        if !path.is_file() {
-            return;
+    let on_trash: RcPathFn = Rc::new({
+        let fr_t = fr_sl.clone();
+        let rec_t = recent_rm.clone();
+        let op_t = op_s.clone();
+        let rbf_t = rbf_rm.clone();
+        let ur_t = ur_stack.clone();
+        let u_la_t = u_la_rm.clone();
+        let undo_t_t = undo_t_rm.clone();
+        let u_sh_t = u_sh_rm.clone();
+        let do_t = do_rm.clone();
+        let ut_t = ut_rm.clone();
+        let cell_rm = cell_rm.clone();
+        let cell_t = cell_t.clone();
+        move |path: &Path| {
+            if !path.is_file() {
+                return;
+            }
+            let want = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+            let snap = capture_list_remove_undo(path);
+            if let Err(e) = gio::File::for_path(path).trash(gio::Cancellable::NONE) {
+                eprintln!("[rhino] move to trash (continue card): {e}");
+                return;
+            }
+            let in_trash = trash_xdg::find_trash_files_stored_path(&want);
+            if in_trash.is_none() {
+                eprintln!("[rhino] trash: could not locate trashed file for undo");
+            }
+            remove_continue_entry(path);
+            if let Some(t) = in_trash {
+                ur_t.borrow_mut().push(ContinueBarUndo::Trash { snap, in_trash: t });
+                sync_undo_bar(&u_la_t, &undo_t_t, &u_sh_t, &ur_t);
+                rearm_undo_dismiss(&do_t, ut_t.as_ref());
+            }
+            let f = cell_rm
+                .borrow()
+                .as_ref()
+                .expect("on_remove not wired")
+                .clone();
+            let t = cell_t
+                .borrow()
+                .as_ref()
+                .expect("on_trash not wired")
+                .clone();
+            reflow_continue_cards(&fr_t, &rec_t, op_t.clone(), f, t, &rbf_t);
         }
-        if let Err(e) = gio::File::for_path(path).trash(gio::Cancellable::NONE) {
-            eprintln!("[rhino] move to trash (continue card): {e}");
-            return;
-        }
-        remove_continue_entry(path);
-        let f = cell_rm
-            .borrow()
-            .as_ref()
-            .expect("on_remove not wired")
-            .clone();
-        let t = cell_t
-            .borrow()
-            .as_ref()
-            .expect("on_trash not wired")
-            .clone();
-        reflow_continue_cards(&fr_t, &rec_t, op_t.clone(), f, t, &rbf_t);
     });
     *on_trash_slot.borrow_mut() = Some(on_trash.clone());
     let on_remove: RcPathFn = Rc::new({
@@ -1992,7 +2027,9 @@ fn build_window(
         move |path: &Path| {
             let u = capture_list_remove_undo(path);
             remove_continue_entry(path);
-            ur_stack.borrow_mut().push(u);
+            ur_stack
+                .borrow_mut()
+                .push(ContinueBarUndo::ListRemove(u));
             sync_undo_bar(
                 &u_la_rm,
                 &undo_t_rm,
@@ -2058,8 +2095,12 @@ fn build_window(
                 let Some(undo) = ur_u.borrow_mut().pop() else {
                     return;
                 };
-                restore_list_remove_undo(&undo);
-                history::record(&undo.path);
+                if let Err(e) = apply_bar_undo(&undo) {
+                    eprintln!("[rhino] undo: {e}");
+                    ur_u.borrow_mut().push(undo);
+                    return;
+                }
+                history::record(undo.target_path());
                 sync_undo_bar(&u_la_u, &undo_t_u, &u_sh_u, &ur_u);
                 rec_u.set_visible(true);
                 let f = cell_u
@@ -2396,6 +2437,7 @@ fn build_window(
                     &gl_esc,
                     &recent_esc,
                     &flow_esc,
+                    true,
                 );
                 return glib::Propagation::Stop;
             }
@@ -2527,6 +2569,7 @@ fn build_window(
                 &gl_btv,
                 &recent_btv,
                 &flow_btv,
+                true,
             );
         }
     ));
@@ -2565,6 +2608,7 @@ fn build_window(
     let uti_mt = undo_timer.clone();
     let ur_mt = undo_remove_stack.clone();
     let undo_b_mt = undo_btn.clone();
+    let do_mt = do_commit.clone();
     move_to_trash.connect_activate(glib::clone!(
         #[strong]
         p_mt,
@@ -2602,6 +2646,8 @@ fn build_window(
         ur_mt,
         #[strong]
         undo_b_mt,
+        #[strong]
+        do_mt,
         move |_, _| {
             if recent_mt.is_visible() {
                 return;
@@ -2619,12 +2665,21 @@ fn build_window(
                 }
                 p
             };
+            let want = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+            let snap = capture_list_remove_undo(&path);
             let f = gio::File::for_path(&path);
             if let Err(e) = f.trash(gio::Cancellable::NONE) {
                 eprintln!("[rhino] move to trash: {e}");
                 return;
             }
+            let in_trash = trash_xdg::find_trash_files_stored_path(&want);
+            if in_trash.is_none() {
+                eprintln!("[rhino] trash: could not locate trashed file for undo");
+            }
             remove_continue_entry(&path);
+            if let Some(t) = in_trash {
+                ur_mt.borrow_mut().push(ContinueBarUndo::Trash { snap, in_trash: t });
+            }
             back_to_browse(
                 &BackToBrowseCtx {
                     player: p_mt.clone(),
@@ -2646,7 +2701,12 @@ fn build_window(
                 &gl_mt,
                 &recent_mt,
                 &flow_mt,
+                false,
             );
+            sync_undo_bar(&ula_mt, &undo_b_mt, &ush_mt, &ur_mt);
+            if !ur_mt.borrow().is_empty() {
+                rearm_undo_dismiss(&do_mt, uti_mt.as_ref());
+            }
         }
     ));
     app.add_action(&move_to_trash);
@@ -3175,7 +3235,7 @@ fn build_window(
             let mut b = gtk::AboutDialog::builder()
                 .program_name("Rhino Player")
                 .version(env!("CARGO_PKG_VERSION"))
-                .copyright("Copyright (c) Peter Adrianov, 2026")
+                .copyright("Copyright © Peter Adrianov, 2026")
                 .logo_icon_name(APP_ID)
                 .comments("mpv with GTK 4 and libadwaita.")
                 .license_type(gtk::License::Gpl30)
