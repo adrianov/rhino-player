@@ -11,6 +11,7 @@ mod sub_tracks;
 mod icons;
 mod db;
 mod history;
+mod idle_inhibit;
 mod media_probe;
 mod mpv_embed;
 mod paths;

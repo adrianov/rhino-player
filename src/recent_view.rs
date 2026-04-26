@@ -44,6 +44,7 @@ fn new_undo_bar() -> UndoBar {
     undo.set_halign(gtk::Align::Center);
     undo.add_css_class("flat");
     undo.add_css_class("rp-undo-toast-undo");
+    undo.set_cursor_from_name(Some("pointer"));
 
     let close = gtk::Button::from_icon_name("window-close-symbolic");
     close.set_valign(gtk::Align::Center);
@@ -52,6 +53,7 @@ fn new_undo_bar() -> UndoBar {
     close.add_css_class("circular");
     close.add_css_class("flat");
     close.add_css_class("rp-undo-toast-close");
+    close.set_cursor_from_name(Some("pointer"));
 
     let bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     bar.set_spacing(6);

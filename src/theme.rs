@@ -1,4 +1,4 @@
-/// Extra styling on top of libadwaita: opaque content area, custom seek / time look.
+/// Extra styling on top of libadwaita: opaque content area, custom seek / time look, pointer on controls.
 /// Dark style comes from [adw::StyleManager::set_color_scheme] in `app.rs` — do not set
 /// `gtk-application-prefer-dark-theme` (unsupported with libadwaita).
 pub fn apply() {
@@ -127,6 +127,17 @@ pub fn apply() {
         progressbar.rp-recent-bar { min-height: 8px; }
         progressbar.rp-recent-bar trough { background-color: #3d3d3d; }
         progressbar.rp-recent-bar progress { background-color: #78aeed; }
+
+        /* Hand on interactive controls; not-allowed when disabled. Skip entry, textview, drawing
+           (video): they do not use these node names. */
+        button:not(:disabled), menubutton:not(:disabled), modelbutton, togglebutton:not(:disabled),
+        switch, checkbutton, radiobutton, link, scale:not(:disabled), spinbutton > button,
+        listview > row, listbox > row {
+            cursor: pointer;
+        }
+        button:disabled, menubutton:disabled, scale:disabled, togglebutton:disabled {
+            cursor: not-allowed;
+        }
     "#,
     );
     if let Some(d) = gtk::gdk::Display::default() {

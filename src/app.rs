@@ -2,11 +2,10 @@ use adw::prelude::*;
 use gio::prelude::{
     ActionExt as GioActionExt, ActionMapExt as GioActionMapExt, ApplicationExtManual, FileExt,
 };
-use glib::prelude::ToVariant;
+use glib::prelude::{ObjectExt, ToVariant};
 use gtk::gio;
 use gtk::glib;
-use gtk::glib::prelude::ObjectExt;
-use gtk::prelude::{ActionableExt, GestureExt, GtkWindowExt, NativeExt, WidgetExt};
+use gtk::prelude::{ActionableExt, EventControllerExt, GestureExt, GtkWindowExt, NativeExt, WidgetExt};
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
@@ -20,6 +19,7 @@ use crate::sub_prefs;
 use crate::sub_tracks;
 use crate::format_time;
 use crate::history;
+use crate::idle_inhibit;
 use crate::video_ext;
 use libmpv2::Mpv;
 use crate::icons;
@@ -481,6 +481,54 @@ fn schedule_bars_autohide(ctx: Rc<ChromeBarHide>) {
     });
 }
 
+/// Clicks to another header [gtk::MenuButton] are blocked while a **modal** popover is open.
+/// [gtk::Popover:modal] on GTK 4.14+ — set to false so the rest of the window (including
+/// the other header buttons) stays clickable; [gtk::Popover:autohide] still dismisses on outside press.
+fn header_popover_non_modal(pop: &gtk::Popover) {
+    if pop.find_property("modal").is_none() {
+        return;
+    }
+    pop.set_property("modal", false);
+}
+
+/// No built-in “menu button group.” Before the [gtk::MenuButton] default: close other menus,
+/// then an idle [set_active] if the first press did not open the target (e.g. lost to popover stack).
+fn header_menubtns_switch(menus: [gtk::MenuButton; 3]) {
+    for (i, menu) in menus.iter().enumerate() {
+        let g = gtk::GestureClick::new();
+        g.set_button(gtk::gdk::BUTTON_PRIMARY);
+        g.set_propagation_limit(gtk::PropagationLimit::None);
+        g.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let this = menu.clone();
+        let sibs: Vec<gtk::MenuButton> = menus
+            .iter()
+            .enumerate()
+            .filter(|&(j, _)| j != i)
+            .map(|(_, b)| b.clone())
+            .collect();
+        let c = this.clone();
+        g.connect_pressed(move |_, n, _, _| {
+            if n != 1 {
+                return;
+            }
+            let had_other = sibs.iter().any(|b| b.is_active());
+            for b in &sibs {
+                b.set_active(false);
+            }
+            if had_other && !c.is_active() {
+                let t = c.clone();
+                glib::idle_add_local(move || {
+                    if !t.is_active() {
+                        t.set_active(true);
+                    }
+                    glib::ControlFlow::Break
+                });
+            }
+        });
+        this.add_controller(g);
+    }
+}
+
 /// Display (or stream) size in pixels from mpv, if known.
 fn video_display_dims(mpv: &Mpv) -> Option<(i64, i64)> {
     let pair = |mw: &Mpv, wk: &str, hk: &str| {
@@ -911,7 +959,8 @@ fn maybe_advance_sibling_on_eof(
     }
 }
 
-/// Tooltip for bottom-bar **Previous** / **Next** (folder + sibling order); [can] is from [nav_sensitivity].
+/// Bottom-bar **Previous** / **Next** tooltips: the **file name** of the target in folder/sibling
+/// order; [can] is from [SiblingEofState::nav_sensitivity].
 fn sibling_bar_tooltip(is_prev: bool, can: bool, cur: Option<&Path>) -> String {
     if !can {
         return if is_prev {
@@ -932,16 +981,19 @@ fn sibling_bar_tooltip(is_prev: bool, can: bool, cur: Option<&Path>) -> String {
     } else {
         sibling_advance::next_after_eof(c)
     };
-    let name = t
-        .as_ref()
-        .and_then(|p| p.file_name())
-        .and_then(|s| s.to_str())
-        .unwrap_or("?");
-    if is_prev {
-        format!("Open previous: {name}")
-    } else {
-        format!("Open next: {name}")
-    }
+    let Some(t) = t else {
+        // Rare if [can] and [cur] match [nav_sensitivity]; keep a neutral line if paths diverge.
+        return if is_prev {
+            "Previous in folder order".to_string()
+        } else {
+            "Next in folder order".to_string()
+        };
+    };
+    // File name only (non-utf8: lossy); icon shows previous vs next.
+    t.file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| t.to_string_lossy().into_owned())
 }
 
 fn nudge_mpv_volume(mpv: &Mpv, delta: f64) {
@@ -1204,12 +1256,15 @@ fn schedule_quit_persist(
     win: &adw::ApplicationWindow,
     player: &Rc<RefCell<Option<MpvBundle>>>,
     sub: &Rc<RefCell<db::SubPrefs>>,
+    idle_inhib: &Rc<RefCell<Option<u32>>>,
 ) {
     win.set_visible(false);
     let p = player.clone();
     let a = app.clone();
     let sp = Rc::clone(sub);
+    let ic = Rc::clone(idle_inhib);
     let _ = glib::idle_add_local(move || {
+        idle_inhibit::clear(&a, &ic);
         if let Some(b) = p.borrow().as_ref() {
             save_mpv_state(&b.mpv, &sp);
             b.commit_quit();
@@ -1264,6 +1319,7 @@ fn build_window(
     let win_aspect = Rc::new(Cell::new(None::<f64>));
     let aspect_resize_end_deb = Rc::new(RefCell::new(None::<glib::SourceId>));
     let aspect_resize_wired = Rc::new(Cell::new(false));
+    let idle_inhib = Rc::new(RefCell::new(None::<u32>));
 
     let root = adw::ToolbarView::new();
 
@@ -1278,10 +1334,18 @@ fn build_window(
     btn_prev.add_css_class("flat");
     btn_prev.add_css_class("rpb-prev");
     btn_prev.set_sensitive(false);
+    let wrap_prev = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    wrap_prev.append(&btn_prev);
+    wrap_prev.set_tooltip_text(Some("Previous file in folder"));
+    btn_prev.set_has_tooltip(false);
     let btn_next = gtk::Button::from_icon_name("go-next-symbolic");
     btn_next.add_css_class("flat");
     btn_next.add_css_class("rpb-next");
     btn_next.set_sensitive(false);
+    let wrap_next = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    wrap_next.append(&btn_next);
+    wrap_next.set_tooltip_text(Some("Next file in folder"));
+    btn_next.set_has_tooltip(false);
     let pref_menu = gio::Menu::new();
     pref_menu.append(Some("Smooth video (60 FPS)"), Some("app.smooth-60"));
     pref_menu.append(
@@ -1342,6 +1406,7 @@ fn build_window(
     sound_col.append(&audio_tracks_section);
     let vol_pop = gtk::Popover::new();
     vol_pop.set_child(Some(&sound_col));
+    header_popover_non_modal(&vol_pop);
     let vol_menu = gtk::MenuButton::new();
     vol_menu.set_icon_name("audio-volume-high-symbolic");
     vol_menu.set_tooltip_text(Some("Volume and mute; audio track list if several tracks"));
@@ -1394,6 +1459,7 @@ fn build_window(
 
     let sub_pop = gtk::Popover::new();
     sub_pop.set_child(Some(&sub_col));
+    header_popover_non_modal(&sub_pop);
     let sub_menu = gtk::MenuButton::new();
     sub_menu.set_icon_name("media-view-subtitles-symbolic");
     sub_menu.set_tooltip_text(Some("Subtitles: tracks and style"));
@@ -1405,9 +1471,28 @@ fn build_window(
     menu_btn.set_icon_name("open-menu-symbolic");
     menu_btn.set_tooltip_text(Some("Main menu"));
     menu_btn.set_menu_model(Some(&menu));
+    {
+        let mb = menu_btn.clone();
+        menu_btn.connect_notify_local(Some("popover"), move |b, _| {
+            if let Some(p) = b.popover() {
+                header_popover_non_modal(&p);
+            }
+        });
+        menu_btn.connect_active_notify(move |b| {
+            if b.is_active() {
+                if let Some(p) = b.popover() {
+                    header_popover_non_modal(&p);
+                }
+            }
+        });
+        if let Some(p) = mb.popover() {
+            header_popover_non_modal(&p);
+        }
+    }
     header.pack_end(&menu_btn);
     header.pack_end(&vol_menu);
     header.pack_end(&sub_menu);
+    header_menubtns_switch([vol_menu.clone(), sub_menu.clone(), menu_btn.clone()]);
 
     let gl_area = gtk::GLArea::new();
     {
@@ -1525,11 +1610,11 @@ fn build_window(
     bottom.add_css_class("rp-bottom");
     bottom.set_vexpand(false);
     play_pause.set_valign(gtk::Align::Center);
-    btn_prev.set_valign(gtk::Align::Center);
-    btn_next.set_valign(gtk::Align::Center);
-    bottom.append(&btn_prev);
+    wrap_prev.set_valign(gtk::Align::Center);
+    wrap_next.set_valign(gtk::Align::Center);
+    bottom.append(&wrap_prev);
     bottom.append(&play_pause);
-    bottom.append(&btn_next);
+    bottom.append(&wrap_next);
     bottom.append(&time_left);
     bottom.append(&seek);
     bottom.append(&time_right);
@@ -3002,8 +3087,12 @@ fn build_window(
     let tw_l = time_left.downgrade();
     let tw_r = time_right.downgrade();
     let ppw = play_pause.downgrade();
-    let ppw_prev = btn_prev.downgrade();
-    let ppw_next = btn_next.downgrade();
+    // `set_tooltip_text` on a sensitive parent: inactive buttons do not get pointer events, so
+    // the default `query-tooltip` path never runs on the child (see GtkWidget `set_can_target`).
+    let wpw_prev = wrap_prev.downgrade();
+    let wpw_next = wrap_next.downgrade();
+    let bpw_prev = btn_prev.downgrade();
+    let bpw_next = btn_next.downgrade();
     let sw = seek.clone();
     let adj = seek_adj.clone();
     let vi_poll = vol_menu.clone();
@@ -3061,13 +3150,19 @@ fn build_window(
                         pp.set_icon_name("media-playback-start-symbolic");
                         pp.set_tooltip_text(Some("No media"));
                     }
-                    if let Some(p) = ppw_prev.upgrade() {
-                        p.set_sensitive(false);
-                        p.set_tooltip_text(Some("No media"));
+                    if let Some(w) = wpw_prev.upgrade() {
+                        w.set_tooltip_text(Some("No media"));
                     }
-                    if let Some(n) = ppw_next.upgrade() {
+                    if let Some(p) = bpw_prev.upgrade() {
+                        p.set_sensitive(false);
+                        p.set_can_target(false);
+                    }
+                    if let Some(w) = wpw_next.upgrade() {
+                        w.set_tooltip_text(Some("No media"));
+                    }
+                    if let Some(n) = bpw_next.upgrade() {
                         n.set_sensitive(false);
-                        n.set_tooltip_text(Some("No media"));
+                        n.set_can_target(false);
                     }
                     return glib::ControlFlow::Continue;
                 };
@@ -3109,15 +3204,21 @@ fn build_window(
                     seof_poll.clear_nav_sensitivity();
                     (false, false)
                 };
-                if let Some(p) = ppw_prev.upgrade() {
+                if let Some(p) = bpw_prev.upgrade() {
                     p.set_sensitive(can_prev);
-                    let tip = sibling_bar_tooltip(true, can_prev, cur.as_deref());
-                    p.set_tooltip_text(Some(tip.as_str()));
+                    p.set_can_target(can_prev);
                 }
-                if let Some(n) = ppw_next.upgrade() {
+                if let Some(w) = wpw_prev.upgrade() {
+                    let tip = sibling_bar_tooltip(true, can_prev, cur.as_deref());
+                    w.set_tooltip_text(Some(tip.as_str()));
+                }
+                if let Some(n) = bpw_next.upgrade() {
                     n.set_sensitive(can_next);
+                    n.set_can_target(can_next);
+                }
+                if let Some(w) = wpw_next.upgrade() {
                     let tip = sibling_bar_tooltip(false, can_next, cur.as_deref());
-                    n.set_tooltip_text(Some(tip.as_str()));
+                    w.set_tooltip_text(Some(tip.as_str()));
                 }
                 if dur > 0.0 {
                     sw.set_sensitive(true);
@@ -3254,6 +3355,7 @@ fn build_window(
     let p_quit = player.clone();
     let win_q = win.clone();
     let sp_quit = sub_pref.clone();
+    let idle_q = Rc::clone(&idle_inhib);
     quit.connect_activate(glib::clone!(
         #[strong]
         app_q,
@@ -3263,8 +3365,10 @@ fn build_window(
         win_q,
         #[strong]
         sp_quit,
+        #[strong]
+        idle_q,
         move |_, _| {
-            schedule_quit_persist(&app_q, &win_q, &p_quit, &sp_quit);
+            schedule_quit_persist(&app_q, &win_q, &p_quit, &sp_quit, &idle_q);
         }
     ));
     app.add_action(&quit);
@@ -3281,6 +3385,7 @@ fn build_window(
         let p = player.clone();
         let w = win.clone();
         let sp_close = sub_pref.clone();
+        let iclose = Rc::clone(&idle_inhib);
         win.connect_close_request(glib::clone!(
             #[strong]
             app_q,
@@ -3290,8 +3395,10 @@ fn build_window(
             w,
             #[strong]
             sp_close,
+            #[strong]
+            iclose,
             move |_win| {
-                schedule_quit_persist(&app_q, &w, &p, &sp_close);
+                schedule_quit_persist(&app_q, &w, &p, &sp_close, &iclose);
                 glib::Propagation::Stop
             }
         ));
@@ -3321,6 +3428,30 @@ fn build_window(
         let b = on_sz;
         gl_area.connect_notify_local(Some("height"), move |_, _| a());
         bottom.connect_notify_local(Some("height"), move |_, _| b());
+    }
+
+    {
+        let idle_t = Rc::clone(&idle_inhib);
+        let p_t = Rc::clone(player);
+        let r_t = recent_scrl.clone();
+        let a_t = app.clone();
+        let w_t = win.clone();
+        glib::source::timeout_add_local(
+            Duration::from_millis(500),
+            glib::clone!(
+                #[strong] a_t,
+                #[strong] w_t,
+                #[strong] p_t,
+                #[strong] r_t,
+                #[strong] idle_t,
+                move || {
+                    let should = idle_inhibit::should_inhibit(&p_t, r_t.is_visible());
+                    let gtk_a: &gtk::Application = a_t.upcast_ref();
+                    idle_inhibit::sync(gtk_a, Some(&w_t), should, &idle_t);
+                    glib::ControlFlow::Continue
+                }
+            ),
+        );
     }
 
     win.present();
