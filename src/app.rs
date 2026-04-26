@@ -287,6 +287,34 @@ fn sync_smooth_60_to_off(app: &adw::Application) {
     }
 }
 
+/// Rebuilds the **Preferences** submenu: Smooth 60, optional `basename` row for a custom `video_vs_path`
+/// ([vs-custom]), [choose-vs].
+fn video_pref_submenu_rebuild(
+    m: &gio::Menu,
+    p: &db::VideoPrefs,
+    app: &adw::Application,
+) {
+    m.remove_all();
+    m.append(Some("Smooth video (60 FPS)"), Some("app.smooth-60"));
+    if !p.vs_path.trim().is_empty() {
+        let name = std::path::Path::new(p.vs_path.trim())
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("script.vpy");
+        m.append(Some(name), Some("app.vs-custom"));
+    }
+    m.append(
+        Some("Choose VapourSynth script (.vpy)…"),
+        Some("app.choose-vs"),
+    );
+    if let Some(a) = app
+        .lookup_action("vs-custom")
+        .and_then(|a| a.downcast::<gio::SimpleAction>().ok())
+    {
+        a.set_state(&(!p.vs_path.trim().is_empty()).to_variant());
+    }
+}
+
 /// Main menu: [db::VideoPrefs] and `app.*` actions for `gio::Menu` (before [win::present]).
 fn register_video_app_actions(
     app: &adw::Application,
@@ -294,6 +322,7 @@ fn register_video_app_actions(
     gl_area: &gtk::GLArea,
     player: &Rc<RefCell<Option<MpvBundle>>>,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
+    pref_menu: &gio::Menu,
 ) {
     let v0 = video_pref.borrow().clone();
     let app_s = app.clone();
@@ -318,8 +347,13 @@ fn register_video_app_actions(
             if let Some(plr) = pl.borrow().as_ref() {
                 let off = {
                     let mut g = p.borrow_mut();
-                    video_pref::apply_mpv_video(&plr.mpv, &mut g)
-                };
+                    video_pref::apply_mpv_video(
+                        &plr.mpv,
+                        &mut g,
+                        video_pref::ApplyMpvVideoMode::Full,
+                    )
+                }
+                .smooth_auto_off;
                 if off {
                     sync_smooth_60_to_off(&app_s);
                 }
@@ -329,6 +363,56 @@ fn register_video_app_actions(
     }
     app.add_action(&smooth_60);
 
+    let vs_custom = gio::SimpleAction::new_stateful(
+        "vs-custom",
+        None,
+        &(!v0.vs_path.trim().is_empty()).to_variant(),
+    );
+    {
+        let p = Rc::clone(&video_pref);
+        let pl = Rc::clone(player);
+        let gla = gl_area.clone();
+        let app_c = app.clone();
+        let pref = pref_menu.clone();
+        vs_custom.connect_change_state(move |a, s| {
+            let Some(s) = s else {
+                return;
+            };
+            let Some(checked) = s.get::<bool>() else {
+                return;
+            };
+            a.set_state(s);
+            if checked {
+                return;
+            }
+            {
+                let mut g = p.borrow_mut();
+                if g.vs_path.trim().is_empty() {
+                    return;
+                }
+                g.vs_path.clear();
+                db::save_video(&g);
+            }
+            if let Some(plr) = pl.borrow().as_ref() {
+                let off = {
+                    let mut g = p.borrow_mut();
+                    video_pref::apply_mpv_video(
+                        &plr.mpv,
+                        &mut g,
+                        video_pref::ApplyMpvVideoMode::Full,
+                    )
+                }
+                .smooth_auto_off;
+                if off {
+                    sync_smooth_60_to_off(&app_c);
+                }
+            }
+            video_pref_submenu_rebuild(&pref, &*p.borrow(), &app_c);
+            gla.queue_render();
+        });
+    }
+    app.add_action(&vs_custom);
+
     let choose = gio::SimpleAction::new("choose-vs", None);
     {
         let app2 = app.clone();
@@ -336,6 +420,7 @@ fn register_video_app_actions(
         let p = Rc::clone(&video_pref);
         let pl = Rc::clone(player);
         let gla = gl_area.clone();
+        let pref = pref_menu.clone();
         choose.connect_activate(move |_, _| {
             let vf = vpy_file_filter();
             let filters = gio::ListStore::new::<gtk::FileFilter>();
@@ -350,6 +435,7 @@ fn register_video_app_actions(
             let p2 = p.clone();
             let pl2 = Rc::clone(&pl);
             let gl2 = gla.clone();
+            let pref2 = pref.clone();
             dialog.open(Some(&w), None::<&gio::Cancellable>, move |res| {
                 let Ok(file) = res else {
                     return;
@@ -367,8 +453,13 @@ fn register_video_app_actions(
                 if let Some(plr) = pl2.borrow().as_ref() {
                     let off = {
                         let mut g = p2.borrow_mut();
-                        video_pref::apply_mpv_video(&plr.mpv, &mut g)
-                    };
+                        video_pref::apply_mpv_video(
+                            &plr.mpv,
+                            &mut g,
+                            video_pref::ApplyMpvVideoMode::Full,
+                        )
+                    }
+                    .smooth_auto_off;
                     if off {
                         sync_smooth_60_to_off(&app3);
                     } else if let Some(sa) = app3
@@ -383,11 +474,13 @@ fn register_video_app_actions(
                 {
                     sa.set_state(&true.to_variant());
                 }
+                video_pref_submenu_rebuild(&pref2, &*p2.borrow(), &app3);
                 gl2.queue_render();
             });
         });
     }
     app.add_action(&choose);
+    video_pref_submenu_rebuild(pref_menu, &v0, app);
 }
 
 /// Fullscreen and **maximized** are tied so the titlebar restore / unmaximize control matches
@@ -662,6 +755,8 @@ pub fn run() -> i32 {
 struct VideoReapply60 {
     vp: Rc<RefCell<db::VideoPrefs>>,
     app: adw::Application,
+    /// Shared with [video_pref::tick_reconcile_failed_vapoursynth] (runtime `vf` drop vs prefs).
+    vs_gone_ticks: Rc<Cell<u8>>,
 }
 
 /// Options for [try_load] (keeps the arity clippy limit without `allow`).
@@ -721,16 +816,43 @@ fn try_load(
         }
     }
     if let Some(r) = o.reapply_60.as_ref() {
+        r.vs_gone_ticks.set(0);
         let p = Rc::clone(player);
         let r0 = r.clone();
+        let gl_idle = gl.clone();
         let _ = glib::idle_add_local_once(move || {
             if let Some(b) = p.borrow().as_ref() {
-                let off = {
+                let a = {
                     let mut g = r0.vp.borrow_mut();
-                    video_pref::apply_mpv_video(&b.mpv, &mut *g)
+                    video_pref::apply_mpv_video(
+                        &b.mpv,
+                        &mut *g,
+                        video_pref::ApplyMpvVideoMode::DeferVapourSynth,
+                    )
                 };
-                if off {
+                if a.smooth_auto_off {
                     sync_smooth_60_to_off(&r0.app);
+                }
+                if a.vapoursynth_deferred {
+                    let p2 = Rc::clone(&p);
+                    let r2 = r0.clone();
+                    let gl2 = gl_idle.clone();
+                    let _ = glib::timeout_add_local(
+                        Duration::from_millis(video_pref::VS_DEFER_MS),
+                        move || {
+                            if let Some(b) = p2.borrow().as_ref() {
+                                let off = {
+                                    let mut g = r2.vp.borrow_mut();
+                                    video_pref::complete_vapoursynth_attach(&b.mpv, &mut *g)
+                                };
+                                if off {
+                                    sync_smooth_60_to_off(&r2.app);
+                                }
+                                gl2.queue_render();
+                            }
+                            glib::ControlFlow::Break
+                        },
+                    );
                 }
             }
         });
@@ -740,7 +862,7 @@ fn try_load(
             if let Some(b) = p2.borrow().as_ref() {
                 let off = {
                     let mut g = r1.vp.borrow_mut();
-                    video_pref::apply_mpv_video(&b.mpv, &mut *g)
+                    video_pref::reapply_60_if_still_missing(&b.mpv, &mut *g)
                 };
                 if off {
                     sync_smooth_60_to_off(&r1.app);
@@ -1285,6 +1407,7 @@ fn build_window(
     let reapply_60 = VideoReapply60 {
         vp: Rc::clone(&video_pref),
         app: app.clone(),
+        vs_gone_ticks: Rc::new(Cell::new(0)),
     };
 
     let win = adw::ApplicationWindow::builder()
@@ -3169,6 +3292,15 @@ fn build_window(
                 sync_window_aspect_from_mpv(&pl.mpv, wa_poll.as_ref());
                 let pos = pl.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
                 let dur = pl.mpv.get_property::<f64>("duration").unwrap_or(0.0);
+                if video_pref::tick_reconcile_failed_vapoursynth(
+                    &pl.mpv,
+                    &reapply_60.vp,
+                    reapply_60.vs_gone_ticks.as_ref(),
+                    pos,
+                    dur,
+                ) {
+                    sync_smooth_60_to_off(&reapply_60.app);
+                }
                 tl.set_label(&format_time(pos));
                 tr.set_label(&format_time(dur));
                 if let Some(pp) = ppw.upgrade() {
@@ -3373,7 +3505,14 @@ fn build_window(
     ));
     app.add_action(&quit);
 
-    register_video_app_actions(app, &win, &gl_area, player, Rc::clone(&video_pref));
+    register_video_app_actions(
+        app,
+        &win,
+        &gl_area,
+        player,
+        Rc::clone(&video_pref),
+        &pref_menu,
+    );
 
     app.set_accels_for_action("app.open", &["<Primary>o"]);
     app.set_accels_for_action("app.close-video", &["<Primary>w"]);

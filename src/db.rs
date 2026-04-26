@@ -154,6 +154,7 @@ pub fn save_audio(volume: f64, muted: bool) {
 const K_VIDEO_SMOOTH_60: &str = "video_smooth_60";
 const K_VIDEO_FRAME60_LEGACY: &str = "video_frame60";
 const K_VIDEO_VS: &str = "video_vs_path";
+const K_VIDEO_MVTOOLS_LIB: &str = "video_mvtools_lib";
 
 #[derive(Debug, Clone)]
 pub struct VideoPrefs {
@@ -161,14 +162,17 @@ pub struct VideoPrefs {
     pub smooth_60: bool,
     /// Absolute path to a `.vpy` for mpv’s `vapoursynth` filter, or empty for bundled script.
     pub vs_path: String,
+    /// Cached absolute path to `libmvtools.so` after a successful find; skipped on next call if still a file.
+    pub mvtools_lib: String,
 }
 
 impl Default for VideoPrefs {
     fn default() -> Self {
         Self {
-            // Bundled multicore (or fast) .vpy when `video_vs_path` is empty; see paths.rs
+            // Bundled `rhino_60_mvtools.vpy` when `video_vs_path` is empty; see paths.rs
             smooth_60: true,
             vs_path: String::new(),
+            mvtools_lib: String::new(),
         }
     }
 }
@@ -192,6 +196,9 @@ pub fn load_video() -> VideoPrefs {
     if let Some(s) = get_setting_str(K_VIDEO_VS) {
         p.vs_path = s;
     }
+    if let Some(s) = get_setting_str(K_VIDEO_MVTOOLS_LIB) {
+        p.mvtools_lib = s;
+    }
     p
 }
 
@@ -201,6 +208,7 @@ pub fn save_video(p: &VideoPrefs) {
         if p.smooth_60 { "1" } else { "0" },
     );
     put_setting(K_VIDEO_VS, &p.vs_path);
+    put_setting(K_VIDEO_MVTOOLS_LIB, &p.mvtools_lib);
 }
 
 // --- subtitle appearance + last manual track label (see docs/features/24-subtitles.md) ---

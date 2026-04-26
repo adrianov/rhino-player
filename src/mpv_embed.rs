@@ -14,7 +14,7 @@ use std::ptr;
 use crate::db::VideoPrefs;
 use crate::media_probe;
 use crate::paths;
-use crate::video_pref::apply_mpv_video;
+use crate::video_pref::{apply_mpv_video, ApplyMpvVideoMode};
 
 type EglGetProcAddress = unsafe extern "C" fn(*const c_char) -> *mut c_void;
 type GlGetIntegerv = unsafe extern "C" fn(u32, *mut i32);
@@ -92,7 +92,7 @@ impl MpvBundle {
 
         // Re-assert: some init options apply more reliably as properties on the open handle.
         let _ = mpv.set_property("save-position-on-quit", true);
-        let auto_off = apply_mpv_video(&mpv, video);
+        let auto_off = apply_mpv_video(&mpv, video, ApplyMpvVideoMode::default()).smooth_auto_off;
         // Thumbnails: prefer JPEG (fast); PNG path uses minimum compression.
         let _ = mpv.set_property("screenshot-format", "jpeg");
         let _ = mpv.set_property("screenshot-jpeg-quality", 90i64);
