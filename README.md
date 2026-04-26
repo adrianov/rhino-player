@@ -6,7 +6,7 @@ A media player for Linux (GNOME, Ubuntu, and similar) that uses **mpv** for deco
 
 A working **single-window** player shell is in place: `Adw` application + `ToolbarView` (header, video area, bottom transport + seek + times). Video is **libmpv** render output into a **`GtkGLArea`** (OpenGL / EGL) on X11 and Wayland. The main content is wrapped in **`GtkWindowHandle`** so you can **drag the window from the video area** as well as the titlebar. UI chrome (header and bottom bar) can **auto-hide** after idle; the pointer can hide over the video.
 
-**Playback and data:** play / pause, seek bar and keyboard shortcuts, **volume** and **mute** (header and scroll on the video, persisted in **SQLite**), **audio track** selection in the sound popover, **main menu → Video** for optional **Smooth video (60 FPS)** (VapourSynth + bundled mvtools `.vpy` or a custom path), and **libmpv** `watch-later`–style **resume** via a dedicated XDG `watch_later` directory. **Open** from the main menu (Ctrl+O) and optional **CLI** path on launch.
+**Playback and data:** play / pause, seek bar and keyboard shortcuts, **volume** and **mute** (header and scroll on the video, persisted in **SQLite**), **audio track** selection in the sound popover, **main menu → Preferences** for optional **Smooth video (60 FPS)** (VapourSynth + bundled mvtools `.vpy` or a custom path), and **libmpv** `watch-later`–style **resume** via a dedicated XDG `watch_later` directory. **Open** from the main menu (Ctrl+O) and optional **CLI** path on launch.
 
 **When nothing is open:** a **“continue”** grid of **recent** local files (with thumbnails) is shown; entries come from **history** in the DB. **End of file** can **advance to the next** file in the same directory or a **sibling** subfolder (sibling queue). The continue grid supports **dismiss** and a short **undo** path.
 
@@ -74,7 +74,7 @@ You can pass a file path on the **command line** or use **Open video…** (Ctrl+
 
 ## Copyright
 
-Copyright (c) Peter Adrianov, 2026
+Copyright © Peter Adrianov, 2026
 
 ## License
 

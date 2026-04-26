@@ -102,7 +102,7 @@ pub fn apply_mpv_video(mpv: &Mpv, v: &mut VideoPrefs) -> bool {
     );
     if !v.smooth_60 {
         eprintln!(
-            "[rhino] video: smooth_60 off — no 60 fps vf. Enable **Video → Smooth video (60 FPS)** for VapourSynth (bundled .vpy if path is empty)."
+            "[rhino] video: smooth_60 off — no 60 fps vf. Enable **Preferences** → **Smooth video (60 FPS)** for VapourSynth (bundled .vpy if path is empty)."
         );
     }
 

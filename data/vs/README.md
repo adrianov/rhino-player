@@ -15,7 +15,7 @@ Rhino uses the **system** `libmpv` (see `ldd` on the binary). The error is **not
 
 ## Bundled scripts (default 60 fps mode)
 
-When **Video → Smooth video (60 FPS)** is on and the DB has **no** custom **Choose VapourSynth script** path, the app picks (in order):
+When **Preferences → Smooth video (60 FPS)** is on and the DB has **no** custom **Choose VapourSynth script** path, the app picks (in order):
 
 1. **`rhino_60_mvtools_multicore.vpy`** — [MVTools] **BlockFPS** to ~**60** fps, **quality** preset: `pel=4` super, `Analyse` with 4×4 blocks + `dct=1`, **`Recalculate`** to refine vectors, then **BlockFPS** `mode=3`. Sets **`core.num_threads`** to the logical CPU count and **`core.max_cache_size` = 8192** MB for **mpv**’s `concurrent-frames=auto`. **Much** heavier than the fast script; use **`rhino_60_mvtools.vpy`** or uncheck **Smooth video (60 FPS)** if the machine cannot keep up.
 
@@ -38,13 +38,13 @@ The [darealshinji collection](https://github.com/darealshinji/vapoursynth-plugin
 
 **Why Rhino does not depend on that bundle:** the default `.vpy` files must work when the system has **only** `core.mv` (and **mpv** with `vapoursynth` vf). Pulling in **AWarpSharp2**, **BM3D**, **NNEDI3**, **waifu2x**, etc. would **fail** on machines without those `.so` files and is often **not real-time** at 1080p anyway.
 
-**If you install more plugins yourself** (see [vsrepo]), you can use **Video → Choose VapourSynth script** with a **custom** `.vpy` that chains e.g. a **mild** spatial sharpen **after** interpolation (some people use **awarpsharp2**-style filters to counter softness from BlockFPS) or a **light** denoise **before** `Super` to stabilize vectors — at the cost of more CPU and tuning per source. We do **not** ship such scripts: they are **content- and install-specific**.
+**If you install more plugins yourself** (see [vsrepo]), you can use **Preferences** → **Choose VapourSynth script** with a **custom** `.vpy** that chains e.g. a **mild** spatial sharpen **after** interpolation (some people use **awarpsharp2**-style filters to counter softness from BlockFPS) or a **light** denoise **before** `Super` to stabilize vectors — at the cost of more CPU and tuning per source. We do **not** ship such scripts: they are **content- and install-specific**.
 
 **Stronger** “looks like 60p” than MVTools is usually **separate** ML filters (e.g. **RIFE** / ncnn) — not from that static list, and not bundled here; see `docs/features/26-sixty-fps-motion.md`.
 
 ## Your own script
 
-You can use **main menu → Video → Choose VapourSynth script (.vpy)…**; the path is stored in the database. The [mpv] VapourSynth filter injects a global **`video_in`**; end with `…set_output()` on the last node (see a bundled script).
+You can use **main menu → Preferences → Choose VapourSynth script (.vpy)…**; the path is stored in the database. The [mpv] VapourSynth filter injects a global **`video_in`**; end with `…set_output()` on the last node (see a bundled script).
 
 [mpv]: https://mpv.io/manual/master/#video-filters-vapoursynth
 [mvtools]: https://github.com/dubhater/vapoursynth-mvtools

@@ -4,7 +4,7 @@
 
 **Implementation status:** **Removed** from Rhino Player (OSS UI simplification, 2026). The app no longer exposes **`video-sync=display-resample`**, **`interpolation`**, or **`tscale`**. Legacy SQLite key `video_mpv_smooth` is **not** read or written.
 
-**What replaced it:** A single checkable item **Video → Smooth video (60 FPS)** controls **VapourSynth**-based ~60 fps motion only; see [26-sixty-fps-motion](26-sixty-fps-motion.md). Playback always uses `video-sync=audio` and `interpolation=no` in [apply in code](../../src/video_pref.rs).
+**What replaced it:** A single checkable item **Preferences → Smooth video (60 FPS)** controls **VapourSynth**-based ~60 fps motion only; see [26-sixty-fps-motion](26-sixty-fps-motion.md). Playback always uses `video-sync=audio` and `interpolation=no` in [apply in code](../../src/video_pref.rs).
 
 **Historical note:** When this feature *was* in the app, it re-timed decoded frames to the display refresh without synthesizing in-between *content* frames. Research ideas (tscale variants, VRR) below are **not** implemented and **not** on the current roadmap for this product shape.
 

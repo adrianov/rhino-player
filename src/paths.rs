@@ -22,7 +22,7 @@ pub fn watch_later() -> Option<PathBuf> {
     Some(d)
 }
 
-/// Bundled `data/vs/…` when **Video → VapourSynth** and DB `video_vs_path` is empty.
+/// Bundled `data/vs/…` when **Preferences** → VapourSynth is active and DB `video_vs_path` is empty.
 /// Prefers `rhino_60_mvtools_multicore.vpy`, else `rhino_60_mvtools.vpy` (fast preset).
 pub fn bundled_mvtools_60() -> Option<PathBuf> {
     for name in [

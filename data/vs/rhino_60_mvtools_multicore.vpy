@@ -1,6 +1,6 @@
 # Rhino Player — ~60 fps MVTools **high quality** (BlockFPS + Recalculate, pel=4).
 # Heavier CPU than the old `rhino_60_mvtools.vpy` fast preset; for laptops use that one or
-# Uncheck **Video → Smooth video (60 FPS)** when the machine cannot keep up (drops / fan).
+# Uncheck **Preferences** → **Smooth video (60 FPS)** when the machine cannot keep up (drops / fan).
 #
 # Tuned for mpv’s VapourSynth vf (`concurrent-frames=auto`, parallel getFrameAsync) with
 # `core.num_threads` and a large `max_cache_size`.
