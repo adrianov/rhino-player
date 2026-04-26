@@ -2,12 +2,13 @@
 # Regenerate hicolor PNGs from a full-size design export. See data/icons/README.md.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# Default: original Gemini export (paper background). You can also pass
-# ch.rhino.RhinoPlayer-master-1024.png to re-flatten from an already transparent master.
-DEFAULT_SRC="${REPO_ROOT}/data/icons/source/ch.rhino.RhinoPlayer-source-gemini-1024.png"
+# Default: design export in repo (e.g. 800×800 with white margin). You can also pass
+# ch.rhino.RhinoPlayer-master-1024.png to re-bake hicolor from an already transparent master.
+DEFAULT_SRC="${REPO_ROOT}/data/icons/source/ch.rhino.RhinoPlayer-source-800.png"
 SRC="${1:-"$DEFAULT_SRC"}"
-# High fuzz: background is near-uniform off-white; tune down if the squircle’s edge is damaged.
-FUZZ_PCT="${2:-8}"
+# Fuzz for floodfill from corners: removes white (and near-white) **connected to the image edges**,
+# without eating disconnected white (e.g. a play symbol). Tune if fringe remains or the squircle is eaten.
+FUZZ_PCT="${2:-4}"
 # Optional inner inset for the 1024px master only (0.00–0.12): art is scaled to (1-2*inset)*1024
 # then centered on 1024 (GNOME / dock breathing room if you want a hair of margin). Default 0 = full-bleed.
 INSET="${3:-0}"
@@ -25,10 +26,25 @@ fi
 TDIR="$(mktemp -d -t rhino-icon-XXXXXX)"
 trap 'rm -rf "$TDIR"' EXIT
 
-# 1) White / near-white (paper) → transparent
+# 1) Connect-to-edge “paper” white → transparent: flood from all four corners (preserves
+#    white pixels not connected to the border, e.g. icons on the art).
 # 2) Trim to visible bounds; 3) square canvas to max side (no stretch; transparent bands if needed)
-convert "$SRC" -alpha set -channel RGBA -fuzz "${FUZZ_PCT}%" -transparent white \
-  -trim +repage "$TDIR/trimmed.png"
+W0=$(identify -format %w "$SRC" 2>/dev/null) || { echo "identify failed for: $SRC" >&2; exit 1; }
+H0=$(identify -format %h "$SRC" 2>/dev/null) || { echo "identify failed for: $SRC" >&2; exit 1; }
+Wm=$((W0 - 1))
+Hm=$((H0 - 1))
+if (( Wm < 0 || Hm < 0 )); then
+  echo "Error: source image has invalid size" >&2
+  exit 1
+fi
+cp -f "$SRC" "$TDIR/alpha.png"
+for geom in "+0+0" "+${Wm}+0" "+0+${Hm}" "+${Wm}+${Hm}"; do
+  # shellcheck disable=SC2086
+  convert "$TDIR/alpha.png" -alpha on -fuzz "${FUZZ_PCT}%" -fill none -floodfill ${geom} white \
+    -define png:exclude-chunks=date,time "$TDIR/alpha2.png"
+  mv -f "$TDIR/alpha2.png" "$TDIR/alpha.png"
+done
+convert "$TDIR/alpha.png" -trim +repage -define png:exclude-chunks=date,time "$TDIR/trimmed.png"
 W=$(identify -format %w "$TDIR/trimmed.png")
 H=$(identify -format %h "$TDIR/trimmed.png")
 S=$W
