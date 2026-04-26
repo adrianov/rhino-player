@@ -1,8 +1,7 @@
 //! Single SQLite file under XDG config: `~/.config/rhino/rhino.sqlite`.
-//! Replaces ad-hoc `recent_files.txt` / `durations.txt` / `cache/…/thumbs`. mpv [paths::watch_later] files stay separate (libmpv needs a directory).
+//! mpv [paths::watch_later] files stay separate because libmpv needs a directory.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::OnceLock;
@@ -16,7 +15,7 @@ const MAX_HISTORY: i64 = 20;
 
 static DB: OnceLock<Mutex<Connection>> = OnceLock::new();
 
-/// Open the DB, create tables, one-time legacy import, WAL mode.
+/// Open the DB, create current tables, and enable WAL mode.
 pub fn init() {
     let Some(root) = paths::app_config() else {
         eprintln!("[rhino] db: no XDG config dir");
@@ -46,7 +45,9 @@ pub fn init() {
              duration_sec REAL,
              time_pos_sec REAL,
              source_mtime_sec INTEGER,
-             thumb_png BLOB
+             thumb_png BLOB,
+             thumb_time_pos_sec REAL,
+             audio_aid INTEGER
          );
          CREATE TABLE IF NOT EXISTS settings (
              k TEXT PRIMARY KEY NOT NULL,
@@ -56,30 +57,6 @@ pub fn init() {
     ) {
         eprintln!("[rhino] db: schema: {e}");
         return;
-    }
-    if conn
-        .execute("ALTER TABLE media ADD COLUMN time_pos_sec REAL", [])
-        .is_err()
-    {
-        // Column already present (e.g. new DB) — ignore.
-    }
-    if conn
-        .execute(
-            "ALTER TABLE media ADD COLUMN thumb_time_pos_sec REAL",
-            [],
-        )
-        .is_err()
-    {
-        // Column already present — ignore.
-    }
-    if conn
-        .execute("ALTER TABLE media ADD COLUMN audio_aid INTEGER", [])
-        .is_err()
-    {
-        // Column already present — ignore.
-    }
-    if let Err(e) = import_legacy(&conn) {
-        eprintln!("[rhino] db: legacy import: {e}");
     }
     if DB.set(Mutex::new(conn)).is_err() {
         eprintln!("[rhino] db: already initialized");
@@ -206,9 +183,8 @@ pub fn save_audio_track_name(name: &str) {
 
 // --- video: optional VapourSynth ~60 fps vf (see docs/features/26-sixty-fps-motion.md) ---
 
-/// Current key; bool `0`/`1`. Legacy `video_frame60` is read once if this is missing.
+/// Current key; bool `0`/`1`.
 const K_VIDEO_SMOOTH_60: &str = "video_smooth_60";
-const K_VIDEO_FRAME60_LEGACY: &str = "video_frame60";
 const K_VIDEO_VS: &str = "video_vs_path";
 const K_VIDEO_MVTOOLS_LIB: &str = "video_mvtools_lib";
 
@@ -233,21 +209,10 @@ impl Default for VideoPrefs {
     }
 }
 
-fn norm_frame60_legacy(s: &str) -> String {
-    match s.trim().to_ascii_lowercase().as_str() {
-        "off" => "off".into(),
-        "vs" | "vapoursynth" | "lavfi" => "vs".into(),
-        _ => "off".into(),
-    }
-}
-
 pub fn load_video() -> VideoPrefs {
     let mut p = VideoPrefs::default();
     if let Some(s) = get_setting_str(K_VIDEO_SMOOTH_60) {
         p.smooth_60 = s == "1" || s.eq_ignore_ascii_case("true");
-    } else if let Some(s) = get_setting_str(K_VIDEO_FRAME60_LEGACY) {
-        // One-time migration from `video_frame60` = `off` | `vs` (ignore legacy `video_mpv_smooth`).
-        p.smooth_60 = norm_frame60_legacy(&s) == "vs";
     }
     if let Some(s) = get_setting_str(K_VIDEO_VS) {
         p.vs_path = s;
@@ -652,13 +617,15 @@ pub fn take_thumb_if_current(path: &str, file_mtime_sec: i64) -> Option<Vec<u8>>
     .flatten()
 }
 
+type ThumbRow = (Option<Vec<u8>>, Option<i64>, Option<f64>);
+
 /// Thumb bytes if the file mtime matches and the stored frame is near the wanted continue time.
 pub fn take_thumb_if_fresh(path: &str, file_mtime_sec: i64, time_pos: f64) -> Option<Vec<u8>> {
     if !time_pos.is_finite() || time_pos < 0.0 {
         return take_thumb_if_current(path, file_mtime_sec);
     }
     with_conn(|c| {
-        let row: Option<(Option<Vec<u8>>, Option<i64>, Option<f64>)> = c
+        let row: Option<ThumbRow> = c
             .query_row(
                 "SELECT thumb_png, source_mtime_sec, thumb_time_pos_sec FROM media WHERE path = ?1",
                 params![path],
@@ -710,61 +677,4 @@ pub fn file_mtime_sec(path: &Path) -> Option<i64> {
     t.duration_since(std::time::UNIX_EPOCH)
         .ok()
         .map(|d| d.as_secs() as i64)
-}
-
-fn import_legacy(c: &Connection) -> rusqlite::Result<()> {
-    let Some(cfg) = paths::app_config() else {
-        return Ok(());
-    };
-    let now = now_unix_ms();
-    let recent = cfg.join("recent_files.txt");
-    if recent.is_file() {
-        if let Ok(f) = std::fs::File::open(&recent) {
-            let lines: Vec<String> = BufReader::new(f)
-                .lines()
-                .map_while(|l| l.ok())
-                .map(|l| l.trim().to_string())
-                .filter(|l| !l.is_empty())
-                .collect();
-            for (i, t) in lines.iter().enumerate() {
-                if Path::new(t).is_file() {
-                    let op = now - (i as i64) * 1_000;
-                    c.execute(
-                        "INSERT INTO history (path, last_opened) VALUES (?1, ?2)
-                     ON CONFLICT(path) DO UPDATE SET
-                       last_opened = MAX(history.last_opened, excluded.last_opened)",
-                        params![t, op],
-                    )?;
-                }
-            }
-            c.execute(
-                "DELETE FROM history WHERE id NOT IN (
-                 SELECT id FROM (SELECT id FROM history ORDER BY last_opened DESC LIMIT ?1)
-             )",
-                params![MAX_HISTORY],
-            )?;
-            let _ = std::fs::rename(&recent, cfg.join("recent_files.txt.migrated"));
-        }
-    }
-    let durs = cfg.join("durations.txt");
-    if durs.is_file() {
-        if let Ok(f) = std::fs::File::open(&durs) {
-            for line in BufReader::new(f).lines().map_while(|l| l.ok()) {
-                if let Some((a, b)) = line.split_once('\t') {
-                    let a = a.trim();
-                    if let Ok(sec) = b.trim().parse::<f64>() {
-                        if sec.is_finite() && sec > 0.0 {
-                            c.execute(
-                                "INSERT INTO media (path, duration_sec) VALUES (?1, ?2)
-                             ON CONFLICT(path) DO UPDATE SET duration_sec = excluded.duration_sec",
-                                params![a, sec],
-                            )?;
-                        }
-                    }
-                }
-            }
-            let _ = std::fs::rename(&durs, cfg.join("durations.txt.migrated"));
-        }
-    }
-    Ok(())
 }

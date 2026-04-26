@@ -345,8 +345,6 @@ fn run_vo_image_one_frame(
         i.set_option("vo-image-format", "jpg")?;
         i.set_option("vo-image-outdir", out_s)?;
         i.set_option("vo-image-jpeg-quality", "82")?;
-        i.set_option("vo-image-jpeg-optimize", "0")?;
-        i.set_option("vo-image-png-compression", "0")?;
         i.set_option("vf", vf)?;
         i.set_option("start", start.as_str())?;
         i.set_option("frames", 1i64)?;
@@ -356,8 +354,7 @@ fn run_vo_image_one_frame(
     if m.command("loadfile", &[src_s, "replace"]).is_err() {
         return None;
     }
-    let r = run_vo_image_after_load(&mut m, tmp, wait_secs);
-    r
+    run_vo_image_after_load(&mut m, tmp, wait_secs)
 }
 
 fn is_thumb_file(p: &Path) -> bool {

@@ -18,6 +18,6 @@ pub fn is_video_path(p: &Path) -> bool {
             .and_then(|e| e.to_str())
             .is_some_and(|e| {
                 let l = e.to_ascii_lowercase();
-                SUFFIX.iter().any(|&s| s == l.as_str())
+                SUFFIX.contains(&l.as_str())
             })
 }

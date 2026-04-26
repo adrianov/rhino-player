@@ -219,10 +219,7 @@ fn turn_off_smooth_60_in_prefs(v: &mut VideoPrefs) {
 /// True when a media file is open (filters must attach after [loadfile] so `video_in` exists).
 fn mpv_has_open_media(mpv: &Mpv) -> bool {
     // `path` is the main/selected file; empty before the first `loadfile` or while idle.
-    match mpv.get_property::<String>("path") {
-        Ok(s) if !s.trim().is_empty() => true,
-        _ => false,
-    }
+    matches!(mpv.get_property::<String>("path"), Ok(s) if !s.trim().is_empty())
 }
 
 fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool {
