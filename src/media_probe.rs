@@ -220,6 +220,18 @@ pub fn cached_thumbnail_for_path(path: &Path) -> Option<Vec<u8>> {
     db_thumb_for_canon_path(&can)
 }
 
+/// Display fallback: show the last valid raster for this file while background backfill refreshes
+/// a stale `thumb_time_pos_sec`.
+fn cached_thumbnail_for_display(path: &Path) -> Option<Vec<u8>> {
+    if !path.exists() {
+        return None;
+    }
+    let can = std::fs::canonicalize(path).ok()?;
+    let s = can.to_str()?;
+    let mtime = db::file_mtime_sec(&can)?;
+    db::take_thumb_if_current(s, mtime)
+}
+
 /// PNG in [crate::db] `media.thumb_png`, rebuilt when the source file’s mtime changes.
 /// Calls [run_libmpv_image_frame] on a **cache miss**; keep that work off the UI thread (see [crate::recent_view::schedule_thumb_backfill]).
 pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
@@ -320,8 +332,6 @@ fn run_vo_image_one_frame(
         let _ = i.set_option("vd-lavc-threads", "0");
         let _ = i.set_option("vd-lavc-fast", true);
         let _ = i.set_option("vd-lavc-skiploopfilter", "all");
-        let _ = i.set_option("vd-lavc-skipidct", "nonkey");
-        let _ = i.set_option("vd-lavc-skipframe", "nonkey");
         let _ = i.set_option("demuxer-readahead-secs", 0.0f64);
         let _ = i.set_option("demuxer-max-bytes", "128KiB");
         i.set_option("load-scripts", false)?;
@@ -459,7 +469,7 @@ fn card_one(
         .or_else(|| resume_start_seconds(&abs));
     let dur = s.and_then(|k| durs.get(k).copied());
     let pct = percent_from_resume(st, dur);
-    let thumb = cached_thumbnail_for_path(&abs);
+    let thumb = cached_thumbnail_for_display(&abs);
     CardData {
         path: abs,
         percent: pct,
