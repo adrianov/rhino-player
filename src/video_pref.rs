@@ -98,6 +98,8 @@ fn apply_mvtools_env(v: &mut VideoPrefs) {
 
 /// “≈1.0×” band: bundled mvtools [vf] eligibility and env comparison use this tolerance.
 const PLAYBACK_1X_EPS: f64 = 0.001;
+/// VapourSynth / mvtools needs a deeper queue than ordinary decode to avoid starvation.
+const VS_BUFFERED_FRAMES: i32 = 8;
 
 /// Same string [mpv] and the VapourSynth script use for `RHINO_PLAYBACK_SPEED`.
 fn normalized_env_speed(s: f64) -> f64 {
@@ -250,8 +252,8 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
     apply_mvtools_env(v);
     eprintln!("[rhino] video: VapourSynth script = {p}");
     let spec = format!(
-        "vapoursynth:file={}:buffered-frames=3:concurrent-frames=auto",
-        mpv_escape_path(&p)
+        "vapoursynth:file={}:buffered-frames={VS_BUFFERED_FRAMES}:concurrent-frames=auto",
+        mpv_escape_path(&p),
     );
     if let Err(e) = mpv.command("vf", &["add", &spec]) {
         eprintln!("[rhino] video: vf add vapoursynth failed: {e:?} (trying set_property; install VapourSynth + mvtools if this persists).");
