@@ -15,9 +15,10 @@
 //! Successful `libmvtools.so` resolution is stored in SQLite (`video_mvtools_lib`); the next session
 //! reuses that path if the file still exists, avoiding a full search.
 //!
-//! On [loadfile], [ApplyMpvVideoMode::DeferVapourSynth] clears the `vf` chain and sets decode options
-//! **without** attaching VapourSynth immediately, so a few **plain** software-decoded frames can show
-//! first; the app then calls [complete_vapoursynth_attach] after [VS_DEFER_MS].
+//! [try_load] runs [apply_mpv_video] on the next idle after [loadfile] so the `vapoursynth` [vf] is
+//! installed in the same pass as the rest of the mpv state (avoids a mid-playback [vf] insert, which
+//! can confuse timing, and avoids post-[vf] seeks that desync A/V). A **short** black may appear while
+//! VapourSynth warms up.
 
 use std::cell::{Cell, RefCell};
 use std::path::Path;
@@ -29,25 +30,11 @@ use crate::db;
 use crate::db::VideoPrefs;
 use crate::paths;
 
-/// Milliseconds after [loadfile] before attaching the VapourSynth `vf` when using [ApplyMpvVideoMode::DeferVapourSynth].
-pub const VS_DEFER_MS: u64 = 100;
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ApplyMpvVideoMode {
-    /// Clear `vf` and attach VapourSynth in the same call (toggles, menu, init without media).
-    #[default]
-    Full,
-    /// After [loadfile] with Smooth 60: prepare decode path, attach VapourSynth in [complete_vapoursynth_attach].
-    DeferVapourSynth,
-}
-
 /// [apply_mpv_video] result (replaces a bare `bool` for "smooth was auto-off" on older call sites).
 #[derive(Debug)]
 pub struct MpvVideoApply {
     /// Prefs had **Smooth 60** turned off (missing script, `vf` rejected, etc.).
     pub smooth_auto_off: bool,
-    /// VapourSynth not attached yet; call [complete_vapoursynth_attach] after [VS_DEFER_MS].
-    pub vapoursynth_deferred: bool,
 }
 
 fn video_log() -> bool {
@@ -171,7 +158,7 @@ pub fn tick_reconcile_failed_vapoursynth(
     );
     let mut g = vp.borrow_mut();
     turn_off_smooth_60_in_prefs(&mut g);
-    let _ = apply_mpv_video(mpv, &mut g, ApplyMpvVideoMode::Full);
+    let _ = apply_mpv_video(mpv, &mut g);
     gone_ticks.set(0);
     true
 }
@@ -252,8 +239,7 @@ fn log_vf_diagnostics(mpv: &Mpv, vlog: bool) {
     }
 }
 
-/// Second step after [ApplyMpvVideoMode::DeferVapourSynth]: [add_smooth_60] + restore decode prefs if
-/// Smooth 60 was auto-off.
+/// [add_smooth_60] + [post_smooth_60_state] when we must not [vf] clr (e.g. [reapply_60_if_still_missing]).
 pub fn complete_vapoursynth_attach(mpv: &Mpv, v: &mut VideoPrefs) -> bool {
     let want_60 = v.smooth_60;
     let vlog = video_log();
@@ -263,8 +249,8 @@ pub fn complete_vapoursynth_attach(mpv: &Mpv, v: &mut VideoPrefs) -> bool {
     disabled_60
 }
 
-/// If Smooth 60 is on but `vapoursynth` is still not in the `vf` list (e.g. deferred attach not run yet
-/// or a race), [add_smooth_60] only — no full [vf] clear (avoids a second black window).
+/// If Smooth 60 is on but `vapoursynth` is still not in the `vf` list (e.g. race with post-load
+/// reapply), [add_smooth_60] only — no full [vf] clear (avoids a second black window).
 pub fn reapply_60_if_still_missing(mpv: &Mpv, v: &mut VideoPrefs) -> bool {
     if !v.smooth_60 || !mpv_has_open_media(mpv) {
         return false;
@@ -283,15 +269,11 @@ fn vf_string_has_vapoursynth(mpv: &Mpv) -> bool {
 }
 
 /// Fixed timing: `video-sync=audio`, no `display-resample` / `interpolation`. Replaces the whole `vf`
-/// list (clears previous), then optional VapourSynth per prefs (or defers that step — see [ApplyMpvVideoMode]).
-pub fn apply_mpv_video(
-    mpv: &Mpv,
-    v: &mut VideoPrefs,
-    mode: ApplyMpvVideoMode,
-) -> MpvVideoApply {
+/// list (clears previous), then optional VapourSynth per prefs.
+pub fn apply_mpv_video(mpv: &Mpv, v: &mut VideoPrefs) -> MpvVideoApply {
     let vlog = video_log();
     eprintln!(
-        "[rhino] video: apply_mpv_video mode={mode:?} smooth_60={} vs_path_len={}",
+        "[rhino] video: apply_mpv_video smooth_60={} vs_path_len={}",
         v.smooth_60,
         v.vs_path.len()
     );
@@ -346,27 +328,10 @@ pub fn apply_mpv_video(
     }
     let _ = mpv.set_property("vf", "");
 
-    let defer = mode == ApplyMpvVideoMode::DeferVapourSynth
-        && want_60
-        && mpv_has_open_media(mpv)
-        && resolve_vs_script_path(v).is_some();
-
-    if defer {
-        eprintln!(
-            "[rhino] video: VapourSynth attach delayed {VS_DEFER_MS}ms (plain software-decoded frames first; then complete_vapoursynth_attach)"
-        );
-        log_vf_diagnostics(mpv, vlog);
-        return MpvVideoApply {
-            smooth_auto_off: false,
-            vapoursynth_deferred: true,
-        };
-    }
-
     let disabled_60 = add_smooth_60(mpv, v);
     post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
     MpvVideoApply {
         smooth_auto_off: disabled_60,
-        vapoursynth_deferred: false,
     }
 }
 

@@ -14,7 +14,7 @@ use std::ptr;
 use crate::db::VideoPrefs;
 use crate::media_probe;
 use crate::paths;
-use crate::video_pref::{apply_mpv_video, ApplyMpvVideoMode};
+use crate::video_pref::apply_mpv_video;
 
 type EglGetProcAddress = unsafe extern "C" fn(*const c_char) -> *mut c_void;
 type GlGetIntegerv = unsafe extern "C" fn(u32, *mut i32);
@@ -92,7 +92,7 @@ impl MpvBundle {
 
         // Re-assert: some init options apply more reliably as properties on the open handle.
         let _ = mpv.set_property("save-position-on-quit", true);
-        let auto_off = apply_mpv_video(&mpv, video, ApplyMpvVideoMode::default()).smooth_auto_off;
+        let auto_off = apply_mpv_video(&mpv, video).smooth_auto_off;
         // Thumbnails: prefer JPEG (fast); PNG path uses minimum compression.
         let _ = mpv.set_property("screenshot-format", "jpeg");
         let _ = mpv.set_property("screenshot-jpeg-quality", 90i64);
@@ -212,7 +212,10 @@ impl MpvBundle {
     }
 
     /// Save the current file’s position, then `loadfile` the new path. Uses a **canonical** path
-    /// string so the watch_later index matches the next open of the same file.
+    /// string so the watch_later index matches the next open of the same file. Resume from the
+    /// previous session is **only** from libmpv’s `watch_later` + `resume-playback` (we do not pass
+    /// `start=` in `loadfile`—combining that with the same sidecar can double-apply the offset and
+    /// cause **slight A/V desync**).
     /// When [clear_outgoing_resume] is true, the outgoing file reached the end: drop watch_later + DB
     /// position (next open from 0) and do not write a final end snapshot.
     pub fn load_file_path(&self, path: &Path, clear_outgoing_resume: bool) -> Result<(), String> {

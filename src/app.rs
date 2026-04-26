@@ -347,11 +347,7 @@ fn register_video_app_actions(
             if let Some(plr) = pl.borrow().as_ref() {
                 let off = {
                     let mut g = p.borrow_mut();
-                    video_pref::apply_mpv_video(
-                        &plr.mpv,
-                        &mut g,
-                        video_pref::ApplyMpvVideoMode::Full,
-                    )
+                    video_pref::apply_mpv_video(&plr.mpv, &mut g)
                 }
                 .smooth_auto_off;
                 if off {
@@ -396,11 +392,7 @@ fn register_video_app_actions(
             if let Some(plr) = pl.borrow().as_ref() {
                 let off = {
                     let mut g = p.borrow_mut();
-                    video_pref::apply_mpv_video(
-                        &plr.mpv,
-                        &mut g,
-                        video_pref::ApplyMpvVideoMode::Full,
-                    )
+                    video_pref::apply_mpv_video(&plr.mpv, &mut g)
                 }
                 .smooth_auto_off;
                 if off {
@@ -453,11 +445,7 @@ fn register_video_app_actions(
                 if let Some(plr) = pl2.borrow().as_ref() {
                     let off = {
                         let mut g = p2.borrow_mut();
-                        video_pref::apply_mpv_video(
-                            &plr.mpv,
-                            &mut g,
-                            video_pref::ApplyMpvVideoMode::Full,
-                        )
+                        video_pref::apply_mpv_video(&plr.mpv, &mut g)
                     }
                     .smooth_auto_off;
                     if off {
@@ -819,40 +807,14 @@ fn try_load(
         r.vs_gone_ticks.set(0);
         let p = Rc::clone(player);
         let r0 = r.clone();
-        let gl_idle = gl.clone();
         let _ = glib::idle_add_local_once(move || {
             if let Some(b) = p.borrow().as_ref() {
                 let a = {
                     let mut g = r0.vp.borrow_mut();
-                    video_pref::apply_mpv_video(
-                        &b.mpv,
-                        &mut *g,
-                        video_pref::ApplyMpvVideoMode::DeferVapourSynth,
-                    )
+                    video_pref::apply_mpv_video(&b.mpv, &mut *g)
                 };
                 if a.smooth_auto_off {
                     sync_smooth_60_to_off(&r0.app);
-                }
-                if a.vapoursynth_deferred {
-                    let p2 = Rc::clone(&p);
-                    let r2 = r0.clone();
-                    let gl2 = gl_idle.clone();
-                    let _ = glib::timeout_add_local(
-                        Duration::from_millis(video_pref::VS_DEFER_MS),
-                        move || {
-                            if let Some(b) = p2.borrow().as_ref() {
-                                let off = {
-                                    let mut g = r2.vp.borrow_mut();
-                                    video_pref::complete_vapoursynth_attach(&b.mpv, &mut *g)
-                                };
-                                if off {
-                                    sync_smooth_60_to_off(&r2.app);
-                                }
-                                gl2.queue_render();
-                            }
-                            glib::ControlFlow::Break
-                        },
-                    );
                 }
             }
         });
