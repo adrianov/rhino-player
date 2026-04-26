@@ -15,9 +15,9 @@
 | Area | Behavior |
 |------|------------|
 | **`history` table** | Append / touch on **open** (`history::record` from `try_load` when `LoadOpts::record`). Ordered by `last_opened`; max 20 rows (`db::MAX_HISTORY`). |
-| **`media` table** | `duration_sec`, `time_pos_sec`, `thumb_png` (+ mtime / `thumb_time_pos_sec`) updated from **`record_playback_for_current`**, **`set_thumb`**, quit path **`save_cached_thumb`**, grid **`ensure_thumbnail`**. |
+| **`media` table** | `duration_sec`, `time_pos_sec`, `thumb_png` (+ mtime / `thumb_time_pos_sec`) updated from **`record_playback_for_current`**, **`set_thumb`**, grid **`ensure_thumbnail`**. |
 | **Sibling advance at EOF** | `maybe_advance_sibling_on_eof` → `try_load` → **`MpvBundle::load_file_path`**, which calls **`write_resume_snapshot`**, **`record_playback_for_current`** with the **still-loaded** file (the one that just hit EOF), then `loadfile` the next. So the **finished** file gets **playback row** written with **end-ish** `time-pos` / `duration`; no **`save_cached_thumb`** in that path. |
-| **Back to grid (Escape)** | Idle chain: **`record_playback_for_current`**, later **`save_cached_thumb`** — this is where a **finished** file can still get a **new or updated** raster thumb (often a **black or last frame**), which matches the user complaint. |
+| **Back to grid (Escape)** | Idle chain records playback state, paints DB cached cards, then background backfill refreshes missing/stale thumbnails near the current continue position. |
 | **Stale / remove today** | Missing file: grey card; click uses **`on_stale` → `history::remove`**. No general “remove seen file,” no undo. |
 
 ---
@@ -66,7 +66,7 @@
 | Trigger | Proposed change |
 |--------|-----------------|
 | **EOF “finished”** (auto or last-in-folder) | **Do not** update thumb from **end state**; when we **drop** the path from `history`, either **`DELETE` `media` row** for that path or **`thumb_png` = NULL`**, `time_pos_sec` cleared — grid then shows **placeholder** if the path ever reappears. **Avoid** `save_cached_thumb` on paths we classify as “finished and removed.” |
-| **Escape to grid** after **in-progress** | Keep current **`save_cached_thumb` + `record_playback`** (still watching). |
+| **Escape to grid** after **in-progress** | Record playback state; continue-bar background backfill refreshes the thumb later if `thumb_time_pos_sec` differs from the current continue position. |
 | **Escape to grid** after **finished** (if we still allow that state) | Skip thumb capture for finished-only session — requires a **flag** in session (“last file ended at EOF”) or **history membership** check: if not in `history` and we’re not showing it, skip. |
 
 **Implementation note:** `load_file_path` always **`record_playback_for_current`** for the *previous* file. For a **finished** file, writing **~100%** in `media` is **ok** for analytics or confusing for “% on re-add”; **recommend** on finish: **remove** `media` row when removing from `history`, or set **`time_pos_sec = 0`** and keep duration only if needed — **decide in implementation**; simplest is **delete `media` row** when **removing from `history` for “done”** so re-open is clean.
@@ -90,7 +90,7 @@ For **manual ✕** (and optionally **auto-finish remove** if we ever toast it):
 
 1. **DB helpers:** `remove_history` already; add **`remove_media_path`** or `delete media where path = ?` used whenever we **remove** from `history` for this feature.  
 2. **Finish path:** in **`maybe_advance_sibling_on_eof`**, when we detect `eof` and resolve `finished` path, **`history::remove` + clear media** for `finished` **before** `try_load(next)`; same when **`next` is `None`**. **Guard** so we only run **once** per file (`sibling_eof_done` already).  
-3. **Escape / quit:** if **`back_to_browse`**, skip **`save_cached_thumb`** when the only played file is **not** in `history` (finished-and-removed) or when **`eof-reached` still true** and we’ve committed finish — **needs a `Cell<bool>` or “session completed paths”** to avoid another DB query in hot path.  
+3. **Escape / quit:** do not capture thumbs in the quit path; only record playback state and let continue-bar backfill refresh missing/stale thumbs when shown.  
 4. **UI:** **✕** button on each card (non-stale and stale?), **`connect_clicked` stop propagation** if needed so card open doesn’t fire.  
 5. **`AdwToast` + ToastOverlay** + **undo** path.  
 6. **Docs:** update **`21-recent-videos-launch.md`**, **`docs/README.md` index**, product copy for toast strings.
@@ -107,10 +107,10 @@ For **manual ✕** (and optionally **auto-finish remove** if we ever toast it):
 
 ## 8. Related files (implementation touch list)
 
-- `src/app.rs` — `maybe_advance_sibling_on_eof`, `back_to_browse` idle / `save_cached_thumb`  
+- `src/app.rs` — `maybe_advance_sibling_on_eof`, `back_to_browse` idle state recording
 - `src/db.rs` / `src/history.rs` — history + media delete helpers  
 - `src/recent_view.rs` — card layout, ✕, refill, `schedule_thumb_backfill` (skip for removed)  
-- `src/media_probe.rs` — `persist_on_quit`, `save_cached_thumb` guards  
+- `src/media_probe.rs` — continue thumb freshness + background generation
 - New or extended **`docs/features/21-…`** and this file’s **status** when shipped.
 
 ---

@@ -30,7 +30,7 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | [MPRIS2 (media keys, shell integration)](features/15-mpris.md) | Not started |
 | [Session: restore last playlist](features/16-session-persistence.md) | Not started |
 | [Window: size, fullscreen, UI auto-hide, inhibit idle](features/17-window-behavior.md) | In progress (fullscreen, `GtkWindowHandle`, chrome autohide, cursor hide, fit-on-open, inhibit; **not:** post-resize aspect lock, **one-click header menu switch** — see file) |
-| [Thumbnails: seek bar preview](features/18-thumbnail-preview.md) | Not started |
+| [Thumbnails: seek bar preview](features/18-thumbnail-preview.md) | **Done** (`seek_bar_preview` + `MpvPreviewGl`: second `vo=libmpv` in popover `GLArea`; Cine-style UX) |
 | [Playlist dialog (list, reorder, save m3u8)](features/19-playlist-dialog.md) | Not started |
 | [Static release binary and dependencies](features/20-static-build.md) | Not started |
 | [Recent videos grid on empty launch](features/21-recent-videos-launch.md) | **Done** (grid, `rhino.sqlite`, libmpv thumbs, dismiss, **session** undo stack) |

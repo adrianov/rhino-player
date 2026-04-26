@@ -13,6 +13,6 @@
 **Specification:**
 
 - Properties observed: `time-pos`, `duration`, `pause`, `mute`, `volume`, `volume-max`, `speed`, `fullscreen` (or window fullscreen state), `media-title` for window title. **Speed** 1.0× / 1.5× / 2.0× is in the **header** only (left of subtitle/volume/main-menu popovers; see [28](28-playback-speed.md)). In the **bottom** bar (LTR order): **Previous** and **Next** to skip by sibling-folder rules when applicable (see [07](07-sibling-folder-queue.md)), then play/pause, then elapsed and seek. Play/pause is `sensitive` only when `duration` > 0, toggles `pause` (same as Space; see [Input shortcuts](13-input-shortcuts.md)). **Previous/Next** are `sensitive` when a skip target exists in that order (often disabled at the first or last file in the chain). **Speed** in the header is `sensitive` when the seek bar is (duration > 0).
-- Seek bar: upper bound = duration; disabled when duration unknown/zero.
+- Seek bar: upper bound = duration; disabled when duration unknown/zero. User seeks use mpv `seek <seconds> absolute+keyframes` (fallback: setting `time-pos`) so audio/video stay aligned, including with filtered video. Optional **hover preview**: popover with a **thumbnail** of the frame at the hover time; see [18-thumbnail-preview](18-thumbnail-preview.md) (toggled in **Preferences**).
 - User setting toggles between elapsed and negative remaining time (`show-remaining`).
 - Match at least 5s/10s style keyboard seeks via [Input shortcuts](13-input-shortcuts.md).
