@@ -13,6 +13,7 @@ mod media_probe;
 mod mpv_embed;
 mod paths;
 mod recent_view;
+mod sched;
 mod sibling_advance;
 mod theme;
 mod time;

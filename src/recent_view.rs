@@ -78,13 +78,31 @@ fn new_undo_bar() -> UndoBar {
 }
 
 /// Scrolled row of at most five continue cards, with the undo snackbar **under** the strip (in-layout, not under the window bottom toolbar).
-pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, UndoBar) {
+///
+/// The four `[gtk::Box]` spacers (top, left, right, bottom around the **card** row) are the **empty** hit
+/// area for main-window double-click fullscreen: not the card strip or undo bar.
+pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, [gtk::Box; 4], UndoBar) {
     let h = gtk::Box::new(gtk::Orientation::Horizontal, 16);
     h.set_halign(gtk::Align::Center);
     h.set_baseline_position(gtk::BaselinePosition::Top);
     h.set_vexpand(false);
     h.set_hexpand(false);
     h.add_css_class("rp-recent-row");
+
+    let sp_left = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    sp_left.set_hexpand(true);
+    sp_left.set_vexpand(true);
+    let sp_right = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    sp_right.set_hexpand(true);
+    sp_right.set_vexpand(true);
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    row.set_halign(gtk::Align::Fill);
+    row.set_valign(gtk::Align::Start);
+    row.set_hexpand(true);
+    row.set_vexpand(false);
+    row.append(&sp_left);
+    row.append(&h);
+    row.append(&sp_right);
 
     let v = gtk::Box::new(gtk::Orientation::Vertical, 0);
     v.set_vexpand(true);
@@ -99,7 +117,7 @@ pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, UndoBar) {
     sp_bot.set_vexpand(true);
     let undo_bar = new_undo_bar();
     v.append(&sp_top);
-    v.append(&h);
+    v.append(&row);
     v.append(&undo_bar.shell);
     v.append(&sp_bot);
 
@@ -112,7 +130,7 @@ pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, UndoBar) {
     s.set_hscrollbar_policy(gtk::PolicyType::Automatic);
     s.set_kinetic_scrolling(false);
     s.add_css_class("rp-recent-scroll");
-    (s, h, undo_bar)
+    (s, h, [sp_top, sp_left, sp_right, sp_bot], undo_bar)
 }
 
 fn clear(f: &gtk::Box) {
@@ -154,6 +172,7 @@ pub struct RecentContext {
     row: gtk::Box,
     on_open: RcPathFn,
     on_remove: RcPathFn,
+    on_trash: RcPathFn,
     /// Stops workers and poller; cleared in [shutdown].
     pub cancel: Arc<AtomicBool>,
     /// Worker → main: request a [refill] (no GTK types on the [Send] side).
@@ -175,6 +194,7 @@ impl RecentContext {
             v,
             self.on_open.clone(),
             self.on_remove.clone(),
+            self.on_trash.clone(),
         );
     }
 
@@ -209,6 +229,7 @@ pub fn ensure_recent_backfill(
     row: &gtk::Box,
     on_open: RcPathFn,
     on_remove: RcPathFn,
+    on_trash: RcPathFn,
 ) -> Rc<RecentContext> {
     if let Some(c) = cell.borrow().as_ref() {
         return Rc::clone(c);
@@ -219,6 +240,7 @@ pub fn ensure_recent_backfill(
         row: row.clone(),
         on_open,
         on_remove,
+        on_trash,
         cancel: cancel.clone(),
         refill_tx,
         poll_id: Rc::new(RefCell::new(None)),
@@ -278,13 +300,13 @@ pub fn schedule_thumb_backfill(ctx: Rc<RecentContext>, paths: Vec<std::path::Pat
     ctx.workers.borrow_mut().push(h);
 }
 
-/// Hand on hover, primary click triggers [act]. [dismiss] is shown on hover (top-right remove).
-/// Uses [PropagationPhase::Target] so a nested [gtk::Button] (dismiss) receives the click first.
+/// Hand on hover, primary click triggers [act]. [show_on_hover] (e.g. trash + remove) is shown on hover.
+/// Uses [PropagationPhase::Target] so nested [gtk::Button]s receive the click first.
 fn add_click_and_pointer(
     card: &impl IsA<gtk::Widget>,
     debug_path: &str,
     act: UnitFn,
-    dismiss: &gtk::Button,
+    show_on_hover: &[gtk::Button],
 ) {
     card.as_ref().set_can_target(true);
     let g = gtk::GestureClick::new();
@@ -304,27 +326,33 @@ fn add_click_and_pointer(
     card.as_ref().add_controller(g);
 
     let c = card.as_ref().clone();
-    let dis = dismiss.clone();
+    let show: Vec<gtk::Button> = show_on_hover.iter().cloned().collect();
     let m = gtk::EventControllerMotion::new();
     m.connect_enter(move |_, _x, _y| {
         c.set_cursor_from_name(Some("pointer"));
-        dis.set_visible(true);
+        for b in &show {
+            b.set_visible(true);
+        }
     });
     let c = card.as_ref().clone();
-    let dis2 = dismiss.clone();
+    let hide: Vec<gtk::Button> = show_on_hover.iter().cloned().collect();
     m.connect_leave(move |_| {
         c.set_cursor_from_name(None);
-        dis2.set_visible(false);
+        for b in &hide {
+            b.set_visible(false);
+        }
     });
     card.as_ref().add_controller(m);
 }
 
-/// Replace all children with cards. [on_remove] is used to drop an entry (missing file or dismiss control).
+/// Replace all children with cards. [on_remove] drops an entry from the list; [on_trash] moves a file
+/// to the system Trash then removes it from the list.
 pub fn fill_row(
     row: &gtk::Box,
     items: Vec<CardData>,
     on_open: Rc<dyn Fn(&Path)>,
     on_remove: Rc<dyn Fn(&Path)>,
+    on_trash: Rc<dyn Fn(&Path)>,
 ) {
     clear(row);
     for d in items {
@@ -419,11 +447,14 @@ pub fn fill_row(
         footer.append(&pro);
         card.add_overlay(&footer);
 
+        let top_actions = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        top_actions.set_spacing(2);
+        top_actions.set_halign(gtk::Align::End);
+        top_actions.set_valign(gtk::Align::Start);
+        top_actions.set_margin_top(2);
+        top_actions.set_margin_end(2);
+
         let dismiss = gtk::Button::from_icon_name("window-close-symbolic");
-        dismiss.set_valign(gtk::Align::Start);
-        dismiss.set_halign(gtk::Align::End);
-        dismiss.set_margin_top(2);
-        dismiss.set_margin_end(2);
         dismiss.set_visible(false);
         dismiss.set_tooltip_text(Some("Remove from list"));
         dismiss.add_css_class("flat");
@@ -437,7 +468,30 @@ pub fn fill_row(
                 rem(&path);
             });
         }
-        card.add_overlay(&dismiss);
+
+        let hover_btns: Vec<gtk::Button> = if !miss && c.is_file() {
+            let trash = gtk::Button::from_icon_name("user-trash-symbolic");
+            trash.set_visible(false);
+            trash.set_tooltip_text(Some("Move to trash"));
+            trash.add_css_class("flat");
+            trash.add_css_class("circular");
+            trash.add_css_class("rp-recent-trash");
+            {
+                let path = c.clone();
+                let tr = on_trash.clone();
+                trash.connect_clicked(move |_| {
+                    eprintln!("[rhino] recent: trash path={}", path.display());
+                    tr(&path);
+                });
+            }
+            top_actions.append(&trash);
+            top_actions.append(&dismiss);
+            vec![trash, dismiss]
+        } else {
+            top_actions.append(&dismiss);
+            vec![dismiss.clone()]
+        };
+        card.add_overlay(&top_actions);
 
         if miss {
             let path = c.clone();
@@ -452,7 +506,7 @@ pub fn fill_row(
                     );
                     rem(&path);
                 }),
-                &dismiss,
+                &hover_btns,
             );
         } else {
             let path = c.clone();
@@ -464,7 +518,7 @@ pub fn fill_row(
                     eprintln!("[rhino] recent: open callback path={}", path.display());
                     op(&path);
                 }),
-                &dismiss,
+                &hover_btns,
             );
         }
 
@@ -482,11 +536,13 @@ pub fn fill_idle(
     paths: Vec<std::path::PathBuf>,
     on_open: RcPathFn,
     on_remove: RcPathFn,
+    on_trash: RcPathFn,
     backfill: Rc<RefCell<Option<Rc<RecentContext>>>>,
 ) {
     let row = row.clone();
     let o = on_open;
     let r = on_remove;
+    let t = on_trash;
     let _ = glib::idle_add_local(move || {
         eprintln!(
             "[rhino] recent: fill_idle build grid for {} path(s):",
@@ -495,7 +551,7 @@ pub fn fill_idle(
         for p in &paths {
             eprintln!("[rhino] recent:   candidate {}", p.display());
         }
-        let n = ensure_recent_backfill(&backfill, &row, o.clone(), r.clone());
+        let n = ensure_recent_backfill(&backfill, &row, o.clone(), r.clone(), t.clone());
         let v: Vec<CardData> = card_data_list(&paths);
         eprintln!("[rhino] recent: card_data done ({} cards)", v.len());
         for cd in &v {
@@ -505,7 +561,7 @@ pub fn fill_idle(
                 cd.missing
             );
         }
-        fill_row(&row, v, o.clone(), r.clone());
+        fill_row(&row, v, o.clone(), r.clone(), t.clone());
         let paths_t = paths.clone();
         schedule_thumb_backfill(n, paths_t);
         glib::ControlFlow::Break

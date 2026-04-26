@@ -9,7 +9,7 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | Document | Status |
 |----------|--------|
 | [Cargo project and build layout](features/01-cargo-skeleton.md) | **Done** (repo layout, `cargo build` / `cargo test`; static release: [20](features/20-static-build.md)) |
-| [Application shell (Adwaita app, lifecycle)](features/02-application-shell.md) | **Done** (`adw` app/window, `ToolbarView`, header + sound + main menu, about, quit, dark; not: full preferences window, `open` for remote files — see [06](features/06-open-and-cli.md)) |
+| [Application shell (Adwaita app, lifecycle)](features/02-application-shell.md) | **Done** (`adw` app/window, `ToolbarView`, header + sound + main menu, open / **close video** / **move to trash** (local file) / about / quit, dark; not: full preferences window, `open` for remote files — see [06](features/06-open-and-cli.md)) |
 | [mpv embed: render context and video surface](features/03-mpv-embedding.md) | **Done** (`GtkGLArea` + `libmpv` render, watch-later dir, resume) |
 | [Transport: play, pause, seek, progress UI](features/04-transport-and-progress.md) | **Done** (seek, times, bottom bar; prev/next per sibling order — not: shuffle/loop from [05](features/05-playlist.md)) |
 | [Playlist: queue, prev/next, shuffle, loop](features/05-playlist.md) | Not started |
@@ -19,6 +19,7 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | [Subtitles: style, track picker, auto-pick](features/24-subtitles.md) | **Done** (header button, `sub-*` strings, DB + last-pick Levenshtein) |
 | [Smooth video playback (display-resample) — removed](features/25-smooth-playback.md) | **Removed** (superseded by [26](features/26-sixty-fps-motion.md)) |
 | [~60 fps motion (VapourSynth)](features/26-sixty-fps-motion.md) | **Done** (menu **Video** → **Smooth video (60 FPS)**; `video_smooth_60`, `video_vs_path`; bundled `data/vs/*.vpy`) |
+| [Move current file to trash](features/27-move-to-trash.md) | **Done** (main menu **Move to Trash**; `app.move-to-trash`; [Delete] / [KP_Delete] when a local file is playing) |
 | [Chapters: marks, menu, seek bar hover](features/09-chapters.md) | Not started |
 | [Video options: aspect, crop, zoom, filters](features/10-video-options.md) | Not started |
 | [Drag and drop](features/11-drag-and-drop.md) | Not started |

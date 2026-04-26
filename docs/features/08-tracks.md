@@ -17,7 +17,7 @@
 - A header **MenuButton** (volume / sound icon) with tooltip for sound; **one** popover shared with [volume UI](22-audio-volume-mute.md): **Volume** row first; the **track** block (scroll list) appears only when `track-list` contains at least **two** **audio** streams. No separate “Audio” heading in the popover.
 - The track list includes only `track-list` entries with `type` **audio**. Each row is a **radio** in a single group; the row matching the current `aid` is selected (if `aid` is `no` / muted-off, no row is active until the user picks a track).
 - Choosing a track sets `aid` to that track’s `id` (int). **No** UI to set `aid` to `no` here (use **mute**).
-- If there are no audio entries, or only one, the track **section is not shown** (only the volume row).
+- If there are no audio entries, or only one, the track **section is not shown** (only the volume row). After each successful **load** (short delayed tick with subtitle apply), the app still sets [aid] to the only audio [track-list] id if there is **exactly one** stream, and repairs explicit `aid=no` when there are **several** (so playback is not left silent when the demuxer or stale state had no track selected).
 - No extra toasts or notifications; errors setting `aid` are ignored in the UI (log only if the project already logs mpv errors elsewhere).
 
 **Later (not implemented yet)**

@@ -355,11 +355,23 @@ pub fn record_history(path: &Path) {
     });
 }
 
-pub fn remove_history(path: &Path) {
-    let s = std::fs::canonicalize(path)
+fn history_key(path: &Path) -> Option<String> {
+    std::fs::canonicalize(path)
         .ok()
-        .and_then(|p| p.to_str().map(str::to_string));
-    let Some(s) = s else { return };
+        .and_then(|p| p.to_str().map(str::to_string))
+        .or_else(|| {
+            if path.is_absolute() {
+                path.to_str().map(str::to_string)
+            } else {
+                None
+            }
+        })
+}
+
+pub fn remove_history(path: &Path) {
+    let Some(s) = history_key(path) else {
+        return;
+    };
     let _ = with_conn(|c| {
         c.execute("DELETE FROM history WHERE path = ?1", params![&s])?;
         Ok(())
@@ -444,17 +456,75 @@ pub fn set_playback(path: &Path, duration_sec: f64, time_pos_sec: f64) {
 }
 
 /// Clear stored resume so the next open starts from 0 (watch_later is removed separately in [media_probe]).
+/// Uses the same path key as [remove_history] so deleted-on-disk files still match DB rows.
 pub fn clear_resume_position(path: &Path) {
-    let Some(s) = std::fs::canonicalize(path)
-        .ok()
-        .and_then(|p| p.to_str().map(str::to_string))
-    else {
+    let Some(s) = history_key(path) else {
         return;
     };
     let _ = with_conn(|c| {
         c.execute(
             "UPDATE media SET time_pos_sec = NULL WHERE path = ?1",
             params![&s],
+        )?;
+        Ok(())
+    });
+}
+
+/// Full `media` row for undo after “remove from list”; [path_key] is the same as [history_key] strings.
+#[derive(Debug, Clone)]
+pub struct MediaRowSnapshot {
+    pub path_key: String,
+    pub duration_sec: Option<f64>,
+    pub time_pos_sec: Option<f64>,
+    pub source_mtime_sec: Option<i64>,
+    pub thumb_png: Option<Vec<u8>>,
+    pub thumb_time_pos_sec: Option<f64>,
+}
+
+/// Read the row for this path, if any.
+pub fn snapshot_media_row(path: &Path) -> Option<MediaRowSnapshot> {
+    let path_key = history_key(path)?;
+    with_conn(|c| {
+        c.query_row(
+            "SELECT path, duration_sec, time_pos_sec, source_mtime_sec, thumb_png, thumb_time_pos_sec
+             FROM media WHERE path = ?1",
+            params![&path_key],
+            |row| {
+                Ok(MediaRowSnapshot {
+                    path_key: row.get(0)?,
+                    duration_sec: row.get(1)?,
+                    time_pos_sec: row.get(2)?,
+                    source_mtime_sec: row.get(3)?,
+                    thumb_png: row.get(4)?,
+                    thumb_time_pos_sec: row.get(5)?,
+                })
+            },
+        )
+        .optional()
+    })
+    .flatten()
+}
+
+/// Replace the `media` row after undo of a continue-list removal.
+pub fn apply_media_snapshot(s: &MediaRowSnapshot) {
+    let _ = with_conn(|c| {
+        c.execute(
+            "INSERT INTO media (path, duration_sec, time_pos_sec, source_mtime_sec, thumb_png, thumb_time_pos_sec)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(path) DO UPDATE SET
+               duration_sec = excluded.duration_sec,
+               time_pos_sec = excluded.time_pos_sec,
+               source_mtime_sec = excluded.source_mtime_sec,
+               thumb_png = excluded.thumb_png,
+               thumb_time_pos_sec = excluded.thumb_time_pos_sec",
+            params![
+                &s.path_key,
+                s.duration_sec,
+                s.time_pos_sec,
+                s.source_mtime_sec,
+                s.thumb_png,
+                s.thumb_time_pos_sec
+            ],
         )?;
         Ok(())
     });

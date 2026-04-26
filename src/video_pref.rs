@@ -5,6 +5,10 @@
 //! If the VapourSynth `vf` cannot be added (no script, or mpv reports error — missing filter, plugin,
 //! Python), [apply_mpv_video] sets `smooth_60` to `false`, saves settings, and returns `true` so the UI
 //! can sync the **Smooth video (60 FPS)** menu.
+//!
+//! **Hardware decode** (`hwdec=auto` / VAAPI / NVDEC) often **bypasses** the CPU VapourSynth path, so
+//! the filter is inert and motion looks identical to 24p. We set **`hwdec=no`** while 60p is on, and
+//! restore **`hwdec=auto`** when it is off or the vf is rejected.
 
 use std::path::Path;
 
@@ -41,8 +45,23 @@ fn turn_off_smooth_60_in_prefs(v: &mut VideoPrefs) {
 
 /// After `vf` is cleared, add ~60 fps filter when [VideoPrefs::smooth_60]. Returns `true` if we
 /// **disabled** the option in prefs (VapourSynth path missing and no bundle, or `vf` add failed).
+/// True when a media file is open (filters must attach after [loadfile] so `video_in` exists).
+fn mpv_has_open_media(mpv: &Mpv) -> bool {
+    // `path` is the main/selected file; empty before the first `loadfile` or while idle.
+    match mpv.get_property::<String>("path") {
+        Ok(s) if !s.trim().is_empty() => true,
+        _ => false,
+    }
+}
+
 fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs) -> bool {
     if !v.smooth_60 {
+        return false;
+    }
+    if !mpv_has_open_media(mpv) {
+        // Init-time [apply_mpv_video] and pre-load calls must *not* run `vf add` (no `video_in` / no
+        // `path` yet) — a failed add used to look like a broken install and **disabled 60p in the DB**.
+        eprintln!("[rhino] video: VapourSynth deferred (no `path` yet — will apply after loadfile)");
         return false;
     }
     let Some(p) = resolve_vs_script_path(v) else {
@@ -58,11 +77,16 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs) -> bool {
         mpv_escape_path(&p)
     );
     if let Err(e) = mpv.command("vf", &["add", &spec]) {
-        eprintln!("[rhino] video: vf add vapoursynth failed: {e:?} (install VapourSynth + mvtools; `scripts/ensure-vapoursynth-debian.sh` on Debian/Ubuntu).");
-        turn_off_smooth_60_in_prefs(v);
-        return true;
+        eprintln!("[rhino] video: vf add vapoursynth failed: {e:?} (trying set_property; install VapourSynth + mvtools if this persists).");
+        if let Err(e2) = mpv.set_property("vf", spec.clone()) {
+            eprintln!("[rhino] video: set_property vf fallback failed: {e2:?}");
+            turn_off_smooth_60_in_prefs(v);
+            return true;
+        }
+        eprintln!("[rhino] video: VapourSynth set via `vf` property (fallback after vf add error)");
+    } else {
+        eprintln!("[rhino] video: vf add vapoursynth command accepted");
     }
-    eprintln!("[rhino] video: vf add vapoursynth command accepted");
     false
 }
 
@@ -80,6 +104,28 @@ pub fn apply_mpv_video(mpv: &Mpv, v: &mut VideoPrefs) -> bool {
         eprintln!(
             "[rhino] video: smooth_60 off — no 60 fps vf. Enable **Video → Smooth video (60 FPS)** for VapourSynth (bundled .vpy if path is empty)."
         );
+    }
+
+    let want_60 = v.smooth_60;
+    if want_60 {
+        if let Err(e) = mpv.set_property("hwdec", "no") {
+            eprintln!("[rhino] video: set hwdec no failed: {e:?}");
+        } else {
+            eprintln!("[rhino] video: hwdec=no (VapourSynth needs CPU frames; see docs/features/26-sixty-fps-motion.md)");
+        }
+        // Direct rendering can avoid feeding software filters (same family of issues as hwdec).
+        if let Err(e) = mpv.set_property("vd-lavc-dr", "no") {
+            eprintln!("[rhino] video: set vd-lavc-dr no failed: {e:?}");
+        } else if vlog {
+            eprintln!("[rhino] video: vd-lavc-dr=no (with smooth 60)");
+        }
+    } else if let Err(e) = mpv.set_property("hwdec", "auto") {
+        eprintln!("[rhino] video: set hwdec auto failed: {e:?}");
+    } else if vlog {
+        eprintln!("[rhino] video: hwdec=auto (smooth 60 off)");
+    }
+    if !want_60 {
+        let _ = mpv.set_property("vd-lavc-dr", "auto");
     }
 
     if let Err(e) = mpv.set_property("video-sync", "audio") {
@@ -106,6 +152,14 @@ pub fn apply_mpv_video(mpv: &Mpv, v: &mut VideoPrefs) -> bool {
     let _ = mpv.set_property("vf", "");
 
     let disabled_60 = add_smooth_60(mpv, v);
+    if want_60 && !v.smooth_60 {
+        if let Err(e) = mpv.set_property("hwdec", "auto") {
+            eprintln!("[rhino] video: set hwdec auto after VapourSynth off: {e:?}");
+        } else {
+            eprintln!("[rhino] video: hwdec=auto (VapourSynth path missing or vf rejected)");
+        }
+        let _ = mpv.set_property("vd-lavc-dr", "auto");
+    }
     if disabled_60 {
         eprintln!("[rhino] video: saved `video_smooth_60` = 0 (VapourSynth path unusable or vf rejected).");
     }

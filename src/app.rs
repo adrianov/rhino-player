@@ -1,10 +1,12 @@
 use adw::prelude::*;
-use gio::prelude::{ActionExt as GioActionExt, ActionMapExt as GioActionMapExt, ApplicationExtManual};
+use gio::prelude::{
+    ActionExt as GioActionExt, ActionMapExt as GioActionMapExt, ApplicationExtManual, FileExt,
+};
 use glib::prelude::ToVariant;
 use gtk::gio;
 use gtk::glib;
 use gtk::glib::prelude::ObjectExt;
-use gtk::prelude::{GestureExt, GtkWindowExt, NativeExt, WidgetExt};
+use gtk::prelude::{ActionableExt, GestureExt, GtkWindowExt, NativeExt, WidgetExt};
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
@@ -22,7 +24,9 @@ use libmpv2::Mpv;
 use crate::icons;
 
 use crate::media_probe::{
-    card_data_list, is_natural_end, local_file_from_mpv, save_cached_thumb, CardData,
+    capture_list_remove_undo, card_data_list, is_done_enough_to_drop_continue, is_natural_end,
+    local_file_from_mpv, remove_continue_entry, restore_list_remove_undo, save_cached_thumb,
+    CardData, ListRemoveUndo,
 };
 use crate::mpv_embed::MpvBundle;
 use crate::recent_view;
@@ -536,6 +540,7 @@ pub fn run() -> i32 {
     unsafe {
         libc::setlocale(libc::LC_NUMERIC, b"C\0".as_ptr().cast());
     }
+    crate::sched::raise_process_priority();
 
     if let Err(e) = adw::init() {
         eprintln!("libadwaita: {e}");
@@ -604,6 +609,13 @@ pub fn run() -> i32 {
     app.run().into()
 }
 
+/// [video_pref::apply_mpv_video] after [loadfile] so the VapourSynth filter attaches when [path] is valid.
+#[derive(Clone)]
+struct VideoReapply60 {
+    vp: Rc<RefCell<db::VideoPrefs>>,
+    app: adw::Application,
+}
+
 /// Options for [try_load] (keeps the arity clippy limit without `allow`).
 struct LoadOpts {
     record: bool,
@@ -616,6 +628,7 @@ struct LoadOpts {
     win_aspect: Rc<Cell<Option<f64>>>,
     /// Fuzzy subtitle auto-pick + hook after a successful `loadfile`.
     on_loaded: Option<Rc<dyn Fn()>>,
+    reapply_60: Option<VideoReapply60>,
 }
 
 /// Load a file, hide the recent grid overlay, show video; [LoadOpts::record] appends to recent history.
@@ -643,11 +656,11 @@ fn try_load(
         let mut g = player.borrow_mut();
         let b = g.as_mut().ok_or("Player not ready. Wait for GL init.")?;
         let prev = local_file_from_mpv(&b.mpv).or_else(|| o.last_path.borrow().clone());
-        let clear_outgoing_resume =
-            is_natural_end(&b.mpv) && local_file_from_mpv(&b.mpv).is_some();
-        let drop_from_history = prev
-            .as_ref()
-            .is_some_and(|p| !same_open_target(p, path) && is_natural_end(&b.mpv));
+        let clear_outgoing_resume = is_done_enough_to_drop_continue(&b.mpv)
+            && local_file_from_mpv(&b.mpv).is_some();
+        let drop_from_history = prev.as_ref().is_some_and(|p| {
+            !same_open_target(p, path) && is_done_enough_to_drop_continue(&b.mpv)
+        });
         if let Err(e) = b.load_file_path(path, clear_outgoing_resume) {
             eprintln!("[rhino] try_load: loadfile failed: {e}");
             return Err(e);
@@ -655,9 +668,38 @@ fn try_load(
         eprintln!("[rhino] try_load: loadfile ok");
         if drop_from_history {
             if let Some(p) = prev {
-                history::remove(&p);
+                remove_continue_entry(&p);
             }
         }
+    }
+    if let Some(r) = o.reapply_60.as_ref() {
+        let p = Rc::clone(player);
+        let r0 = r.clone();
+        let _ = glib::idle_add_local_once(move || {
+            if let Some(b) = p.borrow().as_ref() {
+                let off = {
+                    let mut g = r0.vp.borrow_mut();
+                    video_pref::apply_mpv_video(&b.mpv, &mut *g)
+                };
+                if off {
+                    sync_smooth_60_to_off(&r0.app);
+                }
+            }
+        });
+        let p2 = Rc::clone(player);
+        let r1 = r.clone();
+        let _ = glib::timeout_add_local(Duration::from_millis(600), move || {
+            if let Some(b) = p2.borrow().as_ref() {
+                let off = {
+                    let mut g = r1.vp.borrow_mut();
+                    video_pref::apply_mpv_video(&b.mpv, &mut *g)
+                };
+                if off {
+                    sync_smooth_60_to_off(&r1.app);
+                }
+            }
+            glib::ControlFlow::Break
+        });
     }
     *o.last_path.borrow_mut() = std::fs::canonicalize(path).ok();
     if record {
@@ -672,6 +714,8 @@ fn try_load(
     }
     gl.queue_render();
     if play_on_start {
+        // Raise the window if the app was in the background (another app focused / minimized).
+        win.present();
         if let Some(b) = player.borrow().as_ref() {
             let _ = b.mpv.set_property("pause", false);
         }
@@ -797,6 +841,7 @@ fn maybe_advance_sibling_on_eof(
     on_start: &Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
     on_loaded: Option<Rc<dyn Fn()>>,
+    reapply: &VideoReapply60,
 ) {
     let g = match player.try_borrow() {
         Ok(b) => b,
@@ -841,6 +886,7 @@ fn maybe_advance_sibling_on_eof(
         return;
     };
     let next = sibling_advance::next_after_eof(&finished);
+    let no_sibling = next.is_none();
     drop(g);
     seof.done.set(true);
     if let Some(np) = next {
@@ -851,12 +897,50 @@ fn maybe_advance_sibling_on_eof(
             on_start: Some(Rc::clone(on_start)),
             win_aspect: Rc::clone(&win_aspect),
             on_loaded: on_loaded.as_ref().map(Rc::clone),
+            reapply_60: Some(reapply.clone()),
         };
         if let Err(e) = try_load(&np, player, win, gl, recent, &o) {
             eprintln!("[rhino] sibling advance: {e}");
             seof.done.set(false);
             seof.stall.set((0.0, 0));
         }
+    } else if no_sibling {
+        // [try_load] only runs on a path change; with no follow-up file, EOF still left the
+        // title in continue + watch_later — drop both here.
+        remove_continue_entry(&finished);
+    }
+}
+
+/// Tooltip for bottom-bar **Previous** / **Next** (folder + sibling order); [can] is from [nav_sensitivity].
+fn sibling_bar_tooltip(is_prev: bool, can: bool, cur: Option<&Path>) -> String {
+    if !can {
+        return if is_prev {
+            "No previous file in folder order".to_string()
+        } else {
+            "No next file in folder order".to_string()
+        };
+    }
+    let Some(c) = cur else {
+        return if is_prev {
+            "Open previous in folder order".to_string()
+        } else {
+            "Open next in folder order".to_string()
+        };
+    };
+    let t = if is_prev {
+        sibling_advance::prev_before_current(c)
+    } else {
+        sibling_advance::next_after_eof(c)
+    };
+    let name = t
+        .as_ref()
+        .and_then(|p| p.file_name())
+        .and_then(|s| s.to_str())
+        .unwrap_or("?");
+    if is_prev {
+        format!("Open previous: {name}")
+    } else {
+        format!("Open next: {name}")
     }
 }
 
@@ -876,6 +960,7 @@ fn reflow_continue_cards(
     recent: &gtk::ScrolledWindow,
     on_open: RcPathFn,
     on_remove: RcPathFn,
+    on_trash: RcPathFn,
     rbf: &Rc<RefCell<Option<Rc<RecentContext>>>>,
 ) {
     let r: Vec<PathBuf> = history::load().into_iter().take(5).collect();
@@ -885,8 +970,20 @@ fn reflow_continue_cards(
     }
     recent.set_visible(true);
     let v: Vec<CardData> = card_data_list(&r);
-    recent_view::fill_row(row, v, on_open.clone(), on_remove.clone());
-    let n = recent_view::ensure_recent_backfill(rbf, row, on_open, on_remove);
+    recent_view::fill_row(
+        row,
+        v,
+        on_open.clone(),
+        on_remove.clone(),
+        on_trash.clone(),
+    );
+    let n = recent_view::ensure_recent_backfill(
+        rbf,
+        row,
+        on_open,
+        on_remove,
+        on_trash,
+    );
     recent_view::schedule_thumb_backfill(n, r);
 }
 
@@ -901,7 +998,7 @@ fn sync_undo_bar(
     label: &gtk::Label,
     btn: &gtk::Button,
     shell: &gtk::Box,
-    stack: &RefCell<Vec<PathBuf>>,
+    stack: &RefCell<Vec<ListRemoveUndo>>,
 ) {
     let n = stack.borrow().len();
     shell.set_visible(n > 0);
@@ -912,7 +1009,7 @@ fn sync_undo_bar(
     }
     match n {
         1 => btn.set_tooltip_text(Some(
-            "Put the most recently removed file back on the list (this session).",
+            "Put the most recently removed file back on the list (this session), with prior resume and cache.",
         )),
         n => {
             let s = format!(
@@ -922,7 +1019,11 @@ fn sync_undo_bar(
         }
     }
     if let Some(p) = stack.borrow().last() {
-        let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("file");
+        let name = p
+            .path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("file");
         let line = format!("\u{201c}{name}\u{201d} removed from continue list");
         label.set_label(&line);
     }
@@ -945,6 +1046,7 @@ struct BackToBrowseCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
     on_open: RcPathFn,
     on_remove: RcPathFn,
+    on_trash: RcPathFn,
     recent_backfill: Rc<RefCell<Option<Rc<RecentContext>>>>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     sibling_seof: Rc<SiblingEofState>,
@@ -955,8 +1057,8 @@ struct BackToBrowseCtx {
     undo_label: gtk::Label,
     undo_btn: gtk::Button,
     undo_timer: Rc<RefCell<Option<glib::source::SourceId>>>,
-    /// Stack of removed paths, newest at the end; [Undo] pops from the end.
-    undo_remove_stack: Rc<RefCell<Vec<PathBuf>>>,
+    /// Stack of removed entries, newest at the end; [Undo] pops from the end.
+    undo_remove_stack: Rc<RefCell<Vec<ListRemoveUndo>>>,
 }
 
 /// Show the sheet immediately; mpv/DB/grid/stop on LOW-priority idles (after a frame paints).
@@ -1016,6 +1118,7 @@ fn back_to_browse(
     let row2 = row.clone();
     let op2 = c.on_open.clone();
     let osl2 = c.on_remove.clone();
+    let otr2 = c.on_trash.clone();
     let paths2 = paths;
     let rbb = c.recent_backfill.clone();
     let _ = glib::source::idle_add_local_once(move || {
@@ -1026,9 +1129,14 @@ fn back_to_browse(
         let rbb2 = rbb.clone();
         let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
             let v: Vec<CardData> = card_data_list(&paths2);
-            recent_view::fill_row(&row2, v, op2.clone(), osl2.clone());
-            let n =
-                recent_view::ensure_recent_backfill(&rbb2, &row2, op2.clone(), osl2.clone());
+            recent_view::fill_row(&row2, v, op2.clone(), osl2.clone(), otr2.clone());
+            let n = recent_view::ensure_recent_backfill(
+                &rbb2,
+                &row2,
+                op2.clone(),
+                osl2.clone(),
+                otr2.clone(),
+            );
             recent_view::schedule_thumb_backfill(n, paths2.clone());
             let p_thumb = p3.clone();
             let p_stop = p3.clone();
@@ -1048,6 +1156,32 @@ fn back_to_browse(
             glib::ControlFlow::Break
         });
     });
+}
+
+/// Enables [gio::SimpleAction] `app.close-video` when the player is ready and the continue grid is hidden.
+fn sync_close_video_action(
+    a: &gio::SimpleAction,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    recent: &impl IsA<gtk::Widget>,
+) {
+    a.set_enabled(player.borrow().is_some() && !recent.is_visible());
+}
+
+/// Enables [gio::SimpleAction] `app.move-to-trash` for a local file in playback (not streams / empty path).
+fn sync_trash_action(
+    a: &gio::SimpleAction,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    recent: &impl IsA<gtk::Widget>,
+) {
+    let g = player.borrow();
+    let Some(b) = g.as_ref() else {
+        a.set_enabled(false);
+        return;
+    };
+    let ok = !recent.is_visible()
+        && local_file_from_mpv(&b.mpv)
+            .is_some_and(|p| p.is_file());
+    a.set_enabled(ok);
 }
 
 /// Hides the window, then (after GTK can draw the hide) saves watch_later/DB, stops, and quits.
@@ -1079,6 +1213,10 @@ fn build_window(
 ) {
     let sub_pref = Rc::new(RefCell::new(db::load_sub()));
     let video_pref = Rc::new(RefCell::new(db::load_video()));
+    let reapply_60 = VideoReapply60 {
+        vp: Rc::clone(&video_pref),
+        app: app.clone(),
+    };
 
     let win = adw::ApplicationWindow::builder()
         .application(app)
@@ -1125,12 +1263,10 @@ fn build_window(
     let btn_prev = gtk::Button::from_icon_name("go-previous-symbolic");
     btn_prev.add_css_class("flat");
     btn_prev.add_css_class("rpb-prev");
-    btn_prev.set_tooltip_text(Some("Previous file in folder order (same rules as end-of-file advance)"));
     btn_prev.set_sensitive(false);
     let btn_next = gtk::Button::from_icon_name("go-next-symbolic");
     btn_next.add_css_class("flat");
     btn_next.add_css_class("rpb-next");
-    btn_next.set_tooltip_text(Some("Next file in folder order (same rules as end-of-file advance)"));
     btn_next.set_sensitive(false);
     let video_menu = gio::Menu::new();
     video_menu.append(Some("Smooth video (60 FPS)"), Some("app.smooth-60"));
@@ -1141,6 +1277,8 @@ fn build_window(
 
     let menu = gio::Menu::new();
     menu.append(Some("Open video…"), Some("app.open"));
+    menu.append(Some("Close video"), Some("app.close-video"));
+    menu.append(Some("Move to Trash"), Some("app.move-to-trash"));
     menu.append_submenu(Some("Video"), &video_menu);
     menu.append(Some("About Rhino Player"), Some("app.about"));
     menu.append(Some("Quit"), Some("app.quit"));
@@ -1381,13 +1519,22 @@ fn build_window(
     bottom.append(&time_left);
     bottom.append(&seek);
     bottom.append(&time_right);
+    {
+        let b = gtk::Button::from_icon_name("window-close-symbolic");
+        b.set_tooltip_text(Some("Close video (Ctrl+W)"));
+        b.add_css_class("flat");
+        b.set_valign(gtk::Align::Center);
+        b.set_action_name(Some("app.close-video"));
+        b.set_margin_start(4);
+        bottom.append(&b);
+    }
 
     let ovl = gtk::Overlay::new();
     ovl.add_css_class("rp-stack");
     ovl.add_css_class("rp-page-stack");
     ovl.set_child(Some(&gl_area));
 
-    let (recent_scrl, flow_recent, undo_bar) = recent_view::new_scroll();
+    let (recent_scrl, flow_recent, sp_empty, undo_bar) = recent_view::new_scroll();
     recent_scrl.set_vexpand(true);
     recent_scrl.set_hexpand(true);
     recent_scrl.set_halign(gtk::Align::Fill);
@@ -1397,26 +1544,29 @@ fn build_window(
     let undo_label = undo_bar.label.clone();
     let undo_btn = undo_bar.undo.clone();
 
-    let app_fl = app.clone();
+    let close_act_for_sync: Rc<RefCell<Option<gio::SimpleAction>>> = Rc::new(RefCell::new(None));
+    let trash_act_for_sync: Rc<RefCell<Option<gio::SimpleAction>>> = Rc::new(RefCell::new(None));
+
     let on_file_loaded: Rc<dyn Fn()> = Rc::new({
         let p = player.clone();
         let sp = sub_pref.clone();
-        let vp = Rc::clone(&video_pref);
         let g2 = gl_area.clone();
         let bshow = bar_show.clone();
         let rec = recent_scrl.clone();
         let bot = bottom.clone();
-        let appvf = app_fl.clone();
         let sub_m_btn = sub_menu.clone();
+        let close_a = Rc::clone(&close_act_for_sync);
+        let trash_a = Rc::clone(&trash_act_for_sync);
         move || {
             let p2 = p.clone();
             let sp2 = sp.clone();
-            let vp2 = Rc::clone(&vp);
             let g3 = g2.clone();
             let b3 = bshow.clone();
             let r3 = rec.clone();
             let bot2 = bot.clone();
             let sub320 = sub_m_btn.clone();
+            let close_a2 = Rc::clone(&close_a);
+            let trash_a2 = Rc::clone(&trash_a);
             let _ = glib::timeout_add_local(Duration::from_millis(320), move || {
                 if let Some(b) = p2.borrow().as_ref() {
                     sub320.set_visible(sub_tracks::has_subtitle_tracks(&b.mpv));
@@ -1424,31 +1574,18 @@ fn build_window(
                     sub_prefs::apply_mpv(&b.mpv, &pr);
                     let show = if r3.is_visible() { true } else { b3.get() };
                     sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, bot2.height(), g3.height());
+                    audio_tracks::ensure_playable_audio(&b.mpv);
                     sub_tracks::autopick_sub_track(&b.mpv, &pr);
                 }
-                glib::ControlFlow::Break
-            });
-            // Re-apply 60 fps vf after load, but *after* demux/decoder settle (VapourSynth vf is CPU-heavy;
-            // doing it in the same 320ms tick as sub prefs can freeze the process).
-            let p_vf = p.clone();
-            let vp_vf = Rc::clone(&vp2);
-            let g_vf = g2.clone();
-            let app450 = appvf.clone();
-            let sub450 = sub_m_btn.clone();
-            let _ = glib::timeout_add_local(Duration::from_millis(450), move || {
-                if let Some(b) = p_vf.borrow().as_ref() {
-                    sub450.set_visible(sub_tracks::has_subtitle_tracks(&b.mpv));
-                    let off = {
-                        let mut g = vp_vf.borrow_mut();
-                        video_pref::apply_mpv_video(&b.mpv, &mut g)
-                    };
-                    if off {
-                        sync_smooth_60_to_off(&app450);
-                    }
+                if let Some(a) = close_a2.borrow().as_ref() {
+                    sync_close_video_action(a, &p2, &r3);
                 }
-                g_vf.queue_render();
+                if let Some(a) = trash_a2.borrow().as_ref() {
+                    sync_trash_action(a, &p2, &r3);
+                }
                 glib::ControlFlow::Break
             });
+            // 60p VapourSynth: [try_load] schedules idle + 600ms reapply; do not do vf here (same thread as subs).
         }
     });
     {
@@ -1516,6 +1653,27 @@ fn build_window(
         });
     }
     gl_area.add_controller(dbl);
+
+    for sp in sp_empty {
+        let d2 = gtk::GestureClick::new();
+        d2.set_button(gtk::gdk::BUTTON_PRIMARY);
+        let w2 = win.clone();
+        let fr2 = fs_restore.clone();
+        let lu2 = last_unmax.clone();
+        let sk2 = skip_max_to_fs.clone();
+        let rec2 = recent_scrl.clone();
+        d2.connect_pressed(move |gest, n_press, _, _| {
+            if n_press != 2 {
+                return;
+            }
+            if !rec2.is_visible() {
+                return;
+            }
+            let _ = gest.set_state(gtk::EventSequenceState::Claimed);
+            toggle_fullscreen(&w2, &fr2, &lu2, &sk2);
+        });
+        sp.add_controller(d2);
+    }
 
     let want_recent = file_boot.borrow().is_none() && !history::load().is_empty();
     recent_scrl.set_visible(want_recent);
@@ -1601,6 +1759,7 @@ fn build_window(
     let recent_on_top = recent_scrl.clone();
     let last_open = last_path.clone();
     let wa_on = Rc::clone(&win_aspect);
+    let reapply_on_open = reapply_60.clone();
     let on_open: RcPathFn = Rc::new(move |path: &Path| {
         eprintln!("[rhino] on_open from recent/menu: {}", path.display());
         if let Err(e) = try_load(
@@ -1616,6 +1775,7 @@ fn build_window(
                 on_start: Some(Rc::clone(&on_start_menu)),
                 win_aspect: wa_on.clone(),
                 on_loaded: Some(Rc::clone(&ol_open)),
+                reapply_60: Some(reapply_on_open.clone()),
             },
         ) {
             eprintln!("[rhino] on_open: try_load error: {e}");
@@ -1652,6 +1812,8 @@ fn build_window(
             seof,
             #[strong]
             ol,
+            #[strong]
+            reapply_60,
             move |_| {
                 let g = p.borrow();
                 let Some(pl) = g.as_ref() else {
@@ -1674,6 +1836,7 @@ fn build_window(
                     on_start: Some(Rc::clone(&ovid)),
                     win_aspect: Rc::clone(&wa),
                     on_loaded: Some(Rc::clone(&ol)),
+                    reapply_60: Some(reapply_60.clone()),
                 };
                 if let Err(e) = try_load(&np, &p, &w, &gla, &rec, &o) {
                     eprintln!("[rhino] previous: {e}");
@@ -1700,6 +1863,8 @@ fn build_window(
             seof,
             #[strong]
             ol2,
+            #[strong]
+            reapply_60,
             move |_| {
                 let g = p.borrow();
                 let Some(pl) = g.as_ref() else {
@@ -1722,6 +1887,7 @@ fn build_window(
                     on_start: Some(Rc::clone(&ovid)),
                     win_aspect: Rc::clone(&wa),
                     on_loaded: Some(Rc::clone(&ol2)),
+                    reapply_60: Some(reapply_60.clone()),
                 };
                 if let Err(e) = try_load(&np, &p, &w, &gla, &rec, &o) {
                     eprintln!("[rhino] next: {e}");
@@ -1740,7 +1906,7 @@ fn build_window(
         });
     }
 
-    let undo_remove_stack = Rc::new(RefCell::new(Vec::<PathBuf>::new()));
+    let undo_remove_stack = Rc::new(RefCell::new(Vec::<ListRemoveUndo>::new()));
     let undo_timer = Rc::new(RefCell::new(None::<glib::source::SourceId>));
     type DismissTopRef = Rc<RefCell<Option<Weak<dyn Fn() + 'static>>>>;
     let do_commit_weak: DismissTopRef = Rc::new(RefCell::new(None));
@@ -1771,6 +1937,7 @@ fn build_window(
     });
     *do_commit_weak.borrow_mut() = Some(Rc::downgrade(&do_commit));
     let on_remove_cell: Rc<RefCell<Option<RcPathFn>>> = Rc::new(RefCell::new(None));
+    let on_trash_slot: Rc<RefCell<Option<RcPathFn>>> = Rc::new(RefCell::new(None));
     let fr_sl = flow_recent.clone();
     let recent_rm = recent_scrl.clone();
     let op_s = on_open.clone();
@@ -1782,22 +1949,69 @@ fn build_window(
     let ut_rm = undo_timer.clone();
     let do_rm = do_commit.clone();
     let cell_rm = on_remove_cell.clone();
-    let on_remove: RcPathFn = Rc::new(move |path: &Path| {
-        history::remove(path);
-        ur_stack.borrow_mut().push(path.to_path_buf());
-        sync_undo_bar(
-            &u_la_rm,
-            &undo_t_rm,
-            &u_sh_rm,
-            &ur_stack,
-        );
+    let cell_t = on_trash_slot.clone();
+    let fr_t = fr_sl.clone();
+    let rec_t = recent_rm.clone();
+    let op_t = op_s.clone();
+    let rbf_t = rbf_rm.clone();
+    let on_trash: RcPathFn = Rc::new(move |path: &Path| {
+        if !path.is_file() {
+            return;
+        }
+        if let Err(e) = gio::File::for_path(path).trash(gio::Cancellable::NONE) {
+            eprintln!("[rhino] move to trash (continue card): {e}");
+            return;
+        }
+        remove_continue_entry(path);
         let f = cell_rm
             .borrow()
             .as_ref()
             .expect("on_remove not wired")
             .clone();
-        reflow_continue_cards(&fr_sl, &recent_rm, op_s.clone(), f, &rbf_rm);
-        rearm_undo_dismiss(&do_rm, ut_rm.as_ref());
+        let t = cell_t
+            .borrow()
+            .as_ref()
+            .expect("on_trash not wired")
+            .clone();
+        reflow_continue_cards(&fr_t, &rec_t, op_t.clone(), f, t, &rbf_t);
+    });
+    *on_trash_slot.borrow_mut() = Some(on_trash.clone());
+    let on_remove: RcPathFn = Rc::new({
+        let cell_rm = on_remove_cell.clone();
+        let tslot = on_trash_slot.clone();
+        let fr_sl = fr_sl;
+        let recent_rm = recent_rm;
+        let op_s = op_s;
+        let rbf_rm = rbf_rm;
+        let ur_stack = ur_stack.clone();
+        let u_la_rm = u_la_rm.clone();
+        let undo_t_rm = undo_t_rm.clone();
+        let u_sh_rm = u_sh_rm.clone();
+        let do_rm = do_rm.clone();
+        let ut_rm = ut_rm.clone();
+        move |path: &Path| {
+            let u = capture_list_remove_undo(path);
+            remove_continue_entry(path);
+            ur_stack.borrow_mut().push(u);
+            sync_undo_bar(
+                &u_la_rm,
+                &undo_t_rm,
+                &u_sh_rm,
+                &ur_stack,
+            );
+            let f = cell_rm
+                .borrow()
+                .as_ref()
+                .expect("on_remove not wired")
+                .clone();
+            let t = tslot
+                .borrow()
+                .as_ref()
+                .expect("on_trash not wired")
+                .clone();
+            reflow_continue_cards(&fr_sl, &recent_rm, op_s.clone(), f, t, &rbf_rm);
+            rearm_undo_dismiss(&do_rm, ut_rm.as_ref());
+        }
     });
     *on_remove_cell.borrow_mut() = Some(on_remove.clone());
 
@@ -1813,6 +2027,7 @@ fn build_window(
         let ut_u = undo_timer.clone();
         let do_u = do_commit.clone();
         let cell_u = on_remove_cell.clone();
+        let tslot_u = on_trash_slot.clone();
         undo_btn.connect_clicked(glib::clone!(
             #[strong]
             fr_u,
@@ -1836,12 +2051,15 @@ fn build_window(
             do_u,
             #[strong]
             cell_u,
+            #[strong]
+            tslot_u,
             move |_| {
                 cancel_undo_timer(ut_u.as_ref());
-                let Some(pb) = ur_u.borrow_mut().pop() else {
+                let Some(undo) = ur_u.borrow_mut().pop() else {
                     return;
                 };
-                history::record(&pb);
+                restore_list_remove_undo(&undo);
+                history::record(&undo.path);
                 sync_undo_bar(&u_la_u, &undo_t_u, &u_sh_u, &ur_u);
                 rec_u.set_visible(true);
                 let f = cell_u
@@ -1849,7 +2067,12 @@ fn build_window(
                     .as_ref()
                     .expect("on_remove not wired")
                     .clone();
-                reflow_continue_cards(&fr_u, &rec_u, op_u.clone(), f, &rbf_u);
+                let t = tslot_u
+                    .borrow()
+                    .as_ref()
+                    .expect("on_trash not wired")
+                    .clone();
+                reflow_continue_cards(&fr_u, &rec_u, op_u.clone(), f, t, &rbf_u);
                 if !ur_u.borrow().is_empty() {
                     rearm_undo_dismiss(&do_u, ut_u.as_ref());
                 }
@@ -1870,6 +2093,7 @@ fn build_window(
             paths5,
             on_open.clone(),
             on_remove.clone(),
+            on_trash.clone(),
             recent_backfill.clone(),
         );
     }
@@ -2123,6 +2347,7 @@ fn build_window(
         let gl_esc = gl_area.clone();
         let op_esc = on_open.clone();
         let rem_esc = on_remove.clone();
+        let trash_esc = on_trash.clone();
         let rbf_esc = recent_backfill.clone();
         let last_esc = last_path.clone();
         let seof_esc = sibling_seof.clone();
@@ -2155,6 +2380,7 @@ fn build_window(
                         player: p.clone(),
                         on_open: op_esc.clone(),
                         on_remove: rem_esc.clone(),
+                        on_trash: trash_esc.clone(),
                         recent_backfill: rbf_esc.clone(),
                         last_path: last_esc.clone(),
                         sibling_seof: seof_esc.clone(),
@@ -2220,6 +2446,225 @@ fn build_window(
         win.add_controller(k);
     }
 
+    let close_video = gio::SimpleAction::new("close-video", None);
+    let p_btv = player.clone();
+    let w_btv = win.clone();
+    let recent_btv = recent_scrl.clone();
+    let flow_btv = flow_recent.clone();
+    let gl_btv = gl_area.clone();
+    let op_btv = on_open.clone();
+    let rem_btv = on_remove.clone();
+    let trash_btv = on_trash.clone();
+    let rbf_btv = recent_backfill.clone();
+    let last_btv = last_path.clone();
+    let seof_btv = sibling_seof.clone();
+    let browse_btv = browse_chrome.clone();
+    let wa_btv = win_aspect.clone();
+    let ush_btv = undo_shell.clone();
+    let ula_btv = undo_label.clone();
+    let uti_btv = undo_timer.clone();
+    let ur_btv = undo_remove_stack.clone();
+    let undo_t_btv = undo_btn.clone();
+    close_video.connect_activate(glib::clone!(
+        #[strong]
+        p_btv,
+        #[strong]
+        w_btv,
+        #[strong]
+        recent_btv,
+        #[strong]
+        flow_btv,
+        #[strong]
+        gl_btv,
+        #[strong]
+        op_btv,
+        #[strong]
+        rem_btv,
+        #[strong]
+        trash_btv,
+        #[strong]
+        rbf_btv,
+        #[strong]
+        last_btv,
+        #[strong]
+        seof_btv,
+        #[strong]
+        browse_btv,
+        #[strong]
+        wa_btv,
+        #[strong]
+        ush_btv,
+        #[strong]
+        ula_btv,
+        #[strong]
+        uti_btv,
+        #[strong]
+        ur_btv,
+        #[strong]
+        undo_t_btv,
+        move |_, _| {
+            if recent_btv.is_visible() || p_btv.borrow().is_none() {
+                return;
+            }
+            back_to_browse(
+                &BackToBrowseCtx {
+                    player: p_btv.clone(),
+                    on_open: op_btv.clone(),
+                    on_remove: rem_btv.clone(),
+                    on_trash: trash_btv.clone(),
+                    recent_backfill: rbf_btv.clone(),
+                    last_path: last_btv.clone(),
+                    sibling_seof: seof_btv.clone(),
+                    win_aspect: wa_btv.clone(),
+                    on_browse: browse_btv.clone(),
+                    undo_shell: ush_btv.clone(),
+                    undo_label: ula_btv.clone(),
+                    undo_btn: undo_t_btv.clone(),
+                    undo_timer: uti_btv.clone(),
+                    undo_remove_stack: ur_btv.clone(),
+                },
+                &w_btv,
+                &gl_btv,
+                &recent_btv,
+                &flow_btv,
+            );
+        }
+    ));
+    app.add_action(&close_video);
+    *close_act_for_sync.borrow_mut() = Some(close_video.clone());
+    let cv_s1 = close_video.clone();
+    let p_s1 = player.clone();
+    let r_s1 = recent_scrl.clone();
+    recent_scrl.connect_notify_local(Some("visible"), move |_, _| {
+        sync_close_video_action(&cv_s1, &p_s1, &r_s1);
+    });
+    let cv_s2 = close_video.clone();
+    let p_s2 = player.clone();
+    let r_s2 = recent_scrl.clone();
+    let _ = glib::idle_add_local_once(move || {
+        sync_close_video_action(&cv_s2, &p_s2, &r_s2);
+    });
+    let close_video_rz = close_video.clone();
+
+    let move_to_trash = gio::SimpleAction::new("move-to-trash", None);
+    let p_mt = player.clone();
+    let w_mt = win.clone();
+    let recent_mt = recent_scrl.clone();
+    let flow_mt = flow_recent.clone();
+    let gl_mt = gl_area.clone();
+    let op_mt = on_open.clone();
+    let rem_mt = on_remove.clone();
+    let trash_mt = on_trash.clone();
+    let rbf_mt = recent_backfill.clone();
+    let last_mt = last_path.clone();
+    let seof_mt = sibling_seof.clone();
+    let browse_mt = browse_chrome.clone();
+    let wa_mt = win_aspect.clone();
+    let ush_mt = undo_shell.clone();
+    let ula_mt = undo_label.clone();
+    let uti_mt = undo_timer.clone();
+    let ur_mt = undo_remove_stack.clone();
+    let undo_b_mt = undo_btn.clone();
+    move_to_trash.connect_activate(glib::clone!(
+        #[strong]
+        p_mt,
+        #[strong]
+        w_mt,
+        #[strong]
+        recent_mt,
+        #[strong]
+        flow_mt,
+        #[strong]
+        gl_mt,
+        #[strong]
+        op_mt,
+        #[strong]
+        rem_mt,
+        #[strong]
+        trash_mt,
+        #[strong]
+        rbf_mt,
+        #[strong]
+        last_mt,
+        #[strong]
+        seof_mt,
+        #[strong]
+        browse_mt,
+        #[strong]
+        wa_mt,
+        #[strong]
+        ush_mt,
+        #[strong]
+        ula_mt,
+        #[strong]
+        uti_mt,
+        #[strong]
+        ur_mt,
+        #[strong]
+        undo_b_mt,
+        move |_, _| {
+            if recent_mt.is_visible() {
+                return;
+            }
+            let path = {
+                let g = p_mt.borrow();
+                let Some(b) = g.as_ref() else {
+                    return;
+                };
+                let Some(p) = local_file_from_mpv(&b.mpv) else {
+                    return;
+                };
+                if !p.is_file() {
+                    return;
+                }
+                p
+            };
+            let f = gio::File::for_path(&path);
+            if let Err(e) = f.trash(gio::Cancellable::NONE) {
+                eprintln!("[rhino] move to trash: {e}");
+                return;
+            }
+            remove_continue_entry(&path);
+            back_to_browse(
+                &BackToBrowseCtx {
+                    player: p_mt.clone(),
+                    on_open: op_mt.clone(),
+                    on_remove: rem_mt.clone(),
+                    on_trash: trash_mt.clone(),
+                    recent_backfill: rbf_mt.clone(),
+                    last_path: last_mt.clone(),
+                    sibling_seof: seof_mt.clone(),
+                    win_aspect: wa_mt.clone(),
+                    on_browse: browse_mt.clone(),
+                    undo_shell: ush_mt.clone(),
+                    undo_label: ula_mt.clone(),
+                    undo_btn: undo_b_mt.clone(),
+                    undo_timer: uti_mt.clone(),
+                    undo_remove_stack: ur_mt.clone(),
+                },
+                &w_mt,
+                &gl_mt,
+                &recent_mt,
+                &flow_mt,
+            );
+        }
+    ));
+    app.add_action(&move_to_trash);
+    *trash_act_for_sync.borrow_mut() = Some(move_to_trash.clone());
+    let mt_s1 = move_to_trash.clone();
+    let p_mt1 = player.clone();
+    let r_mt1 = recent_scrl.clone();
+    recent_scrl.connect_notify_local(Some("visible"), move |_, _| {
+        sync_trash_action(&mt_s1, &p_mt1, &r_mt1);
+    });
+    let mt_s2 = move_to_trash.clone();
+    let p_mt2 = player.clone();
+    let r_mt2 = recent_scrl.clone();
+    let _ = glib::idle_add_local_once(move || {
+        sync_trash_action(&mt_s2, &p_mt2, &r_mt2);
+    });
+    let move_trash_rz = move_to_trash.clone();
+
     let p_realize = player.clone();
     let sp_realize = sub_pref.clone();
     let vp_realize = Rc::clone(&video_pref);
@@ -2234,6 +2679,7 @@ fn build_window(
     let ol_rz = Rc::clone(&on_file_loaded);
     let file_boot_rz = Rc::clone(&file_boot);
     let wa_st = Rc::clone(&win_aspect);
+    let reapply_rz = reapply_60.clone();
     gl_area.connect_realize(move |area| {
         area.make_current();
         let init = {
@@ -2253,6 +2699,8 @@ fn build_window(
                     sub_prefs::apply_mpv(&b.mpv, &s);
                 }
                 *p_realize.borrow_mut() = Some(b);
+                sync_close_video_action(&close_video_rz, &p_realize, &recent_rz);
+                sync_trash_action(&move_trash_rz, &p_realize, &recent_rz);
                 if let Some(pl) = p_realize.borrow().as_ref() {
                     let show = if recent_rz.is_visible() { true } else { bshow_rz.get() };
                     sub_prefs::apply_sub_pos_for_toolbar(
@@ -2279,6 +2727,7 @@ fn build_window(
                             on_start: Some(Rc::clone(&on_vid_rz)),
                             win_aspect: wa_st.clone(),
                             on_loaded: Some(Rc::clone(&ol_rz)),
+                            reapply_60: Some(reapply_rz.clone()),
                         },
                     ) {
                         eprintln!("[rhino] try_load (startup): {e}");
@@ -2523,6 +2972,8 @@ fn build_window(
             wa_poll,
             #[strong]
             on_file_loaded,
+            #[strong]
+            reapply_60,
             move || {
                 maybe_advance_sibling_on_eof(
                     &p_poll,
@@ -2534,6 +2985,7 @@ fn build_window(
                     &on_poll,
                     Rc::clone(&wa_poll),
                     Some(Rc::clone(&on_file_loaded)),
+                    &reapply_60,
                 );
                 let Some(tl) = tw_l.upgrade() else {
                     return glib::ControlFlow::Break;
@@ -2551,9 +3003,11 @@ fn build_window(
                     }
                     if let Some(p) = ppw_prev.upgrade() {
                         p.set_sensitive(false);
+                        p.set_tooltip_text(Some("No media"));
                     }
                     if let Some(n) = ppw_next.upgrade() {
                         n.set_sensitive(false);
+                        n.set_tooltip_text(Some("No media"));
                     }
                     return glib::ControlFlow::Continue;
                 };
@@ -2579,9 +3033,13 @@ fn build_window(
                         pp.set_tooltip_text(Some("No media"));
                     }
                 }
+                let cur = if dur > 0.0 {
+                    local_file_from_mpv(&pl.mpv).or_else(|| last_poll.borrow().clone())
+                } else {
+                    None
+                };
                 let (can_prev, can_next) = if dur > 0.0 {
-                    let cur = local_file_from_mpv(&pl.mpv).or_else(|| last_poll.borrow().clone());
-                    if let Some(ref c) = cur.filter(|p| p.is_file()) {
+                    if let Some(ref c) = cur.as_ref().filter(|p| p.is_file()) {
                         seof_poll.nav_sensitivity(c)
                     } else {
                         seof_poll.clear_nav_sensitivity();
@@ -2593,9 +3051,13 @@ fn build_window(
                 };
                 if let Some(p) = ppw_prev.upgrade() {
                     p.set_sensitive(can_prev);
+                    let tip = sibling_bar_tooltip(true, can_prev, cur.as_deref());
+                    p.set_tooltip_text(Some(tip.as_str()));
                 }
                 if let Some(n) = ppw_next.upgrade() {
                     n.set_sensitive(can_next);
+                    let tip = sibling_bar_tooltip(false, can_next, cur.as_deref());
+                    n.set_tooltip_text(Some(tip.as_str()));
                 }
                 if dur > 0.0 {
                     sw.set_sensitive(true);
@@ -2646,6 +3108,8 @@ fn build_window(
         wa_dlg,
         #[strong]
         on_file_loaded,
+        #[strong]
+        reapply_60,
         move |_, _| {
             let Some(w) = app.active_window() else {
                 return;
@@ -2667,6 +3131,7 @@ fn build_window(
             let ovc2 = ovc_open.clone();
             let wa2 = Rc::clone(&wa_dlg);
             let oload = Rc::clone(&on_file_loaded);
+            let re_o = reapply_60.clone();
             dialog.open(Some(&w), None::<&gio::Cancellable>, move |res| {
                 let Ok(file) = res else {
                     return;
@@ -2691,6 +3156,7 @@ fn build_window(
                         on_start: Some(ovc2),
                         win_aspect: wa2.clone(),
                         on_loaded: Some(oload),
+                        reapply_60: Some(re_o.clone()),
                     },
                 ) {
                     eprintln!("[rhino] open: try_load: {e}");
@@ -2711,7 +3177,7 @@ fn build_window(
                 .version(env!("CARGO_PKG_VERSION"))
                 .copyright("Copyright (c) Peter Adrianov, 2026")
                 .logo_icon_name(APP_ID)
-                .comments("mpv with GTK 4 and libadwaita (ToolbarView: seek as bottom bar).")
+                .comments("mpv with GTK 4 and libadwaita.")
                 .license_type(gtk::License::Gpl30)
                 .website("https://github.com/adrianov/rhino-player")
                 .modal(true);
@@ -2746,6 +3212,8 @@ fn build_window(
     register_video_app_actions(app, &win, &gl_area, player, Rc::clone(&video_pref));
 
     app.set_accels_for_action("app.open", &["<Primary>o"]);
+    app.set_accels_for_action("app.close-video", &["<Primary>w"]);
+    app.set_accels_for_action("app.move-to-trash", &["Delete", "KP_Delete"]);
     app.set_accels_for_action("app.about", &["F1"]);
     app.set_accels_for_action("app.quit", &["<Primary>q", "q"]);
 

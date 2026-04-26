@@ -48,6 +48,44 @@ pub fn clear_resume_for_path(media: &Path) {
     db::clear_resume_position(media);
 }
 
+/// Clear watch-later/DB resume, then drop [path] from continue **history** (dismiss, trash, EOF with no next, etc.).
+pub fn remove_continue_entry(path: &Path) {
+    clear_resume_for_path(path);
+    crate::history::remove(path);
+}
+
+/// In-memory token so **Undo** after “remove from list” can put back resume + `media` cache.
+#[derive(Debug, Clone)]
+pub struct ListRemoveUndo {
+    pub path: PathBuf,
+    /// Exact watch_later file path and bytes, if it existed.
+    pub watch_later: Option<(PathBuf, Vec<u8>)>,
+    /// Full SQLite `media` row for this path, if any.
+    pub media: Option<db::MediaRowSnapshot>,
+}
+
+/// Call **before** [remove_continue_entry] for a manual dismiss.
+pub fn capture_list_remove_undo(path: &Path) -> ListRemoveUndo {
+    let path = path.to_path_buf();
+    let watch_later = watch_later_config_for(&path)
+        .and_then(|p| std::fs::read(&p).ok().map(|b| (p, b)));
+    let media = db::snapshot_media_row(&path);
+    ListRemoveUndo { path, watch_later, media }
+}
+
+/// Restore sidecar + DB; caller re-adds history via [crate::history::record].
+pub fn restore_list_remove_undo(s: &ListRemoveUndo) {
+    if let Some((ref p, ref bytes)) = s.watch_later {
+        if let Some(parent) = p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(p, bytes);
+    }
+    if let Some(ref m) = s.media {
+        db::apply_media_snapshot(m);
+    }
+}
+
 /// True at EOF or in the last ~3s of a known duration (same rule as the continue / sibling queue).
 pub fn is_natural_end(mpv: &Mpv) -> bool {
     if mpv.get_property::<bool>("eof-reached").unwrap_or(false) {
@@ -62,10 +100,28 @@ pub fn is_natural_end(mpv: &Mpv) -> bool {
     }
 }
 
-fn watch_later_config_for(media: &Path) -> Option<PathBuf> {
+/// When switching the loaded file: treat as "done" for continue + resume if [is_natural_end] **or** the
+/// user is in the last **~15%** of a long enough file (so **Next** at end credits, where `time-pos` is
+/// still far from the muxed `duration`, still drops the title from the continue list).
+pub fn is_done_enough_to_drop_continue(mpv: &Mpv) -> bool {
+    if is_natural_end(mpv) {
+        return true;
+    }
+    let (Ok(pos), Ok(dur)) = (
+        mpv.get_property::<f64>("time-pos"),
+        mpv.get_property::<f64>("duration"),
+    ) else {
+        return false;
+    };
+    if !pos.is_finite() || !dur.is_finite() || dur < 30.0 {
+        return false;
+    }
+    dur > 60.0 && pos / dur >= 0.85
+}
+
+/// Match `s` to watch_later file contents (same as [watch_later_config_for] for a path string when the file is gone).
+fn watch_later_file_matching_path_stored(s: &str) -> Option<PathBuf> {
     let dir = paths::watch_later()?;
-    let can = std::fs::canonicalize(media).ok()?;
-    let s = can.to_str()?;
     for e in std::fs::read_dir(&dir).ok()?.flatten() {
         let p = e.path();
         if !p.is_file() {
@@ -88,6 +144,15 @@ fn watch_later_config_for(media: &Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn watch_later_config_for(media: &Path) -> Option<PathBuf> {
+    let s: String = if let Ok(can) = std::fs::canonicalize(media) {
+        can.to_str()?.to_string()
+    } else {
+        media.to_str()?.to_string()
+    };
+    watch_later_file_matching_path_stored(s.as_str())
 }
 
 fn resume_start_seconds(path: &Path) -> Option<f64> {

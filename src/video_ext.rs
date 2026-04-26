@@ -4,6 +4,7 @@ use std::path::Path;
 
 /// Lowercase extensions (no leading dot) for “is this a video file?” in a directory.
 /// Kept in sync with the **Open video** file filter; extend here only.
+/// **`ts`**: MPEG transport stream; pair with `video/mp2t` in `data/applications/*.desktop` for “Open with”.
 pub const SUFFIX: &[&str] = &[
     "3g2", "3gp", "asf", "avi", "divx", "dvr-ms", "f4v", "flv", "h264", "h265", "hevc", "m2ts",
     "m4v", "mkv", "mov", "mpeg", "mpg", "mp4", "mts", "mxf", "nsv", "ogv", "rmp4", "ts", "vob",

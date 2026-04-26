@@ -76,6 +76,25 @@ fn set_aid(mpv: &Mpv, id: i64) {
     }
 }
 
+/// After [loadfile], make sure an audio stream is actually selected. With **one** [audio] track
+/// there is no popover to pick it, and some files leave [aid] as `no` or unresolved until
+/// [aid] is set explicitly. With **several** tracks, only fix explicit `aid=no` (e.g. stale state).
+pub fn ensure_playable_audio(mpv: &Mpv) {
+    let rows = audio_rows(mpv);
+    if rows.is_empty() {
+        return;
+    }
+    if rows.len() == 1 {
+        set_aid(mpv, rows[0].id);
+        return;
+    }
+    if let Ok(s) = mpv.get_property::<String>("aid") {
+        if s == "no" {
+            set_aid(mpv, rows[0].id);
+        }
+    }
+}
+
 /// Rebuilds radio rows. Returns **true** if there are **at least two** audio tracks (the block is a choice, not a duplicate for one track). Clears the box if there is no player or 0–1 track.
 pub fn rebuild_popover(
     player: &Rc<RefCell<Option<MpvBundle>>>,

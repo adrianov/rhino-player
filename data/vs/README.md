@@ -1,5 +1,11 @@
 # VapourSynth (`data/vs/`)
 
+## If 60p looks the same as 24p (VapourSynth “does nothing”)
+
+Many systems use **hardware decode** (`hwdec=auto` → VAAPI / NVDEC / etc.). The decoded surface often **never passes through the CPU** `vapoursynth` filter, so you still see the original cadence. **Rhino** forces **`hwdec=no`** and **`vd-lavc-dr=no`** while **Smooth video (60 FPS)** is on so decoded frames are suitable for the CPU VapourSynth path. The **vf** is re-applied from [try_load] (idle + delayed), not only on GL init, so a filter is not installed before [path] exists. Expect higher **CPU** use; 1080p may not be real-time on weak hardware.
+
+**Note:** On-screen **subtitles** are drawn *after* the video frame, not *through* the `.vpy` script, so a scrolling sub test can mislead; check **image** motion (pans) instead.
+
 ## Why `vf add vapoursynth` fails (`Raw(-12)`)
 
 Rhino uses the **system** `libmpv` (see `ldd` on the binary). The error is **not** the `.vpy` file first: many Linux distros ship **mpv** / **libmpv2** built **without** the `vapoursynth` **video** filter, so that filter name never appears in `mpv -vf help` and the client API cannot add it.
