@@ -62,7 +62,7 @@ fi
 
 # Register as default for common video types (per user who invoked sudo)
 VIDEO_MIMES=(
-  video/mp4 video/mpeg video/x-matroska video/webm video/quicktime
+  video/mp4 video/mpeg video/mp2t video/x-matroska video/webm video/quicktime
   video/x-msvideo video/x-avi video/ogg
   video/3gpp video/3gpp2 video/x-flv video/x-m4v video/dv
 )

@@ -14,6 +14,7 @@
   <content_rating type="oars-1.1"/>
   <provides>
     <mediatype>video/mp4</mediatype>
+    <mediatype>video/mp2t</mediatype>
     <mediatype>video/x-matroska</mediatype>
   </provides>
   <releases>
