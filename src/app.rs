@@ -25,8 +25,8 @@ use libmpv2::Mpv;
 use crate::icons;
 
 use crate::media_probe::{
-    capture_list_remove_undo, card_data_list, is_done_enough_to_drop_continue, is_natural_end,
-    local_file_from_mpv, remove_continue_entry, save_cached_thumb, CardData,
+    capture_list_remove_undo, card_data_list, is_done_enough_to_drop_continue, local_file_from_mpv,
+    remove_continue_entry, CardData,
 };
 use crate::trash_xdg;
 use crate::mpv_embed::MpvBundle;
@@ -34,6 +34,7 @@ use crate::recent_view;
 use crate::recent_view::RecentContext;
 use crate::sibling_advance;
 use crate::theme;
+use crate::seek_bar_preview;
 use crate::video_pref;
 use crate::playback_speed;
 
@@ -44,6 +45,7 @@ pub const APP_ID: &str = "ch.rhino.RhinoPlayer";
 const APP_WIN_TITLE: &str = "Rhino Player";
 /// **Preferences** row for `video_smooth_60`: stores **intent**; the bundled `.vpy` runs only at ~**1.0×**.
 const SMOOTH60_MENU_LABEL: &str = "Smooth video (~60 FPS at 1.0×)";
+const SEEK_BAR_MENU_LABEL: &str = "Progress bar preview";
 
 fn title_for_open_path(path: &Path) -> String {
     match path.file_name().and_then(|n| n.to_str()) {
@@ -291,7 +293,7 @@ fn sync_smooth_60_to_off(app: &adw::Application) {
     }
 }
 
-/// Rebuilds the **Preferences** submenu: Smooth 60, optional `basename` row for a custom `video_vs_path`
+/// Rebuilds the **Preferences** submenu: Smooth 60, seek preview, optional `basename` for `video_vs_path`
 /// ([vs-custom]), [choose-vs].
 fn video_pref_submenu_rebuild(
     m: &gio::Menu,
@@ -300,6 +302,7 @@ fn video_pref_submenu_rebuild(
 ) {
     m.remove_all();
     m.append(Some(SMOOTH60_MENU_LABEL), Some("app.smooth-60"));
+    m.append(Some(SEEK_BAR_MENU_LABEL), Some("app.seek-bar-preview"));
     if !p.vs_path.trim().is_empty() {
         let name = std::path::Path::new(p.vs_path.trim())
             .file_name()
@@ -327,6 +330,7 @@ fn register_video_app_actions(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
     pref_menu: &gio::Menu,
+    seek_bar_on: Rc<Cell<bool>>,
 ) {
     let v0 = video_pref.borrow().clone();
     let app_s = app.clone();
@@ -362,6 +366,27 @@ fn register_video_app_actions(
         });
     }
     app.add_action(&smooth_60);
+
+    let seek_bar_preview = gio::SimpleAction::new_stateful(
+        "seek-bar-preview",
+        None,
+        &seek_bar_on.get().to_variant(),
+    );
+    {
+        let on = Rc::clone(&seek_bar_on);
+        seek_bar_preview.connect_change_state(move |a, s| {
+            let Some(s) = s else {
+                return;
+            };
+            let Some(b) = s.get::<bool>() else {
+                return;
+            };
+            a.set_state(s);
+            on.set(b);
+            db::save_seek_bar_preview(b);
+        });
+    }
+    app.add_action(&seek_bar_preview);
 
     let vs_custom = gio::SimpleAction::new_stateful(
         "vs-custom",
@@ -1254,11 +1279,7 @@ fn back_to_browse(
         let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
             if let Some(b) = p2.borrow().as_ref() {
                 b.snapshot_outgoing_before_leave();
-                if is_natural_end(&b.mpv) {
-                    save_cached_thumb(&b.mpv);
-                } else {
-                    b.persist_on_quit();
-                }
+                b.save_playback_state();
                 b.stop_playback();
             }
             glib::ControlFlow::Break
@@ -1292,12 +1313,8 @@ fn back_to_browse(
                 otr2.clone(),
             );
             recent_view::schedule_thumb_backfill(n, paths2.clone());
-            let p_thumb = p3.clone();
             let p_stop = p3.clone();
             let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
-                if let Some(b) = p_thumb.borrow().as_ref() {
-                    save_cached_thumb(&b.mpv);
-                }
                 let p_end = p_stop.clone();
                 let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
                     if let Some(b) = p_end.borrow().as_ref() {
@@ -1392,6 +1409,7 @@ fn build_window(
     let last_cap_xy = Rc::new(Cell::new(None::<(f64, f64)>));
     let last_gl_xy = Rc::new(Cell::new(None::<(f64, f64)>));
     let last_path = Rc::new(RefCell::new(None::<PathBuf>));
+    let seek_bar_on = Rc::new(Cell::new(db::load_seek_bar_preview()));
     let sibling_seof = Rc::new(SiblingEofState {
         done: Cell::new(false),
         stall: Cell::new((0.0, 0u8)),
@@ -1486,13 +1504,11 @@ fn build_window(
     audio_tracks_section.append(&audio_tracks_scrl);
     audio_tracks_section.set_visible(false);
     let sound_col = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    sound_col.set_margin_start(8);
-    sound_col.set_margin_end(8);
-    sound_col.set_margin_top(8);
-    sound_col.set_margin_bottom(6);
+    sound_col.add_css_class("rp-popover-box");
     sound_col.append(&vol_row);
     sound_col.append(&audio_tracks_section);
     let vol_pop = gtk::Popover::new();
+    vol_pop.add_css_class("rp-header-popover");
     vol_pop.set_child(Some(&sound_col));
     header_popover_non_modal(&vol_pop);
     let vol_menu = gtk::MenuButton::new();
@@ -1531,21 +1547,24 @@ fn build_window(
     sub_color_btn.set_tooltip_text(Some("Subtitle text color"));
 
     let sub_opts = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    sub_opts.append(&gtk::Label::new(Some("Size")));
+    let sub_size_label = gtk::Label::new(Some("Size"));
+    sub_size_label.set_xalign(0.0);
+    sub_size_label.add_css_class("caption");
+    sub_opts.append(&sub_size_label);
     sub_opts.append(&sub_scale);
-    sub_opts.append(&gtk::Label::new(Some("Text color")));
+    let sub_color_label = gtk::Label::new(Some("Text color"));
+    sub_color_label.set_xalign(0.0);
+    sub_color_label.add_css_class("caption");
+    sub_opts.append(&sub_color_label);
     sub_opts.append(&sub_color_btn);
 
     let sub_col = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    sub_col.set_margin_start(8);
-    sub_col.set_margin_end(8);
-    sub_col.set_margin_top(8);
-    sub_col.set_margin_bottom(6);
-    sub_col.append(&gtk::Label::new(Some("Subtitles")));
+    sub_col.add_css_class("rp-popover-box");
     sub_col.append(&sub_tracks_section);
     sub_col.append(&sub_opts);
 
     let sub_pop = gtk::Popover::new();
+    sub_pop.add_css_class("rp-header-popover");
     sub_pop.set_child(Some(&sub_col));
     header_popover_non_modal(&sub_pop);
     let sub_menu = gtk::MenuButton::new();
@@ -1569,17 +1588,11 @@ fn build_window(
         row.set_child(Some(&lab));
         speed_list.append(&row);
     }
-    let speed_caption = gtk::Label::new(Some("Playback speed"));
-    speed_caption.set_halign(gtk::Align::Start);
-    speed_caption.add_css_class("heading");
     let speed_col = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    speed_col.set_margin_start(8);
-    speed_col.set_margin_end(8);
-    speed_col.set_margin_top(8);
-    speed_col.set_margin_bottom(6);
-    speed_col.append(&speed_caption);
+    speed_col.add_css_class("rp-popover-box");
     speed_col.append(&speed_list);
     let speed_pop = gtk::Popover::new();
+    speed_pop.add_css_class("rp-header-popover");
     speed_pop.set_child(Some(&speed_col));
     header_popover_non_modal(&speed_pop);
     let speed_mbtn = gtk::MenuButton::new();
@@ -1794,6 +1807,14 @@ fn build_window(
         bottom.append(&b);
     }
 
+    let seek_state = seek_bar_preview::connect(
+        &seek,
+        &seek_adj,
+        Rc::clone(&player),
+        Rc::clone(&last_path),
+        Rc::clone(&seek_bar_on),
+    );
+
     let ovl = gtk::Overlay::new();
     ovl.add_css_class("rp-stack");
     ovl.add_css_class("rp-page-stack");
@@ -1847,6 +1868,7 @@ fn build_window(
                     sub_prefs::apply_mpv(&b.mpv, &pr);
                     let show = if r3.is_visible() { true } else { b3.get() };
                     sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, bot2.height(), g3.height());
+                    audio_tracks::restore_saved_audio(&b.mpv);
                     audio_tracks::ensure_playable_audio(&b.mpv);
                     sub_tracks::autopick_sub_track(&b.mpv, &pr);
                     let listed = playback_speed::sync_list(&b.mpv, &syf320, &sl320);
@@ -3099,7 +3121,10 @@ fn build_window(
                 return;
             }
             if let Some(b) = p_seek.borrow().as_ref() {
-                let _ = b.mpv.set_property("time-pos", r.value());
+                let s = format!("{:.4}", r.value());
+                if b.mpv.command("seek", &[s.as_str(), "absolute+keyframes"]).is_err() {
+                    let _ = b.mpv.set_property("time-pos", r.value());
+                }
             }
         }
     ));
@@ -3320,6 +3345,8 @@ fn build_window(
             #[strong]
             reapply_60,
             #[strong]
+            seek_state,
+            #[strong]
             spdm,
             move || {
                 maybe_advance_sibling_on_eof(
@@ -3340,6 +3367,8 @@ fn build_window(
                 let Some(tr) = tw_r.upgrade() else {
                     return glib::ControlFlow::Break;
                 };
+                // Drain seek-preview channel even when no media (pending thread after close).
+                seek_state.on_tick();
                 let g = p_poll.borrow();
                 let Some(pl) = g.as_ref() else {
                     seof_poll.clear_nav_sensitivity();
@@ -3587,6 +3616,7 @@ fn build_window(
         player,
         Rc::clone(&video_pref),
         &pref_menu,
+        Rc::clone(&seek_bar_on),
     );
 
     app.set_accels_for_action("app.open", &["<Primary>o"]);

@@ -72,6 +72,12 @@ pub fn init() {
     {
         // Column already present — ignore.
     }
+    if conn
+        .execute("ALTER TABLE media ADD COLUMN audio_aid INTEGER", [])
+        .is_err()
+    {
+        // Column already present — ignore.
+    }
     if let Err(e) = import_legacy(&conn) {
         eprintln!("[rhino] db: legacy import: {e}");
     }
@@ -93,6 +99,7 @@ where
 
 const K_VOL: &str = "master_volume";
 const K_MUTE: &str = "master_mute";
+const K_AUDIO_TRACK_NAME: &str = "audio_track_name";
 
 /// Last saved `libmpv` `volume` (0…`volume-max`, typically 0…100) and `mute` from the previous run.
 pub fn load_audio() -> (f64, bool) {
@@ -128,6 +135,36 @@ pub fn load_audio() -> (f64, bool) {
 }
 
 /// Persist for the next app launch. Safe to call from the quit path before [commit_quit].
+const K_SEEK_BAR_PREVIEW: &str = "seek_bar_preview";
+
+/// [docs/features/18-thumbnail-preview.md] — `true` by default.
+pub fn load_seek_bar_preview() -> bool {
+    with_conn(|c| {
+        let o = c
+            .query_row("SELECT v FROM settings WHERE k = ?1", params![K_SEEK_BAR_PREVIEW], |row| {
+                let s: String = row.get(0)?;
+                Ok(s)
+            })
+            .optional()?;
+        Ok(
+            o.map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+                .unwrap_or(true),
+        )
+    })
+    .unwrap_or(true)
+}
+
+pub fn save_seek_bar_preview(on: bool) {
+    let _ = with_conn(|c| {
+        c.execute(
+            "INSERT INTO settings (k, v) VALUES (?1, ?2)
+             ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+            params![K_SEEK_BAR_PREVIEW, if on { "1" } else { "0" }],
+        )?;
+        Ok(())
+    });
+}
+
 pub fn save_audio(volume: f64, muted: bool) {
     if !volume.is_finite() {
         return;
@@ -143,6 +180,25 @@ pub fn save_audio(volume: f64, muted: bool) {
             "INSERT INTO settings (k, v) VALUES (?1, ?2)
              ON CONFLICT(k) DO UPDATE SET v = excluded.v",
             params![K_MUTE, if muted { "1" } else { "0" }],
+        )?;
+        Ok(())
+    });
+}
+
+pub fn load_audio_track_name() -> Option<String> {
+    get_setting_str(K_AUDIO_TRACK_NAME).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+pub fn save_audio_track_name(name: &str) {
+    let s = name.trim();
+    if s.is_empty() {
+        return;
+    }
+    let _ = with_conn(|c| {
+        c.execute(
+            "INSERT INTO settings (k, v) VALUES (?1, ?2)
+             ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+            params![K_AUDIO_TRACK_NAME, s],
         )?;
         Ok(())
     });
@@ -463,6 +519,39 @@ pub fn set_playback(path: &Path, duration_sec: f64, time_pos_sec: f64) {
     });
 }
 
+/// Store the chosen audio track id immediately so SIGTERM / `kill` does not reset it.
+pub fn set_audio_aid(path: &Path, aid: i64) {
+    if aid <= 0 {
+        return;
+    }
+    let Some(s) = history_key(path) else {
+        return;
+    };
+    let _ = with_conn(|c| {
+        c.execute(
+            "INSERT INTO media (path, audio_aid) VALUES (?1, ?2)
+             ON CONFLICT(path) DO UPDATE SET audio_aid = excluded.audio_aid",
+            params![&s, aid],
+        )?;
+        Ok(())
+    });
+}
+
+pub fn load_audio_aid(path: &Path) -> Option<i64> {
+    let s = history_key(path)?;
+    with_conn(|c| {
+        c.query_row(
+            "SELECT audio_aid FROM media WHERE path = ?1",
+            params![&s],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .optional()
+    })
+    .flatten()
+    .flatten()
+    .filter(|aid| *aid > 0)
+}
+
 /// Clear stored resume so the next open starts from 0 (watch_later is removed separately in [media_probe]).
 /// Uses the same path key as [remove_history] so deleted-on-disk files still match DB rows.
 pub fn clear_resume_position(path: &Path) {
@@ -487,6 +576,7 @@ pub struct MediaRowSnapshot {
     pub source_mtime_sec: Option<i64>,
     pub thumb_png: Option<Vec<u8>>,
     pub thumb_time_pos_sec: Option<f64>,
+    pub audio_aid: Option<i64>,
 }
 
 /// Read the row for this path, if any.
@@ -494,7 +584,7 @@ pub fn snapshot_media_row(path: &Path) -> Option<MediaRowSnapshot> {
     let path_key = history_key(path)?;
     with_conn(|c| {
         c.query_row(
-            "SELECT path, duration_sec, time_pos_sec, source_mtime_sec, thumb_png, thumb_time_pos_sec
+            "SELECT path, duration_sec, time_pos_sec, source_mtime_sec, thumb_png, thumb_time_pos_sec, audio_aid
              FROM media WHERE path = ?1",
             params![&path_key],
             |row| {
@@ -505,6 +595,7 @@ pub fn snapshot_media_row(path: &Path) -> Option<MediaRowSnapshot> {
                     source_mtime_sec: row.get(3)?,
                     thumb_png: row.get(4)?,
                     thumb_time_pos_sec: row.get(5)?,
+                    audio_aid: row.get(6)?,
                 })
             },
         )
@@ -517,59 +608,33 @@ pub fn snapshot_media_row(path: &Path) -> Option<MediaRowSnapshot> {
 pub fn apply_media_snapshot(s: &MediaRowSnapshot) {
     let _ = with_conn(|c| {
         c.execute(
-            "INSERT INTO media (path, duration_sec, time_pos_sec, source_mtime_sec, thumb_png, thumb_time_pos_sec)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO media (path, duration_sec, time_pos_sec, source_mtime_sec, thumb_png, thumb_time_pos_sec, audio_aid)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(path) DO UPDATE SET
                duration_sec = excluded.duration_sec,
                time_pos_sec = excluded.time_pos_sec,
                source_mtime_sec = excluded.source_mtime_sec,
                thumb_png = excluded.thumb_png,
-               thumb_time_pos_sec = excluded.thumb_time_pos_sec",
+               thumb_time_pos_sec = excluded.thumb_time_pos_sec,
+               audio_aid = excluded.audio_aid",
             params![
                 &s.path_key,
                 s.duration_sec,
                 s.time_pos_sec,
                 s.source_mtime_sec,
                 s.thumb_png,
-                s.thumb_time_pos_sec
+                s.thumb_time_pos_sec,
+                s.audio_aid
             ],
         )?;
         Ok(())
     });
 }
 
-/// Do not re-capture a quit-time screenshot if the on-disk file is unchanged and
-/// [time_pos] is still within this many seconds of the frame we stored. (See [set_thumb] `thumb_time_pos_sec`.)
+/// Reuse a thumbnail when the wanted continue position is still near the frame we stored.
 const THUMB_TPOS_SKIP_EPS: f64 = 0.5;
 
-/// Returns `true` when an existing DB thumbnail is for the same file revision and the same
-/// `time-pos` (within [THUMB_TPOS_SKIP_EPS]) so a new [screenshot-to-file] is unnecessary.
-pub fn should_skip_quit_thumb(path: &str, file_mtime_sec: i64, time_pos: f64) -> bool {
-    if !time_pos.is_finite() || time_pos < 0.0 {
-        return false;
-    }
-    type Row = (Option<Vec<u8>>, Option<i64>, Option<f64>);
-    with_conn(|c| {
-        let r: Option<Row> = c
-            .query_row(
-                "SELECT thumb_png, source_mtime_sec, thumb_time_pos_sec FROM media WHERE path = ?1",
-                params![path],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .optional()?;
-        Ok(match r {
-            Some((Some(b), Some(m), Some(tp)))
-                if !b.is_empty() && m == file_mtime_sec && tp.is_finite() =>
-            {
-                (time_pos - tp).abs() < THUMB_TPOS_SKIP_EPS
-            }
-            _ => false,
-        })
-    })
-    .unwrap_or(false)
-}
-
-/// PNG bytes if we have a thumb for this mtime of the file on disk.
+/// PNG/JPEG bytes if we have a thumb for this mtime of the file on disk.
 pub fn take_thumb_if_current(path: &str, file_mtime_sec: i64) -> Option<Vec<u8>> {
     with_conn(|c| {
         let row: Option<(Option<Vec<u8>>, Option<i64>)> = c
@@ -581,6 +646,31 @@ pub fn take_thumb_if_current(path: &str, file_mtime_sec: i64) -> Option<Vec<u8>>
             .optional()?;
         Ok(match row {
             Some((Some(png), Some(m))) if m == file_mtime_sec => Some(png),
+            _ => None,
+        })
+    })
+    .flatten()
+}
+
+/// Thumb bytes if the file mtime matches and the stored frame is near the wanted continue time.
+pub fn take_thumb_if_fresh(path: &str, file_mtime_sec: i64, time_pos: f64) -> Option<Vec<u8>> {
+    if !time_pos.is_finite() || time_pos < 0.0 {
+        return take_thumb_if_current(path, file_mtime_sec);
+    }
+    with_conn(|c| {
+        let row: Option<(Option<Vec<u8>>, Option<i64>, Option<f64>)> = c
+            .query_row(
+                "SELECT thumb_png, source_mtime_sec, thumb_time_pos_sec FROM media WHERE path = ?1",
+                params![path],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        Ok(match row {
+            Some((Some(png), Some(m), Some(tp)))
+                if m == file_mtime_sec && tp.is_finite() && (time_pos - tp).abs() < THUMB_TPOS_SKIP_EPS =>
+            {
+                Some(png)
+            }
             _ => None,
         })
     })

@@ -1,10 +1,12 @@
 //! Audio stream list and `aid` for the sound popover. See `docs/features/08-tracks.md`.
 
 use crate::mpv_embed::MpvBundle;
+use crate::{db, media_probe};
 use libmpv2::Mpv;
 use serde::Deserialize;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use strsim::levenshtein;
 
 use gtk::prelude::*;
 
@@ -76,6 +78,54 @@ fn set_aid(mpv: &Mpv, id: i64) {
     }
 }
 
+fn save_choice(mpv: &Mpv, id: i64, text: &str) {
+    db::save_audio_track_name(text);
+    if let Some(path) = media_probe::local_file_from_mpv(mpv) {
+        db::set_audio_aid(&path, id);
+    }
+}
+
+fn norm_label(s: &str) -> String {
+    s.trim().to_lowercase()
+}
+
+fn closest_label<'a>(rows: &'a [Row], want: &str) -> Option<&'a Row> {
+    let want = norm_label(want);
+    if want.is_empty() {
+        return None;
+    }
+    rows.iter()
+        .min_by_key(|row| levenshtein(&norm_label(&row.text), &want))
+}
+
+/// Restore per-file track first, otherwise use the closest saved audio-track label.
+pub fn restore_saved_audio(mpv: &Mpv) {
+    let rows = audio_rows(mpv);
+    if rows.is_empty() {
+        return;
+    }
+    let Some(path) = media_probe::local_file_from_mpv(mpv) else {
+        return;
+    };
+    if let Some(saved) = db::load_audio_aid(&path) {
+        if current_aid(mpv) == Some(saved) {
+            return;
+        }
+        if rows.iter().any(|r| r.id == saved) {
+            set_aid(mpv, saved);
+            return;
+        }
+    }
+    if rows.len() < 2 {
+        return;
+    }
+    if let Some(row) = db::load_audio_track_name().and_then(|s| closest_label(&rows, &s)) {
+        if current_aid(mpv) != Some(row.id) {
+            set_aid(mpv, row.id);
+        }
+    }
+}
+
 /// After [loadfile], make sure an audio stream is actually selected. With **one** [audio] track
 /// there is no popover to pick it, and some files leave [aid] as `no` or unresolved until
 /// [aid] is set explicitly. With **several** tracks, only fix explicit `aid=no` (e.g. stale state).
@@ -138,6 +188,7 @@ pub fn rebuild_popover(
             first = Some(btn.clone());
         }
         let id = r.id;
+        let text = r.text.clone();
         let p2 = Rc::clone(&p);
         let blk2 = Rc::clone(&blk);
         let gl3 = gl2.clone();
@@ -147,6 +198,7 @@ pub fn rebuild_popover(
             }
             if let Some(pl) = p2.borrow().as_ref() {
                 set_aid(&pl.mpv, id);
+                save_choice(&pl.mpv, id, &text);
             }
             gl3.queue_render();
         });
