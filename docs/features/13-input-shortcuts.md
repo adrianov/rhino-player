@@ -13,7 +13,7 @@
 **Specification:**
 
 - Do not pass keys that match registered app accelerators to mpv.
-- **Space** toggles play/pause via the mpv `pause` property when the main window is focused (and the player is ready).
+- **Space** toggles play/pause via the mpv `pause` property when the main window is focused (and the player is ready). If the continue grid is visible and the preloaded first item is ready, Space first reveals that video and starts playback instead of playing behind the grid.
 - **Primary double-click** on the video view toggles fullscreen. **Secondary (right) single-click** on the video view toggles play/pause the same as Space (when a file with duration is loaded).
 - **m** toggles mute (see [Audio volume / mute](22-audio-volume-mute.md)).
 - **Up** / **Down** adjust volume by 5% (clamped).
