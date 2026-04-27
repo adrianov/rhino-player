@@ -25,6 +25,7 @@ const FIT_H_VIDEO_W: i32 = 960;
 const FIT_H_VIDEO_MAX_H: i32 = 900;
 /// Delay so mpv can populate `dwidth` / `dheight` (or `width` / `height`) after `loadfile`.
 const FIT_WINDOW_DELAY_MS: u32 = 220;
+const WARM_REVEAL_DELAY_MS: u64 = 160;
 const SUB_SCAN_TICKS: u8 = 24;
 const SUB_SCAN_MS: u64 = 250;
 const WIN_INIT_W: i32 = 960;
@@ -83,17 +84,13 @@ fn same_open_target(a: &Path, b: &Path) -> bool {
 
 fn resync_warm_continue(mpv: &Mpv) {
     let dur = mpv.get_property::<f64>("duration").unwrap_or(0.0);
-    if !dur.is_finite() || dur <= 0.0 {
-        return;
-    }
-    let Ok(pos) = mpv.get_property::<f64>("time-pos") else {
-        return;
-    };
-    if !pos.is_finite() || pos < 0.12 {
+    let pos = mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
+    if !dur.is_finite() || dur <= 0.0 || !pos.is_finite() {
         return;
     }
     let t = pos.clamp(0.0, (dur - 0.05).max(0.0));
     let s = format!("{t:.4}");
+    let _ = mpv.set_property("pause", true);
     if mpv
         .command("seek", &[s.as_str(), "absolute+keyframes"])
         .is_err()

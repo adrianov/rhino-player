@@ -7,7 +7,9 @@ struct WindowInputCtx {
     gl: gtk::GLArea,
     recent: gtk::ScrolledWindow,
     flow_recent: gtk::Box,
+    app: adw::Application,
     player: Rc<RefCell<Option<MpvBundle>>>,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
     bar_show: Rc<Cell<bool>>,
     nav_t: Rc<RefCell<Option<glib::SourceId>>>,
     cur_t: Rc<RefCell<Option<glib::SourceId>>>,
@@ -25,6 +27,7 @@ struct WindowInputCtx {
     recent_backfill: Rc<RefCell<Option<Rc<RecentContext>>>>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     sibling_seof: Rc<SiblingEofState>,
+    on_video_chrome: Rc<dyn Fn()>,
     browse_chrome: Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
     undo_shell: gtk::Box,
@@ -44,7 +47,9 @@ fn wire_window_input(ctx: WindowInputCtx) {
         gl: gl_area,
         recent: recent_scrl,
         flow_recent,
+        app,
         player,
+        video_pref,
         bar_show,
         nav_t,
         cur_t,
@@ -62,6 +67,7 @@ fn wire_window_input(ctx: WindowInputCtx) {
         recent_backfill,
         last_path,
         sibling_seof,
+        on_video_chrome,
         browse_chrome,
         win_aspect,
         undo_shell,
@@ -324,6 +330,7 @@ fn wire_window_input(ctx: WindowInputCtx) {
         let rbf_esc = recent_backfill.clone();
         let last_esc = last_path.clone();
         let seof_esc = sibling_seof.clone();
+        let video_chrome_key = on_video_chrome.clone();
         let browse_esc = browse_chrome.clone();
         let fr_key = fs_restore.clone();
         let lu_key = last_unmax.clone();
@@ -334,6 +341,18 @@ fn wire_window_input(ctx: WindowInputCtx) {
         let uti_k = undo_timer.clone();
         let ur_k = undo_remove_stack.clone();
         let undo_t_esc = undo_btn.clone();
+        let play_key = PlayToggleCtx {
+            app: app.clone(),
+            player: p.clone(),
+            video_pref: Rc::clone(&video_pref),
+            win: win_key.clone(),
+            gl: gl_esc.clone(),
+            recent: recent_esc.clone(),
+            last_path: last_esc.clone(),
+            on_video_chrome: video_chrome_key,
+            win_aspect: wa_esc.clone(),
+            sub_menu: None,
+        };
         let k = gtk::EventControllerKey::new();
         k.connect_key_pressed(move |_, key, _code, _m| {
             if key == gtk::gdk::Key::Escape {
@@ -407,12 +426,7 @@ fn wire_window_input(ctx: WindowInputCtx) {
             if key != gtk::gdk::Key::space {
                 return glib::Propagation::Proceed;
             }
-            let g = p.borrow();
-            let Some(b) = g.as_ref() else {
-                return glib::Propagation::Proceed;
-            };
-            let paused = b.mpv.get_property::<bool>("pause").unwrap_or(false);
-            if b.mpv.set_property("pause", !paused).is_err() {
+            if !toggle_play_pause(&play_key) {
                 return glib::Propagation::Proceed;
             }
             glib::Propagation::Stop

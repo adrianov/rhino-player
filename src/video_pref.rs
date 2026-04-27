@@ -361,6 +361,22 @@ fn vf_string_has_vapoursynth(mpv: &Mpv) -> bool {
     }
 }
 
+/// True when the active mpv video filter list contains VapourSynth.
+pub fn has_vapoursynth_vf(mpv: &Mpv) -> bool {
+    vf_string_has_vapoursynth(mpv)
+}
+
+/// Clear VapourSynth only for paused seeking, so mpv can show a still frame without a black GL surface.
+pub fn clear_vapoursynth_for_paused_seek(mpv: &Mpv) -> bool {
+    if !vf_string_has_vapoursynth(mpv) {
+        return false;
+    }
+    let vlog = video_log();
+    clear_vf(mpv, vlog);
+    set_auto_decode(mpv, vlog);
+    true
+}
+
 /// After the video filter list or decode path changes, re-align the video track to the audio clock
 /// by [seek]ing to the current position (libmpv, same as input.conf). Skips at file start to avoid
 /// fighting [try_load], and with zero/invalid duration.

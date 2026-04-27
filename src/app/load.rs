@@ -105,28 +105,53 @@ fn try_load(
     }
     let t = title_for_open_path(path);
     win.set_title(Some(t.as_str()));
-    recent_layer.set_visible(false);
-    // on_start may call apply_chrome, which borrow()s the player; drop the try_load borrow_mut first.
-    if let Some(f) = o.on_start.as_ref() {
-        f();
+    let delayed_warm = warm_hit && play_on_start;
+    if !delayed_warm {
+        recent_layer.set_visible(false);
+        // on_start may call apply_chrome, which borrow()s the player; drop the try_load borrow_mut first.
+        if let Some(f) = o.on_start.as_ref() {
+            f();
+        }
     }
     gl.queue_render();
     if play_on_start {
         // Raise the window if the app was in the background (another app focused / minimized).
-        win.present();
-        if let Some(b) = player.borrow().as_ref() {
-            if warm_hit {
+        if delayed_warm {
+            if let Some(b) = player.borrow().as_ref() {
                 resync_warm_continue(&b.mpv);
             }
-            let _ = b.mpv.set_property("pause", false);
-        }
-        let p2 = Rc::clone(player);
-        let _ = glib::source::timeout_add_local(std::time::Duration::from_millis(100), move || {
-            if let Some(b) = p2.borrow().as_ref() {
+            let recent = recent_layer.as_ref().clone();
+            let win2 = win.clone();
+            let gl2 = gl.clone();
+            let player2 = player.clone();
+            let on_start = o.on_start.clone();
+            let _ =
+                glib::timeout_add_local(Duration::from_millis(WARM_REVEAL_DELAY_MS), move || {
+                    recent.set_visible(false);
+                    if let Some(f) = on_start.as_ref() {
+                        f();
+                    }
+                    win2.present();
+                    if let Some(b) = player2.borrow().as_ref() {
+                        let _ = b.mpv.set_property("pause", false);
+                    }
+                    gl2.queue_render();
+                    glib::ControlFlow::Break
+                });
+        } else {
+            win.present();
+            if let Some(b) = player.borrow().as_ref() {
                 let _ = b.mpv.set_property("pause", false);
             }
-            glib::ControlFlow::Break
-        });
+            let p2 = Rc::clone(player);
+            let _ =
+                glib::source::timeout_add_local(std::time::Duration::from_millis(100), move || {
+                    if let Some(b) = p2.borrow().as_ref() {
+                        let _ = b.mpv.set_property("pause", false);
+                    }
+                    glib::ControlFlow::Break
+                });
+        }
     }
     if let Some(b) = player.borrow().as_ref() {
         sync_window_aspect_from_mpv(&b.mpv, o.win_aspect.as_ref());

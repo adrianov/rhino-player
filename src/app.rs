@@ -54,4 +54,5 @@ include!("app/file_loaded.rs");
 include!("app/recent_undo.rs");
 include!("app/chrome_wiring.rs");
 include!("app/open_handler.rs");
+include!("app/seek_wiring.rs");
 include!("app/build_window.rs");

@@ -10,7 +10,6 @@ fn build_window(
         vp: Rc::clone(&video_pref),
         app: app.clone(),
     };
-
     let win = adw::ApplicationWindow::builder()
         .application(app)
         .title(APP_WIN_TITLE)
@@ -19,7 +18,6 @@ fn build_window(
         .default_height(WIN_INIT_H)
         .css_classes(["rp-win"])
         .build();
-
     let bar_show = Rc::new(Cell::new(true));
     let nav_t = Rc::new(RefCell::new(None::<glib::SourceId>));
     let cur_t = Rc::new(RefCell::new(None::<glib::SourceId>));
@@ -45,9 +43,7 @@ fn build_window(
     let aspect_resize_end_deb = Rc::new(RefCell::new(None::<glib::SourceId>));
     let aspect_resize_wired = Rc::new(Cell::new(false));
     let idle_inhib = Rc::new(RefCell::new(None::<u32>));
-
     let root = adw::ToolbarView::new();
-
     let header = adw::HeaderBar::new();
     header.add_css_class("rpb-header");
     let play_pause = gtk::Button::from_icon_name("media-playback-start-symbolic");
@@ -77,7 +73,6 @@ fn build_window(
         Some("Choose VapourSynth script (.vpy)…"),
         Some("app.choose-vs"),
     );
-
     let menu = gio::Menu::new();
     menu.append(Some("Open video…"), Some("app.open"));
     menu.append(Some("Close video"), Some("app.close-video"));
@@ -305,8 +300,6 @@ fn build_window(
     gl_area.set_has_stencil_buffer(false);
     gl_area.set_has_depth_buffer(false);
 
-    wire_play_toggles(&play_pause, &gl_area, player);
-
     let seek_adj = gtk::Adjustment::new(0.0, 0.0, 1.0, 0.2, 1.0, 0.0);
     let seek = gtk::Scale::new(gtk::Orientation::Horizontal, Some(&seek_adj));
     seek.set_hexpand(true);
@@ -507,6 +500,21 @@ fn build_window(
         &speed_mbtn,
         &menu_btn,
     );
+    wire_play_toggles(
+        &play_pause,
+        PlayToggleCtx {
+            app: app.clone(),
+            player: player.clone(),
+            video_pref: Rc::clone(&video_pref),
+            win: win.clone(),
+            gl: gl_area.clone(),
+            recent: recent_scrl.clone(),
+            last_path: last_path.clone(),
+            on_video_chrome: on_video_chrome.clone(),
+            win_aspect: win_aspect.clone(),
+            sub_menu: Some(sub_menu.clone()),
+        },
+    );
     let browse_chrome: Rc<dyn Fn()> = {
         let root = root.clone();
         let gl = gl_area.clone();
@@ -679,7 +687,9 @@ fn build_window(
         gl: gl_area.clone(),
         recent: recent_scrl.clone(),
         flow_recent: flow_recent.clone(),
+        app: app.clone(),
         player: player.clone(),
+        video_pref: Rc::clone(&video_pref),
         bar_show: bar_show.clone(),
         nav_t: nav_t.clone(),
         cur_t: cur_t.clone(),
@@ -697,6 +707,7 @@ fn build_window(
         recent_backfill: recent_backfill.clone(),
         last_path: last_path.clone(),
         sibling_seof: sibling_seof.clone(),
+        on_video_chrome: on_video_chrome.clone(),
         browse_chrome: browse_chrome.clone(),
         win_aspect: win_aspect.clone(),
         undo_shell: undo_shell.clone(),
@@ -754,27 +765,7 @@ fn build_window(
 
     // Shared with [start_transport_poll]; prevents programmatic seek updates from re-seeking mpv.
     let seek_sync = Rc::new(Cell::new(false));
-    let p_seek = player.clone();
-    seek.connect_value_changed(glib::clone!(
-        #[strong]
-        p_seek,
-        #[strong]
-        seek_sync,
-        move |r| {
-            if seek_sync.get() {
-                return;
-            }
-            if let Some(b) = p_seek.borrow().as_ref() {
-                let s = format!("{:.4}", r.value());
-                if b.mpv
-                    .command("seek", &[s.as_str(), "absolute+keyframes"])
-                    .is_err()
-                {
-                    let _ = b.mpv.set_property("time-pos", r.value());
-                }
-            }
-        }
-    ));
+    wire_seek_control(&seek, player, &gl_area, seek_sync.clone());
 
     let vol_sync = Rc::new(Cell::new(false));
     let p_vctl = player.clone();

@@ -296,41 +296,92 @@ fn wire_recent_spacer_fullscreen(
     }
 }
 
-fn toggle_play_pause(player: &Rc<RefCell<Option<MpvBundle>>>, gl: &gtk::GLArea) {
-    let g = player.borrow();
-    let Some(b) = g.as_ref() else {
-        return;
-    };
-    if b.mpv.get_property::<f64>("duration").unwrap_or(0.0) <= 0.0 {
-        return;
-    }
-    let paused = b.mpv.get_property::<bool>("pause").unwrap_or(false);
-    if b.mpv.set_property("pause", !paused).is_ok() {
-        gl.queue_render();
-    }
+#[derive(Clone)]
+struct PlayToggleCtx {
+    app: adw::Application,
+    player: Rc<RefCell<Option<MpvBundle>>>,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
+    win: adw::ApplicationWindow,
+    gl: gtk::GLArea,
+    recent: gtk::ScrolledWindow,
+    last_path: Rc<RefCell<Option<PathBuf>>>,
+    on_video_chrome: Rc<dyn Fn()>,
+    win_aspect: Rc<Cell<Option<f64>>>,
+    sub_menu: Option<gtk::MenuButton>,
 }
 
-fn wire_play_toggles(
-    play_pause: &gtk::Button,
-    gl: &gtk::GLArea,
-    player: &Rc<RefCell<Option<MpvBundle>>>,
-) {
+fn toggle_play_pause(ctx: &PlayToggleCtx) -> bool {
+    let g = ctx.player.borrow();
+    let Some(b) = g.as_ref() else {
+        return false;
+    };
+    if b.mpv.get_property::<f64>("duration").unwrap_or(0.0) <= 0.0 {
+        return false;
+    }
+    if ctx.recent.is_visible() {
+        if let Some(path) = local_file_from_mpv(&b.mpv) {
+            *ctx.last_path.borrow_mut() = std::fs::canonicalize(&path).ok();
+            ctx.win.set_title(Some(title_for_open_path(&path).as_str()));
+        }
+        sync_window_aspect_from_mpv(&b.mpv, ctx.win_aspect.as_ref());
+        resync_warm_continue(&b.mpv);
+        ctx.gl.queue_render();
+        drop(g);
+        schedule_warm_reveal(ctx.clone());
+        return true;
+    }
+    let paused = b.mpv.get_property::<bool>("pause").unwrap_or(false);
+    if paused {
+        let off = {
+            let mut pref = ctx.video_pref.borrow_mut();
+            video_pref::resync_smooth_if_speed_mismatch(&b.mpv, &mut pref)
+        };
+        if off {
+            sync_smooth_60_to_off(&ctx.app);
+        }
+    }
+    if b.mpv.set_property("pause", !paused).is_ok() {
+        ctx.gl.queue_render();
+        return true;
+    }
+    false
+}
+
+fn schedule_warm_reveal(ctx: PlayToggleCtx) {
+    let _ = glib::timeout_add_local(Duration::from_millis(WARM_REVEAL_DELAY_MS), move || {
+        ctx.recent.set_visible(false);
+        (ctx.on_video_chrome)();
+        schedule_window_fit_h_video(ctx.player.clone(), ctx.win.clone());
+        if let Some(button) = ctx.sub_menu.as_ref() {
+            schedule_sub_button_scan(ctx.player.clone(), button.clone());
+        }
+        ctx.win.present();
+        if let Some(b) = ctx.player.borrow().as_ref() {
+            let _ = b.mpv.set_property("pause", false);
+        }
+        ctx.gl.queue_render();
+        glib::ControlFlow::Break
+    });
+}
+
+fn wire_play_toggles(play_pause: &gtk::Button, ctx: PlayToggleCtx) {
     {
-        let p_btn = player.clone();
-        let glbtn = gl.clone();
-        play_pause.connect_clicked(move |_| toggle_play_pause(&p_btn, &glbtn));
+        let btn_ctx = ctx.clone();
+        play_pause.connect_clicked(move |_| {
+            toggle_play_pause(&btn_ctx);
+        });
     }
 
     let rpp = gtk::GestureClick::new();
     rpp.set_button(gtk::gdk::BUTTON_SECONDARY);
     rpp.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let gl = ctx.gl.clone();
     {
-        let p_btn = player.clone();
-        let glbtn = gl.clone();
+        let press_ctx = ctx;
         rpp.connect_pressed(move |gest, n_press, _, _| {
             let _ = gest.set_state(gtk::EventSequenceState::Claimed);
             if n_press == 1 {
-                toggle_play_pause(&p_btn, &glbtn);
+                toggle_play_pause(&press_ctx);
             }
         });
     }
