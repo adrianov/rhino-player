@@ -15,7 +15,7 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | [Playback speed: 1.0x / 1.5x / 2.0x](features/28-playback-speed.md) | **Done** (header `speedometer-symbolic` + list popover; left of other header popovers; libmpv `speed`) |
 | [Playlist: queue, prev/next, shuffle, loop](features/05-playlist.md) | Not started |
 | [Open files: file picker, folder, CLI, single-instance](features/06-open-and-cli.md) | In progress (GTK “Open Video” + **startup** path from `argv`; not: DnD, `HANDLES_OPEN`, folder-as-playlist, single-instance) |
-| [Sibling folder queue (folder playback)](features/07-sibling-folder-queue.md) | **Done** (EOF + bottom **Prev/Next**, `sibling_advance`; **not:** m3u playlist UI; **Prev/Next filename tooltips** — not achieved in testing; see file) |
+| [Sibling folder queue (folder playback)](features/07-sibling-folder-queue.md) | **Done** (EOF + bottom **Prev/Next** with filename tooltips, `sibling_advance`; **not:** m3u playlist UI) |
 | [Tracks: audio, video, subtitles](features/08-tracks.md) | In progress (sound: **Audio** + `aid`; [Subtitles](features/24-subtitles.md) popover) |
 | [Subtitles: style, track picker, auto-pick](features/24-subtitles.md) | **Done** (header button, `sub-*` strings, DB + last-pick Levenshtein) |
 | [Smooth video playback (display-resample) — removed](features/25-smooth-playback.md) | **Removed** (superseded by [26](features/26-sixty-fps-motion.md)) |
@@ -39,7 +39,7 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 
 ## Tooling note (Composer 2 Fast)
 
-Some UX targets were **attempted in code** but **did not validate in manual testing** on the maintainer’s GNOME/Wayland setup. They are documented as **not achieved in the current Cursor / Composer 2 Fast pass** (revisit with a different model or deeper GTK review): **header menu popovers** switching with a single click (see [17-window-behavior](features/17-window-behavior.md)), and **bottom-bar Prev/Next filename tooltips** (see [07-sibling-folder-queue](features/07-sibling-folder-queue.md)).
+Some UX targets were **attempted in code** but **did not validate in manual testing** on the maintainer’s GNOME/Wayland setup. They are documented as **not achieved in the current Cursor / Composer 2 Fast pass** (revisit with a different model or deeper GTK review): **header menu popovers** switching with a single click (see [17-window-behavior](features/17-window-behavior.md)).
 
 ## Technical references (upstream APIs)
 
