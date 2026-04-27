@@ -279,6 +279,13 @@ fn sync_smooth_60_to_off(app: &adw::Application) {
     }
 }
 
+fn set_toolbar_reveal(root: &adw::ToolbarView, show: bool) -> bool {
+    let changed = root.reveals_top_bars() != show || root.reveals_bottom_bars() != show;
+    root.set_reveal_top_bars(show);
+    root.set_reveal_bottom_bars(show);
+    changed
+}
+
 /// Rebuilds the **Preferences** submenu: Smooth 60, seek preview, optional `basename` for `video_vs_path`
 /// ([vs-custom]), [choose-vs].
 fn video_pref_submenu_rebuild(m: &gio::Menu, p: &db::VideoPrefs, app: &adw::Application) {
@@ -543,13 +550,10 @@ fn apply_chrome(
 ) {
     root.set_extend_content_to_top_edge(true);
     root.set_extend_content_to_bottom_edge(true);
-    let show = if recent.is_visible() {
-        true
-    } else {
-        bar_show.get()
-    };
-    root.set_reveal_top_bars(show);
-    root.set_reveal_bottom_bars(show);
+    let show = recent.is_visible() || bar_show.get();
+    if !set_toolbar_reveal(root, show) {
+        return;
+    }
     gl.queue_render();
     if let Some(b) = player.borrow().as_ref() {
         sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, bottom.height(), gl.height());
