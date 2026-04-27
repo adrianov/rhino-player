@@ -182,12 +182,23 @@ pub fn fill_row(
     let cards2 = Rc::clone(&cards);
     let hrow = row.clone();
     if let Some(parent) = hrow.parent() {
+        let h = hrow.clone();
+        let c = Rc::clone(&cards2);
         parent.connect_notify_local(Some("width"), move |_, _| {
-            sync_card_sizes(&hrow, &cards2.borrow());
+            sync_card_sizes(&h, &c.borrow());
         });
     } else {
+        let c = Rc::clone(&cards2);
         row.connect_notify_local(Some("width"), move |r, _| {
-            sync_card_sizes(r, &cards2.borrow());
+            sync_card_sizes(r, &c.borrow());
         });
     }
+    // After the first [Allocation], parent width is reliable; [idle] runs after a layout pass in
+    // case [notify] did not run when width crossed 0 → >0.
+    let hrow = row.clone();
+    let c3 = Rc::clone(&cards2);
+    let _ = glib::idle_add_local(move || {
+        sync_card_sizes(&hrow, &c3.borrow());
+        glib::ControlFlow::Break
+    });
 }

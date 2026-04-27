@@ -163,21 +163,22 @@ fn card_width(strip_w: i32, count: usize) -> i32 {
 }
 
 /// The card row [gtk::Box] (`rp-recent-row`) sits inside a full-width parent; use that width for
-/// the 40% / multi-card math. Measuring the inner box couples card size to its own `size_request`,
-/// so a hover relayout (e.g. overlay actions) can change the number and make the card jump.
-fn strip_width_for_cards(card_row: &gtk::Box) -> i32 {
-    card_row
-        .parent()
-        .map(|p| p.width())
-        .filter(|&w| w > 0)
-        .unwrap_or_else(|| card_row.width().max(1))
+/// the 40% / multi-card math. Do **not** fall back to [card_row.width()]: before the first real
+/// allocation it can be a stale large value, so the first [sync_card_sizes] would clamp the card
+/// to [CARD_MAX_W] and the next sync (often on first hover when layout settles) would shrink it.
+fn strip_width_for_cards(card_row: &gtk::Box) -> Option<i32> {
+    let w = card_row.parent()?.width();
+    (w > 0).then_some(w)
 }
 
 fn sync_card_sizes(card_row: &gtk::Box, cards: &[gtk::Overlay]) {
     if cards.is_empty() {
         return;
     }
-    let w = card_width(strip_width_for_cards(card_row), cards.len());
+    let Some(strip_w) = strip_width_for_cards(card_row) else {
+        return;
+    };
+    let w = card_width(strip_w, cards.len());
     let h = (f64::from(w) / CARD_ASPECT).round() as i32;
     for card in cards {
         card.set_size_request(w, h);
