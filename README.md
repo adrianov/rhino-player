@@ -8,44 +8,20 @@ Rhino Player is a Linux desktop video player for GNOME, Ubuntu, and similar syst
 
 ## Features
 
-- **Optional Smooth video (~60 FPS at 1.0×):** a VapourSynth + MVTools mode can synthesize smoother motion for compatible local videos.
-- **Continue where you left off:** launch to a recent-video grid with thumbnails, progress, and one-click resume.
-- **Folder and sibling playback:** at the end of a local file, Rhino can continue to the next video in the folder or the next sibling folder.
-- **Clean playback view:** auto-hiding header and transport controls keep the video area focused.
+- **mpv-powered format support:** play the local video formats supported by your installed mpv/libmpv, including common containers such as MKV, MP4, WebM, AVI, MOV, MPEG-TS, and more.
+- **Continue where you left off:** start on a recent-video grid with thumbnails, progress, and one-click resume.
+- **TV-series friendly playback:** continue through episodes in a folder, then move into the next sibling folder, making season-by-season watching easier.
+- **Optional Smooth video (~60 FPS at 1.0×):** synthesize smoother motion with VapourSynth + MVTools when your system supports it.
+- **Subtitles:** pick subtitle tracks, remember subtitle style preferences, and auto-pick matching subtitle tracks when possible.
 - **Seek preview:** hover over the progress bar to preview frames before jumping.
-- **Simple controls:** play/pause, seek, elapsed/remaining time, keyboard shortcuts, fullscreen, volume, mute, and scroll-wheel volume.
-- **Audio track picker:** choose audio tracks from the sound popover when available.
-- **Playback speed:** quick 1.0×, 1.5×, and 2.0× speed choices in the header.
+- **Clean playback view:** auto-hiding header, transport controls, and pointer keep the video area focused.
+- **Fast playback controls:** play/pause, seek, fullscreen, elapsed/remaining time, keyboard shortcuts, and quick 1.0× / 1.5× / 2.0× speed choices.
 - **Continue-list cleanup:** remove items from the continue grid or move local files to Trash, with session undo.
-- **Desktop integration:** ships Freedesktop desktop, icon, and AppStream metadata for GNOME-style launchers and app grids.
+- **Desktop integration:** Freedesktop desktop entry, icon theme assets, and AppStream metadata for GNOME-style launchers and app grids.
 
 See the full feature index in [docs/README.md](docs/README.md).
 
-## Run
-
-Requires a running Wayland or X11 desktop session.
-
-```bash
-cargo run
-# or
-./target/debug/rhino-player
-```
-
-Open a file from the main menu, with `Ctrl+O`, or by passing a path:
-
-```bash
-cargo run -- /path/to/video.mkv
-```
-
-## Install Desktop Files
-
-For local development builds, install the launcher and icons under `~/.local/share`:
-
-```bash
-./data/install-to-user-dirs.sh
-```
-
-## Build
+## Build From Source
 
 Requirements:
 
@@ -61,6 +37,45 @@ cargo build --release
 ./target/release/rhino-player
 ```
 
+You can pass a file path:
+
+```bash
+./target/release/rhino-player /path/to/video.mkv
+```
+
+## Install
+
+For a normal local install from source, build the release binary and install it with the bundled Freedesktop assets:
+
+```bash
+cargo build --release
+sudo ./data/install-system-wide.sh
+```
+
+The installer copies:
+
+- `rhino-player` to `/usr/local/bin`
+- bundled VapourSynth scripts to `/usr/local/share/rhino-player/vs`
+- desktop launcher, icon theme assets, and AppStream metadata to `/usr/local/share`
+
+You can choose another prefix with `PREFIX`:
+
+```bash
+sudo PREFIX=/usr ./data/install-system-wide.sh
+```
+
+For a user-local launcher during development, install only the desktop file and icons under `~/.local/share` and point it at a chosen binary:
+
+```bash
+./data/install-to-user-dirs.sh "$PWD/target/release/rhino-player"
+```
+
+After installing, launch Rhino Player from your app grid, from a file manager, or with:
+
+```bash
+rhino-player /path/to/video.mkv
+```
+
 ## Smooth 60 FPS Setup
 
 Rhino’s **Preferences → Smooth video (~60 FPS at 1.0×)** uses mpv’s VapourSynth video filter plus MVTools. This is optional; normal playback works without it.
@@ -68,7 +83,8 @@ Rhino’s **Preferences → Smooth video (~60 FPS at 1.0×)** uses mpv’s Vapou
 ### Requirements
 
 - `mpv` / `libmpv` built with the `vapoursynth` video filter enabled.
-- VapourSynth runtime and Python bindings.
+- Python 3, because VapourSynth scripts run through Python.
+- VapourSynth runtime and Python bindings for that Python environment.
 - MVTools for VapourSynth (`libmvtools.so`).
 - A CPU fast enough for the target resolution. Smooth 60 is CPU-heavy.
 
@@ -91,7 +107,7 @@ mpv -vf help 2>&1 | grep -E '^[[:space:]]*vapoursynth[[:space:]]'
 python3 -c 'import vapoursynth as vs; print(vs.core.mv)'
 ```
 
-The first command must print a `vapoursynth` filter. The second command must print an MVTools object instead of failing.
+The first command must print a `vapoursynth` filter. The second command verifies that Python can import VapourSynth and load MVTools; it must print an MVTools object instead of failing.
 
 ### If mpv Is Missing VapourSynth
 
@@ -136,6 +152,15 @@ Smooth 60 runs only around **1.0×** playback speed. At 1.5× / 2.0× Rhino skip
 More detail: [docs/features/26-sixty-fps-motion.md](docs/features/26-sixty-fps-motion.md) and [data/vs/README.md](data/vs/README.md).
 
 ## Developer Checks
+
+For quick development runs, `cargo run` is still useful:
+
+```bash
+cargo run
+cargo run -- /path/to/video.mkv
+```
+
+Before submitting changes, run:
 
 ```bash
 cargo test
