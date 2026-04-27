@@ -2,6 +2,7 @@
 name = "rhino-player"
 version = "0.1.0"
 edition = "2021"
+default-run = "rhino-player"
 authors = ["Peter Adrianov"]
 description = "Rhino Player — mpv with GTK4 / Adwaita for Linux"
 license = "GPL-3.0-or-later"
@@ -26,10 +27,9 @@ serde_json = "1.0"
 # Subtitle / language hint fuzzy match in `sub_tracks`.
 strsim = "0.11"
 
-# Clippy: cognitive complexity (see clippy.toml). Run `cargo clippy` in CI or before merge.
+# Clippy: cognitive complexity (see clippy.toml). Module length is checked by `cargo module-lines`.
 [lints.clippy]
 cognitive_complexity = "warn"
-too_many_lines = "warn"
 
 [profile.release]
 lto = true

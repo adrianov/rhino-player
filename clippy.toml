@@ -7,7 +7,3 @@ cognitive-complexity-threshold = 25
 
 # Optional: guard deep nesting in addition to clippy::excessive_nesting.
 # excessive-nesting-threshold = 5
-
-# Clippy can warn on long functions, but it does not enforce whole-module/file length.
-# The 1000-line module rule lives in `.cursor/rules/complexity-and-module-design.mdc`.
-too-many-lines-threshold = 1000
