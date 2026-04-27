@@ -81,68 +81,68 @@ rhino-player /path/to/video.mkv
 
 Rhino’s **Preferences → Smooth video (~60 FPS at 1.0×)** uses mpv’s VapourSynth video filter plus MVTools. This is optional; normal playback works without it.
 
-### Requirements
+### Install Dependencies
 
-- `mpv` / `libmpv` built with the `vapoursynth` video filter enabled.
-- Python 3, because VapourSynth scripts run through Python.
-- VapourSynth runtime and Python bindings for that Python environment.
-- MVTools for VapourSynth (`libmvtools.so`).
-- A CPU fast enough for the target resolution. Smooth 60 is CPU-heavy.
-
-### Install Packages
-
-Package names vary by distribution. On Debian / Ubuntu-like systems, start with:
+On Debian / Ubuntu-like systems:
 
 ```bash
-sudo apt-get install vapoursynth vapoursynth-python3 vapoursynth-mvtools
+sudo apt-get install vapoursynth vapoursynth-python3 pipx p7zip-full
+pipx install vsrepo
+pipx ensurepath
 ```
 
-You also need an `mpv` / `libmpv` package that includes VapourSynth support. Some distro builds omit it. On Arch-like systems this is commonly available through the main packages or AUR variants; on Fedora / openSUSE it depends on the repository set and build options.
+Open a new terminal after `pipx ensurepath`, then install MVTools:
 
-If `vapoursynth-mvtools` is unavailable, install MVTools with `vsrepo` or build [vapoursynth-mvtools] from source.
+```bash
+vsrepo update
+vsrepo install mvtools
+```
+
+Rhino searches the `pipx` / `vsrepo` plugin location automatically. Avoid `python3 -m pip install --user ...` on Debian / Ubuntu systems that report `externally-managed-environment`; use `vsrepo` instead.
 
 ### Verify Support
 
 ```bash
 mpv -vf help 2>&1 | grep -E '^[[:space:]]*vapoursynth[[:space:]]'
-python3 -c 'import vapoursynth as vs; print(vs.core.mv)'
+python3 - <<'PY'
+from pathlib import Path
+import vapoursynth as vs
+
+try:
+    print(vs.core.mv)
+except AttributeError:
+    hits = sorted(Path.home().glob(
+        ".local/share/pipx/venvs/vsrepo/lib/python*/site-packages/"
+        "vapoursynth/plugins/vsrepo/libmvtools.so"
+    ))
+    if not hits:
+        raise
+    vs.core.std.LoadPlugin(str(hits[0]))
+    print(vs.core.mv)
+PY
 ```
 
-The first command must print a `vapoursynth` filter. The second command verifies that Python can import VapourSynth and load MVTools; it must print an MVTools object instead of failing.
+The first command must print a `vapoursynth` filter. The Python check verifies that VapourSynth imports and MVTools can be loaded, including the common `pipx install vsrepo` layout; it must print an MVTools object instead of failing.
 
 ### If mpv Is Missing VapourSynth
 
-Install a distro package that enables VapourSynth, or build mpv/libmpv yourself with VapourSynth enabled. For mpv’s Meson build, the important option is:
+If the first verification command prints nothing, your `mpv` / `libmpv` was built without VapourSynth. Install a build that enables it, or build mpv/libmpv yourself with this Meson option:
 
 ```bash
 -Dvapoursynth=enabled
 ```
 
-If you install the custom libmpv under `/usr/local`, make sure Rhino loads it before the distro libmpv:
+This project includes a helper for Debian / Ubuntu-like systems:
 
 ```bash
-export LD_LIBRARY_PATH=/usr/local/lib/x86_64-linux-gnu:/usr/local/lib:$LD_LIBRARY_PATH
-cargo run
-```
-
-### MVTools Path
-
-Rhino searches common system paths, `pipx` / `vsrepo` locations under `~/.local`, and a bounded `~/.local` scan. You can also force the library path:
-
-```bash
-export RHINO_MVTOOLS_LIB=/full/path/to/libmvtools.so
-```
-
-### Helper Scripts
-
-The project includes Debian / Ubuntu helper scripts if you want an automated check or local mpv build:
-
-```bash
-./scripts/ensure-vapoursynth-debian.sh
 ./scripts/build-mpv-vapoursynth-system.sh
 ```
 
-These scripts are optional. They exist to encode the setup steps above for Debian-like systems.
+If you install a custom libmpv under `/usr/local`, make sure Rhino loads it before the distro libmpv:
+
+```bash
+export LD_LIBRARY_PATH=/usr/local/lib/x86_64-linux-gnu:/usr/local/lib:$LD_LIBRARY_PATH
+```
 
 ### Use It
 
