@@ -1,4 +1,4 @@
-//! Cargo entry point for the Rust module-size linter.
+//! Cargo entry point: runs `scripts/check-module-lines.sh` (advisory soft limit; always exits 0 if the script runs).
 
 use std::process::{self, Command};
 

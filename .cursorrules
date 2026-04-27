@@ -22,7 +22,7 @@
 
 - Keep `.cursorrules` and `docs/README.md` feature list aligned with what exists in the tree.
 - Prefer clear module boundaries: UI (GTK/Adwaita), mpv control, platform (DBus, portals), persistence (settings, session).
-- **Quality checks:** run `cargo qcheck` (Clippy + `scripts/check-module-lines.sh`) before finishing; `cargo module-lines` enforces Rust source modules under `src/` at **≤1000 lines**. Do not add `#[allow(clippy::…)]`—fix by refactoring (see `.cursor/rules/clippy-no-suppress.mdc`).
-- **Complexity and module shape:** there is no Ruby-style `AbcSize` in Rust; use Clippy (see `clippy.toml`) and follow `.cursor/rules/complexity-and-module-design.mdc` (if a feature touches **>6 files** or a module grows past **1000 lines**, refactor toward SOLID / single reason to change per module).
+- **Quality checks:** run `cargo qcheck` (Clippy + advisory `scripts/check-module-lines.sh`) before finishing. `cargo module-lines` **warns** on Rust source files over **~300 lines** (soft target for readability and AI-friendly edits; refactor when convenient). Do not add `#[allow(clippy::…)]`—fix by refactoring (see `.cursor/rules/clippy-no-suppress.mdc`). If many modules exceed the limit, refactor **one file at a time**, **longest first**.
+- **Complexity and module shape:** there is no Ruby-style `AbcSize` in Rust; use Clippy (see `clippy.toml`) and follow `.cursor/rules/complexity-and-module-design.mdc` (if a feature touches **>6 files** or a module is large, **prefer** smaller modules and one reason to change, without treating **300 lines** as a hard gate).
 - **UI / IO timing:** prefer event subscriptions over periodic polls; see `.cursor/rules/events-over-polling.mdc`.
 - Name length: prefer short, clear identifiers (2–3 words) for new types and functions, consistent with the rest of the file.

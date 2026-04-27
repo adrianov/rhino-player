@@ -27,15 +27,20 @@ If implementing **one** user-visible feature or a single story causes changes ac
 
 **Wording for agents:** *Do not celebrate breadth of edit; compress scope into a clear shape. If the file count is high, pause and re-home code so one module owns the feature and others depend on it through narrow APIs.*
 
-## When a module exceeds 1000 lines
+## Module length (soft target ~300 lines)
 
-If a source module grows past **1000 lines**, treat that as a required refactor trigger before adding more behavior there. First remove unused code and duplication; if the file is still over the limit, extract cohesive feature-shaped modules with narrow interfaces and dependency injection at UI / mpv / storage boundaries. Do not make the code longer only to satisfy the line count.
+**Goal:** keep source files small enough to review, navigate, and edit safely (including with AI). The project **recommends** keeping Rust files under `src/` around **300 lines** or less when it is practical.
 
-Run **`cargo module-lines`** (or **`cargo qcheck`**, which includes it) to enforce this. The checker is `scripts/check-module-lines.sh` and uses `RHINO_MODULE_LINE_LIMIT` only for explicit local experiments; the project default is **1000**.
+- **`cargo module-lines`** (via `scripts/check-module-lines.sh`) is **advisory only**: it prints **warnings** and **always exits 0** — it is **not** a merge gate. Refactor when it fits your change (same area, pre-existing debt, or a dedicated cleanup), not as an automatic blocker.
+- **`clippy::too_many_lines`** (see **`clippy.toml`**, **`too-many-lines-threshold`**) is also set to **warn**, not **deny**.
+- If **several** modules are over the limit, prefer **one file per refactor**, working from the **longest** file downward (largest payoffs first, smaller diffs). Do not try to “fix every oversized file” in a single pass unless the work is already scoped that way.
+- When you **do** split a file: remove dead code and duplication first; then extract cohesive, feature-shaped modules with narrow boundaries (UI / mpv / storage), without growing the codebase just to hit a number.
+
+`RHINO_MODULE_LINE_LIMIT` overrides the default threshold (default **300**) for the advisory script, e.g. local experiments.
 
 ## Where configuration lives
 
-- **`clippy.toml`** — threshold for `cognitive_complexity` and other Clippy config.
-- **`scripts/check-module-lines.sh`** — module/file length check for Rust source modules under `src/`.
+- **`clippy.toml`** — threshold for `cognitive_complexity`, `too_many_lines`, and other Clippy config.
+- **`scripts/check-module-lines.sh`** — **advisory** length report for Rust sources under `src/` (soft limit; **longest-first** message when anything is over).
 - **`Cargo.toml` → `[lints]`** — project-wide lint level for selected Clippy lints.
 - **`.cursorrules` / this rule** — human and agent policy; not a replacement for `cargo clippy` on the machine.

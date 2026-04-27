@@ -5,5 +5,8 @@
 # Lower = stricter. Tune if a real algorithm needs a single complex function; prefer splitting instead.
 cognitive-complexity-threshold = 25
 
+# Align with `scripts/check-module-lines.sh`: keep functions short for review and AI-friendly edits.
+too-many-lines-threshold = 300
+
 # Optional: guard deep nesting in addition to clippy::excessive_nesting.
 # excessive-nesting-threshold = 5
