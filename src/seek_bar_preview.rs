@@ -50,6 +50,19 @@ fn preview_size(dw: i32, dh: i32, long_edge: i32) -> (i32, i32) {
     (w, h)
 }
 
+fn set_popover_non_modal(pop: &gtk::Popover) {
+    if pop.find_property("modal").is_some() {
+        pop.set_property("modal", false);
+    }
+}
+
+fn point_popover_at(pop: &gtk::Popover, seek: &gtk::Scale, x: f64) {
+    let w = f64::from(seek.width().max(1));
+    let x_cl = x.clamp(2.0, w - 2.0) as i32;
+    let r = gtk::gdk::Rectangle::new(x_cl, -6, 1, 1);
+    pop.set_pointing_to(Some(&r));
+}
+
 fn set_preview_size(gl: &gtk::GLArea, seek: &gtk::Scale, player: &Rc<RefCell<Option<MpvBundle>>>) {
     let (dw, dh) = player
         .borrow()
@@ -135,6 +148,7 @@ pub fn connect(
     let pop = gtk::Popover::new();
     pop.set_autohide(false);
     pop.set_has_arrow(false);
+    set_popover_non_modal(&pop);
     pop.set_position(gtk::PositionType::Top);
     pop.set_offset(0, -8);
     pop.set_parent(seek);
@@ -230,10 +244,6 @@ pub fn connect(
             st.time_lbl.set_text(&format_time(t));
             set_preview_size(&gl, &st.seek, &st.player);
 
-            let x_cl = x.clamp(2.0, w - 2.0) as i32;
-            let r = gtk::gdk::Rectangle::new(x_cl, -6, 1, 1);
-            st.pop.set_pointing_to(Some(&r));
-            st.pop.popup();
             if let Some(sid) = st.deb.borrow_mut().take() {
                 sid.remove();
             }
@@ -242,21 +252,21 @@ pub fn connect(
             }
             if !st.enabled.get() {
                 gl.set_visible(false);
+                st.pop.popdown();
                 return;
             }
-            let path = st
-                .player
-                .borrow()
-                .as_ref()
-                .and_then(|b| {
-                    local_file_from_mpv(&b.mpv).or_else(|| st.last_path.borrow().clone())
-                });
+            let path = st.player.borrow().as_ref().and_then(|b| {
+                local_file_from_mpv(&b.mpv).or_else(|| st.last_path.borrow().clone())
+            });
             let path_ok = path.as_ref().is_some_and(|p| p.is_file());
             if !path_ok {
                 gl.set_visible(false);
+                st.pop.popdown();
                 return;
             }
-            gl.set_visible(true);
+            if st.pop.is_visible() {
+                point_popover_at(&st.pop, &st.seek, x);
+            }
             let st2 = Rc::clone(&st);
             let gl2 = gl.clone();
             let pr2 = Rc::clone(&preview);
@@ -277,14 +287,9 @@ pub fn connect(
                         gl2.set_visible(false);
                         return glib::ControlFlow::Break;
                     }
-                    let p = st2
-                        .player
-                        .borrow()
-                        .as_ref()
-                        .and_then(|b| {
-                            local_file_from_mpv(&b.mpv)
-                                .or_else(|| st2.last_path.borrow().clone())
-                        });
+                    let p = st2.player.borrow().as_ref().and_then(|b| {
+                        local_file_from_mpv(&b.mpv).or_else(|| st2.last_path.borrow().clone())
+                    });
                     let Some(pth) = p else {
                         gl2.set_visible(false);
                         return glib::ControlFlow::Break;
@@ -293,10 +298,16 @@ pub fn connect(
                         gl2.set_visible(false);
                         return glib::ControlFlow::Break;
                     }
+                    if let Some((x, _)) = *st2.last_xy.borrow() {
+                        point_popover_at(&st2.pop, &st2.seek, x);
+                    }
+                    gl2.set_visible(true);
+                    if !st2.pop.is_visible() {
+                        st2.pop.popup();
+                    }
                     if pr2.borrow().is_none() {
                         tries2.set(tries2.get() + 1);
                         if tries2.get() < 20 {
-                            gl2.set_visible(true);
                             return glib::ControlFlow::Continue;
                         }
                         gl2.set_visible(false);
@@ -310,8 +321,7 @@ pub fn connect(
                         .and_then(|b| b.mpv.get_property::<f64>("duration").ok())
                         .filter(|d| d.is_finite() && *d > 0.0)
                         .unwrap_or(up);
-                    let t = (st2.hover_t.get())
-                        .clamp(0.0, (mpv_d - 0.01).max(0.0));
+                    let t = (st2.hover_t.get()).clamp(0.0, (mpv_d - 0.01).max(0.0));
                     let canon = std::fs::canonicalize(&pth).unwrap_or(pth);
                     {
                         let mut g = pr2.borrow_mut();
@@ -319,11 +329,7 @@ pub fn connect(
                             gl2.set_visible(false);
                             return glib::ControlFlow::Break;
                         };
-                        let need_load = lp2
-                            .borrow()
-                            .as_ref()
-                            .map(|c| c != &canon)
-                            .unwrap_or(true);
+                        let need_load = lp2.borrow().as_ref().map(|c| c != &canon).unwrap_or(true);
                         if need_load {
                             *lp2.borrow_mut() = Some(canon.clone());
                             let s = match canon.to_str() {
