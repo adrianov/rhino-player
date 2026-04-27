@@ -1,11 +1,26 @@
 ---
-description: Document-first for LLM-driven development. Every feature has YAML metadata + Gherkin scenarios as single source of truth.
+description: Document-first for LLM-driven development. Behavior is platform-, engine-, language-agnostic; bindings live only in Notes.
 alwaysApply: true
 ---
 
 # Document-first for LLM-driven development
 
 Rhino Player is built **document-first**: every user-visible behavior is captured in `docs/features/<NN>-<slug>.md` **before** (or in tight lockstep with) code. Specs are the **single source of truth** for both human reviewers and automated agents. Implementation merely satisfies the scenarios listed here.
+
+## Portability principle
+
+The stack is split into three layers (see [`docs/architecture.md`](../docs/architecture.md)):
+
+1. **Product behavior** — feature scenarios. Portable across every port.
+2. **Architecture core** — fixed for Rhino: **Rust** (language), **SQLite** (persistent store), **mpv** (playback engine). The same on every port. Scenarios may rely on these invariants through domain terms ("the persistent store", "the playback engine"); the architecture doc records the mapping to current API names.
+3. **Platform binding** — varies per port. Today: GTK / libadwaita, XDG paths, Freedesktop trash, GIO actions, MPRIS, etc. Replaced when porting (e.g. AppKit + macOS conventions).
+
+This means a hard split inside each feature doc:
+
+- **`## Behavior` is the portable contract.** Domain language only. **No** UI-toolkit widget classes, OS paths, env vars, library names, language-specific types, action ids, or media-engine API names. The fixed core may be referenced through domain terms but **not** through API names; e.g. write "playback position", not the engine property.
+- **`## Notes` is the current binding.** All implementation specifics live here: media-engine property names, UI-toolkit widget classes, OS paths and trash semantics, persistence schema, environment variables, language-specific types, and module references. When the binding changes, this section is rewritten; scenarios are not.
+
+A small number of features genuinely target one platform (build / packaging / OS integration). Those set `scope: platform-specific` in the front-matter, declare the target in the first sentence of `## Description`, and may use platform language in scenarios where the platform itself is the subject of the spec; everything else stays portable.
 
 ## Mandatory file shape
 
@@ -17,18 +32,19 @@ Each `docs/features/<NN>-<slug>.md` MUST follow this exact section order. No ext
 ---
 status: done | wip | planned | removed | research
 priority: p0 | p1 | p2
-layers: [ui, mpv, db, fs, platform, build, input]
+layers: [ui, input, playback, persistence, storage, os-integration, build]
 related: [<NN>, <NN>]
-actions: [app.<id>]            # optional: GIO actions exposed
-settings: [<key>]              # optional: persisted DB / config keys
-mpv_props: [<property>]        # optional: observed / set mpv properties
+scope: portable | platform-specific   # default: portable; set to platform-specific for build / packaging / OS-integration features
 ---
 
 ## Use cases
-- One-line bullets stating user value (no implementation).
+- One-line bullets stating user value.
+- For most features the existing persona ("a viewer") is implicit; do not prefix every line with "As a viewer, I want…".
+- Use the full "As a [persona], I want …, so that …" form **only** when the persona is non-default (e.g. packager, integrator, accessibility user) or the pain is non-obvious or contested.
 
 ## Description
-1–2 short paragraphs (≤ 6 lines each). What the user sees and does. No code paths.
+1–2 short paragraphs (≤ 6 lines each). What the user sees and does, in domain terms. No code paths.
+If `scope: platform-specific`, state the target platform / toolchain in the first sentence.
 
 ## Behavior
 
@@ -56,16 +72,17 @@ Feature: <Title>
 ```
 
 ## Notes (optional)
-- Short, non-binding bullets: persistence keys, mpv properties, modules, gotchas.
-- This section is reference material; **scenarios above are the contract**.
+- Short, non-binding bullets: **current** binding details — engine property names, UI-toolkit widgets, OS paths, env vars, persistence schema, module references.
+- This section is reference material; **scenarios above are the contract** and outlive any one binding.
 ```
 
 ### Front-matter rules
 
 - Use a YAML block delimited by `---` directly under the H1 (it renders as plain text in GitHub but parses cleanly for tools).
-- `status`, `priority`, `layers` are required; `related`, `actions`, `settings`, `mpv_props` are optional but encouraged when relevant.
+- `status`, `priority`, `layers` are required. `related` and `scope` are optional; `scope` defaults to `portable`.
 - `related` lists feature numbers only (e.g. `[03, 26]`), never paths.
-- `priority` defaults to `p1` if omitted (ship before `p2`, after `p0`).
+- `priority` defaults to `p1` if omitted.
+- The front-matter intentionally has **no** binding-specific fields (no engine properties, no GIO action ids, no persistence keys). Those belong in `## Notes`.
 
 ## Scenarios are the contract
 
@@ -76,18 +93,19 @@ Hard rules for scenarios:
 - **One Feature per file**, named the same as the H1.
 - **Imperative-mood** scenario titles ("Seek updates position"), not "should …".
 - **Given / When / Then** at minimum; use **And** / **But** for additional clauses.
-- Each scenario must end in **at least one observable Then** (UI state, persisted value, mpv property, file-system effect, exit code, log line). No silent-success scenarios.
-- **Domain language** preferred (e.g. *the recent grid*, *Smooth 60*, *sibling next*). Mention an mpv property, action id, or DB key only when its exact name is part of the contract.
-- **No code paths, file names, or module names** in `Given/When/Then` lines. Put those in `## Notes` or in a `# comment` between steps.
+- Each scenario must end in **at least one observable Then** (UI state visible to a user, persisted value, file-system effect from the user’s perspective, exit code, audible output). No silent-success scenarios.
+- **Domain language only.** Mention the *concept* ("playback position", "audio track", "subtitle track", "the video surface", "the sound popover", "the persistent store", "the user config directory", "the platform’s trash"), never the *binding* ("time-pos", "aid", "GLArea", "SQLite", "XDG", "gio::File::trash"). Engine property names, action ids, file paths, env vars, struct or class names, library names, and language-specific types are forbidden in `Given / When / Then`.
+- **No code paths or module names** in scenarios. Put those in `## Notes` or in a `# step comment` between steps.
+- For `scope: platform-specific` files, platform names may appear when the platform itself is the subject; binding names still belong in `## Notes`.
 
 ## Optional Gherkin enrichment (LLM-friendly)
 
 Use these to add precision without breaking behavioral framing.
 
 - **Tags (`@…`)** — Place on `Feature:` and / or `Scenario:`. Use only the controlled vocabulary below; one of each kind is enough.
-- **Step comments (`# …`)** — Hints between steps for agents and tests. Examples: `# mpv: observe_property time-pos`, `# persists: settings.video_smooth_60`.
-- **Tables under Then** — Allowed when an outcome is precisely structural (DB columns, config keys, button enablement matrix). One column header row, then rows. Do not replace prose **Then** with a table; add the table after it.
-- **Doc strings (`""" … """`)** — For exact payloads (JSON, mpv command strings, `.desktop` snippets). Optionally label the fence (e.g. `"""json`).
+- **Step comments (`# …`)** — Hints between steps for agents and tests. Examples: `# observe the playback-position concept`, `# persists in the smooth-motion preference`. Keep these in domain terms too; if you need to name a specific API, do it in `## Notes`.
+- **Tables under Then** — Allowed when an outcome is precisely structural (config keys, button enablement matrix). One header row, then rows. Do not replace prose **Then** with a table; add the table after it.
+- **Doc strings (`""" … """`)** — For exact payloads only when the wire format is the contract (e.g. file format, public protocol). Do not use for engine-internal commands.
 - **`Background:`** — Only for preconditions repeated by every scenario in the file.
 - **`Scenario Outline:` + `Examples:`** — For parametric variants (preferred over copy-pasted scenarios).
 
@@ -95,18 +113,23 @@ Use these to add precision without breaking behavioral framing.
 
 Use exactly these tag namespaces and values:
 
-| Tag prefix    | Allowed values                                               |
-|---------------|--------------------------------------------------------------|
-| `@status:`    | `done`, `wip`, `planned`, `removed`, `research`              |
-| `@priority:`  | `p0`, `p1`, `p2`                                             |
-| `@layer:`     | `ui`, `mpv`, `db`, `fs`, `platform`, `build`, `input`        |
-| `@area:`      | one short kebab-case area name (e.g. `transport`, `recent`)  |
+| Tag prefix    | Allowed values                                                                                  |
+|---------------|-------------------------------------------------------------------------------------------------|
+| `@status:`    | `done`, `wip`, `planned`, `removed`, `research`                                                 |
+| `@priority:`  | `p0`, `p1`, `p2`                                                                                |
+| `@layer:`     | `ui`, `input`, `playback`, `persistence`, `storage`, `os-integration`, `build`                  |
+| `@area:`      | one short kebab-case area name (e.g. `transport`, `recent`, `subtitles`)                        |
+
+Layer values are intentionally implementation-neutral: `playback` (not `mpv`), `persistence` (not `db` / `sqlite`), `storage` (not `fs` / `xdg`), `os-integration` (for trash, MPRIS, file associations, single-instance policy, etc.).
 
 `@status` and `@priority` on the `Feature:` line should mirror the front-matter (kept in sync; both are easy for agents to read).
 
 ## What does NOT belong in scenarios
 
-- Restating internal Rust module layout, file paths, or struct names.
+- Internal module / class / function / struct names from any one language.
+- Engine API names (e.g. media-engine property strings, command names).
+- UI-toolkit widget class names.
+- OS-specific paths, env vars, executable names, file extensions of internal files.
 - "Should …" / "Must …" prose with no observable outcome.
 - Long narrative recovered from chat or PR descriptions.
 - Conditional implementation discussion ("If we later add …").
@@ -117,21 +140,21 @@ Move all of the above to `## Notes` or a separate research file. If a feature is
 
 When creating or editing a feature doc, an agent must verify:
 
-1. Front-matter exists, parses, and uses allowed values.
+1. Front-matter exists, parses, and uses allowed values; `scope` is set when the feature targets one platform.
 2. Sections appear in the exact required order; no extra top-level sections.
 3. **Behavior** has exactly one `Feature:` matching the H1.
 4. Every `Scenario` has `Given … When … Then …` and at least one observable `Then`.
-5. Tags use only the controlled vocabulary.
-6. `related` numbers correspond to existing feature files.
-7. `docs/README.md` index row exists for this feature with matching status.
-8. `.cursorrules` does not contradict the new file (status changes flow into the index, not into `.cursorrules` per-feature lines).
+5. **Portability sweep**: scan scenarios for forbidden names (engine APIs, widget classes, OS paths, env vars, library names, language types). For `scope: portable` files, none may appear; move them to `## Notes`. Test: *would porting Rhino to another OS / UI toolkit force this scenario to be edited?* If yes, the leak is in the scenario; fix it. The fixed core (Rust / SQLite / mpv) is invariant across ports per [`docs/architecture.md`](../docs/architecture.md), but its API names still stay in `## Notes` for readability.
+6. Tags use only the controlled vocabulary.
+7. `related` numbers correspond to existing feature files.
+8. `docs/README.md` index row exists for this feature with matching status.
 
 ## Workflow for changes
 
 - **Add a feature**: pick the next free `NN`, create the file with `status: planned` and at least one scenario, add an index row in `docs/README.md`. Implementation may start once the scenarios are reviewable.
 - **Change a feature**: update **scenarios first**, then code. If behavior is dropped, mark `status: removed` and keep the file as a history pointer.
 - **Bug fix**: if existing scenarios already cover it, code only; otherwise add the missing scenario before the fix.
-- **Cross-feature work**: prefer one focused doc edit per behavior; keep PRs small.
+- **Re-binding (porting to another stack)**: scenarios should not need edits. Only `## Notes` is rewritten for the new binding. If a scenario does need editing, that means the contract leaked binding details — fix the leak, do not duplicate the spec per platform.
 
 ## Housekeeping
 

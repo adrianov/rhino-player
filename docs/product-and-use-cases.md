@@ -1,6 +1,10 @@
 # Rhino Player — product and use cases
 
-Rhino Player is a **desktop video and audio player** for Linux (GNOME and similar) that uses **mpv** for playback and **GTK 4 / libadwaita** for the interface, implemented in **Rust**. This document states **why** each area matters to users and maintainers, without tying specs to any other application.
+Rhino Player is a **desktop video and audio player**. The **product behavior** documented in `docs/features/` is portable across operating systems and UI toolkits: the same scenarios drive any implementation. Three architectural layers — product behavior, fixed core, and platform binding — are spelled out in [`docs/architecture.md`](architecture.md).
+
+The **fixed core** is part of what Rhino is and does not change across ports: **Rust** (language), **SQLite** (persistent store), **mpv** (playback engine). The **platform binding** is everything that varies per port; today it targets **Linux** (GNOME and similar) using **GTK 4 / libadwaita** plus XDG / Freedesktop conventions. Ports to macOS or Windows replace the binding layer without rewriting feature scenarios.
+
+This document states **why** each area matters to users and maintainers, without tying specs to any one platform binding.
 
 ## Audience and value
 
@@ -51,11 +55,8 @@ Values may live in GSettings, a TOML file, or another store; the [Preferences](f
 | `save-session` | Write last playlist on exit |
 | `is-maximized` | Restore maximized state |
 
-## Technology scope (this project)
+## Architecture and stack
 
-- **UI:** GTK 4, libadwaita.
-- **Playback:** libmpv; embedding via render API and OpenGL.
-- **Platform:** D-Bus (MPRIS), XDG config paths, Pulse/PipeWire audio as typical on target desktops.
-- **Build:** Rust and Cargo; release strategy is defined in the static-build feature (dynamic system libs, optional bundling—no prescriptive store format in this document).
+The full breakdown — fixed core (Rust, SQLite, mpv), per-port binding columns (Linux today; macOS / Windows sketches), domain glossary, and boundary rules — lives in [`docs/architecture.md`](architecture.md). Feature scenarios are written in domain language and rely on the fixed core through domain terms only.
 
 Feature details and acceptance tests stay in `docs/features/`.

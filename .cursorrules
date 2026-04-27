@@ -15,7 +15,7 @@
 
 ## Workflow
 
-- **Document-first**: see `.cursor/rules/document-first.mdc`. Each feature doc in `docs/features/<NN>-<slug>.md` follows the strict template: H1, YAML front-matter (`status`, `priority`, `layers`, optional `related` / `actions` / `settings` / `mpv_props`), `## Use cases`, `## Description`, `## Behavior` (a single `Feature:` Gherkin block — the **single source of truth** for acceptance), and optional `## Notes`. Optional tags / `#` step comments / tables / doc strings may add technical metadata; module names and file paths belong in `## Notes`, not in scenarios.
+- **Document-first**: see `.cursor/rules/document-first.mdc`. Three layers (see `docs/architecture.md`): **product behavior** (feature scenarios — portable), **architecture core** (fixed: Rust, SQLite, mpv), **platform binding** (varies per port — today: Linux / GTK / libadwaita / XDG). Each `docs/features/<NN>-<slug>.md` follows the strict template — H1, YAML front-matter (`status`, `priority`, `layers`, optional `related` / `scope`), `## Use cases`, `## Description`, `## Behavior` (single `Feature:` Gherkin block in domain language only — the single source of truth for acceptance), optional `## Notes` (the **only** place for engine APIs, UI-toolkit widgets, OS paths, env vars, persistence schema, and language types). Layer vocabulary: `ui`, `input`, `playback`, `persistence`, `storage`, `os-integration`, `build`.
 - **Known UX not achieved in testing (Composer 2 Fast pass):** one-click switch between header `MenuButton` popovers — see `docs/README.md` (*Tooling note*) and `docs/features/17-window-behavior.md`. Revisit with a different model or deeper GTK review.
 
 ## Conventions

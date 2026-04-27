@@ -1,13 +1,15 @@
 # Rhino Player — documentation
 
-Features are specified here **before** implementation, so reviewers and automated agents share one source of truth. Each file in `docs/features/` follows the strict template defined in [`.cursor/rules/document-first.mdc`](../.cursor/rules/document-first.mdc):
+Features are specified here **before** implementation, so reviewers and automated agents share one source of truth. The feature behavior is **portable**: the same scenarios must drive the current Linux / GTK / mpv / Rust implementation and any future port (e.g. macOS / AppKit / AVKit / Swift, Windows / WinUI / Media Foundation / C#). Implementation specifics live only in `## Notes`.
+
+Each file in `docs/features/` follows the strict template defined in [`.cursor/rules/document-first.mdc`](../.cursor/rules/document-first.mdc):
 
 1. H1 title
-2. YAML front-matter (`status`, `priority`, `layers`, `related`, optional `actions` / `settings` / `mpv_props`)
+2. YAML front-matter (`status`, `priority`, `layers`, optional `related`, optional `scope`)
 3. `## Use cases` (one-line bullets)
 4. `## Description` (1–2 short paragraphs)
-5. `## Behavior` (the **Gherkin** `Feature:` block — the **single source of truth** for acceptance)
-6. `## Notes` (optional, non-binding implementation hints)
+5. `## Behavior` (the **Gherkin** `Feature:` block — the **single source of truth** for acceptance, in domain language only)
+6. `## Notes` (optional, non-binding implementation hints — the only place engine APIs, UI-toolkit widgets, OS paths, and language types may appear)
 
 Scenarios use **Given / When / Then**. Tags, step comments, tables under **Then**, and doc strings are allowed for technical metadata; the rule file lists the controlled vocabulary and forbidden patterns.
 
@@ -50,10 +52,11 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 
 Some UX targets were attempted in code but did not validate in manual testing on the maintainer’s GNOME / Wayland setup. They are documented as **not achieved in the current Cursor / Composer 2 Fast pass** (revisit with a different model or deeper GTK review): one-click switch between header `MenuButton` popovers — see [17-window-behavior](features/17-window-behavior.md).
 
+## Architecture and product context
+
+- [`docs/architecture.md`](architecture.md) — three-layer model (product behavior / fixed core / platform binding), domain glossary mapping scenario terms to today's core API names, and the per-port binding table.
+- [`docs/product-and-use-cases.md`](product-and-use-cases.md) — audience, use-case table mapped to feature docs, planned settings.
+
 ## Technical references (upstream APIs)
 
 - [GTK4 / GDK4: toplevel size, `compute-size`, and aspect-related notes](references-gtk4-toplevel-aspect.md)
-
-## Product context
-
-- [docs/product-and-use-cases.md](product-and-use-cases.md) — audience, use-case table mapped to feature docs, planned settings.
