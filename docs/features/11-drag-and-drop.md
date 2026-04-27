@@ -1,34 +1,44 @@
 # Drag and drop
 
-**Name:** DnD onto video surface
+---
+status: planned
+priority: p2
+layers: [ui, mpv]
+related: [05, 06, 08, 24]
+---
 
-**Implementation status:** Not started
+## Use cases
+- Add files from the file manager or browser quickly.
+- Add subtitles to the playing video with one drop.
 
-**Use cases:** Add files from the file manager or browser quickly; add subtitles with minimal clicks.
+## Description
+The main video area accepts drops of files, folders, and text URLs. The first dropped item replaces the current media, additional items append. While playback is active, dropped subtitle files route to `sub-add` instead of replacing media.
 
-**Short description:** Drop files, folders, and text/URLs onto the main video area; first item replaces, following append; subtitles route to `sub-add` when appropriate.
-
-**Long description:** Visual drop affordance; detect subtitle extensions when something is already playing. Support `GFileList` and string URIs. After drop, re-run shuffle/playlist sync if shuffle is enabled and idle state requires it. Errors show as non-intrusive toasts or inline state.
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
-Feature: Drag and drop onto the video surface (target behavior — not started)
-  Scenario: Drop opens media
-    Given the main window accepts drops
-    When the user drops playable media paths onto the video area
-    Then loadfile runs with replace or append-play per documented ordering rules
+@status:planned @priority:p2 @layer:ui @area:dnd
+Feature: Drag and drop onto the video surface
 
-  Scenario: Subtitle file while playing
+  Scenario: Drop opens media
+    Given the main window is visible
+    When the user drops one or more playable media paths onto the video area
+    Then the first item replaces the current media via loadfile
+    And remaining items append in drop order
+
+  Scenario: Subtitle file added while playing
     Given a video is playing
-    When the user drops a file that matches subtitle heuristics
-    Then subtitles are added with sub-add and selection as specified
-    Otherwise a new media load follows the documented replace/append rule
+    When the user drops a file whose extension is a known subtitle format
+    Then sub-add loads the file as a subtitle track
+    And the dropped subtitle becomes selected
+
+  Scenario: Folder drop loads the directory as a playlist
+    Given the user drops a directory
+    When the drop completes
+    Then mpv loadfile receives the directory path
 ```
 
-- Drop targets accept file list and plain URL string where GTK allows.
-- Directory drops load as playlist (mpv `loadfile` with directory).
-- If playing and file looks like a subtitle, `sub-add` with select; otherwise media `loadfile` with correct mode.
-- `is_local_path` heuristics for URL vs path.
+## Notes
+- Drop targets accept GTK file lists and plain URL strings.
+- Use a heuristic for local path vs URL before deciding load mode.
+- Show a non-intrusive error inline when drops fail; do not introduce new toasts.

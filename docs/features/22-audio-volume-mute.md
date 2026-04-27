@@ -1,42 +1,61 @@
 # Audio: volume, mute, persistence
 
-**Name:** System volume, mute, and last level persistence
+---
+status: done
+priority: p1
+layers: [ui, mpv, db, input]
+related: [08, 13, 14]
+actions: []
+settings: [master_volume, master_mute]
+mpv_props: [volume, mute, volume-max]
+---
 
-**Implementation status:** Done
+## Use cases
+- Adjust loudness without leaving the app.
+- One-click mute via icon, key, or scroll wheel.
+- Restore the last level on the next run.
 
-**Use cases:** Adjust loudness without leaving the app; one-click mute; match expectations from other desktop players and mpv; restore last used level on the next run.
+## Description
+A header **Sound** `MenuButton` with a level-aware symbolic icon opens one popover. The popover shows a single horizontal line: a circular flat mute toggle plus a horizontal scale `0..volume-max` (no numeric tick labels). When the file has at least two audio streams, an audio-track list (radio rows, scrollable) appears in the same popover (see [08-tracks](08-tracks.md)).
 
-**Short description:** Header **Sound** control with one popover: one **horizontal line** (mute icon toggle + scale, no extra labels) and, when applicable, an **audio track** list without a section title (see [08-tracks](08-tracks.md)); scroll-wheel on the video, keyboard shortcuts, and `volume` / `mute` in the app database for the next run.
+`volume` and `mute` are mirrored between the popover, the scroll wheel on the video surface, the keys, and mpv. Last values persist in SQLite `settings` and apply on next launch.
 
-**Long description:** A `MenuButton` with a symbolic icon (muted / low / medium / high) opens a popover: **one line** (no numeric tick labels on the scale) with a **circular flat mute** `ToggleButton` (icon only, tooltips *Mute* / *Unmute*) and a horizontal `Scale` for `0…volume-max`, then a **scrollable** track list **only** if the file has at least one **audio** stream (otherwise that block is **hidden**). The transport poll updates the header icon. `EventControllerScroll` on the `GLArea` changes volume when the recent grid is not covering the view. The SQLite `settings` table stores `master_volume` and `master_mute` strings, applied to mpv after the render context is created and written again on quit (before `commit_quit`).
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
+@status:done @priority:p1 @layer:mpv @area:audio
 Feature: Volume, mute, and persistence
+
   Scenario: Popover and shortcuts agree with mpv
-    Given the Sound popover is open or keys adjust volume
-    When mute toggles or scale moves within volume-max
-    Then mpv volume and mute mirror chrome without orphan notifications
+    Given the Sound popover is open
+    When the user moves the scale or toggles mute
+    Then mpv volume and mute change to match the chrome
+    And no extra notifications are shown
 
-  Scenario: Scroll wheel adjusts volume on video only when visible
-    Given playback chrome allows wheel delivery on GLArea and grid is hidden
-    When the user scrolls vertically with proportional steps
-    Then volume moves by clamped increments without exceeding bounds
+  Scenario: Scroll wheel adjusts volume on the video only when chrome is visible
+    Given the recent grid is hidden and the GLArea has focus
+    When the user scrolls vertically on the video surface
+    Then volume changes by 5% per notched step, clamped to volume-max
+    And smooth-trackpad small deltas aggregate proportionally
 
-  Scenario: Persist last audible settings across quit
-    Given playback ran long enough to reflect real volume and mute
-    When the application reaches quit before commit_quit stops playback
-    Then SQLite stores master_volume and master_mute for next launch defaults
+  Scenario: Mute keeps the stored level
+    Given a non-zero volume is set
+    When the user toggles mute on then off
+    Then the volume value is unchanged after unmute
+
+  Scenario: Persist across quit
+    Given playback ran long enough to reflect the user’s real volume and mute
+    When the application quits before commit_quit stops playback
+    Then SQLite stores master_volume and master_mute
+    And the next launch restores them to mpv after MpvBundle creation
+
+  Scenario: Defaults on first run
+    Given no settings exist for volume or mute
+    When the app starts the first time
+    Then volume defaults to 100 and mute defaults to off
 ```
 
-- `volume` and `mute` on libmpv stay consistent with the popover, scroll wheel, and keys.
-- The scale does not show a numeric value label (`draw_value` = false); level is read from the slider and the header icon. Mute is the icon-only toggle in the popover; mute state does not change the stored volume value (unmute restores the prior level).
-- **Scroll (video):** vertical scroll on `GLArea` adjusts volume by 5% per notched step (smoothed trackpads aggregate sensibly; small `dy` values change volume proportionally, clamped to range).
-- **Keys (main window, player ready):** **↑** / **↓** nudge volume by 5% (clamped); **m** toggles mute. Do not add extra notifications for volume changes.
-- On startup, if settings exist, apply `volume` and `mute` to mpv after `MpvBundle` creation. Defaults: 100% volume, not muted.
-- On quit, persist current `volume` and `mute` to the DB before `commit_quit` runs `stop` (so values reflect real playback, not a forced idle state from quit).
-
-**Current code:** `src/app/build_window.rs` and `src/app/realize.rs` (header control and transport sync), `src/app/input.rs` (GL scroll and key bindings), `src/db.rs` (`settings` + load/save), `src/mpv_embed.rs` (no extra hooks beyond existing property API).
+## Notes
+- The scale uses `draw_value=false`; level is read from the slider and the header icon (muted / low / medium / high).
+- Up / Down keys nudge volume by 5% (clamped); `m` toggles mute (see [13-input-shortcuts](13-input-shortcuts.md)).
+- Persistence runs before `commit_quit` so values reflect real playback state.

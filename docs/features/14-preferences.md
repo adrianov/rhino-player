@@ -1,34 +1,46 @@
 # Preferences and persistent settings
 
-**Name:** GSettings / dconf or portable settings
+---
+status: wip
+priority: p1
+layers: [db, mpv, ui]
+related: [03, 18, 22, 24, 26]
+settings: [seek_bar_preview, master_volume, master_mute, video_smooth_60, video_vs_path, video_mvtools_lib]
+---
 
-**Implementation status:** In progress (per-file resume: mpv `save-position-on-quit` + `watch-later-dir` under `~/.config/rhino/watch_later`, no global prefs UI yet)
+## Use cases
+- Set defaults once (subtitle look, default volume, hardware decode, resume).
+- Have those defaults apply on next launch without surprises.
 
-**Use cases:** Set subtitle look, default volume, hardware decode, and “remember my place” once—apply everywhere next launch.
+## Description
+Every user-visible preference has a key and default. Values live in SQLite (`rhino.sqlite` `settings` table) and per-file resume uses mpv `save-position-on-quit` plus `watch-later-dir` under `~/.config/rhino/watch_later`. Most toggles apply live to the running mpv instance; documented exceptions are listed where they exist.
 
-**Short description:** Preferences dialog: open in new window, hardware decode, volume normalization, subtitle appearance (color, font, scale, background), language priority strings, thumbnail preview, save session, save watch positions, and related toggles. Values sync to running mpv.
+A dedicated preferences dialog is not yet shipped; preferences are presented as menu items today (e.g. Progress Bar Preview, Smooth Video).
 
-**Long description:** Use `Gio.Settings` with a compiled schema, or a TOML/JSON file; the implementation choice is recorded here when fixed. A sync step applies: `sub-*`, `slang`/`alang`, `save-position-on-quit`, `volume`, `hwdec` vs `vf` hflip/vflip, loudnorm filter when normalization is on. **Per-file stop position** is implemented in the player core via libmpv: `save-position-on-quit` and a dedicated `watch-later-dir` (see [mpv embed](03-mpv-embedding.md)) so the next `loadfile` of the same path resumes where playback stopped, without sharing the user’s default `mpv` watch_later store unless we later add a setting.
-
-**Implemented in SQLite (see `db.rs`):** among other keys, `seek_bar_preview` toggles **Progress Bar Preview** (seek-bar hover thumbnail; see [18-thumbnail-preview](18-thumbnail-preview.md)).
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
+@status:wip @priority:p1 @layer:db @area:preferences
 Feature: Preferences and persistent settings
-  Scenario: Live apply for most toggles
-    Given the user changes a documented preference while media is playing
-    When the change is committed in the preferences UI
-    Then mpv receives the matching update without restart except for documented exceptions
 
-  Scenario: Keys and defaults are defined
-    Given a shipped user-visible preference
-    When the product references that setting in documentation
-    Then a storage key and default value exist and stay consistent with implementation
+  Scenario: Live apply for most toggles
+    Given a documented preference is changed while media is playing
+    When the change is committed
+    Then mpv reflects the new value without an app restart
+    And the value persists across the next launch
+
+  Scenario: Every shipped option has a key and default
+    Given a user-visible preference is mentioned in feature docs
+    When tooling inspects the settings store
+    Then a storage key with a default value exists for that preference
+
+  Scenario: Per-file resume uses the dedicated watch-later directory
+    Given save-position-on-quit is enabled
+    When the user quits the app while a local file is playing mid-stream
+    Then a watch_later sidecar appears under ~/.config/rhino/watch_later
+    And reopening the same path resumes from that position
 ```
 
-- Every user-visible option has a key and default.
-- Changing a setting updates mpv live without restart, except when a reinit is unavoidable (document exceptions).
-- Window maximized state may be remembered (`is-maximized`).
+## Notes
+- Keys persisted today in SQLite include `seek_bar_preview` (toggles [18-thumbnail-preview](18-thumbnail-preview.md)), `master_volume` / `master_mute` (see [22-audio-volume-mute](22-audio-volume-mute.md)), `video_smooth_60` / `video_vs_path` / `video_mvtools_lib` (see [26-sixty-fps-motion](26-sixty-fps-motion.md)), plus subtitle preferences in [24-subtitles](24-subtitles.md).
+- `is-maximized` and other window-restore keys are still TBD.

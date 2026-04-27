@@ -1,34 +1,44 @@
 # Cargo project and build layout
 
-**Name:** Cargo project and build layout
+---
+status: done
+priority: p0
+layers: [build]
+related: [20]
+---
 
-**Implementation status:** Done (see [20-static-build](20-static-build.md) for static release)
+## Use cases
+- Contributors and CI build and test with one toolchain.
+- Packagers see a clear dependency list.
+- The codebase stays maintainable as modules grow.
 
-**Use cases:** Contributors and CI can build and test with one toolchain; packagers get a clear dependency list; the project stays maintainable as modules grow.
+## Description
+Rhino Player is a Rust application with a standard `Cargo.toml` and `src/` layout at the repository root. Build instructions live in the root `README.md`. Static linking of GTK and GL stacks on Linux is constrained by platform policy; reproducible release builds are owned by [feature 20](20-static-build.md).
 
-**Short description:** Rust workspace at the repository root, standard `src/main.rs` entry, dependencies documented for GTK/Adwaita/mpv, and a path toward reproducible and optionally static release builds.
-
-**Long description:** Rhino Player is a Rust application. The repository must have a clear `Cargo.toml` and `src/` layout so features can be added as modules. Build instructions belong in the root `README.md`. Static linking of GTK and GL stacks on Linux is constrained by platform and distro policies; the project documents goals in a dedicated feature and implements what is practical (e.g. LTO, `target-feature`, or bundled dependencies where possible).
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
+@status:done @priority:p0 @layer:build
 Feature: Cargo project and build layout
+
   Scenario: Build from a clean checkout
-    Given documented system dependencies for GTK4 / libadwaita / Rust are installed
+    Given documented system dependencies for GTK4, libadwaita, and Rust are installed
     When a contributor runs cargo build from the repository root
     Then the crate builds without undisclosed extra steps
 
-  Scenario: Tests (when present)
+  Scenario: Tests run from the repository root
     Given integration or unit tests exist for the crate
-    When they run cargo test from the repository root
+    When the contributor runs cargo test from the repository root
     Then tests complete successfully with the same documented prerequisites
+
+  Scenario: Crate name and entry are stable
+    Given the repository is checked out at any tagged release
+    When tooling reads Cargo.toml
+    Then the binary name is rhino-player and the entry point is src/main.rs
 ```
 
-- `cargo build` and `cargo test` (once tests exist) run from the repo root without extra steps beyond documented system dependencies.
-- `Cargo.toml` lists crate name `rhino-player` (or agreed binary name) and a minimal set of direct dependencies, with a short comment on why each is needed.
-- `src/main.rs` is the process entry; additional modules are added as focused `src/<module>.rs` files or under a feature directory such as `src/app/` as the codebase grows.
+## Notes
+- `Cargo.toml` lists direct dependencies with a short comment per crate explaining its role.
+- Additional modules are added as focused `src/<module>.rs` files or under a feature directory such as `src/app/` as the codebase grows.
 - The root `README.md` names Rust edition, target OS, and required dev packages for GTK4 and libadwaita at a high level.
-- A `release` profile may enable LTO; full static glibc+GTK+mpv is a stretch goal (see [Static release binary](20-static-build.md)).
+- The `release` profile may enable LTO; full static glibc + GTK + mpv is a stretch goal owned by [20-static-build](20-static-build.md).

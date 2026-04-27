@@ -1,51 +1,85 @@
 # Window: size, fullscreen, UI auto-hide, inhibit idle
 
-**Name:** Window and presentation
+---
+status: wip
+priority: p1
+layers: [ui, platform]
+related: [02, 06, 13, 21]
+mpv_props: [pause, path, dwidth, dheight, fullscreen]
+---
 
-**Implementation status:** In progress (fullscreen, chrome autohide, pointer hide, `GtkWindowHandle` move-from-video, idle inhibit, fit-on-open are **done**; **post-resize video aspect lock** is **not** done — see below; **one-click switch between open header menus** (volume / subtitles / hamburger) is **not achieved in testing** — see specification, marked as blocked for the current Composer 2 Fast pass).
+## Use cases
+- Immersive fullscreen with chrome that hides when not needed.
+- The screen does not lock or sleep during a movie.
+- On opening a landscape file, the window resizes to match its aspect.
 
-**Use cases:** Immersive fullscreen; chrome hides when not needed; the screen does not lock during a movie; when opening a file, the window can resize to match **landscape** (wider than tall) video aspect; portrait or square does not change the window size in this way. **Intended (not done):** after the user **finishes** resizing the window, the shell snaps to the **current** display video aspect (mpv `dwidth`/`dheight`); that behavior is **not** reliably in effect — see **Post-resize aspect lock** under specification.
+## Description
+The shell uses `adw::ToolbarView` with content extending to top and bottom edges, so chrome overlays the GLArea instead of shrinking it. A `GtkWindowHandle` wraps the main content for primary-drag window move (more reliable than manual GestureDrag on GL/Wayland). Fullscreen and maximize are wired to GTK / Wayland conventions; `gtk::Application::inhibit` with IDLE+SUSPEND prevents dim and sleep while a real file plays and the recent grid is hidden. Pointer hides on the GLArea after 3 seconds without motion. On opening a new file, the window resizes to match landscape aspect (target width 960 px, max height 900 px); portrait, square, or unknown sizes leave the window alone.
 
-**Short description:** Default window size, optional maximize restore, fullscreen sync with mpv, header/controls autohide after idle, cursor hide in fullscreen, and session **idle + suspend** inhibit while playing (dim/screensaver and sleep) on GNOME/Wayland via GTK.
+**Post-resize aspect lock** (snapping the window to current display video aspect after the user finishes resizing) and **one-click switching between header `MenuButton` popovers** were attempted but did not validate in manual testing in the current pass. They are documented as not shipped.
 
-**Long description:** Use a revealer or equivalent to hide chrome, motion on header/controls to show, timers to hide after a few seconds, and `gtk::Application::inhibit` with `ApplicationInhibitFlags::IDLE | SUSPEND` while playback is active (so GNOME and other portals respect screen dim and system sleep). Fullscreen: mpv and GTK stay in sync; header decoration in fullscreen can reduce to close only. Optional: set stream properties for the audio sink icon (platform-specific). Optional: window sized from first file resolution via `ffprobe` (see [Open and CLI](06-open-and-cli.md)).
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
+@status:wip @priority:p1 @layer:ui @area:window
 Feature: Window, fullscreen, and presentation
+
   Scenario: Idle inhibit while playing behind chrome
-    Given a real media path is loaded, playback is not paused, and the recent grid is hidden
-    When those conditions hold during playback
-    Then GTK inhibits IDLE and SUSPEND for dim and sleep control as specified
+    Given a real media path is loaded, pause is false, and the recent grid is hidden
+    When those conditions hold
+    Then GTK inhibits IDLE and SUSPEND
+    And inhibit is removed when any condition fails or the app quits
 
-  Scenario: Fullscreen and maximize interplay
-    Given documented fullscreen and maximize wiring on GTK/Wayland
-    When the user enters fullscreen from the video or titlebar per spec
-    Then fullscreen, maximize, and restore dimensions behave without losing last windowed size for restore
+  Scenario: Fit-on-open for landscape video
+    Given a newly loaded file reports dwidth and dheight
+    And the window is neither fullscreen nor maximized
+    When width is greater than height
+    Then the window resizes toward the documented landscape aspect (target width 960 px, max height 900 px, with clamping)
+    And portrait, square, or unknown sizes leave window dimensions unchanged
 
-  Scenario: Fit-on-open for landscape only
-    Given a newly loaded file reports display dimensions to mpv
-    When width is greater than height and the window is not fullscreen or maximized
-    Then the window resizes toward the documented landscape aspect clamp
+  Scenario: Fullscreen via Enter or double-click
+    Given the main window is windowed and not maximized
+    When the user activates Enter, KP_Enter, or double-clicks the video surface
+    Then the current windowed width and height are saved
+    And the window enters fullscreen via the maximize-then-fullscreen path
+
+  Scenario: Exiting fullscreen restores last windowed size
+    Given the window is fullscreen with a saved windowed size
+    When the user exits fullscreen
+    Then the window unmaximizes if needed and set_default_size restores the saved size
+
+  Scenario: Chrome autohide while playing
+    Given a file is playing and the recent grid is hidden
+    When pointer motion stops over the main window for 3 seconds
+    Then the header and bottom toolbars hide
+    And any pointer motion reveals them immediately
+
+  Scenario: Chrome stays visible on the recent grid
+    Given the recent-videos overlay is showing
+    When the user is idle
+    Then the header and bottom toolbars remain visible
+
+  Scenario: Pointer hides on the video after 3s
+    Given the pointer is on the GLArea
+    When 3 seconds pass without movement on that area
+    Then the cursor is set to none on the video surface
 
   Scenario: Post-resize aspect lock — not shipped
-    Given manual resize has ended with video visible
-    When acceptance criteria for aspect lock are evaluated on Wayland + GTK4
-    Then the feature remains documented as incomplete until a future implementation passes acceptance tests
+    Given the user finishes a manual resize with video visible
+    When acceptance is evaluated on Wayland + GTK4
+    Then aspect lock remains documented as not shipped until acceptance is met
+
+  Scenario: One-click header menu switch — not shipped
+    Given a header MenuButton popover is open
+    When the user clicks another header MenuButton
+    Then a single click switching to the next popover is not yet reliable in manual testing
+    And users may need a second click in this pass
 ```
 
-- **Inhibit (IDLE + SUSPEND):** request when a real file/URL is loaded (`path` not empty, not the mpv placeholders `null`/`undefined`), `pause` is false, and the **recent-videos** grid is **not** visible; remove the inhibit when any of those fail, and always **uninhibit** before quit. Implementation polls periodically (e.g. 500ms) to sync with pause/load/grid state.
-- Autohide timeout default (e.g. 2s) and exceptions when popovers or menus are open.
-- **Escape** leaves fullscreen; when not fullscreen, it can return to the recent-videos view (see [Input shortcuts](13-input-shortcuts.md)).
-- **Enter** / **numpad Enter** toggles fullscreen (same behavior as double-click on the video surface).
-- Fullscreen button tooltip updates with state when that control exists.
-- On **load** of a new file, if mpv reports display size and **width is greater than height** (landscape), the main window is resized to that aspect ratio (target width 960px, max height 900px, with clamping); **portrait, square, or unknown** size leaves the current window dimensions. The resize is skipped when the window is **fullscreen** or **maximized**. A short delay is used so `dwidth` / `dheight` (or `width` / `height`) is available.
-- **Post-resize video aspect lock (target):** with a file open and the **recent** grid hidden, when the user **stops** resizing, the main window’s outer size should **match** the current display video aspect from mpv (poll / `win_aspect`); skip when **fullscreen**, **maximized**, no target ratio, or **recent** visible.
-- **Post-resize aspect lock — implementation status: failed / to implement later.** The codebase contains an attempted path (debounced “resize end” on **`GdkSurface` / `GtkWindow`** notifies, **`set_default_size`**, **`present()`**, stricter ratio tolerance, `RHINO_ASPECT_DEBUG=1` logging). A **snap may appear in debug logs** (e.g. `980×671 -> 980×551`) but **reliable, user-visible** aspect enforcement after manual resize on **Wayland + GTK4** was **not** met in this pass. **Do not** treat the feature as shipped. **Revisit** with a more capable model than **Composer 2 Fast** (Cursor) and, if useful, a deeper GDK/GTK4 review ([GTK4 toplevel / aspect notes](../references-gtk4-toplevel-aspect.md); prior `compute-size` approach was also abandoned due to feedback loops). **Acceptance (when retried):** after drag-resize, the window’s client/window size matches video display aspect within a small tolerance, consistently across sessions, without runaway resize or spurious updates on pointer motion.
-- **Primary** drag to move the window uses **`GtkWindowHandle`**, wrapping the `ToolbarView`’s main content (the `GtkOverlay` that holds the `GLArea` and the continue grid), using GTK’s interactive move, not a manual `GestureDrag` + `gdk_toplevel_begin_move` on the `GLArea` (which is unreliable on GL/Wayland in practice). **Double** primary click on the video still toggles fullscreen (windowed ↔ fullscreen); the same on **empty** continue-list **padding** (spacers around the card row, not cards or the undo bar) also toggles fullscreen. **Titlebar maximize** (and any `maximize` with not-yet-fullscreen) immediately continues into **fullscreen** via `connect_maximized_notify`, using the last tracked windowed (w, h) for restore when `fs_restore` is still empty. **Entering** fullscreen from the video (Enter / double-click): if not already maximized, save the current **windowed** width/height, `maximize()`, then the same notify path runs `fullscreen()`. If already maximized, save from `last_unmax` if needed and `fullscreen()`. **Exiting** fullscreen: `unfullscreen()`; in `connect_fullscreened_notify` when leaving fullscreen, if a saved size was set, `unmaximize()` as needed and `set_default_size` to that (w, h). If the user **unmaximizes from the titlebar while in fullscreen** (some WMs set maximized to false before clearing fullscreen), `connect_maximized_notify` calls `unfullscreen()`; restore still runs in `connect_fullscreened_notify`.
-- In **windowed and fullscreen** playback, `AdwToolbarView` has **extend content to top and bottom edge** so the `GLArea` is allocated the full area and the **header and bottom toolbars are drawn on top of the video** (overlay), not as extra vertical strips that shrink the video.
-- When the **recent-videos** overlay is showing, the top and bottom bars **stay visible**; when a file is playing (grid hidden), any pointer motion on the **main window** (capture phase) reveals the bars; after **3 seconds** without motion they hide again. Opening a header menu keeps the bars visible, but does not re-apply chrome or queue a new video render when the bars are already shown, avoiding visible flicker from redundant menu-open redraws. On **entering** fullscreen, chrome is hidden until the user moves. On **leaving** fullscreen (e.g. unfullscreen to windowed), chrome is **shown** again, the window and `GLArea` are queued for redraw, and a one-shot idle re-queues a GL draw after layout, so a stale hidden-toolbar state does not leave a full-screen black layer under the window (GNOME). On the **video `GLArea`**, the pointer is hidden after **3 seconds** without moving over that area (`set_cursor_from_name("none")`, plus a CSS class for styling if needed). After chrome auto-hides, a short **layout squelch** and duplicate **(x, y) filtering** avoid spurious motion/enter from reflow, which would otherwise re-open the toolbars and keep the pointer visible.
-- **Header `GtkMenuButton`s (volume, subtitles, hamburger) — one-click switch: not achieved (current pass).** Target: switching from one open menu to another should take **one** click, not two. The codebase has attempted `GtkPopover:modal` = false, capture-phase `GestureClick`, and idle `MenuButton::set_active`; **manual testing still required a second click** to open the next menu after closing the previous. **Do not treat as shipped.** Marked **could not be implemented reliably** in the current **Composer 2 Fast** (Cursor) pass; **revisit** with another model and/or upstream GTK/GNOME behavior review. Until then, users may need two clicks when changing which header menu is open.
+## Notes
+- Inhibit implementation polls every ~500 ms to sync with pause / load / grid state; uninhibit always runs before quit.
+- Autohide default 2–3 s; menus or popovers being open keeps chrome visible.
+- ToolbarView extends to top and bottom edges so the GLArea fills the available area and chrome overlays the video.
+- Acceptance for **Post-resize aspect lock**: after drag-resize the window’s outer size matches video display aspect within a small tolerance, consistently across sessions, without runaway resize loops or spurious updates from pointer motion. Attempted path: debounced "resize end" on `GdkSurface` / `GtkWindow` notify, `set_default_size`, `present()`, ratio tolerance, `RHINO_ASPECT_DEBUG=1` logging.
+- See [GTK4 toplevel / aspect notes](../references-gtk4-toplevel-aspect.md) for upstream context (the prior `compute-size` approach was abandoned due to feedback loops).
+- Header menu switching attempts: `Popover:modal=false`, capture-phase GestureClick, idle `MenuButton::set_active`. Manual testing still required a second click; revisit with a different model or a deeper GTK / GNOME review.

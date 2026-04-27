@@ -1,45 +1,140 @@
 ---
-description: Document-first captures business rules (Gherkin); not filenames or code layout.
+description: Document-first for LLM-driven development. Every feature has YAML metadata + Gherkin scenarios as single source of truth.
 alwaysApply: true
 ---
 
-# Document-first = business behavior first
+# Document-first for LLM-driven development
 
-“Document first” applies to **what the product must do** for users—rules, outcomes, and constraints—not to naming files, choosing Rust modules, or describing class/function identifiers unless those names encode a **business concept**.
+Rhino Player is built **document-first**: every user-visible behavior is captured in `docs/features/<NN>-<slug>.md` **before** (or in tight lockstep with) code. Specs are the **single source of truth** for both human reviewers and automated agents. Implementation merely satisfies the scenarios listed here.
 
-## What to write under `docs/` first
+## Mandatory file shape
 
-Before (or in tight lockstep with) implementing **user-visible or externally observable behavior**, capture it in `docs/features/…` so reviewers and agents share one source of truth.
+Each `docs/features/<NN>-<slug>.md` MUST follow this exact section order. No extras, no renames.
 
-Each feature doc should still carry: **name**, **implementation status**, **use cases**, **short description**, **long description**. Those frame **why** and **context**.
+```markdown
+# <Title>
 
-The **specification** section should emphasize **behavior** agents and humans can verify—not implementation trivia.
+---
+status: done | wip | planned | removed | research
+priority: p0 | p1 | p2
+layers: [ui, mpv, db, fs, platform, build, input]
+related: [<NN>, <NN>]
+actions: [app.<id>]            # optional: GIO actions exposed
+settings: [<key>]              # optional: persisted DB / config keys
+mpv_props: [<property>]        # optional: observed / set mpv properties
+---
 
-## Specification: prefer Gherkin (Given–When–Then)
+## Use cases
+- One-line bullets stating user value (no implementation).
 
-Use **Gherkin-style scenarios** as the default shape for acceptance criteria. The rigid **Given / When / Then** structure acts like a prompt template: it fixes **starting state**, **action**, and **expected outcome**, which maps cleanly to tests and implementation checks.
+## Description
+1–2 short paragraphs (≤ 6 lines each). What the user sees and does. No code paths.
 
-**Example:**
+## Behavior
 
 ```gherkin
-Given a user has an expired session
-When they attempt to post a "Vibe Code Request"
-Then the system should redirect to the login page.
+@status:<status> @priority:<p> @layer:<layer>
+Feature: <Title>
+
+  Background:
+    Given <shared preconditions>            # optional
+
+  Scenario: <imperative-mood title>
+    Given <preconditions>
+    When <user or system action>
+    Then <observable outcome>
+    And <additional outcome>                # optional
+
+  Scenario Outline: <parametric title>      # optional
+    Given <…> "<input>"
+    Then <…> "<output>"
+
+    Examples:
+      | input | output |
+      | a     | x      |
+      | b     | y      |
 ```
 
-For Rhino Player, scenarios should use domain language the product already uses (e.g. playing a file, recent grid, Smooth 60, sibling next), not crate or file paths unless the spec is purely about packaging or install layout.
+## Notes (optional)
+- Short, non-binding bullets: persistence keys, mpv properties, modules, gotchas.
+- This section is reference material; **scenarios above are the contract**.
+```
 
-You can add **And** / **But** lines, or **Scenario Outline** + **Examples** tables when many similar cases matter.
+### Front-matter rules
 
-### What does *not* belong in “document first” as a substitute for business rules
+- Use a YAML block delimited by `---` directly under the H1 (it renders as plain text in GitHub but parses cleanly for tools).
+- `status`, `priority`, `layers` are required; `related`, `actions`, `settings`, `mpv_props` are optional but encouraged when relevant.
+- `related` lists feature numbers only (e.g. `[03, 26]`), never paths.
+- `priority` defaults to `p1` if omitted (ship before `p2`, after `p0`).
 
-- Dictating **internal** file names, module splits, or type names unless the user story is literally about maintenance or public API naming.
-- Long narrative that only restates code structure without testable outcomes.
+## Scenarios are the contract
 
-Those details belong in code review and refactoring, not in place of clear **Given–When–Then** behavior.
+The **Behavior** Gherkin block is the **only** place that defines acceptance. Implementations and tests must satisfy every `Scenario` (including `Scenario Outline` rows). Anything in **Notes** is hint-only and may be reorganized freely without a doc change.
+
+Hard rules for scenarios:
+
+- **One Feature per file**, named the same as the H1.
+- **Imperative-mood** scenario titles ("Seek updates position"), not "should …".
+- **Given / When / Then** at minimum; use **And** / **But** for additional clauses.
+- Each scenario must end in **at least one observable Then** (UI state, persisted value, mpv property, file-system effect, exit code, log line). No silent-success scenarios.
+- **Domain language** preferred (e.g. *the recent grid*, *Smooth 60*, *sibling next*). Mention an mpv property, action id, or DB key only when its exact name is part of the contract.
+- **No code paths, file names, or module names** in `Given/When/Then` lines. Put those in `## Notes` or in a `# comment` between steps.
+
+## Optional Gherkin enrichment (LLM-friendly)
+
+Use these to add precision without breaking behavioral framing.
+
+- **Tags (`@…`)** — Place on `Feature:` and / or `Scenario:`. Use only the controlled vocabulary below; one of each kind is enough.
+- **Step comments (`# …`)** — Hints between steps for agents and tests. Examples: `# mpv: observe_property time-pos`, `# persists: settings.video_smooth_60`.
+- **Tables under Then** — Allowed when an outcome is precisely structural (DB columns, config keys, button enablement matrix). One column header row, then rows. Do not replace prose **Then** with a table; add the table after it.
+- **Doc strings (`""" … """`)** — For exact payloads (JSON, mpv command strings, `.desktop` snippets). Optionally label the fence (e.g. `"""json`).
+- **`Background:`** — Only for preconditions repeated by every scenario in the file.
+- **`Scenario Outline:` + `Examples:`** — For parametric variants (preferred over copy-pasted scenarios).
+
+### Controlled vocabulary
+
+Use exactly these tag namespaces and values:
+
+| Tag prefix    | Allowed values                                               |
+|---------------|--------------------------------------------------------------|
+| `@status:`    | `done`, `wip`, `planned`, `removed`, `research`              |
+| `@priority:`  | `p0`, `p1`, `p2`                                             |
+| `@layer:`     | `ui`, `mpv`, `db`, `fs`, `platform`, `build`, `input`        |
+| `@area:`      | one short kebab-case area name (e.g. `transport`, `recent`)  |
+
+`@status` and `@priority` on the `Feature:` line should mirror the front-matter (kept in sync; both are easy for agents to read).
+
+## What does NOT belong in scenarios
+
+- Restating internal Rust module layout, file paths, or struct names.
+- "Should …" / "Must …" prose with no observable outcome.
+- Long narrative recovered from chat or PR descriptions.
+- Conditional implementation discussion ("If we later add …").
+
+Move all of the above to `## Notes` or a separate research file. If a feature is only research, set `status: research` and keep behavior-style scenarios for the **planned** outcomes only.
+
+## Agent checklist (run on every doc change)
+
+When creating or editing a feature doc, an agent must verify:
+
+1. Front-matter exists, parses, and uses allowed values.
+2. Sections appear in the exact required order; no extra top-level sections.
+3. **Behavior** has exactly one `Feature:` matching the H1.
+4. Every `Scenario` has `Given … When … Then …` and at least one observable `Then`.
+5. Tags use only the controlled vocabulary.
+6. `related` numbers correspond to existing feature files.
+7. `docs/README.md` index row exists for this feature with matching status.
+8. `.cursorrules` does not contradict the new file (status changes flow into the index, not into `.cursorrules` per-feature lines).
+
+## Workflow for changes
+
+- **Add a feature**: pick the next free `NN`, create the file with `status: planned` and at least one scenario, add an index row in `docs/README.md`. Implementation may start once the scenarios are reviewable.
+- **Change a feature**: update **scenarios first**, then code. If behavior is dropped, mark `status: removed` and keep the file as a history pointer.
+- **Bug fix**: if existing scenarios already cover it, code only; otherwise add the missing scenario before the fix.
+- **Cross-feature work**: prefer one focused doc edit per behavior; keep PRs small.
 
 ## Housekeeping
 
 - Index and cross-links: `docs/README.md`.
-- Product-level stories and personas: `docs/product-and-use-cases.md` (complements per-feature specs; it does not replace scenario-level acceptance criteria in `docs/features/…`).
-- Prefer small doc changes: one feature file (or one focused edit) per logical behavior change when practical.
+- Product-level stories and personas: `docs/product-and-use-cases.md` (it complements per-feature specs; it does not replace scenario-level acceptance criteria).
+- Upstream API references go under `docs/references-*.md`.

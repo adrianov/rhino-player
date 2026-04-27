@@ -1,38 +1,49 @@
 # Chapters: marks, menu, seek bar hover
 
-**Name:** Chapters UI
+---
+status: planned
+priority: p2
+layers: [ui, mpv]
+related: [04, 18]
+mpv_props: [chapter, chapter-list]
+---
 
-**Implementation status:** Not started
+## Use cases
+- Navigate DVD-like or long-form content by chapter.
+- See chapter starts on the timeline.
+- Jump from a list or directly from the seek bar.
 
-**Use cases:** Navigate DVD-like or long-form content by chapter; see where chapters start on the timeline; jump from a list or the seek bar.
+## Description
+When `chapter-list` is non-empty, the seek bar shows marks at chapter starts, the main menu lists chapters as actions, and a popover near the pointer shows time and chapter title on hover. Selecting a chapter sets mpv’s `chapter` property.
 
-**Short description:** Chapter marks on the seek bar, a chapter list menu, and a popover on hover over the bar showing time and chapter title.
-
-**Long description:** When `chapter-list` is non-empty, draw marks at chapter start times, populate a `Gio.Menu` with `chapter` index actions, and show a small popover following the pointer on the bar with optional thumbnail (if preview enabled). Selecting a chapter uses mpv’s `chapter` index property.
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
-Feature: Chapters (target behavior — not started)
-  Scenario: Chapter marks with data
+@status:planned @priority:p2 @layer:mpv @area:chapters
+Feature: Chapter navigation
+
+  Scenario: Chapter marks render at chapter starts
     Given mpv exposes a non-empty chapter-list
     When the seek bar is shown
-    Then chapter start times are reflected as marks at sorted positions on the scale
+    Then a mark appears at every chapter start time, sorted by time
 
-  Scenario: Empty chapters hide UI affordances
+  Scenario: Empty chapter-list hides chapter UI
     Given chapter-list is empty or unavailable
-    When the window is visible
-    Then chapter-specific marks and menus stay hidden or cleared
+    When the user inspects the seek bar and main menu
+    Then no chapter marks render and the chapter menu is hidden
 
-  Scenario: Seek by chapter index
-    Given chapters exist and the user selects a chapter from the menu
-    When the action activates
-    Then mpv chapter property updates and playback jumps to that chapter start
+  Scenario: Selecting a chapter seeks to its start
+    Given chapters exist for the current file
+    When the user activates a chapter entry in the menu
+    Then playback jumps to that chapter’s start time
+    And the mpv chapter property reflects the selected index
+
+  Scenario: Hover popover shows chapter title and time
+    Given the pointer hovers a position inside a chapter on the seek bar
+    When the popover is visible
+    Then the popover shows the formatted hover time and the chapter title
 ```
 
-- Sort chapters by `time`.
-- `select-chapter` state syncs with `chapter` property.
-- If no chapters, hide the chapters menu and clear marks.
-- Popover: escape title text for markup; position relative to the scale widget.
+## Notes
+- Escape chapter title text for markup; position the popover relative to the scale widget.
+- May share its hover popover with [18-thumbnail-preview](18-thumbnail-preview.md).

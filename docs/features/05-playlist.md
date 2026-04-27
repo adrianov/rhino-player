@@ -1,33 +1,50 @@
 # Playlist: queue, prev/next, shuffle, loop
 
-**Name:** Playlist behavior
+---
+status: planned
+priority: p2
+layers: [ui, mpv]
+related: [04, 07, 16, 19]
+mpv_props: [playlist-pos, playlist-count, playlist, playlist-shuffle, loop-file, loop-playlist, eof-reached]
+---
 
-**Implementation status:** Not started
+## Use cases
+- Binge a series in order without re-opening files.
+- Shuffle music or loop a single tutorial.
+- Keep playback after EOF per `keep-open`.
 
-**Use cases:** Binge a series, shuffle music, loop one tutorial, or loop a whole folder without re-opening files.
+## Description
+mpv’s playlist is the source of truth. The UI exposes shuffle and loop toggles, enables previous / next when navigation is meaningful, and at the end of a single file with `keep-open` may rewind and pause. Replace vs append-play semantics live in [open](06-open-and-cli.md), [drag and drop](11-drag-and-drop.md), and [URL streams](12-url-and-streams.md).
 
-**Short description:** Queue multiple items, navigate previous/next, shuffle playlist, loop single file or whole playlist, and keep playback after EOF per mpv’s `keep-open` policy.
-
-**Long description:** mpv’s playlist is the source of truth. The UI shows shuffle/loop toggles, enables prev/next when multiple items exist or when shuffle/loop makes navigation always valid, and at end of single file with `keep-open` may rewind to start and pause. Opening “replace” vs “append-play” is specified in open/drag/CLI features.
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
-Feature: Playlist navigation (target behavior — not fully implemented)
-  Scenario: Shuffle changes order
-    Given multiple items are queued in mpv’s playlist
-    When the user enables shuffle through the playlist UI
-    Then playback order reflects shuffle without corrupting playlist-count semantics per mpv
+@status:planned @priority:p2 @layer:mpv @area:playlist
+Feature: Playlist navigation
 
-  Scenario: Previous wraps when wrap policy applies
-    Given shuffle or wrap behavior is enabled and more than one item exists
-    When the user activates previous at the first item (where wrap is specified)
-    Then playback moves to the designated wrap target instead of stopping
+  Scenario: Shuffle changes playback order
+    Given multiple items are queued in the mpv playlist
+    When the user enables shuffle from the playlist UI
+    Then subsequent next requests visit items in shuffled order
+    And playlist-count remains correct
+
+  Scenario: Previous wraps when more than one item exists
+    Given wrap behaviour is enabled and the queue has at least two items
+    When the user activates previous at the first item
+    Then playback moves to the last item
+
+  Scenario: Loop modes are mutually exclusive in UI
+    Given the user enables loop-file
+    When they then enable loop-playlist
+    Then loop-file is cleared and only loop-playlist remains active
+
+  Scenario: Buttons disable without a target
+    Given the active item has no previous or next neighbour and no wrap
+    When the user inspects the transport bar
+    Then the corresponding navigation button is disabled
 ```
 
-- `playlist-pos`, `playlist-count`, and `playlist` introspection to drive button sensitivity.
-- `playlist-shuffle` / `playlist-unshuffle` on shuffle toggle; `loop-file` and `loop-playlist` are mutually exclusive in UI (activating one clears the other’s infinite mode).
-- Prev at first item goes to last; next at last goes to first (wrap) when list has more than one item.
-- `eof-reached` / idle handling coordinates with [Session](16-session-persistence.md) and window close behavior.
+## Notes
+- Drive button sensitivity from `playlist-pos`, `playlist-count`, and the `playlist` array.
+- `eof-reached` and idle handling coordinate with [16-session-persistence](16-session-persistence.md) and window close behaviour.
+- The full list / reorder UI is owned by [19-playlist-dialog](19-playlist-dialog.md); this feature is only the queue mechanics + transport buttons.

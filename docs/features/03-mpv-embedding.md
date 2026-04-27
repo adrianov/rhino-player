@@ -1,41 +1,63 @@
 # mpv embed: render context and video surface
 
-**Name:** mpv render integration (libmpv + OpenGL)
+---
+status: done
+priority: p0
+layers: [mpv, ui]
+related: [02, 14, 17, 18, 26]
+mpv_props: [time-pos, duration, pause, eof-reached, path, video-timing-offset, save-position-on-quit, watch-later-dir, write-filename-in-watch-later-config]
+---
 
-**Implementation status:** Done
+## Use cases
+- Video and audio render inside the app window on typical Linux desktops.
+- Users get standard mpv behaviour without a second player window.
+- Resume picks up watch positions across launches for the same paths.
 
-**Use cases:** Video and audio render inside the app window on typical Linux desktops; users get standard mpv behavior without a separate player window.
+## Description
+mpv is embedded with `vo=libmpv` and an OpenGL render context bound to a `gtk::GLArea`. Y is flipped on draw; the framebuffer binding is read on each render. Repaints are triggered by mpv’s `render-update` callback. mpv events arrive through a wakeup callback that hops to the GTK main thread and drains `wait_event(0)` until empty; the app reacts to property changes (`time-pos`, `duration`, `pause`, `path`, …) instead of polling.
 
-**Short description:** Embed mpv using `vo=libmpv` and a render API connection to a GTK `gtk::gla::GLArea` (or equivalent) with platform display handles for X11 and Wayland.
+The XDG config tree owns its own `watch_later` directory so resume keys match real paths. Natural end-of-playback (EOF or within ~3s of a known `duration`) clears the watch-later sidecar and SQLite resume so the next open starts at zero.
 
-**Long description:** Implementation uses the official libmpv C API (Rust bindings) to create a render context, flip Y for OpenGL, read the current framebuffer, and repaint on `render-update`. A secondary “null” mpv instance is optional for thumbnail preview. Hardware decode and NVIDIA quirks (graphics offload) should be considered after the basic path works with software or auto hwdec.
-
-**Current code:** `src/mpv_embed.rs` — `libmpv2` `RenderContext` with EGL `eglGetProcAddress`, `libGL` `glGetIntegerv` (`GL_FRAMEBUFFER_BINDING`), `RenderParam::FlipY(true)` on draw, mpv’s default `video-timing-offset` (typically `0.05`) so frames have scheduling headroom before GTK/compositor presentation, and update callback → `queue_render` on the main context. The app does not call optional `report_swap`; incorrect compositor timing feedback can make playback cadence worse than mpv’s default render scheduling. Wayland/X11 display pointers in `RenderParam` may be added if needed for specific GPUs. Audio: `ao=pulse` in the initializer (PipeWire’s Pulse compat on typical GNOME systems). **Event loop:** `MpvBundle::observe_props` + `install_event_drain` (uses `mpv_set_wakeup_callback`) hop the wakeup back onto the GTK main thread via `MainContext::invoke`; the consumer drains with `wait_event(0)` until empty (`drain_events`). `src/app/transport_events.rs` consumes those events to keep play/pause/seek/volume/mute/duration UI mirrors and EOF / sibling advance event-driven (see `.cursor/rules/events-over-polling.mdc`). The `path` property is observed too, so Prev/Next button sensitivity + tooltip refresh on every load (no transport poll). When observers are first installed (after the GLArea realize), the play button, sibling-nav buttons, and seek range are seeded from `mpv.get_property` immediately — `mpv_observe_property` only emits the initial value on a later wakeup, so this prevents stale UI when a continue-card warm preload finishes loading **before** observers exist. Seek-slider redraws driven by `time-pos` are rate-limited to ~10 Hz (`TIME_POS_MIN_GAP`) so adjacent chrome controls don’t flicker their tooltip popups when the slider repaints every video frame; while the bottom bar is hidden by autohide (and the recent grid is not visible), `time-pos` events skip both the seek-slider and time-label writes — invisible chrome should not be invalidated. Time labels are not throttled when the bar is visible (their formatted string changes ≤ 1 Hz so `set_label` is already a no-op between seconds).
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
+@status:done @priority:p0 @layer:mpv @area:embed
 Feature: Embedded mpv video surface
-  Scenario: Resume vs fresh start after natural end
-    Given watch-later and SQLite resume integration are configured as specified
-    When playback reaches natural end for the current file (EOF or near-end rule)
-    Then resume/watch-later sidecars are cleared so the next open may start from the beginning
 
-  Scenario: Video region visibility
+  Scenario: Resume after partial playback
+    Given save-position-on-quit is on and watch-later-dir points at the app config directory
+    When the user quits the app while a local file is paused mid-stream
+    Then a sidecar file appears in watch-later-dir
+    And reopening the same path resumes from the saved time
+
+  Scenario: Natural EOF clears resume
+    Given a local file is playing
+    When playback reaches natural end (EOF or within ~3s of duration)
+    Then the watch-later sidecar for that path is removed
+    And SQLite time_pos for that path is cleared
+
+  Scenario: Idle state shows no opaque playback frame
     Given no media is loaded
-    When the empty state or placeholder applies per shell rules
-    Then the GL video surface shows the documented idle/start presentation instead of opaque playback
+    When the empty state applies per shell rules
+    Then the GL surface shows the documented idle presentation, not an opaque last frame
 
-  Scenario: Paused seek with heavy video filter
-    Given a frame-interpolation or external vf graph may alter paused frames
-    When the user seeks while paused under conditions where still-frame fallback is required
-    Then the UI avoids presenting an unintended black frame per documented vf handling
+  Scenario: Paused seek with VapourSynth vf
+    Given vf contains a vapoursynth filter chain and the player is paused
+    When the user seeks
+    Then the app temporarily clears the vf so a normal still frame renders
+    And Smooth 60 is reapplied on the next unpause if the preference remains enabled
+
+  Scenario: Property events drive UI without a transport poll
+    Given mpv events arrive via the wakeup callback
+    When time-pos, pause, duration, or path change
+    Then the relevant UI control updates in response to that event only
+    And no polling timer rewrites the same value
 ```
 
-- mpv is configured with `vo=libmpv`, OSC off, and internal bindings loaded from a memory buffer or file (see [Input shortcuts](13-input-shortcuts.md)).
-- When the XDG config path exists, set `save-position-on-quit`, `watch-later-dir` (`~/.config/rhino/watch_later`), and `write-filename-in-watch-later-config` so resume keys match real paths. Before opening another file, the app flushes the outgoing file with `write-watch-later-config` and DB snapshot—**except** when playback reached a **natural end** (EOF or within ~3s of a known `duration`): then the app **removes** that file’s watch_later sidecar and clears SQLite `time_pos` so the next open starts at **0** (including re-opening the same file, sibling next/prev, and Escape / quit).
-- A GL area fills the video region; on realize, create render context; on render, pass FBO size accounting for scale factor; request redraw on mpv’s update callback. Playback timing is applied in [26-sixty-fps-motion](26-sixty-fps-motion.md); the removed display-resample path is documented in [25-smooth-playback](25-smooth-playback.md).
-- If GPU vendor is NVIDIA, allow disabling `Gtk.GraphicsOffload` equivalent if it breaks rendering.
-- When idle (no file), show a start/status page; when playing, show GL area (see [Application shell](02-application-shell.md) and window state).
+## Notes
+- Render context: `libmpv2` `RenderContext`, EGL `eglGetProcAddress`, `libGL` for `GL_FRAMEBUFFER_BINDING`, `RenderParam::FlipY(true)`.
+- mpv defaults are kept (`video-timing-offset` ≈ 0.05); `report_swap` is intentionally not used.
+- Audio output: `ao=pulse` (PipeWire’s Pulse compat works on typical GNOME systems).
+- Wakeup callback installed via `mpv_set_wakeup_callback`; consumer calls `wait_event(0)` until empty.
+- Seek-slider redraws driven by `time-pos` are rate-limited to ~10 Hz; while the bottom bar is hidden by autohide and the recent grid is not visible, `time-pos` events skip seek-slider and time-label writes (invisible chrome must not be invalidated).
+- Observer setup seeds Play / sibling-nav / seek range from `mpv.get_property` immediately on first install so warm-preload finishes do not leave stale UI.

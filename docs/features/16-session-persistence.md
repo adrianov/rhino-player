@@ -1,36 +1,47 @@
 # Session: restore last playlist
 
-**Name:** Last session and playlist file
+---
+status: planned
+priority: p2
+layers: [fs, mpv]
+related: [05, 06, 14, 21]
+settings: [save-session]
+---
 
-**Implementation status:** Not started
+## Use cases
+- Pick up a long watch session after a reboot.
+- Restore the same queue when reopening the app.
 
-**Use cases:** Pick up a long watch session after reboot; restore the same queue when reopening the app.
+## Description
+On clean exit, when `save-session` is true, the app writes the current playlist as `#EXTM3U` to a file under the XDG config directory. On the first window activation, it loads that file with `replace`. An empty queue removes the file. When CLI paths or [21-recent-videos-launch](21-recent-videos-launch.md) apply, the spec records which one wins for first paint.
 
-**Short description:** On exit, if enabled, write the current playlist to a file under the config directory; on first window activation, load that m3u to restore the session.
-
-**Long description:** On window close or app stop, if `save-session` is true, write `#EXTM3U` and one path per line. If playlist is empty, remove the file. On startup with `save-session` and a single window, `loadfile` the m3u with `replace`. When saving, optionally enable `save-position-on-quit` to match the “restore my place” story. Restore only for the first window in multi-window scenarios.
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
-Feature: Session playlist restore (target behavior — not started)
-  Scenario: Save session on exit when enabled
-    Given save-session is true and a playlist exists
-    When the application exits cleanly
-    Then an m3u playlist file is written under the documented XDG config path
+@status:planned @priority:p2 @layer:fs @area:session
+Feature: Session playlist restore
 
-  Scenario: Restore on startup when alone
+  Scenario: Save session on clean exit
+    Given save-session is true and the playlist is non-empty
+    When the application exits cleanly
+    Then an m3u8 playlist file is written under the documented XDG config path
+
+  Scenario: Restore session on first window
     Given save-session is true and a saved playlist file exists
-    When the first window activates without conflicting CLI or grid rules
-    Then that playlist loads with replace per coordination with open-on-start features
+    When the first window activates with no CLI paths and no other takeover
+    Then the saved playlist is loaded with replace
 
   Scenario: Empty playlist removes stale file
-    Given save-session is true but the queue is empty
+    Given save-session is true but the queue is empty at exit
     When session save runs
-    Then the last-playlist file is removed or left absent as specified
+    Then the last-playlist file is removed or absent
+
+  Scenario: CLI paths take priority over restore
+    Given save-session is true and CLI paths are present
+    When the first window activates
+    Then CLI paths load instead of the saved playlist
 ```
 
-- Path: e.g. `~/.config/rhino/last-playlist.m3u8` (TBD, mirror XDG).
-- `save_last_playlist_file` and `restore_last_playlist` behaviors are defined and testable.
+## Notes
+- Path: `~/.config/rhino/last-playlist.m3u8` (mirrors XDG).
+- Restore only on the first window in multi-window scenarios.

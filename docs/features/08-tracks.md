@@ -1,48 +1,67 @@
 # Tracks: audio, video, subtitles
 
-**Name:** Multi-track selection
+---
+status: wip
+priority: p1
+layers: [ui, mpv, db]
+related: [22, 24]
+mpv_props: [track-list, aid, sid, vid]
+settings: [aid_per_path, preferred_audio_track_label]
+---
 
-**Implementation status:** Done for **audio** track selection; subtitles / video / external tracks: not started
+## Use cases
+- Watch in the right language.
+- Pick an alternate video stream when a file has several.
+- Add an external subtitle or audio file (later).
 
-**Use cases:** Watch in the right language, load a better subtitle file, or pick an alternate video stream when the file contains several.
+## Description
+The `track-list` property drives the UI. Today the **Sound** popover (header) hosts the audio-track list when the file has at least two `type: audio` entries; subtitle handling is owned by [24-subtitles](24-subtitles.md). Video-track switching and external `sub-add` / `audio-add` flows are planned.
 
-**Short description:** Menus to select subtitle, audio, and video tracks; add external sub/audio; reflect `sid`/`aid`/`vid` and `track-list` changes in the UI. **Current scope:** the header **Sound** control (volume icon) opens one popover: **Volume** (level + mute) and, **only if there are two or more** audio streams, a **track list**; choosing a row sets mpv’s `aid`.
+For audio, choosing a row sets mpv `aid` to that track id. The choice persists per local-file path in SQLite and updates a global preferred audio-track label. After each load, the app first restores the saved per-file `aid`; otherwise it picks the closest Levenshtein match to the global label, repairs `aid=no` when several tracks exist, and sets `aid` to the only id when exactly one exists.
 
-**Long description:** The `track-list` property populates the UI with title and language when present. **Audio (implemented first):** the same popover as volume: a **Volume** row (mute + scale), then **only if** there are **at least two** `type: audio` entries, a **scrollable** list (no section title): each stream is a row with a **radio** (`CheckButton` group). A single track is not shown (no choice to make). There is **no** “None” / no-audio row—**mute** covers that. Labels follow “title – language” with a “Track n” fallback. The list is rebuilt when the popover opens. If there are **zero or one** audio streams, the track block is **hidden** (not an empty section). Subtitles, video, and add-external-file flows stay below for later work.
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
-Feature: Multi-track selection
-  Scenario: Sound popover shows audio list when needed
+@status:wip @priority:p1 @layer:mpv @area:tracks
+Feature: Audio track selection
+
+  Scenario: Sound popover shows audio list when multiple streams exist
     Given the current track-list contains at least two audio streams
     When the user opens the Sound control
-    Then a scrollable radio list of audio tracks appears above the volume row
-    And a single audio stream does not show a redundant track block
+    Then a scrollable radio list of audio tracks appears above the Volume row
+    And the row matching the current aid is selected
 
-  Scenario: Choosing a track updates mpv and persistence
+  Scenario: Single audio stream hides the track block
+    Given the current track-list contains zero or one audio streams
+    When the user opens the Sound control
+    Then no track block appears
+    And only the Volume row is visible
+
+  Scenario: Selecting a track persists per-file and globally
     Given multiple audio streams exist for the loaded file
     When the user selects a different audio row
     Then mpv aid updates to that track id
-    And per-file and global preference keys in SQLite reflect the choice
+    And SQLite stores the choice per local-file path
+    And the global preferred audio-track label is updated to the row text
 
   Scenario: Restored aid on load
     Given a saved per-file aid exists and that track still exists in track-list
-    When a new file finishes loading and the delayed apply runs
-    Then the saved aid is restored before global name-based preference is considered
+    When the file finishes loading and the delayed apply runs
+    Then aid is restored to the saved id before global name-based preference is considered
+
+  Scenario: Repair aid=no with multiple streams
+    Given several audio streams exist and aid is no
+    When the delayed apply runs
+    Then aid is set to a valid track using the global preferred label
+
+  Scenario: Single-stream file selects the only id
+    Given exactly one audio stream exists and no per-file choice is stored
+    When the delayed apply runs
+    Then aid is set to that one track id
 ```
 
-**Audio track selection (current)**
-
-- A header **MenuButton** (volume / sound icon) with tooltip for sound; **one** popover shared with [volume UI](22-audio-volume-mute.md): **Volume** row first; the **track** block (scroll list) appears only when `track-list` contains at least **two** **audio** streams. No separate “Audio” heading in the popover.
-- The track list includes only `track-list` entries with `type` **audio**. Each row is a **radio** in a single group; the row matching the current `aid` is selected (if `aid` is `no` / muted-off, no row is active until the user picks a track).
-- Choosing a track sets `aid` to that track’s `id` (int), immediately stores that per local media file in SQLite, and also stores the selected row text as the global preferred audio-track name. The per-file choice survives SIGTERM / `kill` and does not depend on the normal quit/watch-later path. **No** UI to set `aid` to `no` here (use **mute**).
-- If there are no audio entries, or only one, the track **section is not shown** (only the volume row). After each successful **load** (short delayed tick with subtitle apply), the app first restores the saved per-file `aid` when that track still exists. For files without a saved per-file choice, it chooses the available audio row with the closest Levenshtein match to the saved preferred audio-track name. Then it sets [aid] to the only audio [track-list] id if there is **exactly one** stream, and repairs explicit `aid=no` when there are **several** (so playback is not left silent when the demuxer or stale state had no track selected).
-- No extra toasts or notifications; errors setting `aid` are ignored in the UI (log only if the project already logs mpv errors elsewhere).
-
-**Later (not implemented yet)**
-
-- Stateful actions / menus for external subs and add-audio; `sub` / `video` track picks; `sub_add` / `audio_add` and prefs (`sub-auto`, `audio-file-auto`) as in [Preferences](14-preferences.md).
-- Show video track control only if more than one non-albumart video track; update on `track-list` change without requiring popover re-open (full multi-track spec).
+## Notes
+- The per-file aid is stored before the watch-later path so it survives SIGTERM / kill.
+- No "None" / no-audio row in the popover; **mute** covers that.
+- Errors setting `aid` are ignored in the UI (logs only).
+- Video-track switching is reserved for a later iteration; show the control only if more than one non-album-art video track exists and update on `track-list` change without requiring a popover re-open.

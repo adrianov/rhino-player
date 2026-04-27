@@ -1,38 +1,44 @@
 # Video options: aspect, crop, zoom, filters
 
-**Name:** Per-video options (options menu)
+---
+status: planned
+priority: p2
+layers: [ui, mpv]
+related: [04, 26, 28]
+mpv_props: [video-aspect-override, video-zoom, video-pan-x, video-pan-y, contrast, brightness, gamma, saturation, hue, sub-delay, audio-delay, speed]
+---
 
-**Implementation status:** Not started
+## Use cases
+- Fix letterboxing, wrong aspect, or color without re-encoding.
+- Align subtitles and audio when sync drifts.
+- Slow or speed up playback for a given file.
 
-**Use cases:** Fix letterboxing, wrong aspect, or color; align subtitles and audio; slow down or speed up temporarily—without re-encoding the file.
+## Description
+A popover or Adwaita menu adjusts per-video display and sync properties: `video-aspect-override`, crop, zoom, contrast, brightness, gamma, saturation, hue, `sub-delay`, `audio-delay`, and `speed`, with a single reset action. Flip / rotate controls may be hidden when hardware decode lacks a copy path.
 
-**Short description:** A popover (or Adwaita menu) to adjust `video-aspect-override`, crop, zoom, contrast, brightness, gamma, saturation, hue, `sub-delay`, `audio-delay`, and `speed`, with reset. Optional flip/rotate when not conflicting with hardware decode copy path.
-
-**Long description:** Expose presets for aspect and crop, controls for numeric properties, and resets. Flip controls may hide when hardware decode is on with a missing `-copy` path (vendor-specific). All values map to mpv properties or commands.
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
-Feature: Per-video options menu (target behavior — not started)
+@status:planned @priority:p2 @layer:ui @area:video-options
+Feature: Per-video options menu
+
   Scenario: Controls reflect mpv state on open
     Given media is loaded with adjustable video properties
     When the options popover opens
-    Then widgets match current mpv values without stale placeholders
+    Then every widget shows the current mpv value, not a stale placeholder
 
   Scenario: Changes apply immediately
     Given the options menu is open
     When the user adjusts crop, zoom, color, delay, or speed controls
-    Then mpv receives the matching property or command asynchronously
+    Then mpv receives the matching property update without restart
 
-  Scenario: Reset restores defaults
+  Scenario: Reset restores documented defaults
     Given the user has altered multiple video-related properties
-    When they activate Reset all as documented
-    Then documented defaults are restored without requiring an app restart
+    When they activate Reset all
+    Then every adjusted property returns to its documented default
+    And no app restart is required
 ```
 
-- On menu open, read current property values and sync widgets.
-- On change, set mpv property or command asynchronously.
-- “Reset all” returns documented defaults.
-- Rotation/crop/flip: align with mpv `vf` usage documented in the implementation.
+## Notes
+- The dedicated speed control with three steps (1.0× / 1.5× / 2.0×) is owned by [28-playback-speed](28-playback-speed.md); this menu may surface a free-form slider later.
+- Keep flip / rotate behind a feature check when hardware decode lacks a `-copy` path.

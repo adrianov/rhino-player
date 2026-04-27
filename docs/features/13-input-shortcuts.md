@@ -1,58 +1,93 @@
 # Keyboard, mouse, and shortcuts
 
-**Name:** Input and keyboard shortcuts
+---
+status: done
+priority: p1
+layers: [input, ui, mpv]
+related: [02, 17, 21, 22, 27]
+actions: [app.quit, app.open, app.close-video, app.move-to-trash, app.exit-after-current]
+---
 
-**Implementation status:** Done for in-app shortcuts in `src/app/input.rs` (not: forwarding arbitrary keys to mpv from user `input.conf`, Shortcuts help window)
+## Use cases
+- Power users keep mpv muscle memory.
+- Casual users get familiar shortcuts (Space, Escape, arrows).
+- Mouse maps match typical player expectations.
 
-**Use cases:** Power users keep mpv muscle memory; casual users can view or override keys; mouse maps match typical player expectations.
+## Description
+GTK accelerators handle window-scope shortcuts in capture phase. Application accelerators are not forwarded to mpv to avoid double-handling. Mouse maps cover primary double-click (toggle fullscreen), right-click (toggle pause), and scroll on the video surface (volume).
 
-**Short description:** Forward keys to mpv with GTK accelerator conflicts avoided; custom `input.conf` in the config dir; built-in default bindings; optional Adwaita Shortcuts window listing effective bindings; mouse map for buttons and double-click; scroll maps to WHEEL keys.
-
-**Long description:** Load internal bindings from a memory `input.conf`, then optional user `input.conf`. Key events in capture phase translate to mpv’s `keypress`/`keyup` with modifier and key remaps. Mouse button gestures send `keypress` for mapped `MBTN_*` commands. Scroll on overlay sends wheel key combos. Optional: `?` for shortcuts dialog populated from `input-bindings` property.
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
+@status:done @priority:p1 @layer:input @area:shortcuts
 Feature: Keyboard and pointer input
-  Scenario: App accelerators win over mpv forwarding
+
+  Scenario: App accelerators are not forwarded to mpv
     Given a key combination is bound as a GTK application shortcut
     When the user presses it with the main window focused
-    Then the application handles it and does not forward the same chord to mpv
+    Then the application handles it
+    And the same chord is not also delivered to mpv
 
-  Scenario: Space with continue grid preloaded video
-    Given the recent grid is visible and a first card is warm-preloaded per recent spec
+  Scenario: Space toggles play / pause when ready
+    Given the main window is focused and a file with duration is loaded
     When the user presses Space
-    Then the video is revealed and playback starts instead of staying behind the grid
+    Then mpv pause toggles
+    And no extra notification is shown
 
-  Scenario: Close Video without quitting
-    Given a file with duration is loaded and the grid is not showing
+  Scenario: Space reveals warm-preloaded continue card
+    Given the recent grid is visible and the first card is warm-preloaded
+    When the user presses Space
+    Then the video is revealed and playback starts
+    And playback does not start hidden behind the grid
+
+  Scenario: Ctrl+W returns to browse without quitting
+    Given a file with duration is loaded and the grid is hidden
     When the user activates Ctrl+W or Close Video
-    Then playback stops and the continue grid appears without terminating the process
+    Then playback stops
+    And the continue / recent grid appears
+    And the application process keeps running
 
-  Scenario: Escape twice returns to browse with pause-first semantics
-    Given playback may be active or fullscreen per escape-first rule
-    When the user presses Escape twice per documented sequencing
-    Then audio stops promptly on first Esc where specified and navigation ends on recent grid when history exists
+  Scenario: Escape pauses then returns to grid
+    Given playback is active and the app is windowed
+    When the user presses Escape twice per the documented sequence
+    Then the first Escape pauses (so audio stops promptly)
+    And the second Escape returns to the recent grid via the idle stop chain when history exists
 
-  Scenario: Trash shortcut eligibility
-    Given a local file path is playing
-    When the user presses Delete
-    Then Move to Trash follows the trash feature rules
-    And the action is inactive for streams or when the grid has focus per spec
+  Scenario: Delete moves a local file to trash
+    Given a local regular file is playing and the grid is hidden
+    When the user presses Delete or KP_Delete
+    Then app.move-to-trash runs per 27-move-to-trash
+    And streams or grid focus leave the action disabled
+
+  Scenario: Volume keys nudge by 5%
+    Given the player is ready
+    When the user presses Up or Down
+    Then volume changes by 5%, clamped to volume-max
+    And no extra notification is shown
+
+  Scenario: Mute toggle on m
+    Given the player is ready
+    When the user presses m
+    Then mute toggles like the popover toggle in 22-audio-volume-mute
+
+  Scenario: Quit on q or Ctrl+Q
+    Given the main window is open
+    When the user presses q or Ctrl+Q
+    Then app.quit writes resume snapshot
+    And the application exits
+
+  Scenario: Enter toggles fullscreen
+    Given the main window is focused
+    When the user presses Enter or KP_Enter
+    Then fullscreen toggles like double-click on the video surface
+
+  Scenario: Right click toggles play / pause
+    Given a file with duration is loaded and the grid is hidden
+    When the user right-clicks on the video surface
+    Then mpv pause toggles like Space
 ```
 
-- Do not pass keys that match registered app accelerators to mpv.
-- **Space** toggles play/pause via the mpv `pause` property when the main window is focused (and the player is ready). If the continue grid is visible and the preloaded first item is ready, Space first reveals that video and starts playback instead of playing behind the grid.
-- **Primary double-click** on the video view toggles fullscreen. **Secondary (right) single-click** on the video view toggles play/pause the same as Space (when a file with duration is loaded).
-- **m** toggles mute (see [Audio volume / mute](22-audio-volume-mute.md)).
-- **Up** / **Down** adjust volume by 5% (clamped).
-- **q** and **Ctrl+Q** run `app.quit` (resume snapshot, then exit).
-- **Ctrl+W** runs `app.close-video`: same as that post-fullscreen Escape path (return to the **continue / recent** grid and stop the current file) — **does not** quit the app. The **bottom** transport bar and main menu both expose **Close Video** for a mouse-only path. The action is disabled when the grid is already showing or the player is not ready.
-- **Delete** and **KP_Delete** run `app.move-to-trash` when a **local file** is playing (not streams); same as the main menu **Move to Trash** (see [27-move-to-trash](27-move-to-trash.md)). Disabled on the continue grid or for non-file sources.
-- **Enter** and **KP_Enter** toggle fullscreen (see [Window behavior](17-window-behavior.md)).
-- On the **continue / recent** grid, **double** primary click on the **empty** area (padding above, below, or beside the card row, not on a card) toggles fullscreen the same as on the video (see [Recent videos](21-recent-videos-launch.md)).
-- Escape leaves fullscreen first; a **second** Escape (when not fullscreen) **pauses** at once (so sound stops) while the app finishes resume/DB work and returns to the **recent-videos** card screen when there is history, then `stop` runs in the main-loop idle chain (same as empty launch; otherwise the overlay stays hidden and the status invites opening a file).
-- Tab focuses UI chrome temporarily.
-- Document location of `input.conf` under `~/.config/rhino/` (TBD), following XDG.
+## Notes
+- Default bindings load from a memory `input.conf`; an optional user `input.conf` under `~/.config/rhino/` is reserved for later (TBD).
+- Empty-area double-click on the recent grid spacers also toggles fullscreen (see [21-recent-videos-launch](21-recent-videos-launch.md)).
+- Tab focuses chrome temporarily.

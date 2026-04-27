@@ -15,7 +15,7 @@
 
 ## Workflow
 
-- **Document-first**: see `.cursor/rules/document-first.mdc`. Capture **business rules** and acceptance criteria first (prefer **Gherkin** Given–When–Then in `docs/features/…`), not internal filenames or module layout unless the story is about those concerns.
+- **Document-first**: see `.cursor/rules/document-first.mdc`. Each feature doc in `docs/features/<NN>-<slug>.md` follows the strict template: H1, YAML front-matter (`status`, `priority`, `layers`, optional `related` / `actions` / `settings` / `mpv_props`), `## Use cases`, `## Description`, `## Behavior` (a single `Feature:` Gherkin block — the **single source of truth** for acceptance), and optional `## Notes`. Optional tags / `#` step comments / tables / doc strings may add technical metadata; module names and file paths belong in `## Notes`, not in scenarios.
 - **Known UX not achieved in testing (Composer 2 Fast pass):** one-click switch between header `MenuButton` popovers — see `docs/README.md` (*Tooling note*) and `docs/features/17-window-behavior.md`. Revisit with a different model or deeper GTK review.
 
 ## Conventions

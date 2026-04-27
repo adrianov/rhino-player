@@ -1,38 +1,49 @@
 # Playlist dialog (list, reorder, save m3u8)
 
-**Name:** Playlist side dialog
+---
+status: planned
+priority: p2
+layers: [ui, mpv]
+related: [05, 06, 12, 16]
+mpv_props: [playlist, playlist-pos]
+---
 
-**Implementation status:** Not started
+## Use cases
+- Reorder a queue, save it as a file for later, jump to any item by sight.
+- Avoid hunting in the file system to manage what is playing.
 
-**Use cases:** Reorder a queue, save it as a file for later, and jump to any item by sight—without hunting in the file system.
+## Description
+An Adwaita dialog (or sheet) lists the current playlist with MIME icons, highlights the playing row, supports click-to-jump, drag-and-drop reorder via mpv `playlist-move`, right-click open / remove, and saves portable `.m3u8` with `#EXTINF` lines.
 
-**Short description:** A dialog listing the current playlist with icons by MIME, playing row highlight, click to jump, drag-and-drop reorder (`playlist-move`), right-click: open in file manager, remove, drop to append; save to `.m3u8` with basic `#EXTINF` lines.
-
-**Long description:** An `Adw` dialog (or sheet) builds rows from `mpv.playlist`. “Save playlist” must write paths that work when the app runs from a normal install and when the config/data dirs differ (resolve paths in a way that is portable for the user). DnD from the OS into the list appends. Reordering uses `playlist-move` with correct indices.
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
-Feature: Playlist side dialog (target behavior — not started)
-  Scenario: Follow active playlist row
-    Given the playlist dialog is open and mpv advances playlist-pos
+@status:planned @priority:p2 @layer:ui @area:playlist-dialog
+Feature: Playlist side dialog
+
+  Scenario: Active row stays visible
+    Given the playlist dialog is open and mpv playlist-pos advances
     When the position changes
-    Then the list scrolls to keep the current row visible
+    Then the list scrolls to keep the playing row visible
 
-  Scenario: Reorder with playlist-move
-    Given multiple queued items
-    When the user drags rows to a new order
-    Then mpv playlist-move updates indices consistently with UI order
+  Scenario: Reorder via drag-and-drop maps to playlist-move
+    Given multiple items are queued
+    When the user drags a row to a new position
+    Then mpv playlist-move runs with the matching from / to indices
+    And the rendered order matches mpv playlist after the move
 
-  Scenario: Save portable m3u8
-    Given the user saves the playlist to disk
-    When the operation completes
-    Then paths and titles are written for reuse across installs per portability rules
+  Scenario: Save as portable m3u8
+    Given a non-empty playlist
+    When the user saves the playlist to disk
+    Then a valid m3u8 file is written with one path per item and EXTINF lines
+
+  Scenario: Right-click on local file offers open in file manager
+    Given the user right-clicks on a row whose path is a local file
+    When the context menu is shown
+    Then it offers Open Containing Folder
+    And remote URLs do not show that entry
 ```
 
-- Scroll to current item on `playlist-pos` change.
-- Right-click `open_containing_folder` for local files only.
-- Save dialog filters `.m3u8` and writes paths/titles.
-- DnD: append and refresh; show spinner while resolving large drops if needed.
+## Notes
+- DnD from the OS appends; show a spinner while resolving large drops if needed.
+- File save dialog filters `.m3u8`.

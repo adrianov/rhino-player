@@ -1,37 +1,48 @@
 # MPRIS2 (media keys, shell integration)
 
-**Name:** MPRIS2 D-Bus interface
+---
+status: planned
+priority: p2
+layers: [platform, mpv]
+related: [02, 04, 22]
+---
 
-**Implementation status:** Not started
+## Use cases
+- Media keys, notification area, and desktop widgets control playback.
+- Other apps can query "what is playing".
 
-**Use cases:** Media keys, notification area, and desktop widgets control playback; other apps can query “what is playing.”
+## Description
+The app exposes `org.mpris.MediaPlayer2` and `org.mpris.MediaPlayer2.Player` on the session bus and synchronises them with the active window’s mpv state. Properties update via `PropertiesChanged`; jumps emit `Seeked`. `Raise` presents the window; `Quit` quits the app.
 
-**Short description:** Expose `org.mpris.MediaPlayer2` and `org.mpris.MediaPlayer2.Player` on the session bus: play, pause, next, previous, seek, volume, loop, shuffle, and metadata, aligned with the active window’s mpv state.
-
-**Long description:** Register a well-known D-Bus name and sync on a timer or event basis to avoid stutter from per-frame property reads. Emit `PropertiesChanged` for playback, metadata, volume, loop, shuffle, and `Seeked` when position jumps. `Raise` presents the window; `Quit` quits the app. Shuffle maps to a toggle in the main window. Next/prev capability feeds `CanGoNext` / `CanGoPrevious`.
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
-Feature: MPRIS2 shell integration (target behavior — not started)
+@status:planned @priority:p2 @layer:platform @area:mpris
+Feature: MPRIS2 shell integration
+
   Scenario: PlayPause toggles active playback
     Given Rhino exposes org.mpris.MediaPlayer2.Player on the session bus
     When a client invokes PlayPause
-    Then playback state toggles to match mpv pause semantics
+    Then playback toggles to match mpv pause semantics
+    And PlaybackStatus reflects the new state
 
   Scenario: Metadata tracks current media
     Given media with identifiable metadata is playing
-    When clients read PlaybackStatus, Metadata, and Position
+    When a client reads PlaybackStatus, Metadata, and Position
     Then returned values match the active window’s mpv-backed state within documented tolerance
 
-  Scenario: Raise brings window forward
-    Given the main window may be in the background
+  Scenario: Raise brings the window forward
+    Given the main window is in the background
     When a client invokes Raise
     Then the application presents its primary window per GNOME expectations
+
+  Scenario: Seeked emits on jumps
+    Given playback is active
+    When the user or a client causes a non-incremental position change
+    Then the Seeked signal fires with the new position
 ```
 
-- Bus name and object path follow MPRIS conventions; identity string uses the Rhino app name.
-- Methods and properties that GNOME shell and media key clients expect: at minimum `PlayPause`, `Next`, `Previous`, `Stop`, `Volume`, `LoopStatus`, `Metadata`, `Position`, `PlaybackStatus`.
+## Notes
+- Bus name and object path follow MPRIS conventions; the identity string uses the Rhino app name.
 - `SetPosition` and `Seek` use microsecond contracts per spec.
+- Sync via mpv property events, not per-frame polling.

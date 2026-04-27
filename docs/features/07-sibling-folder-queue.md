@@ -1,50 +1,72 @@
 # Sibling folder queue (folder playback)
 
-**Name:** Sibling media expansion
+---
+status: done
+priority: p1
+layers: [mpv, fs, ui]
+related: [02, 03, 04, 05, 06, 13]
+mpv_props: [eof-reached, time-pos, duration, path]
+---
 
-**Implementation status:** Done (EOF auto-advance; **Prev/Next** on the bottom bar use the same folder + sibling ordering as EOF and show filename tooltips; full m3u playlist UI: [05](05-playlist.md).)
+## Use cases
+- After a file ends, continue with the next file in the same directory.
+- When the directory is exhausted, continue in the next sibling subdirectory under the same parent (e.g. next season folder).
+- Browse a folder tree without going back to **Open** between files.
 
-**Use cases:** After one file finishes, continue with the next file in the same directory; when that folder is exhausted, continue in the next **sibling subfolder** under the same parent (e.g. next season folder) without a manual “Open” each time.
+## Description
+On natural EOF, the next file in **sorted** order in the current directory loads automatically. If the current file was the last in its directory, the app walks up one level, finds the next sibling directory in sorted order, and loads the first sorted video there; empty siblings are skipped. With no further sibling at any level, playback stops (no wrap).
 
-**Short description:** On natural EOF, load the next local file in **sorted** order in the current directory. If the current file was the last video there, go **up** one level, find the next **sibling directory** (sorted by name) under that parent, and start the **first** video in that directory; skip directories that have no matching videos. If the current directory was the last among siblings, **stop** (no wrap). Scope is: all videos in immediate subfolders of a common parent, in directory-name order, then by filename inside each folder.
+Sibling videos use the shared extension list from `src/video_ext.rs` (same as **Open Video**); the listing is non-recursive per directory and ordering uses `lexical_sort::natural_lexical_cmp` (case-insensitive, with natural digit runs). Bottom-bar **Previous** / **Next** use the same ordering when a local file with duration is loaded.
 
-**Long description:** Sibling “videos” in a folder are files whose **extension** matches the shared list in [`src/video_ext.rs`](../src/video_ext.rs) (same as **Open Video…**; e.g. `mkv`, `mp4`, `mxf`, `vob`, `y4m` …). The list is **not** a probe of file contents. Listing is **non-recursive** per directory. Ordering uses the **`lexical_sort`** crate’s **`natural_lexical_cmp`**: case-insensitive Unicode to ASCII, with **natural** digit runs (e.g. `ep2` before `ep10`) — a practical file-manager-style order, not [ICU](https://github.com/unicode-org/icu4x) locale collation. The primary trigger is mpv’s **`eof-reached`** property change and the **`EndFile`** event, both delivered through the mpv event drain in `src/app/transport_events.rs` (see `.cursor/rules/events-over-polling.mdc`). With `keep-open` and the libmpv GL path, `eof-reached` can **stay false** while `time-pos` sits just short of `duration` (e.g. near the end for ~1s); the app also treats a **stuck** tail: unpaused, within **~1.75s** of the end, and the same `time-pos` for **3** consecutive ticks (~0.6s), then advances the same as EOF. The tail-stall watcher is a **short timer that runs only while inside the 1.75 s tail window** (started/stopped from the same event drain), not a steady poll. `keep-open` and watch-later work as before: `try_load` writes resume snapshot before each switch.
+The primary trigger is mpv’s `eof-reached` change plus the `EndFile` event. With `keep-open` and the libmpv GL path, a stuck tail (unpaused, within ~1.75 s of duration, same `time-pos` for ~3 ticks) also advances; the watcher is a short timer that runs only inside that tail window, not a steady poll.
 
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
+@status:done @priority:p1 @layer:mpv @area:sibling-queue
 Feature: Sibling folder queue
+
+  Background:
+    Given the loaded media is a local file with siblings discoverable per the documented extension list
+
   Scenario: Auto-advance to next file in folder
-    Given a local video is playing with a known sibling order
-    When natural end-of-playback occurs (EOF, EndFile, or documented tail-stall)
+    Given the current file has a next sibling in sorted order
+    When natural end-of-playback occurs (EOF, EndFile, or tail-stall)
     Then the next sorted video in the same directory loads automatically
-    And watch-later and resume snapshots follow try_load rules
+    And resume snapshot writes follow try_load rules
 
   Scenario: Advance to next sibling folder when current folder is exhausted
-    Given the current file is last in its directory by sorted order
+    Given the current file is the last in its directory by sorted order
     When end-of-playback occurs
     Then the first sorted video in the next sibling subdirectory under the parent loads
-    Or playback stops when no further sibling folders exist per walk-up rules
+    And empty sibling subdirectories are skipped
+
+  Scenario: No further sibling stops playback
+    Given no next file or sibling folder exists at any level up to the configured walk-up limit
+    When end-of-playback occurs
+    Then playback stops without wrapping back to the first folder
 
   Scenario: Exit After Current Video overrides advance
     Given the session-only Exit After Current Video option is enabled
     When end-of-playback occurs
     Then the application exits without loading another sibling file
 
-  Scenario: Manual Prev/Next matches automatic order
+  Scenario: Manual Prev / Next matches automatic order
     Given a local file with duration is open
-    When the user activates bottom-bar Previous or Next
+    When the user activates the bottom-bar Previous or Next
     Then the loaded file matches the same folder and sibling ordering as EOF advance
+
+  Scenario: Tooltips reflect the next / previous filename
+    Given a sibling target exists for Previous or Next
+    When the user hovers the corresponding button
+    Then the tooltip shows the target filename
+    And buttons without a sibling target show a no-neighbour tooltip
 ```
 
-- **Trigger:** `eof-reached==true` (mpv property change) **or** mpv `EndFile` event **or** the tail-stall case above, once per logical end (guarded by `SiblingEofState` that resets when not at an end, e.g. new file, seek, or Escape). The last successfully loaded canonical path from [try_load] is used if mpv’s `path` is empty. If the session-only **Exit After Current Video** main-menu checkmark is on, EOF quits the app instead of loading the next sibling.
-- **Local files only** — if neither mpv’s path nor the cached last path resolves, do nothing.
-- **Same directory:** list video files in the file’s **parent** (canonical paths, same extension set as the implementation), sort, advance to the next after the current file.
-- **Last in directory:** list **subdirectories** of the parent of that folder, sort; take the next directory after the current one; the next play is the first (sorted) video in that directory; if that directory is empty, continue to the next sibling directory; repeat.
-- **No next sibling (walk up until root):** when there is no “next” directory at any level, **stop** (no loop to the first folder).
-- **Bottom bar** **Previous** / **Next** (when a **local** file is open and has duration) use the same folder + sibling order as automatic EOF: `sibling_advance::prev_before_current` / `next_after_eof`, then `try_load` in `src/app/load.rs`; sibling EOF one-shot state is reset on manual skip.
-- **Prev/Next filename tooltips:** on hover, show the **next/previous file name** when a sibling target exists; otherwise show a short “No previous/next file in folder order” line. Tooltips use GTK `GtkWidget:set-tooltip-text` on both the `GtkButton` and its wrapper `GtkBox`, so enabled buttons show the filename and disabled edge buttons still expose the “no neighbor” text. Sensitivity and tooltips update on every change to mpv’s `path` property (observed in `src/app/transport_events.rs`) plus `FileLoaded` / `VideoReconfig` events, and the file-loaded hook still refreshes them on subtitle / audio-track scans; no transport timer rewrites tooltip state. Chrome controls driven by mpv (Play/Pause icon + tooltip, Mute icon + tooltip, time labels, seek slider, volume slider, speed-button sensitivity) update from `mpv_observe_property` events in `src/app/transport_events.rs`, with each setter guarded by an *“actually changed”* check so GTK4’s tooltip-show timer is not reset by no-op `notify::tooltip-text`. While the bottom bar is hidden by autohide (and the recent grid is not visible), seek-slider and time-label updates are skipped — the UI is invisible, so there is nothing to invalidate; this avoids fullscreen flicker caused by repeatedly redrawing chrome that is animating in / out. **Not in this slice** yet: a generated m3u/playlist, shuffle, MIME probing — may align with [Playlist](05-playlist.md) later.
-
-**Current code:** `sibling_advance::next_after_eof` (`src/sibling_advance.rs`); `maybe_advance_sibling_on_eof` in `src/app/load.rs`; `wire_transport_events` in `src/app/transport_events.rs` drives EOF, the tail-stall short-window timer, and all transport UI from mpv events.
+## Notes
+- Trigger sources: `eof-reached==true`, mpv `EndFile`, or the tail-stall guard, all delivered through the mpv event drain.
+- The last successfully loaded canonical path is used when `path` is empty.
+- Local files only: with no resolvable path, no advance runs.
+- Implementation: `src/sibling_advance.rs`, `src/app/load.rs::maybe_advance_sibling_on_eof`, `src/app/transport_events.rs::wire_transport_events`.
+- Sensitivity and tooltips update on `path` change plus `FileLoaded` / `VideoReconfig`; chrome controls update from `mpv_observe_property` events with no-op-change guards (so tooltip-show timers are not reset).
+- Out of scope here: m3u playlist UI, shuffle, MIME probing — those belong with [05-playlist](05-playlist.md).

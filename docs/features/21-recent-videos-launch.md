@@ -1,59 +1,113 @@
 # Recent videos grid on empty launch
 
-**Name:** Recent videos grid (no CLI / no open-on-start)
+---
+status: done
+priority: p1
+layers: [ui, db, mpv, fs]
+related: [03, 06, 13, 14, 16, 17, 18, 23, 27]
+settings: [seek_bar_preview]
+mpv_props: [path, time-pos, duration, eof-reached]
+---
 
-**Implementation status:** Done (no CLI: recent grid, **`~/.config/rhino/rhino.sqlite`**, **raster** thumb BLOBs, background libmpv `vo=image` keyframe pipeline; **session** LIFO **undo** stack for dismiss; session-restore TBD for “who wins” with [16](16-session-persistence.md))
+## Use cases
+- Launch from the icon and resume what you were watching with one click.
+- See up to five recent files at a glance, with a thumbnail and progress.
+- Drop entries from the list (with undo) when you no longer want to resume them.
 
-**Use cases:** Users who launch the app from the icon get back to what they were watching without digging through the file manager; at a glance they see up to five recent files, how far they got, and can resume with one click.
+## Description
+On empty launch (no CLI paths, no other "open this first" path takes over the first paint), the main content shows a row of up to **five** continue cards in most-recently-opened order. Each card has a thumbnail (cover style), the filename (no ellipsis), a thin progress bar with numeric percent, and trash + remove controls on hover.
 
-**Short description:** When the app starts with **no files or URLs from the command line** and **no other “open this first” path** (e.g. session restore) takes over the first paint, the main area shows a **row or grid of five** recent items. Each item shows a **thumbnail**, the **file name** (not the directory path: full name, word-wrapped on the card as needed), a **progress bar** with **percent complete**, and opens the file when the user **clicks the thumbnail (or the whole card)**. Order is **most recently opened first** (backwards **history** order).
+Clicking a card loads that file and unpauses, even if watch-later had stored a paused session. The first card may be warm-preloaded paused behind the grid; activating it (click or Space) hides the grid and reveals playback after a short reveal delay so the seek transition stays hidden. Returning to the grid keeps the current file paused for warm reuse; if the grid becomes empty, playback stops.
 
-**Long description:** This view is the **default empty state** of the main content where video normally renders (not a separate dialog). History is a **durable list** of opened local files (and optionally streams later; see [Open files and CLI](06-open-and-cli.md)) maintained whenever the user successfully opens a path from any supported entry point. Only **up to five** entries are **shown**; the backing list may keep more for future use. **Thumbnails** are generated or cached in a well-defined way (e.g. under the user cache directory) so repeat opens are fast; details may align with [Thumbnail seek-bar preview](18-thumbnail-preview.md) to avoid two unrelated pipelines. **Progress** uses the same resume story as [Preferences and persistent settings](14-preferences.md) / watch-later: e.g. `time-pos` and `duration` to compute a **percentage**; if duration is unknown, show an **indeterminate** bar or **0%** and document the choice. If there are **fewer than five** history entries, show only the available slots (no empty placeholders unless we explicitly want them for layout—default: no placeholders). If **history is empty**, show a short **“Open a file”** affordance (consistent with the status line) or the same empty hint already used in the app. **Opening a file** from a card uses the same **load** path as the file picker (canonical path, resume). Navigating back from playback to this grid is out of scope for v1 unless specified later.
+History is durable, deduplicated by canonical path, capped at 20 entries (showing five), and prunes missing files on `history::load`. Thumbnails are JPEG BLOBs in the SQLite `media` table, refreshed in the background by a `vo=image` libmpv decode near the stored continue position. Remove and Move-to-trash share a session **LIFO undo stack** with a 10 s snackbar.
 
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
+@status:done @priority:p1 @layer:ui @area:recent
 Feature: Recent videos grid on empty launch
-  Scenario: Grid on empty launch without CLI or session takeover
-    Given the first window is shown with no CLI paths and session restore does not replace the view
-    When history has at least one valid local entry
-    Then up to five cards appear most-recent-first with thumb, filename, and percent progress
 
-  Scenario: Open card starts playback visibly
-    Given a continue card or warm-preloaded path is ready with documented rules
-    When the user activates the card or Space with preloaded media
-    Then loadfile completes, grid hides after reveal timing, and audio does not lead video
+  Background:
+    Given the SQLite history and media tables exist under ~/.config/rhino/rhino.sqlite
 
-  Scenario: Remove or trash with undo stack
-    Given a card shows remove and trash controls on hover for an existing file
-    When remove or trash is chosen
-    Then history and resume update, snackbar offers Undo within the LIFO stack rules, and trash can untrash when applicable
+  Scenario: Grid appears on empty launch with valid history
+    Given the first window is shown with no CLI paths and no session takeover
+    And history contains at least one valid local entry
+    When the window paints
+    Then up to five cards appear most-recent-first
+    And each card shows a thumbnail, filename, and percent progress
 
-  Scenario: Completed file leaves the continue list
-    Given a local file reaches natural end or user-driven “done” criteria while another file loads
-    When those conditions from the sibling and near-end rules apply
-    Then that file is removed from continue history with resume cleared
+  Scenario: Empty history shows the empty hint
+    Given the first window is shown and history is empty
+    When the window paints
+    Then the empty state hint is shown
+    And no card grid is rendered
+
+  Scenario: Clicking a card opens and unpauses
+    Given a continue card is visible and references a local file
+    When the user activates the card
+    Then loadfile completes for that path
+    And mpv pause becomes false
+    And the grid hides after the warm-reveal delay
+
+  Scenario: Warm preload reveal on Space
+    Given the recent grid is visible and the first card is warm-preloaded paused
+    When the user presses Space
+    Then a hidden current-position keyframe resync runs while the grid is still visible
+    And after WARM_REVEAL_DELAY_MS the grid hides, chrome reveals, the window presents, and pause clears
+
+  Scenario: Card layout uses full filename and percent
+    Given a card is rendered for an existing file
+    When the user reads the card
+    Then the title shows the last path segment without ellipsis (word-wrapped)
+    And the progress bar shows numeric percent (0% if never started, 100% when finished)
+
+  Scenario: Remove from list with undo
+    Given a card shows a remove control on hover
+    When the user activates remove
+    Then the entry is removed from history without confirmation
+    And the watch-later sidecar and SQLite resume for that path are cleared
+    And a snackbar offers Undo for 10 seconds
+    And dismissing the snackbar discards the undo for that entry
+
+  Scenario: Move to trash with undo
+    Given a card represents an existing local file
+    When the user activates trash
+    Then the file is moved to the Freedesktop trash
+    And history and resume are cleared for that path
+    And the snackbar offers Undo when the trashed files/… copy is locatable
+    And Undo restores the file plus the captured watch-later and media snapshot
+
+  Scenario: Completed file leaves continue list on switch
+    Given a local file reaches natural end or near-end criteria while another file loads
+    When sibling advance or user switch fires
+    Then the completed path is removed from history
+    And resume is cleared for that path
 
   Scenario: Padding double-click toggles fullscreen
     Given the grid is visible with spacer padding around the card row
-    When the user double-clicks primary on padding (not cards)
+    When the user double-clicks primary on the spacers (not on a card or the undo bar)
     Then fullscreen toggles like the main video surface
+
+  Scenario: Stale card shows greyed art and click removes
+    Given a history entry exists for a path that no longer resolves on disk between refreshes
+    When the user clicks the stale card
+    Then the entry is removed from history via the on_stale path
+
+  Scenario: Thumbnails refresh near stored continue position
+    Given a card lacks a thumb or its stored thumb_time_pos differs from the current continue position by more than the freshness window
+    When the background backfill runs
+    Then a one-shot vo=image libmpv generates a JPEG near the stored time_pos
+    And the new BLOB replaces the previous one in the media table
 ```
 
-- **Trigger:** The grid appears when the first window is shown and **no CLI arguments** request a path, and the app is not (for this release) **replacing** that with a mandatory “restore last session” full-playlist load that fills the main view—see [Session: restore last playlist](16-session-persistence.md) for coordination; the spec for “who wins” must be a single line in this file when session restore ships.
-- **Play on card open:** A click on a recent card (or the same **Open** dialog path) must **unpause** after `loadfile` so playback **starts** even if watch_later had stored a **paused** session for that file. On empty launch, once the main `vo=libmpv` player is ready behind the continue list, the first continue item may be preloaded **paused** with the normal video preferences, including the bundled/custom VapourSynth script when Smooth 60 is enabled; clicking that same first card skips a second `loadfile`, performs a hidden current-position keyframe resync while the grid is still visible, then reveals and unpauses the warm player. Pressing **Play** or **Space** while that preloaded file is available behind the continue grid must reveal and unpause the video the same way, not play it behind the grid. Returning from playback to a non-empty continue list keeps the current file loaded and paused, so reopening the same card can use the same warm path; if the continue list is empty, playback is stopped. Opening from the **CLI** on startup may still respect saved pause (implementation: `try_load(..., play_on_start)` in `src/app/load.rs`).
-- **Warm reveal timing:** The warm preloaded player stays **paused** during the keyframe resync. The continue grid remains visible for a short reveal delay (currently `WARM_REVEAL_DELAY_MS`) so the user does not see the seek/redraw transition; only after that delay does the app hide the grid, reveal chrome, present the window, and clear `pause`. Do not reintroduce an independent delayed unpause before this reveal path, or audio can start behind the grid and drift from video.
-- **Count:** **Exactly up to five** visible cards, **most recently opened first**.
-- **Per card UI:** (1) **Thumbnail** fills the card background at a responsive card size; one card uses about **40%** of the strip/window width, with a minimum card size preserved, while multiple cards fit the row. Image uses **cover** style (**crop** edges as needed, **no** letterboxing in the art). Cards use the same dark translucent surface, border, radius, and shadow language as the undo pill. (2) **Primary label** and (3) **Progress bar** with **numeric percentage** (e.g. `42%`) sit in a soft **bottom gradient overlay** instead of a hard inner rectangle: the title is high-contrast, the progress bar is a thin rounded Adwaita-blue line, and the percentage is a small translucent pill (0% if never started, 100% or “complete” if finished per stored state; TBD: treat near-end as 100% if within N seconds). **File name** is the last path segment only, shown in full (word-wrapped, no ellipsize). Full path in tooltip optional. (4) **Click target:** the **whole card** **opens** that media; same loading and resume rules as [Open files](06-open-and-cli.md). (5) **Move to trash** and **remove from list:** on hover (top-right), a **trash** icon (left of close) and a **circular** **remove** control (right) appear. **Move to trash** (only for a file that **exists** in the non-stale state) uses the system **Trash**; clears resume, removes from history, and refills the grid, and (like **remove**) can be **undone** from the same session stack when the trashed file is found under XDG `Trash/files` (see [27-move-to-trash](27-move-to-trash.md)). **Remove** (close): one click **removes** that entry from continue history with **no confirmation**; stored **watch position** (watch-later + DB) for that path is **cleared**; a **snackbar** at the **bottom** of the content area (pill-shaped, file-manager style) shows a line like **“filename”** **removed from continue list** or **moved to trash**, **Undo**, and a **dismiss (×)**; it **auto-hides after 10 seconds** and **dismissing** (×/timeout) **discards the undo** for the top stack entry (no `history` restore) while a new **10s** timer may run for any remaining stack entries. **Remove** and **trash** push on the same in-memory **LIFO stack**. **Before** clearing resume, a **snapshot** is taken: the per-file **watch_later** sidecar bytes (if any) and the full **`media` SQLite row** (duration, `time_pos`, thumb BLOB, mtime, etc., if any). For **trash**, the trashed file’s path under **`Trash/files`** is also recorded so **Undo** can **untrash** to the original path, then **writes** the sidecar and **applies** the `media` row, then `history::record` (same as re-open; list order is still “most recent first” semantics). For **remove-from-list** only, **Undo** does not move disk files. The stack and timer are cleared when leaving this view (Escape to browse), except **Move to trash** from the menu may leave a pending **Undo** (restore from trash) because `back_to_browse` does not clear the stack in that case.
-- **History persistence:** Store an ordered, de-duplicated list of opens under XDG config (e.g. `~/.config/rhino/`, filename TBD). **Deduplication:** opening the same path again **moves** it to the front. **Prune:** optional max list length (e.g. 20) with oldest dropped; the UI still shows at most five. **Invalid paths** (file deleted on disk): each `history::load` **prunes** missing files from continue history and resume (same effect as **remove from list**), so the grid normally only lists files that still **exist**. Between refreshes, a path can still go missing; the **stale** card path (greyed / click to remove) remains for that edge. **Completed items:** if the user (or the sibling-folder queue) successfully loads a **different** file while the current local file counts as **done** for that switch: the usual “natural end” (libmpv `eof-reached` or `time-pos` within ~3s of a known `duration`, matching near-end in the recent grid) **or**, when `duration` is **> ~60s** and at least **~30s**, the user is in the **last ~15%** of the timeline (e.g. **Next** during long end credits that are still many minutes from the muxed `duration` end). Then **remove** the previous file from the continue history (and clear its stored resume) so the list stays a “resume / continue” list, not a log of every finished file. If the file **ends by itself** (EOF / natural end) and there is **no** “next in folder” to open, **the same** remove + resume clear must still run, since no `loadfile` happens.
-- **Thumbnails:** **Raster** **BLOBs** in SQLite (`media` table; column name `thumb_png` is historical). **Grid rebuild / show:** if missing, mtime changed, or the stored `thumb_time_pos_sec` is not near the current continue position, a **one-shot** libmpv with `vo=image` decodes a frame near the stored continue position (`media.time_pos_sec`, then watch_later `start=`, fallback **2 s**) with high-resolution seeking **off** so capture lands on a nearby keyframe. While a stale-position thumb is being refreshed, the UI still shows the last valid raster for that file instead of falling back to the generic icon. It scales to about **480 px** wide (`force_original_aspect_ratio=decrease`) and writes **JPEG** output (`vo-image-jpeg-quality` ~82) for faster background generation. The thumbnail player is video-only and optimized for responsiveness: no audio/subtitle tracks, no external autoload, no scripts/config, no resume, small demuxer cache/readahead, fast decoder flags, and loop-filter skipping only (no frame skipping, to avoid empty/invalid captures). **UI thread:** the grid is painted from **DB-only** cache reads; **libmpv** thumb generation for missing/stale BLOBs runs on a **background** thread, then the grid is refreshed on the main loop, using a main-thread **channel** for refill signals. On empty launch, the visible grid may paint before the main `vo=libmpv` player has finished GL realization; thumbnail backfill waits until that main player exists so startup work prioritizes the first card open. When the recent scroller is destroyed, **RecentContext** is **dropped** and workers are **canceled and joined** (no intended leak of the context). **Exit / close:** only playback state is persisted; thumbnails are refreshed the next time the continue bar is shown.
-- **Length:** The libmpv **`duration` property** is written to the DB on **file switch** and **window close** (not `ffprobe`).
-- **Progress source:** On the grid, prefer **stored** `time_pos_sec` + `duration_sec` from SQLite (written on file switch / close from libmpv `time-pos` / `duration`). If `time-pos` was not stored, fall back to watch_later (`start=` / `# path`). libmpv still uses the **watch_later** directory for actual resume on open (no `start=` in the client’s `loadfile`—per-file `start=` in the same command as the path was reverted: it can combine badly with the sidecar and cause **slight A/V desync**). If both are missing, show **0%**.
-- **Empty padding:** The layout includes **spacer** boxes **above, below, and to the left and right of the center card row** (not the undo snackbar) so a **double** primary click there toggles **fullscreen** / unfullscreen (same behavior as on the `GLArea` in playback; see [Input shortcuts](13-input-shortcuts.md) / [Window behavior](17-window-behavior.md)). Clicking a **card** still only opens that file (no fullscreen from the card).
-- **Accessibility:** Each card is a **single** activatable control or a button with a label that includes the file name; progress is exposed to screen readers in a simple form (e.g. “45 percent played”).
-- **Acceptance (manual):** With history containing ≥3 local files, launch with **no** args: three cards appear in correct order, percentages match reopen behavior, click loads and seeks. With empty history, no crash and **clear** empty state. **With** a CLI file, **this grid is not** the first view (normal playback or specified CLI behavior).
-- **Out of scope (v1):** Editing history order, hiding entries, or streaming art for remote URLs (unless the same doc is updated).
-
-**Related:** [Open files and CLI](06-open-and-cli.md), [Preferences](14-preferences.md), [Session persistence](16-session-persistence.md), [Thumbnail preview](18-thumbnail-preview.md).
+## Notes
+- Trigger: empty CLI args **and** no mandatory session restore. Coordination with [16-session-persistence](16-session-persistence.md) when session restore ships must record "who wins" in a single line here.
+- Deduplication: opening a path moves it to the front; capacity 20, display 5; `history::load` prunes missing files.
+- Card UI: each card uses about 40% of the strip width with a minimum size; image uses cover style (no letterboxing); title and progress sit in a soft bottom gradient overlay; the percentage is a small translucent pill; the trash icon sits left of the close icon on hover.
+- Snackbar: pill-shaped at the bottom; auto-hide after 10 s; remove and trash share one session LIFO stack; Undo snapshots include watch-later sidecar bytes plus the full media row; trash entries also store the `Trash/files/…` path for untrash.
+- `back_to_browse` clears the session undo stack except for trash (so the snackbar can offer untrash).
+- Length and progress: write libmpv `duration` and `time-pos` to the DB on file switch and window close (no `ffprobe`); fall back to watch-later (`start=` / `# path`) before showing 0%.
+- Thumbnails: `vo=image` libmpv with high-resolution seeking off; scale to ~480 px wide with `force_original_aspect_ratio=decrease`; JPEG quality ~82; video-only player with no audio / subtitles / external autoload / scripts / resume; loop-filter skipping only.
+- Acceptance (manual): with ≥3 valid history entries, launch with no args → three cards in correct order, percentages match reopen behaviour, click loads + seeks. Empty history → no crash, clear empty state. With a CLI file, this grid is not the first view.
+- Out of scope (v1): editing history order, hiding entries, streaming-art thumbs for remote URLs.

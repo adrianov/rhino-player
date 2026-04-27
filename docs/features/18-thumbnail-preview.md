@@ -1,54 +1,63 @@
 # Thumbnails: seek bar preview
 
-**Name:** Thumbnail preview on the seek (navigation) bar
+---
+status: done
+priority: p1
+layers: [ui, mpv, db]
+related: [03, 04, 14, 21]
+settings: [seek_bar_preview]
+mpv_props: [vo-configured, time-pos, duration, path, dwidth, dheight]
+---
 
-**Implementation status:** Done (SQLite `seek_bar_preview`; `Gtk.Popover` + framed `Gtk.GLArea` thumbnail + small centered time label; **Progress Bar Preview** in main menu **Preferences**)
+## Use cases
+- Scrub the timeline visually before seeking, especially on long local files.
 
-**Use cases:** Scrub the timeline visually before seeking—especially for long local files.
+## Description
+On hover over the bottom seek scale, a popover above the bar shows a framed live video thumbnail with a small centred time label. The preview uses a second in-process libmpv with `vo=libmpv` and the same OpenGL render path as the main embed (`MpvPreviewGl`). Hover motion is debounced (~120 ms) and seeks the preview player with `seek absolute+keyframes`. The toggle is **Progress Bar Preview** in the main menu Preferences.
 
-**Short description:** On hover over the bottom seek `Gtk.Scale`, a popover above the bar shows a **framed live video thumbnail** with a small centered time label for **local** files with the option on: a **second** in-process [libmpv] with **`vo=libmpv`** and the same OpenGL [`RenderContext`] + [`gtk::GLArea`] path as the main window ([`mpv_embed::MpvBundle`]), implemented as [`mpv_embed::MpvPreviewGl`]. The mini `GLArea` is realized in the popover; `loadfile` when the path changes, no preview `vf` / filter chain, and debounced **keyframe seek** while moving. No exact follow-up seek, `screenshot-raw`, extra thread, or `MemoryTexture`. The continue grid still uses `vo=image` + DB JPEG via `media_probe` / `jpeg_texture` for on-disk cache.
+The auxiliary preview is video-only: `ao=null`, `pause=yes`, `aid=no`, `sid=no`, no external autoload, no scripts/config, no resume, small demuxer cache, fast decoder flags, and it does not copy main-player track or `hwdec` selections. VapourSynth and bundled `.vpy` apply only to the main player.
 
-**Long description:** Rhino **embeds** a second player so the preview is the real GL video path. [`MpvPreviewGl`] is auxiliary only: `ao=null`, `pause=yes`, `aid=no`, `sid=no`, no external file autoload, no scripts/config, no watch-later, no resume, no preview `vf`, small demuxer cache/readahead, fast decoder flags, non-key frame skipping, and it does **not** copy main-player settings such as selected audio/subtitle tracks or `hwdec`. After `loadfile`, a bounded low-priority `glib` timeout waits until `vo-configured`, then `seek absolute+keyframes` to the hover time and `queue_render`. Each pointer move cancels the previous debounce/pump and invalidates stale callbacks, so only the latest hover position may seek the preview player. The preview intentionally skips exact seeking and main-thread event-drain loops during pointer motion so playback keeps priority. VapourSynth and `data/vs` apply only to the main player. Debounce **120** ms. Streams and non-file `path` have no thumbnail. **Progress Bar Preview** off hides the `GLArea` only.
-
-**Specification:**
-
-**Scenarios (Gherkin):**
+## Behavior
 
 ```gherkin
+@status:done @priority:p1 @layer:ui @area:preview
 Feature: Seek bar thumbnail preview
+
   Scenario: Preview only for local files when enabled
-    Given Progress Bar Preview is on in preferences
-    When the user hovers the seek bar on a resolved local regular file
-    Then a popover shows a small GL thumbnail near the pointer at the hovered time
-    And streams and non-file paths show no preview
+    Given seek_bar_preview is true and the loaded path is a local regular file
+    When the user hovers the seek bar at any position
+    Then a popover above the bar shows a small GL thumbnail at the hovered time
+    And the centred label shows formatted hover time
 
-  Scenario: Debounced seek keeps UI responsive
-    Given hover moves quickly along the bar
-    When preview seeks run
-    Then debounce and cancellation rules prevent overlapping stale seeks from dominating the main loop
+  Scenario: Streams and non-file paths show no preview
+    Given the loaded path is not a local regular file
+    When the user hovers the seek bar
+    Then no popover appears
+    And no preview seek runs
 
-  Scenario: Single auxiliary player instance
+  Scenario: Debounced seeks avoid pile-up
+    Given the user moves the pointer quickly along the seek bar
+    When debounced preview seeks run
+    Then only the latest hover position issues a seek
+    And cancelled debounce timers do not affect later positions
+
+  Scenario: Single auxiliary player at a time
     Given preview is active during a session
-    Then only one MpvPreviewGl-backed preview exists at a time for O(1) resource use
+    When the popover is visible repeatedly
+    Then only one MpvPreviewGl instance exists at any time
 
   Scenario: Toggle off hides preview chrome only
-    Given seek_bar_preview is false in settings
+    Given seek_bar_preview is false
     When the user hovers the seek bar
-    Then no thumbnail GL content appears while transport remains usable
+    Then no thumbnail appears
+    And transport remains usable
 ```
 
-- **Settings:** [SQLite] key `seek_bar_preview` = `0` / `1`; default **on**; toggled from **main menu → Preferences → Progress Bar Preview** ([gio] stateful `seek-bar-preview`).
-- **Local file:** `path` from [mpv] `path` (or the app’s `last_path` cache when mpv is empty) must resolve to a **regular** file; `http://` and similar have **no** thumbnail.
-- **Placement:** Hovered time = `(x / width) * duration` in widget coordinates and drives the preview seek; the popover is **not** arrow tip (`set_has_arrow(false)`), **non-modal** so accelerators keep working, and points to a small rect just above the pointer (`set_pointing_to`), position **Top** with a small upward offset so the framed thumbnail sits above the seek bar without overlapping it. The popover is opened only from the debounced local-file/setting path, the `GLArea` is visible before first popup, and hover motion repositions the existing popover immediately without calling `popup()` repeatedly.
-- **Size:** Thumbnail is intentionally small for responsiveness; long edge is responsive to the seek/window width and clamped around **180–320px**; aspect ratio follows the current video display dimensions.
-- **Debounce** **120** ms. The debounce `glib::SourceId` must be taken when the timeout **runs** (GLib already removes the source on `Break`); otherwise a later cancel would call `remove` on a stale id and abort.
-- **Video:** A **single** second [mpv] instance ([`MpvPreviewGl`]) in the popover; **O(1)** instances. No temp files at hover. The instance is video-only and isolated from playback settings: no audio track, no subtitle track, no external audio/subtitle autoload, no resume/watch-later. After a **new** `loadfile`, the UI waits until **`vo-configured`** (via a bounded timeout loop on the main thread) before the first `seek` for that load.
-- **Not** in scope: chapter titles in the popover, URL thumbnails, a preferences **window** (menu row only, like other Rhino prefs to date).
-
-**See also:** [03-mpv-embedding](03-mpv-embedding.md), [04-transport-and-progress](04-transport-and-progress.md), [21-recent-videos-launch](21-recent-videos-launch.md) (grid `vo=image` thumbs).
-
-[mpv]: https://mpv.io/
-[libmpv2]: https://crates.io/crates/libmpv2
-[SQLite]: https://www.sqlite.org/
-[gio]: https://docs.gtk.org/gio/
-[glib]: https://docs.gtk.org/glib/
+## Notes
+- Settings: SQLite `seek_bar_preview` defaults to **on**; toggled from main menu Preferences (gio stateful action `seek-bar-preview`).
+- Hover time is computed as `(x / width) * duration` in widget coordinates.
+- Popover is non-modal and arrowless; `set_pointing_to` targets a small rect just above the pointer; the `GLArea` is realised before first show.
+- Thumbnail long edge clamps around 180–320 px; aspect follows current `dwidth`/`dheight`.
+- Debounce 120 ms; the debounce SourceId must be taken when the timeout runs to avoid a stale-id remove later.
+- The `Progress Bar Preview` row is the only preview-related preference; no separate preferences window.
+- Recent grid thumbnails use `vo=image` plus DB JPEG cache via `media_probe` / `jpeg_texture`; this feature does not feed the grid.
