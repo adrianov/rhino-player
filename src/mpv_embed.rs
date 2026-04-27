@@ -76,6 +76,10 @@ impl MpvBundle {
             // 0 = auto: libavcodec can use multiple CPU threads for software decode
             // (independent of heavy single-threaded sections in some filters / MVTools).
             let _ = init.set_option("vd-lavc-threads", "0");
+            // Align video presentation to the display clock; cheap tscale interpolation reduces pan tearing/judder.
+            let _ = init.set_option("video-sync", "display-resample");
+            let _ = init.set_option("interpolation", "yes");
+            let _ = init.set_option("tscale", "oversample");
             let _ = init.set_option("ao", "pulse");
             let _ = init.set_option("keep-open", "yes");
             if let Some(ref dir) = paths::watch_later() {
@@ -148,7 +152,9 @@ impl MpvBundle {
         }
         let mut fbo: i32 = 0;
         unsafe { (self.gl_get)(GL_FRAMEBUFFER_BINDING, &mut fbo) };
-        let _ = self.render.render::<EglState>(fbo, w, h, true);
+        if self.render.render::<EglState>(fbo, w, h, true).is_ok() {
+            self.render.report_swap();
+        }
     }
 
     /// End playback; call after watch-later / DB snapshot. Safe to skip before process exit.
