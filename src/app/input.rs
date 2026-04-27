@@ -216,8 +216,10 @@ fn wire_window_input(ctx: WindowInputCtx) {
                 }
                 lcap.set(Some((x, y)));
 
-                b.set(true);
-                apply_chrome(&root_c, &gl_c, &b, &recent_c, &bottom_c, &p_c);
+                if !b.get() {
+                    b.set(true);
+                    apply_chrome(&root_c, &gl_c, &b, &recent_c, &bottom_c, &p_c);
+                }
                 schedule_bars_autohide(Rc::clone(&ch_hide));
             }
         ));

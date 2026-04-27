@@ -13,6 +13,9 @@ fn wire_menu_chrome(
             if let Some(id) = ch.nav.borrow_mut().take() {
                 id.remove();
             }
+            if ch.bar_show.get() {
+                return;
+            }
             ch.bar_show.set(true);
             apply_chrome(
                 &ch.root,
