@@ -2,9 +2,9 @@
 
 **Name:** Judder-free presentation on fixed-Hz displays (including 60 Hz and higher) via **mpv** `display-resample` and **interpolation** (not VapourSynth)
 
-**Implementation status:** **Removed** from Rhino Player (OSS UI simplification, 2026). The app no longer exposes **`video-sync=display-resample`**, **`interpolation`**, or **`tscale`**. Legacy SQLite key `video_mpv_smooth` is **not** read or written.
+**Implementation status:** **Removed** from Rhino Player (OSS UI simplification, 2026). The app no longer exposes a general **`video-sync=display-resample`**, **`interpolation`**, or **`tscale`** preference. Legacy SQLite key `video_mpv_smooth` is **not** read or written.
 
-**What replaced it:** A single checkable item **Preferences → Smooth video (~60 FPS at 1.0×)** stores intent for **VapourSynth**-based ~60 fps motion; the filter runs at **~1.0×** only; see [26-sixty-fps-motion](26-sixty-fps-motion.md). Playback always uses `video-sync=audio` and `interpolation=no` in [apply in code](../../src/video_pref.rs).
+**What replaced it:** A single checkable item **Preferences → Smooth video (~60 FPS at 1.0×)** stores intent for **VapourSynth**-based ~60 fps motion; the filter runs at **~1.0×** only; see [26-sixty-fps-motion](26-sixty-fps-motion.md). Normal playback uses `video-sync=audio`; the active VapourSynth ~60 fps path uses `video-sync=display-resample` with `interpolation=no` in [apply in code](../../src/video_pref.rs).
 
 **Historical note:** When this feature *was* in the app, it re-timed decoded frames to the display refresh without synthesizing in-between *content* frames. Research ideas (tscale variants, VRR) below are **not** implemented and **not** on the current roadmap for this product shape.
 

@@ -141,6 +141,14 @@ def _as_float(n: int, d: int) -> float:
     return n / d
 
 
+def _vs_threads() -> int:
+    try:
+        n = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        n = os.cpu_count() or 1
+    return max(1, n - 1) if n >= 4 else max(1, n)
+
+
 core = vs.core
 _load_mvtools(core)
 if not hasattr(core, "mv"):
@@ -149,7 +157,7 @@ if not hasattr(core, "mv"):
         "or set RHINO_MVTOOLS_LIB to the full path of libmvtools.so. "
         "From a shell:  export RHINO_MVTOOLS_LIB=/path/to/libmvtools.so"
     )
-core.num_threads = os.cpu_count() or 1
+core.num_threads = _vs_threads()
 core.max_cache_size = 4096
 
 clip = video_in

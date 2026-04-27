@@ -98,8 +98,8 @@ fn apply_mvtools_env(v: &mut VideoPrefs) {
 
 /// “≈1.0×” band: bundled mvtools [vf] eligibility and env comparison use this tolerance.
 const PLAYBACK_1X_EPS: f64 = 0.001;
-/// VapourSynth / mvtools needs a deeper queue than ordinary decode to avoid starvation.
-const VS_BUFFERED_FRAMES: i32 = 8;
+/// VapourSynth / mvtools needs a deeper queue than ordinary decode to avoid jitter from CPU spikes.
+const VS_BUFFERED_FRAMES: i32 = 16;
 
 /// Same string [mpv] and the VapourSynth script use for `RHINO_PLAYBACK_SPEED`.
 fn normalized_env_speed(s: f64) -> f64 {
@@ -357,8 +357,9 @@ fn resync_av_after_vf_change(mpv: &Mpv) {
     }
 }
 
-/// Fixed timing: `video-sync=audio`, no `display-resample` / `interpolation`. Replaces the whole `vf`
-/// list (clears previous), then optional VapourSynth at ~**1.0×** only (see [mvtools_vf_eligible]).
+/// Normal playback uses `video-sync=audio`; the VapourSynth ~60 fps path uses `display-resample`
+/// so generated frames follow display cadence. Replaces the whole `vf` list (clears previous),
+/// then optional VapourSynth at ~**1.0×** only (see [mvtools_vf_eligible]).
 /// [speed_hint] is passed to [add_smooth_60] when set (e.g. header row) to match env before the [vf] add.
 pub fn apply_mpv_video(
     mpv: &Mpv,
@@ -399,10 +400,15 @@ pub fn apply_mpv_video(
         let _ = mpv.set_property("vd-lavc-dr", "auto");
     }
 
-    if let Err(e) = mpv.set_property("video-sync", "audio") {
-        eprintln!("[rhino] video: set video-sync audio failed: {e:?}");
+    let video_sync = if use_mvtools {
+        "display-resample"
+    } else {
+        "audio"
+    };
+    if let Err(e) = mpv.set_property("video-sync", video_sync) {
+        eprintln!("[rhino] video: set video-sync {video_sync} failed: {e:?}");
     } else if vlog {
-        eprintln!("[rhino] video: set video-sync -> audio ok");
+        eprintln!("[rhino] video: set video-sync -> {video_sync} ok");
     }
     if let Err(e) = mpv.set_property("interpolation", false) {
         eprintln!("[rhino] video: set interpolation false failed: {e:?}");
