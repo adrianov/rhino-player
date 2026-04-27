@@ -29,6 +29,7 @@ strsim = "0.11"
 # Clippy: cognitive complexity (see clippy.toml). Run `cargo clippy` in CI or before merge.
 [lints.clippy]
 cognitive_complexity = "warn"
+too_many_lines = "warn"
 
 [profile.release]
 lto = true
