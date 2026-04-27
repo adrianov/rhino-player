@@ -1,5 +1,9 @@
 # Rhino Player
 
+<p align="center">
+  <img src="data/icons/source/ch.rhino.RhinoPlayer-master-1024.png" alt="Rhino Player icon" width="240">
+</p>
+
 A media player for Linux (GNOME, Ubuntu, and similar) that uses **mpv** for decoding and **GTK 4** with **libadwaita** for the user interface. The implementation language is **Rust**. The long-term goal is a reliable distributable, with **static** or mostly self-contained release artifacts where the platform allows; see [docs/features/20-static-build.md](docs/features/20-static-build.md).
 
 ## Current state
