@@ -1,7 +1,7 @@
 const APP_WIN_TITLE: &str = "Rhino Player";
 /// **Preferences** row for `video_smooth_60`: stores **intent**; the bundled `.vpy` runs only at ~**1.0×**.
-const SMOOTH60_MENU_LABEL: &str = "Smooth video (~60 FPS at 1.0×)";
-const SEEK_BAR_MENU_LABEL: &str = "Progress bar preview";
+const SMOOTH60_MENU_LABEL: &str = "Smooth Video (~60 FPS at 1.0×)";
+const SEEK_BAR_MENU_LABEL: &str = "Progress Bar Preview";
 const LICENSE_NOTICE: &str = concat!(
     "Rhino Player is licensed as GPL-3.0-or-later.\n\n",
     include_str!("../../COPYRIGHT"),
@@ -258,7 +258,7 @@ fn schedule_window_aspect_on_resize_end(
 /// `GtkFileDialog` filter: video only (not images or “all files”).
 fn video_file_filter() -> gtk::FileFilter {
     let f = gtk::FileFilter::new();
-    f.set_name(Some("Video files"));
+    f.set_name(Some("Video Files"));
     f.add_mime_type("video/*");
     for s in video_ext::SUFFIX {
         f.add_suffix(s);
@@ -268,7 +268,7 @@ fn video_file_filter() -> gtk::FileFilter {
 
 fn vpy_file_filter() -> gtk::FileFilter {
     let f = gtk::FileFilter::new();
-    f.set_name(Some("VapourSynth scripts"));
+    f.set_name(Some("VapourSynth Scripts"));
     f.add_suffix("vpy");
     f
 }
@@ -293,7 +293,7 @@ fn video_pref_submenu_rebuild(m: &gio::Menu, p: &db::VideoPrefs, app: &adw::Appl
         m.append(Some(name), Some("app.vs-custom"));
     }
     m.append(
-        Some("Choose VapourSynth script (.vpy)…"),
+        Some("Choose VapourSynth Script (.vpy)…"),
         Some("app.choose-vs"),
     );
     if let Some(a) = app
@@ -437,7 +437,7 @@ fn register_video_app_actions(
             let filters = gio::ListStore::new::<gtk::FileFilter>();
             filters.append(&vf);
             let dialog = gtk::FileDialog::builder()
-                .title("VapourSynth script")
+                .title("VapourSynth Script")
                 .modal(true)
                 .filters(&filters)
                 .default_filter(&vf)

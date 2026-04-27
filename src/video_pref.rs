@@ -10,7 +10,7 @@
 //!
 //! If the VapourSynth `vf` cannot be added (no script, or mpv reports error — missing filter, plugin,
 //! Python), [apply_mpv_video] sets `smooth_60` to `false`, saves settings, and returns `true` so the UI
-//! can sync the **Smooth video (~60 FPS at 1.0×)** menu.
+//! can sync the **Smooth Video (~60 FPS at 1.0×)** menu.
 //!
 //! **Hardware decode** (`hwdec=auto` / VAAPI / NVDEC) often **bypasses** the CPU VapourSynth path, so
 //! the filter is inert and motion looks identical to 24p. Normal playback leaves mpv defaults alone.
@@ -427,7 +427,7 @@ fn log_apply(v: &VideoPrefs) {
     );
     if !v.smooth_60 {
         eprintln!(
-            "[rhino] video: smooth_60 off — no 60 fps vf. Enable **Preferences** → **Smooth video (~60 FPS at 1.0×)** for VapourSynth (bundled .vpy if path is empty)."
+            "[rhino] video: smooth_60 off — no 60 fps vf. Enable **Preferences** → **Smooth Video (~60 FPS at 1.0×)** for VapourSynth (bundled .vpy if path is empty)."
         );
     }
 }

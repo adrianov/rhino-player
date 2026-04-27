@@ -69,7 +69,7 @@ fn wire_final_actions(ctx: FinalActionCtx) {
             let filters = gio::ListStore::new::<gtk::FileFilter>();
             filters.append(&vf);
             let dialog = gtk::FileDialog::builder()
-                .title("Open video")
+                .title("Open Video")
                 .modal(true)
                 .filters(&filters)
                 .default_filter(&vf)

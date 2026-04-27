@@ -41,7 +41,7 @@ fn show_smooth_setup_dialog(app: &adw::Application) {
     let parent = app.active_window();
     let win = gtk::Window::builder()
         .modal(true)
-        .title("Set up Smooth 60 FPS")
+        .title("Set Up Smooth 60 FPS")
         .default_width(720)
         .default_height(520)
         .build();
@@ -58,7 +58,7 @@ fn show_smooth_setup_dialog(app: &adw::Application) {
     area.set_margin_end(16);
 
     let msg = gtk::Label::new(Some(
-        "Rhino could not find libmvtools.so for Smooth 60 FPS. Copy and run these commands, then enable Smooth video again.",
+        "Rhino could not find libmvtools.so for Smooth 60 FPS. Copy and run these commands, then enable Smooth Video again.",
     ));
     msg.set_wrap(true);
     msg.set_xalign(0.0);

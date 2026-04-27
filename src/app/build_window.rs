@@ -71,12 +71,12 @@ fn build_window(
     let pref_menu = gio::Menu::new();
     pref_menu.append(Some(SMOOTH60_MENU_LABEL), Some("app.smooth-60"));
     pref_menu.append(
-        Some("Choose VapourSynth script (.vpy)…"),
+        Some("Choose VapourSynth Script (.vpy)…"),
         Some("app.choose-vs"),
     );
     let menu = gio::Menu::new();
-    menu.append(Some("Open video…"), Some("app.open"));
-    menu.append(Some("Close video"), Some("app.close-video"));
+    menu.append(Some("Open Video…"), Some("app.open"));
+    menu.append(Some("Close Video"), Some("app.close-video"));
     menu.append(
         Some("Exit After Current Video"),
         Some("app.exit-after-current"),
@@ -171,7 +171,7 @@ fn build_window(
     sub_size_label.add_css_class("caption");
     sub_opts.append(&sub_size_label);
     sub_opts.append(&sub_scale);
-    let sub_color_label = gtk::Label::new(Some("Text color"));
+    let sub_color_label = gtk::Label::new(Some("Text Color"));
     sub_color_label.set_xalign(0.0);
     sub_color_label.add_css_class("caption");
     sub_opts.append(&sub_color_label);
@@ -373,7 +373,7 @@ fn build_window(
     bottom.append(&time_right);
     {
         let b = gtk::Button::from_icon_name("window-close-symbolic");
-        b.set_tooltip_text(Some("Close video (Ctrl+W)"));
+        b.set_tooltip_text(Some("Close Video (Ctrl+W)"));
         b.add_css_class("flat");
         b.set_valign(gtk::Align::Center);
         b.set_action_name(Some("app.close-video"));
