@@ -57,17 +57,16 @@ fn build_window(
     btn_prev.add_css_class("rpb-prev");
     btn_prev.set_sensitive(false);
     let wrap_prev = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    wrap_prev.set_can_target(true);
     wrap_prev.append(&btn_prev);
-    wrap_prev.set_tooltip_text(Some("Previous file in folder"));
-    btn_prev.set_has_tooltip(false);
     let btn_next = gtk::Button::from_icon_name("go-next-symbolic");
     btn_next.add_css_class("flat");
     btn_next.add_css_class("rpb-next");
     btn_next.set_sensitive(false);
     let wrap_next = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    wrap_next.set_can_target(true);
     wrap_next.append(&btn_next);
-    wrap_next.set_tooltip_text(Some("Next file in folder"));
-    btn_next.set_has_tooltip(false);
+    let sibling_nav = SiblingNavUi::new(&btn_prev, &btn_next, &wrap_prev, &wrap_next);
     let pref_menu = gio::Menu::new();
     pref_menu.append(Some(SMOOTH60_MENU_LABEL), Some("app.smooth-60"));
     pref_menu.append(
@@ -381,7 +380,7 @@ fn build_window(
         bottom.append(&b);
     }
 
-    let seek_state = seek_bar_preview::connect(
+    seek_bar_preview::connect(
         &seek,
         &seek_adj,
         Rc::clone(player),
@@ -409,6 +408,9 @@ fn build_window(
 
     let on_file_loaded = make_file_loaded_handler(FileLoadedCtx {
         player: player.clone(),
+        last_path: last_path.clone(),
+        sibling_seof: sibling_seof.clone(),
+        sibling_nav: sibling_nav.clone(),
         sub_pref: sub_pref.clone(),
         gl: gl_area.clone(),
         bar_show: bar_show.clone(),
@@ -712,6 +714,7 @@ fn build_window(
         recent_backfill: recent_backfill.clone(),
         last_path: last_path.clone(),
         sibling_seof: sibling_seof.clone(),
+        sibling_nav: sibling_nav.clone(),
         on_video_chrome: on_video_chrome.clone(),
         browse_chrome: browse_chrome.clone(),
         win_aspect: win_aspect.clone(),
@@ -735,6 +738,7 @@ fn build_window(
         recent_backfill: recent_backfill.clone(),
         last_path: last_path.clone(),
         sibling_seof: sibling_seof.clone(),
+        sibling_nav: sibling_nav.clone(),
         browse_chrome: browse_chrome.clone(),
         win_aspect: win_aspect.clone(),
         undo_shell: undo_shell.clone(),
@@ -935,7 +939,7 @@ fn build_window(
         ));
     }
 
-    start_transport_poll(TransportPollCtx {
+    wire_transport_events(TransportSetup {
         app: app.clone(),
         player: player.clone(),
         sub_pref: sub_pref.clone(),
@@ -944,28 +948,27 @@ fn build_window(
         recent: recent_scrl.clone(),
         last_path: last_path.clone(),
         sibling_seof: sibling_seof.clone(),
+        sibling_nav: sibling_nav.clone(),
         exit_after_current: exit_after_current.clone(),
         win_aspect: win_aspect.clone(),
         idle_inhib: Rc::clone(&idle_inhib),
         on_video_chrome: on_video_chrome.clone(),
         on_file_loaded: Rc::clone(&on_file_loaded),
         reapply_60: reapply_60.clone(),
-        seek_state,
-        speed_menu: speed_mbtn.clone(),
-        seek: seek.clone(),
-        seek_adj: seek_adj.clone(),
-        seek_sync: seek_sync.clone(),
-        time_left: time_left.clone(),
-        time_right: time_right.clone(),
-        play_pause: play_pause.clone(),
-        wrap_prev: wrap_prev.clone(),
-        wrap_next: wrap_next.clone(),
-        btn_prev: btn_prev.clone(),
-        btn_next: btn_next.clone(),
-        vol_menu: vol_menu.clone(),
-        vol_adj: vol_adj.clone(),
-        vol_mute: vol_mute_btn.clone(),
-        vol_sync: vol_sync.clone(),
+        bar_show: bar_show.clone(),
+        widgets: TransportWidgets {
+            play_pause: play_pause.clone(),
+            seek: seek.clone(),
+            seek_adj: seek_adj.clone(),
+            seek_sync: seek_sync.clone(),
+            time_left: time_left.clone(),
+            time_right: time_right.clone(),
+            speed_menu: speed_mbtn.clone(),
+            vol_menu: vol_menu.clone(),
+            vol_adj: vol_adj.clone(),
+            vol_mute: vol_mute_btn.clone(),
+            vol_sync: vol_sync.clone(),
+        },
     });
 
     wire_final_actions(FinalActionCtx {

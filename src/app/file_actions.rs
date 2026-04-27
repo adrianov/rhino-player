@@ -16,6 +16,7 @@ struct VideoFileActionCtx {
     recent_backfill: Rc<RefCell<Option<Rc<RecentContext>>>>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     sibling_seof: Rc<SiblingEofState>,
+    sibling_nav: SiblingNavUi,
     browse_chrome: Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
     undo_shell: gtk::Box,
@@ -42,6 +43,7 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
         recent_backfill,
         last_path,
         sibling_seof,
+        sibling_nav,
         browse_chrome,
         win_aspect,
         undo_shell,
@@ -66,6 +68,7 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
     let rbf_btv = recent_backfill.clone();
     let last_btv = last_path.clone();
     let seof_btv = sibling_seof.clone();
+    let nav_btv = sibling_nav.clone();
     let browse_btv = browse_chrome.clone();
     let wa_btv = win_aspect.clone();
     let ush_btv = undo_shell.clone();
@@ -123,6 +126,7 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
                     recent_backfill: rbf_btv.clone(),
                     last_path: last_btv.clone(),
                     sibling_seof: seof_btv.clone(),
+                    sibling_nav: nav_btv.clone(),
                     win_aspect: wa_btv.clone(),
                     on_browse: browse_btv.clone(),
                     undo_shell: ush_btv.clone(),
@@ -167,6 +171,7 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
     let rbf_mt = recent_backfill.clone();
     let last_mt = last_path.clone();
     let seof_mt = sibling_seof.clone();
+    let nav_mt = sibling_nav.clone();
     let browse_mt = browse_chrome.clone();
     let wa_mt = win_aspect.clone();
     let ush_mt = undo_shell.clone();
@@ -198,6 +203,8 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
         last_mt,
         #[strong]
         seof_mt,
+        #[strong]
+        nav_mt,
         #[strong]
         browse_mt,
         #[strong]
@@ -257,6 +264,7 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
                     recent_backfill: rbf_mt.clone(),
                     last_path: last_mt.clone(),
                     sibling_seof: seof_mt.clone(),
+                    sibling_nav: nav_mt.clone(),
                     win_aspect: wa_mt.clone(),
                     on_browse: browse_mt.clone(),
                     undo_shell: ush_mt.clone(),

@@ -30,11 +30,6 @@ pub struct SeekPreviewState {
     last_path: Rc<RefCell<Option<PathBuf>>>,
 }
 
-impl SeekPreviewState {
-    /// No-op (kept so [crate::app] transport tick wiring stays stable).
-    pub fn on_tick(&self) {}
-}
-
 fn preview_px(seek_w: i32) -> i32 {
     ((f64::from(seek_w) * 0.16).round() as i32).clamp(PREVIEW_MIN_PX, PREVIEW_MAX_PX)
 }

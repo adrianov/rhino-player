@@ -30,7 +30,7 @@ use crate::media_probe::{
     capture_list_remove_undo, card_data_list, is_done_enough_to_drop_continue, local_file_from_mpv,
     remove_continue_entry, CardData,
 };
-use crate::mpv_embed::MpvBundle;
+use crate::mpv_embed::{Event, Format, MpvBundle, PropertyData};
 use crate::playback_speed;
 use crate::recent_view;
 use crate::recent_view::RecentContext;
@@ -56,4 +56,6 @@ include!("app/chrome_wiring.rs");
 include!("app/open_handler.rs");
 include!("app/seek_wiring.rs");
 include!("app/vs_setup_dialog.rs");
+include!("app/tooltips.rs");
+include!("app/transport_events.rs");
 include!("app/build_window.rs");

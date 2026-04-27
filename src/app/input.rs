@@ -27,6 +27,7 @@ struct WindowInputCtx {
     recent_backfill: Rc<RefCell<Option<Rc<RecentContext>>>>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     sibling_seof: Rc<SiblingEofState>,
+    sibling_nav: SiblingNavUi,
     on_video_chrome: Rc<dyn Fn()>,
     browse_chrome: Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
@@ -67,6 +68,7 @@ fn wire_window_input(ctx: WindowInputCtx) {
         recent_backfill,
         last_path,
         sibling_seof,
+        sibling_nav,
         on_video_chrome,
         browse_chrome,
         win_aspect,
@@ -332,6 +334,7 @@ fn wire_window_input(ctx: WindowInputCtx) {
         let rbf_esc = recent_backfill.clone();
         let last_esc = last_path.clone();
         let seof_esc = sibling_seof.clone();
+    let nav_esc = sibling_nav.clone();
         let video_chrome_key = on_video_chrome.clone();
         let browse_esc = browse_chrome.clone();
         let fr_key = fs_restore.clone();
@@ -378,6 +381,7 @@ fn wire_window_input(ctx: WindowInputCtx) {
                         recent_backfill: rbf_esc.clone(),
                         last_path: last_esc.clone(),
                         sibling_seof: seof_esc.clone(),
+                        sibling_nav: nav_esc.clone(),
                         win_aspect: wa_esc.clone(),
                         on_browse: browse_esc.clone(),
                         undo_shell: ush_k.clone(),

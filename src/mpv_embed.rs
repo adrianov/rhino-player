@@ -4,6 +4,8 @@ use glib::prelude::Cast;
 use glib::translate::from_glib_borrow;
 use gtk::prelude::*;
 use libloading::{Library, Symbol};
+pub use libmpv2::events::{Event, PropertyData};
+pub use libmpv2::Format;
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 use libmpv2::Mpv;
 use std::os::raw::c_char;
@@ -213,6 +215,51 @@ impl MpvBundle {
     /// cause **slight A/V desync**).
     /// When [clear_outgoing_resume] is true, the outgoing file reached the end: drop watch_later + DB
     /// position (next open from 0) and do not write a final end snapshot.
+    /// Subscribe to mpv property changes. Each tuple is `(reply_id, name, format)`.
+    /// `reply_id` is echoed back on the [Event::PropertyChange] so handlers can dispatch quickly.
+    pub fn observe_props(&self, props: &[(u64, &str, Format)]) -> Result<(), String> {
+        for (id, name, fmt) in props {
+            self.mpv
+                .observe_property(name, *fmt, *id)
+                .map_err(|e| format!("observe_property {name}: {e:?}"))?;
+        }
+        Ok(())
+    }
+
+    /// Wakeup-driven mpv event drain. The closure runs **on the GTK main thread** whenever
+    /// libmpv has new events; the caller drains them with [drain_events]. The mpv wakeup
+    /// callback is invoked from arbitrary mpv threads, so the closure is parked in a
+    /// thread-local registered on the main thread, and a `Send` shim hops back over
+    /// `MainContext::invoke`. See `events-over-polling.mdc`: do not call other mpv APIs
+    /// from the wakeup callback itself.
+    pub fn install_event_drain<F: Fn() + 'static>(&mut self, on_main: F) {
+        thread_local! {
+            static DRAIN: std::cell::RefCell<Option<Box<dyn Fn()>>> = const { std::cell::RefCell::new(None) };
+        }
+        DRAIN.with(|s| *s.borrow_mut() = Some(Box::new(on_main)));
+        let mctx = glib::MainContext::default();
+        self.mpv.set_wakeup_callback(move || {
+            mctx.clone().invoke(|| {
+                DRAIN.with(|s| {
+                    if let Some(f) = s.borrow().as_ref() {
+                        f();
+                    }
+                });
+            });
+        });
+    }
+
+    /// Drain libmpv events until the queue is empty, dispatching each to `handler`.
+    /// Call from the closure registered by [install_event_drain].
+    pub fn drain_events(&mut self, mut handler: impl FnMut(Event<'_>)) {
+        while let Some(ev) = self.mpv.wait_event(0.0) {
+            match ev {
+                Ok(e) => handler(e),
+                Err(_) => continue,
+            }
+        }
+    }
+
     pub fn load_file_path(&self, path: &Path, clear_outgoing_resume: bool) -> Result<(), String> {
         if clear_outgoing_resume {
             if let Some(p) = media_probe::local_file_from_mpv(&self.mpv) {

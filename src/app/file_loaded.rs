@@ -1,5 +1,8 @@
 struct FileLoadedCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
+    last_path: Rc<RefCell<Option<PathBuf>>>,
+    sibling_seof: Rc<SiblingEofState>,
+    sibling_nav: SiblingNavUi,
     sub_pref: Rc<RefCell<db::SubPrefs>>,
     gl: gtk::GLArea,
     bar_show: Rc<Cell<bool>>,
@@ -17,6 +20,9 @@ struct FileLoadedCtx {
 fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
     let FileLoadedCtx {
         player,
+        last_path,
+        sibling_seof,
+        sibling_nav,
         sub_pref,
         gl,
         bar_show,
@@ -32,6 +38,9 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
     } = ctx;
     Rc::new({
         let p = player.clone();
+        let lp = last_path.clone();
+        let seof = sibling_seof.clone();
+        let nav = sibling_nav.clone();
         let sp = sub_pref.clone();
         let g2 = gl.clone();
         let bshow = bar_show.clone();
@@ -45,6 +54,12 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
         let vp_onload = Rc::clone(&video_pref);
         let app_onload = app.clone();
         move || {
+            let cur = p
+                .borrow()
+                .as_ref()
+                .and_then(|b| local_file_from_mpv(&b.mpv))
+                .or_else(|| lp.borrow().clone());
+            nav.refresh(cur.as_deref(), seof.as_ref());
             let p2 = p.clone();
             let sp2 = sp.clone();
             let g3 = g2.clone();

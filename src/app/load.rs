@@ -159,10 +159,8 @@ fn try_load(
         sync_window_aspect_from_mpv(&b.mpv, o.win_aspect.as_ref());
     }
     schedule_window_fit_h_video(Rc::clone(player), win.clone());
-    if !warm_hit {
-        if let Some(f) = o.on_loaded.clone() {
-            glib::source::idle_add_local_once(move || f());
-        }
+    if let Some(f) = o.on_loaded.clone() {
+        glib::source::idle_add_local_once(move || f());
     }
     Ok(())
 }
@@ -494,6 +492,7 @@ struct BackToBrowseCtx {
     recent_backfill: Rc<RefCell<Option<Rc<RecentContext>>>>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     sibling_seof: Rc<SiblingEofState>,
+    sibling_nav: SiblingNavUi,
     win_aspect: Rc<Cell<Option<f64>>>,
     /// Show bars; cancel auto-hide. Call after [gtk::ScrolledWindow::set_visible] for the grid.
     on_browse: Rc<dyn Fn()>,
@@ -529,6 +528,7 @@ fn back_to_browse(
     *c.last_path.borrow_mut() = None;
     c.sibling_seof.done.set(false);
     c.sibling_seof.stall.set((0.0, 0));
+    c.sibling_nav.set_no_media();
     let paths: Vec<PathBuf> = history::load().into_iter().take(5).collect();
     if paths.is_empty() {
         recent.set_visible(false);
