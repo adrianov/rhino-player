@@ -2,7 +2,7 @@
 
 **Name:** Input and keyboard shortcuts
 
-**Implementation status:** Done for in-app shortcuts in `app.rs` (not: forwarding arbitrary keys to mpv from user `input.conf`, Shortcuts help window)
+**Implementation status:** Done for in-app shortcuts in `src/app/input.rs` (not: forwarding arbitrary keys to mpv from user `input.conf`, Shortcuts help window)
 
 **Use cases:** Power users keep mpv muscle memory; casual users can view or override keys; mouse maps match typical player expectations.
 

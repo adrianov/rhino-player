@@ -19,4 +19,4 @@
 - On startup, if settings exist, apply `volume` and `mute` to mpv after `MpvBundle` creation. Defaults: 100% volume, not muted.
 - On quit, persist current `volume` and `mute` to the DB before `commit_quit` runs `stop` (so values reflect real playback, not a forced idle state from quit).
 
-**Current code:** `src/app.rs` (header control, GL scroll, key bindings), `src/db.rs` (`settings` + load/save), `src/mpv_embed.rs` (no extra hooks beyond existing property API).
+**Current code:** `src/app/build_window.rs` and `src/app/realize.rs` (header control and transport sync), `src/app/input.rs` (GL scroll and key bindings), `src/db.rs` (`settings` + load/save), `src/mpv_embed.rs` (no extra hooks beyond existing property API).

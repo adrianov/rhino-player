@@ -14,6 +14,6 @@
 
 - `cargo build` and `cargo test` (once tests exist) run from the repo root without extra steps beyond documented system dependencies.
 - `Cargo.toml` lists crate name `rhino-player` (or agreed binary name) and a minimal set of direct dependencies, with a short comment on why each is needed.
-- `src/main.rs` is the process entry; additional modules are added as `src/<module>.rs` or `src/<dir>/mod.rs` as the codebase grows.
+- `src/main.rs` is the process entry; additional modules are added as focused `src/<module>.rs` files or under a feature directory such as `src/app/` as the codebase grows.
 - The root `README.md` names Rust edition, target OS, and required dev packages for GTK4 and libadwaita at a high level.
 - A `release` profile may enable LTO; full static glibc+GTK+mpv is a stretch goal (see [Static release binary](20-static-build.md)).

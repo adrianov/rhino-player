@@ -107,7 +107,7 @@ For **manual ✕** (and optionally **auto-finish remove** if we ever toast it):
 
 ## 8. Related files (implementation touch list)
 
-- `src/app.rs` — `maybe_advance_sibling_on_eof`, `back_to_browse` idle state recording
+- `src/app/load.rs` / `src/app/recent_undo.rs` — `maybe_advance_sibling_on_eof`, `back_to_browse` idle state recording
 - `src/db.rs` / `src/history.rs` — history + media delete helpers  
 - `src/recent_view.rs` — card layout, ✕, refill, `schedule_thumb_backfill` (skip for removed)  
 - `src/media_probe.rs` — continue thumb freshness + background generation

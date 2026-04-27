@@ -16,6 +16,17 @@ A working **single-window** player shell is in place: `Adw` application + `Toolb
 
 We specify behavior in `docs/` before (or in step with) implementation. The index is [docs/README.md](docs/README.md). Cursor / agent rules in `.cursor/rules/document-first.mdc` enforce this for AI-assisted work.
 
+## Source layout
+
+The app entry is `src/main.rs`; the reusable crate root is `src/lib.rs`. The GTK application shell is split under `src/app/` by responsibility, with `src/app.rs` kept as a thin include hub for shared imports and `APP_ID`. Key app shell areas are:
+
+- `src/app/base.rs` for app startup, common constants, chrome helpers, file filters, and video preferences actions.
+- `src/app/build_window.rs` for assembling the main window and wiring the high-level UI.
+- `src/app/load.rs`, `src/app/realize.rs`, and `src/app/file_actions.rs` for media loading, mpv render setup, and open/close/trash actions.
+- `src/app/input.rs`, `src/app/final_actions.rs`, `src/app/file_loaded.rs`, `src/app/recent_undo.rs`, `src/app/open_handler.rs`, and `src/app/chrome_wiring.rs` for input, lifecycle actions, post-load hooks, continue-grid undo, shared open handling, and header chrome behavior.
+
+Other feature modules remain in `src/*.rs`, for example `mpv_embed.rs`, `video_pref.rs`, `recent_view.rs`, `sibling_advance.rs`, and `seek_bar_preview.rs`.
+
 ## Desktop integration (icon, launcher, AppStream)
 
 The app id and icon name are **`ch.rhino.RhinoPlayer`** (GNOME [application id]). Bundled assets live under `data/`:
