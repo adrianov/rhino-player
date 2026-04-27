@@ -17,6 +17,8 @@ _LOCAL_MAX_DEPTH = 14
 _LOCAL_MAX_DIR_READS = 8000
 _TARGET_NUM = 60
 _TARGET_DEN = 1
+_MV_OVERLAP = 16
+_MV_GLOBAL_HINT = {"global": True}
 
 
 def _mvtools_paths():
@@ -183,10 +185,31 @@ else:
     else:
         sn, sd = _mul_src_fps_rational(src_num, src_den, spd_frac)
         work = core.std.AssumeFPS(clip, fpsnum=sn, fpsden=sd)
+    # Keep the fast preset, blend block edges, and let MVTools detect broad camera pans.
     sup = core.mv.Super(work, pel=1, sharp=1, chroma=True)
-    v_backward = core.mv.Analyse(sup, blksize=32, overlap=0, search=0, isb=True)
-    v_forward = core.mv.Analyse(sup, blksize=32, overlap=0, search=0, isb=False)
+    v_backward = core.mv.Analyse(
+        sup,
+        blksize=32,
+        overlap=_MV_OVERLAP,
+        search=0,
+        isb=True,
+        **_MV_GLOBAL_HINT,
+    )
+    v_forward = core.mv.Analyse(
+        sup,
+        blksize=32,
+        overlap=_MV_OVERLAP,
+        search=0,
+        isb=False,
+        **_MV_GLOBAL_HINT,
+    )
     clip = core.mv.FlowFPS(
-        work, sup, v_backward, v_forward, num=_TARGET_NUM, den=_TARGET_DEN, mask=0
+        work,
+        sup,
+        v_backward,
+        v_forward,
+        num=_TARGET_NUM,
+        den=_TARGET_DEN,
+        mask=0,
     )
     clip.set_output()
