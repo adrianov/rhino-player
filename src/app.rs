@@ -3223,14 +3223,6 @@ fn build_window(
                 if let Some(bundle) = p_realize.borrow_mut().as_mut() {
                     let _ = bundle.mpv.disable_deprecated_events();
                 }
-                if let Some(clock) = area.frame_clock() {
-                    let p_swap = p_realize.clone();
-                    clock.connect_after_paint(move |_| {
-                        if let Some(b) = p_swap.borrow().as_ref() {
-                            b.report_swap_if_pending();
-                        }
-                    });
-                }
                 if let Some(p) = file_boot_rz.replace(None) {
                     if let Err(e) = try_load(
                         &p,

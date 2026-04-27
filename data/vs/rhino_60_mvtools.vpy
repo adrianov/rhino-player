@@ -142,11 +142,12 @@ def _as_float(n: int, d: int) -> float:
 
 
 def _vs_threads() -> int:
+    """Use every CPU in Rhino's scheduler affinity for the heavy mvtools graph."""
     try:
         n = len(os.sched_getaffinity(0))
     except (AttributeError, OSError):
         n = os.cpu_count() or 1
-    return max(1, n - 1) if n >= 4 else max(1, n)
+    return max(1, n)
 
 
 core = vs.core
