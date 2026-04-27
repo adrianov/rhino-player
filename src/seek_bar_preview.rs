@@ -172,6 +172,14 @@ pub fn connect(
         match MpvPreviewGl::new(a) {
             Ok(p) => {
                 *pr_realize.borrow_mut() = Some(p);
+                if let Some(clock) = a.frame_clock() {
+                    let pr_swap = Rc::clone(&pr_realize);
+                    clock.connect_after_paint(move |_| {
+                        if let Some(p) = pr_swap.borrow().as_ref() {
+                            p.report_swap_if_pending();
+                        }
+                    });
+                }
             }
             Err(e) => eprintln!("[rhino] seek preview GL/mpv: {e}"),
         }

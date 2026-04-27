@@ -6,6 +6,7 @@ use gtk::prelude::*;
 use libloading::{Library, Symbol};
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 use libmpv2::Mpv;
+use std::cell::Cell;
 use std::os::raw::c_char;
 use std::os::raw::c_void;
 use std::path::Path;
@@ -52,6 +53,7 @@ pub struct MpvBundle {
     pub mpv: Mpv,
     render: RenderContext,
     gl_ptr: usize,
+    swap_pending: Cell<bool>,
 }
 
 impl MpvBundle {
@@ -131,6 +133,7 @@ impl MpvBundle {
                 mpv,
                 render,
                 gl_ptr,
+                swap_pending: Cell::new(false),
             },
             auto_off,
         ))
@@ -148,8 +151,16 @@ impl MpvBundle {
         }
         let mut fbo: i32 = 0;
         unsafe { (self.gl_get)(GL_FRAMEBUFFER_BINDING, &mut fbo) };
-        let _ = self.render.render::<EglState>(fbo, w, h, true);
-        self.render.report_swap();
+        if self.render.render::<EglState>(fbo, w, h, true).is_ok() {
+            self.swap_pending.set(true);
+        }
+    }
+
+    /// Tell mpv after GTK has presented a rendered frame; this keeps frame pacing closer to real vsync.
+    pub fn report_swap_if_pending(&self) {
+        if self.swap_pending.replace(false) {
+            self.render.report_swap();
+        }
     }
 
     /// End playback; call after watch-later / DB snapshot. Safe to skip before process exit.
@@ -240,6 +251,7 @@ pub struct MpvPreviewGl {
     pub mpv: Mpv,
     render: RenderContext,
     gl_ptr: usize,
+    swap_pending: Cell<bool>,
 }
 
 impl MpvPreviewGl {
@@ -330,6 +342,7 @@ impl MpvPreviewGl {
             mpv,
             render,
             gl_ptr,
+            swap_pending: Cell::new(false),
         })
     }
 
@@ -345,8 +358,16 @@ impl MpvPreviewGl {
         }
         let mut fbo: i32 = 0;
         unsafe { (self.gl_get)(GL_FRAMEBUFFER_BINDING, &mut fbo) };
-        let _ = self.render.render::<EglState>(fbo, w, h, true);
-        self.render.report_swap();
+        if self.render.render::<EglState>(fbo, w, h, true).is_ok() {
+            self.swap_pending.set(true);
+        }
+    }
+
+    /// Tell mpv after GTK has presented a rendered preview frame.
+    pub fn report_swap_if_pending(&self) {
+        if self.swap_pending.replace(false) {
+            self.render.report_swap();
+        }
     }
 }
 
