@@ -12,7 +12,7 @@
 
 **Specification:**
 
-- **Trigger:** `eof-reached` **or** the tail-stall case above, once per logical end (guarded by `SiblingEofState` that resets when not at an end, e.g. new file, seek, or Escape). The last successfully loaded canonical path from [try_load] is used if mpv’s `path` is empty.
+- **Trigger:** `eof-reached` **or** the tail-stall case above, once per logical end (guarded by `SiblingEofState` that resets when not at an end, e.g. new file, seek, or Escape). The last successfully loaded canonical path from [try_load] is used if mpv’s `path` is empty. If the session-only **Exit After Current Video** main-menu checkmark is on, EOF quits the app instead of loading the next sibling.
 - **Local files only** — if neither mpv’s path nor the cached last path resolves, do nothing.
 - **Same directory:** list video files in the file’s **parent** (canonical paths, same extension set as the implementation), sort, advance to the next after the current file.
 - **Last in directory:** list **subdirectories** of the parent of that folder, sort; take the next directory after the current one; the next play is the first (sorted) video in that directory; if that directory is empty, continue to the next sibling directory; repeat.
