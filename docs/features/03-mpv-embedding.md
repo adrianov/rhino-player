@@ -10,7 +10,7 @@
 
 **Long description:** Implementation uses the official libmpv C API (Rust bindings) to create a render context, flip Y for OpenGL, read the current framebuffer, and repaint on `render-update`. A secondary “null” mpv instance is optional for thumbnail preview. Hardware decode and NVIDIA quirks (graphics offload) should be considered after the basic path works with software or auto hwdec.
 
-**Current code:** `src/mpv_embed.rs` — `libmpv2` `RenderContext` with EGL `eglGetProcAddress`, `libGL` `glGetIntegerv` (`GL_FRAMEBUFFER_BINDING`), `RenderParam::FlipY(true)` on draw, update callback → `queue_render` on the main context, and `report_swap` from GTK frame-clock `after-paint` so mpv is told after GTK presents the frame. Wayland/X11 display pointers in `RenderParam` may be added if needed for specific GPUs. Audio: `ao=pulse` in the initializer (PipeWire’s Pulse compat on typical GNOME systems).
+**Current code:** `src/mpv_embed.rs` — `libmpv2` `RenderContext` with EGL `eglGetProcAddress`, `libGL` `glGetIntegerv` (`GL_FRAMEBUFFER_BINDING`), `RenderParam::FlipY(true)` on draw, `video-timing-offset=0` so GTK paint is not blocked by mpv timing waits, update callback → `queue_render` on the main context, and `report_swap` from GTK frame-clock `after-paint` so mpv is told after GTK presents the frame. Wayland/X11 display pointers in `RenderParam` may be added if needed for specific GPUs. Audio: `ao=pulse` in the initializer (PipeWire’s Pulse compat on typical GNOME systems).
 
 **Specification:**
 

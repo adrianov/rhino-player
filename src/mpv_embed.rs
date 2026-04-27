@@ -75,6 +75,9 @@ impl MpvBundle {
         let mut mpv = Mpv::with_initializer(|init| {
             init.set_option("vo", "libmpv")?;
             init.set_option("osc", "no")?;
+            // GTK's frame clock/compositor owns presentation; do not let libmpv block the GLArea
+            // render callback while waiting for its own target time.
+            let _ = init.set_option("video-timing-offset", 0.0f64);
             // 0 = auto: libavcodec can use multiple CPU threads for software decode
             // (independent of heavy single-threaded sections in some filters / MVTools).
             let _ = init.set_option("vd-lavc-threads", "0");
@@ -94,6 +97,7 @@ impl MpvBundle {
 
         // Re-assert: some init options apply more reliably as properties on the open handle.
         let _ = mpv.set_property("save-position-on-quit", true);
+        let _ = mpv.set_property("video-timing-offset", 0.0f64);
         let auto_off = apply_mpv_video(&mpv, video, None).smooth_auto_off;
         // Thumbnails: prefer JPEG (fast); PNG path uses minimum compression.
         let _ = mpv.set_property("screenshot-format", "jpeg");
@@ -356,8 +360,9 @@ impl MpvPreviewGl {
         }
         let mut fbo: i32 = 0;
         unsafe { (self.gl_get)(GL_FRAMEBUFFER_BINDING, &mut fbo) };
-        let _ = self.render.render::<EglState>(fbo, w, h, true);
-        self.render.report_swap();
+        if self.render.render::<EglState>(fbo, w, h, true).is_ok() {
+            self.render.report_swap();
+        }
     }
 }
 
