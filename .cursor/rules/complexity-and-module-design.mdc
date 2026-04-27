@@ -27,6 +27,12 @@ If implementing **one** user-visible feature or a single story causes changes ac
 
 **Wording for agents:** *Do not celebrate breadth of edit; compress scope into a clear shape. If the file count is high, pause and re-home code so one module owns the feature and others depend on it through narrow APIs.*
 
+## When a module exceeds 1000 lines
+
+If a source module grows past **1000 lines**, treat that as a required refactor trigger before adding more behavior there. First remove unused code and duplication; if the file is still over the limit, extract cohesive feature-shaped modules with narrow interfaces and dependency injection at UI / mpv / storage boundaries. Do not make the code longer only to satisfy the line count.
+
+Clippy has `clippy::too_many_lines` for **functions** and this repo sets its threshold to **1000** in `clippy.toml`; Clippy does **not** enforce whole-file/module length, so the module limit remains a project rule unless a separate CI script is added.
+
 ## Where configuration lives
 
 - **`clippy.toml`** — threshold for `cognitive_complexity` and other Clippy config.
