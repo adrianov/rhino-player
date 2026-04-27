@@ -2,13 +2,13 @@
 
 **Name:** Thumbnail preview on the seek (navigation) bar
 
-**Implementation status:** Done (SQLite `seek_bar_preview`; `Gtk.Popover` + framed `Gtk.GLArea` thumbnail + small centered time label; **Progress bar preview** in main menu **Preferences**; [see Cine](https://github.com/diegopvlk/Cine) for baseline UX: popover on the scale, debounced seek + frame)
+**Implementation status:** Done (SQLite `seek_bar_preview`; `Gtk.Popover` + framed `Gtk.GLArea` thumbnail + small centered time label; **Progress bar preview** in main menu **Preferences**)
 
 **Use cases:** Scrub the timeline visually before seeking—especially for long local files.
 
 **Short description:** On hover over the bottom seek `Gtk.Scale`, a popover above the bar shows a **framed live video thumbnail** with a small centered time label for **local** files with the option on: a **second** in-process [libmpv] with **`vo=libmpv`** and the same OpenGL [`RenderContext`] + [`gtk::GLArea`] path as the main window ([`mpv_embed::MpvBundle`]), implemented as [`mpv_embed::MpvPreviewGl`]. The mini `GLArea` is realized in the popover; `loadfile` when the path changes, no preview `vf` / filter chain, and debounced **keyframe seek** while moving. No exact follow-up seek, `screenshot-raw`, extra thread, or `MemoryTexture`. The continue grid still uses `vo=image` + DB JPEG via `media_probe` / `jpeg_texture` for on-disk cache.
 
-**Long description:** [Cine](https://github.com/diegopvlk/Cine) uses a second [mpv] with `vo=null` and `screenshot-raw`; Rhino instead **embeds** a second player so the preview is the real GL video path. [`MpvPreviewGl`] is auxiliary only: `ao=null`, `pause=yes`, `aid=no`, `sid=no`, no external file autoload, no scripts/config, no watch-later, no resume, no preview `vf`, small demuxer cache/readahead, fast decoder flags, non-key frame skipping, and it does **not** copy main-player settings such as selected audio/subtitle tracks or `hwdec`. After `loadfile`, a bounded low-priority `glib` timeout waits until `vo-configured`, then `seek absolute+keyframes` to the hover time and `queue_render`. Each pointer move cancels the previous debounce/pump and invalidates stale callbacks, so only the latest hover position may seek the preview player. The preview intentionally skips exact seeking and main-thread event-drain loops during pointer motion so playback keeps priority. VapourSynth and `data/vs` apply only to the main player. Debounce **120** ms. Streams and non-file `path` have no thumbnail. **Progress bar preview** off hides the `GLArea` only.
+**Long description:** Rhino **embeds** a second player so the preview is the real GL video path. [`MpvPreviewGl`] is auxiliary only: `ao=null`, `pause=yes`, `aid=no`, `sid=no`, no external file autoload, no scripts/config, no watch-later, no resume, no preview `vf`, small demuxer cache/readahead, fast decoder flags, non-key frame skipping, and it does **not** copy main-player settings such as selected audio/subtitle tracks or `hwdec`. After `loadfile`, a bounded low-priority `glib` timeout waits until `vo-configured`, then `seek absolute+keyframes` to the hover time and `queue_render`. Each pointer move cancels the previous debounce/pump and invalidates stale callbacks, so only the latest hover position may seek the preview player. The preview intentionally skips exact seeking and main-thread event-drain loops during pointer motion so playback keeps priority. VapourSynth and `data/vs` apply only to the main player. Debounce **120** ms. Streams and non-file `path` have no thumbnail. **Progress bar preview** off hides the `GLArea` only.
 
 **Specification:**
 
@@ -20,7 +20,7 @@
 - **Video:** A **single** second [mpv] instance ([`MpvPreviewGl`]) in the popover; **O(1)** instances. No temp files at hover. The instance is video-only and isolated from playback settings: no audio track, no subtitle track, no external audio/subtitle autoload, no resume/watch-later. After a **new** `loadfile`, the UI waits until **`vo-configured`** (via a bounded timeout loop on the main thread) before the first `seek` for that load.
 - **Not** in scope: chapter titles in the popover, URL thumbnails, a preferences **window** (menu row only, like other Rhino prefs to date).
 
-**See also:** [Cine `window.py` / `io.github.diegopvlk.Cine`](https://github.com/diegopvlk/Cine) (different capture path, same UX target), [03-mpv-embedding](03-mpv-embedding.md), [04-transport-and-progress](04-transport-and-progress.md), [21-recent-videos-launch](21-recent-videos-launch.md) (grid `vo=image` thumbs).
+**See also:** [03-mpv-embedding](03-mpv-embedding.md), [04-transport-and-progress](04-transport-and-progress.md), [21-recent-videos-launch](21-recent-videos-launch.md) (grid `vo=image` thumbs).
 
 [mpv]: https://mpv.io/
 [libmpv2]: https://crates.io/crates/libmpv2
