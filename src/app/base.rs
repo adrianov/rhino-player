@@ -353,6 +353,7 @@ fn register_video_app_actions(
                 .smooth_auto_off;
                 if off {
                     sync_smooth_60_to_off(&app_s);
+                    show_smooth_setup_dialog(&app_s);
                 }
             }
             gla.queue_render();
@@ -416,6 +417,7 @@ fn register_video_app_actions(
                 .smooth_auto_off;
                 if off {
                     sync_smooth_60_to_off(&app_c);
+                    show_smooth_setup_dialog(&app_c);
                 }
             }
             video_pref_submenu_rebuild(&pref, &p.borrow(), &app_c);
@@ -479,9 +481,7 @@ fn register_video_app_actions(
                     .smooth_auto_off;
                     if off {
                         sync_smooth_60_to_off(&app3);
-                        if !can_find_mvtools(&p2.borrow()) {
-                            show_smooth_setup_dialog(&app3);
-                        }
+                        show_smooth_setup_dialog(&app3);
                     } else if let Some(sa) = app3
                         .lookup_action("smooth-60")
                         .and_then(|a| a.downcast::<gio::SimpleAction>().ok())

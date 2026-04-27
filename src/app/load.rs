@@ -81,9 +81,7 @@ fn try_load(
                     };
                     if a.smooth_auto_off {
                         sync_smooth_60_to_off(&r0.app);
-                        if !can_find_mvtools(&r0.vp.borrow()) {
-                            show_smooth_setup_dialog(&r0.app);
-                        }
+                        show_smooth_setup_dialog(&r0.app);
                     }
                 }
                 let p2 = Rc::clone(&p);
@@ -96,9 +94,7 @@ fn try_load(
                         };
                         if off {
                             sync_smooth_60_to_off(&r1.app);
-                            if !can_find_mvtools(&r1.vp.borrow()) {
-                                show_smooth_setup_dialog(&r1.app);
-                            }
+                            show_smooth_setup_dialog(&r1.app);
                         }
                     }
                 });
