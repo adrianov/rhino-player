@@ -13,6 +13,7 @@ Rhino Player is a Linux desktop video player for GNOME, Ubuntu, and similar syst
 - **TV-series friendly playback:** continue through episodes in a folder, then move into the next sibling folder, making season-by-season watching easier.
 - **Optional Smooth video (~60 FPS at 1.0×):** synthesize smoother motion with VapourSynth + MVTools when your system supports it.
 - **Subtitles:** pick subtitle tracks, remember subtitle style preferences, and auto-pick matching subtitle tracks when possible.
+- **Audio track switching:** choose between available audio tracks while watching a video.
 - **Seek preview:** hover over the progress bar to preview frames before jumping.
 - **Clean playback view:** auto-hiding header, transport controls, and pointer keep the video area focused.
 - **Fast playback controls:** play/pause, seek, fullscreen, elapsed/remaining time, keyboard shortcuts, and quick 1.0× / 1.5× / 2.0× speed choices.
