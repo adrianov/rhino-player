@@ -14,6 +14,8 @@ use crate::mpv_embed::{set_preview_tracks, MpvBundle, MpvPreviewGl};
 
 const PREVIEW_MIN_PX: i32 = 180;
 const PREVIEW_MAX_PX: i32 = 320;
+const PREVIEW_DEBOUNCE: Duration = Duration::from_millis(120);
+const VO_PUMP_STEP: Duration = Duration::from_millis(33);
 
 pub struct SeekPreviewState {
     deb: Rc<RefCell<Option<glib::SourceId>>>,
@@ -48,11 +50,26 @@ fn preview_size(dw: i32, dh: i32, long_edge: i32) -> (i32, i32) {
     (w, h)
 }
 
+fn set_preview_size(gl: &gtk::GLArea, seek: &gtk::Scale, player: &Rc<RefCell<Option<MpvBundle>>>) {
+    let (dw, dh) = player
+        .borrow()
+        .as_ref()
+        .map(|b| {
+            let dw = b.mpv.get_property::<i64>("dwidth").unwrap_or(0) as i32;
+            let dh = b.mpv.get_property::<i64>("dheight").unwrap_or(0) as i32;
+            (dw.max(1), dh.max(1))
+        })
+        .unwrap_or((1920, 1080));
+    let (req_w, req_h) = preview_size(dw, dh, preview_px(seek.width()));
+    gl.set_size_request(req_w, req_h);
+}
+
 fn start_vo_pump(
     gl: &gtk::GLArea,
     preview: Rc<RefCell<Option<MpvPreviewGl>>>,
     pump: Rc<RefCell<Option<glib::SourceId>>>,
-    exact: Rc<RefCell<Option<glib::SourceId>>>,
+    serial: Rc<Cell<u64>>,
+    run_id: u64,
     seek_sec: f64,
 ) {
     if let Some(s) = pump.borrow_mut().take() {
@@ -64,9 +81,12 @@ fn start_vo_pump(
     let pump2 = Rc::clone(&pump);
     let n = Rc::new(Cell::new(0i32));
     let n2 = Rc::clone(&n);
-    let id = glib::source::timeout_add_local(Duration::from_millis(16), move || {
+    let id = glib::source::timeout_add_local_full(VO_PUMP_STEP, glib::Priority::LOW, move || {
+        if serial.get() != run_id {
+            return glib::ControlFlow::Break;
+        }
         n2.set(n2.get() + 1);
-        if n2.get() > 200 {
+        if n2.get() > 90 {
             *pump2.borrow_mut() = None;
             return glib::ControlFlow::Break;
         }
@@ -89,33 +109,12 @@ fn start_vo_pump(
         };
         if done {
             gl2.queue_render();
-            schedule_exact_seek(Rc::clone(&pr2), Rc::clone(&exact), seek_sec);
             *pump2.borrow_mut() = None;
             return glib::ControlFlow::Break;
         }
         glib::ControlFlow::Continue
     });
     *pump.borrow_mut() = Some(id);
-}
-
-fn schedule_exact_seek(
-    preview: Rc<RefCell<Option<MpvPreviewGl>>>,
-    exact: Rc<RefCell<Option<glib::SourceId>>>,
-    seek_sec: f64,
-) {
-    if let Some(s) = exact.borrow_mut().take() {
-        s.remove();
-    }
-    let t_s = format!("{seek_sec:.3}");
-    let ex2 = Rc::clone(&exact);
-    let id = glib::source::timeout_add_local(Duration::from_millis(160), move || {
-        if let Some(pr) = preview.borrow_mut().as_mut() {
-            let _ = pr.mpv.command("seek", &[t_s.as_str(), "absolute+exact"]);
-        }
-        *ex2.borrow_mut() = None;
-        glib::ControlFlow::Break
-    });
-    *exact.borrow_mut() = Some(id);
 }
 
 pub fn connect(
@@ -130,7 +129,7 @@ pub fn connect(
     let hover_t = Rc::new(Cell::new(0.0f64));
     let preview = Rc::new(RefCell::new(None::<MpvPreviewGl>));
     let pump = Rc::new(RefCell::new(None::<glib::SourceId>));
-    let exact = Rc::new(RefCell::new(None::<glib::SourceId>));
+    let serial = Rc::new(Cell::new(0u64));
     let loaded_path = Rc::new(RefCell::new(None::<PathBuf>));
 
     let pop = gtk::Popover::new();
@@ -172,14 +171,6 @@ pub fn connect(
         match MpvPreviewGl::new(a) {
             Ok(p) => {
                 *pr_realize.borrow_mut() = Some(p);
-                if let Some(clock) = a.frame_clock() {
-                    let pr_swap = Rc::clone(&pr_realize);
-                    clock.connect_after_paint(move |_| {
-                        if let Some(p) = pr_swap.borrow().as_ref() {
-                            p.report_swap_if_pending();
-                        }
-                    });
-                }
             }
             Err(e) => eprintln!("[rhino] seek preview GL/mpv: {e}"),
         }
@@ -219,13 +210,15 @@ pub fn connect(
         #[strong]
         pump,
         #[strong]
-        exact,
+        serial,
         #[strong]
         loaded_path,
         move |_, x, y| {
             if st.last_xy.borrow().is_some_and(|p| p == (x, y)) {
                 return;
             }
+            serial.set(serial.get().wrapping_add(1));
+            let run_id = serial.get();
             *st.last_xy.borrow_mut() = Some((x, y));
             let w = f64::from(st.seek.width().max(1));
             let dur = st.seek_adj.upper();
@@ -235,6 +228,7 @@ pub fn connect(
             let t = (x / w).clamp(0.0, 1.0) * dur;
             st.hover_t.set(t);
             st.time_lbl.set_text(&format_time(t));
+            set_preview_size(&gl, &st.seek, &st.player);
 
             let x_cl = x.clamp(2.0, w - 2.0) as i32;
             let r = gtk::gdk::Rectangle::new(x_cl, -6, 1, 1);
@@ -243,7 +237,7 @@ pub fn connect(
             if let Some(sid) = st.deb.borrow_mut().take() {
                 sid.remove();
             }
-            if let Some(sid) = exact.borrow_mut().take() {
+            if let Some(sid) = pump.borrow_mut().take() {
                 sid.remove();
             }
             if !st.enabled.get() {
@@ -267,14 +261,18 @@ pub fn connect(
             let gl2 = gl.clone();
             let pr2 = Rc::clone(&preview);
             let pmp = Rc::clone(&pump);
-            let ex2 = Rc::clone(&exact);
+            let serial2 = Rc::clone(&serial);
             let lp2 = Rc::clone(&loaded_path);
             let tries = Rc::new(Cell::new(0i32));
             let tries2 = Rc::clone(&tries);
-            *st.deb.borrow_mut() = Some(glib::source::timeout_add_local(
-                Duration::from_millis(70),
+            *st.deb.borrow_mut() = Some(glib::source::timeout_add_local_full(
+                PREVIEW_DEBOUNCE,
+                glib::Priority::LOW,
                 move || {
                     let _ = st2.deb.borrow_mut().take();
+                    if serial2.get() != run_id {
+                        return glib::ControlFlow::Break;
+                    }
                     if !st2.enabled.get() {
                         gl2.set_visible(false);
                         return glib::ControlFlow::Break;
@@ -314,21 +312,6 @@ pub fn connect(
                         .unwrap_or(up);
                     let t = (st2.hover_t.get())
                         .clamp(0.0, (mpv_d - 0.01).max(0.0));
-                    let (dw, dh) = st2
-                        .player
-                        .borrow()
-                        .as_ref()
-                        .map(|b| {
-                            let dw = b.mpv.get_property::<i64>("dwidth").unwrap_or(0) as i32;
-                            let dh = b.mpv.get_property::<i64>("dheight").unwrap_or(0) as i32;
-                            (dw, dh)
-                        })
-                        .unwrap_or((0, 0));
-                    let dw = if dw > 0 { dw } else { 1920 };
-                    let dh = if dh > 0 { dh } else { 1080 };
-                    let long_edge = preview_px(st2.seek.width());
-                    let (req_w, req_h) = preview_size(dw, dh, long_edge);
-                    gl2.set_size_request(req_w, req_h);
                     let canon = std::fs::canonicalize(&pth).unwrap_or(pth);
                     {
                         let mut g = pr2.borrow_mut();
@@ -360,7 +343,8 @@ pub fn connect(
                                 &gl2,
                                 Rc::clone(&pr2),
                                 Rc::clone(&pmp),
-                                Rc::clone(&ex2),
+                                Rc::clone(&serial2),
+                                run_id,
                                 t,
                             );
                         } else {
@@ -374,12 +358,8 @@ pub fn connect(
                                 gl2.set_visible(false);
                                 return glib::ControlFlow::Break;
                             }
-                            for _ in 0..3 {
-                                while pr.mpv.wait_event(0.0).is_some() {}
-                            }
                             gl2.set_visible(true);
                             gl2.queue_render();
-                            schedule_exact_seek(Rc::clone(&pr2), Rc::clone(&ex2), t);
                         }
                     }
                     glib::ControlFlow::Break
@@ -395,15 +375,13 @@ pub fn connect(
         #[strong]
         pump,
         #[strong]
-        exact,
+        serial,
         move |_| {
+            serial.set(serial.get().wrapping_add(1));
             if let Some(s) = st.deb.borrow_mut().take() {
                 s.remove();
             }
             if let Some(s) = pump.borrow_mut().take() {
-                s.remove();
-            }
-            if let Some(s) = exact.borrow_mut().take() {
                 s.remove();
             }
             st.pop.popdown();

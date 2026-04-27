@@ -156,7 +156,7 @@ impl MpvBundle {
         }
     }
 
-    /// Tell mpv after GTK has presented a rendered frame; this keeps frame pacing closer to real vsync.
+    /// Tell mpv after GTK has presented a rendered frame.
     pub fn report_swap_if_pending(&self) {
         if self.swap_pending.replace(false) {
             self.render.report_swap();
@@ -251,7 +251,6 @@ pub struct MpvPreviewGl {
     pub mpv: Mpv,
     render: RenderContext,
     gl_ptr: usize,
-    swap_pending: Cell<bool>,
 }
 
 impl MpvPreviewGl {
@@ -342,7 +341,6 @@ impl MpvPreviewGl {
             mpv,
             render,
             gl_ptr,
-            swap_pending: Cell::new(false),
         })
     }
 
@@ -358,16 +356,8 @@ impl MpvPreviewGl {
         }
         let mut fbo: i32 = 0;
         unsafe { (self.gl_get)(GL_FRAMEBUFFER_BINDING, &mut fbo) };
-        if self.render.render::<EglState>(fbo, w, h, true).is_ok() {
-            self.swap_pending.set(true);
-        }
-    }
-
-    /// Tell mpv after GTK has presented a rendered preview frame.
-    pub fn report_swap_if_pending(&self) {
-        if self.swap_pending.replace(false) {
-            self.render.report_swap();
-        }
+        let _ = self.render.render::<EglState>(fbo, w, h, true);
+        self.render.report_swap();
     }
 }
 
