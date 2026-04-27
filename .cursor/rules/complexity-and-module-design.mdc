@@ -35,6 +35,7 @@ If implementing **one** user-visible feature or a single story causes changes ac
 - **`clippy::too_many_lines`** (see **`clippy.toml`**, **`too-many-lines-threshold`**) is also set to **warn**, not **deny**.
 - If **several** modules are over the limit, prefer **one file per refactor**, working from the **longest** file downward (largest payoffs first, smaller diffs). Do not try to “fix every oversized file” in a single pass unless the work is already scoped that way.
 - When you **do** split a file: remove dead code and duplication first; then extract cohesive, feature-shaped modules with narrow boundaries (UI / mpv / storage), without growing the codebase just to hit a number.
+- **`include!` splits** (and any extra modules created for length) must use **meaningful filenames** that reflect responsibility (e.g. `chrome_fullscreen_and_fit.rs`), not ordinal names like `1.rs` / `part2.rs`, so separation of concerns stays obvious in the tree and in reviews.
 
 `RHINO_MODULE_LINE_LIMIT` overrides the default threshold (default **300**) for the advisory script, e.g. local experiments.
 

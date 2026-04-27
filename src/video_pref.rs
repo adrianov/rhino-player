@@ -25,5 +25,5 @@
 //! sw/hw decode can leave mpv A/V offset until a seek). A **brief** black may appear while VapourSynth
 //! warms up.
 
-include!("video_pref/1.rs");
-include!("video_pref/2.rs");
+include!("video_pref/mvtools_speed_vf_setup.rs");
+include!("video_pref/decode_and_apply_mpv_video.rs");
