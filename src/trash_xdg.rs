@@ -62,8 +62,7 @@ pub fn find_trash_files_stored_path(original: &Path) -> Option<PathBuf> {
     let base = trash_base()?;
     let files_dir = base.join("files");
     let info_dir = base.join("info");
-    let want = std::fs::canonicalize(original)
-        .unwrap_or_else(|_| original.to_path_buf());
+    let want = std::fs::canonicalize(original).unwrap_or_else(|_| original.to_path_buf());
     let mut best: Option<(PathBuf, std::time::SystemTime)> = None;
     let entries = std::fs::read_dir(&info_dir).ok()?;
     for e in entries.filter_map(std::io::Result::ok) {

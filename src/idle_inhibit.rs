@@ -29,13 +29,10 @@ pub fn should_inhibit(
     if b.mpv.get_property::<bool>("pause").unwrap_or(true) {
         return false;
     }
-    b.mpv
-        .get_property::<String>("path")
-        .ok()
-        .is_some_and(|s| {
-            let t = s.trim();
-            !t.is_empty() && t != "null" && t != "undefined"
-        })
+    b.mpv.get_property::<String>("path").ok().is_some_and(|s| {
+        let t = s.trim();
+        !t.is_empty() && t != "null" && t != "undefined"
+    })
 }
 
 /// Request or clear inhibit; [cookie] holds the return value of [gtk4::prelude::ApplicationExt::inhibit].

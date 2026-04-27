@@ -43,7 +43,9 @@ fn new_undo_bar() -> UndoBar {
     label.add_css_class("rp-undo-toast-text");
 
     let undo = gtk::Button::with_label("Undo");
-    undo.set_tooltip_text(Some("Put the most recently removed file back on the continue list"));
+    undo.set_tooltip_text(Some(
+        "Put the most recently removed file back on the continue list",
+    ));
     undo.set_valign(gtk::Align::Center);
     undo.set_halign(gtk::Align::Center);
     undo.add_css_class("flat");
@@ -80,7 +82,12 @@ fn new_undo_bar() -> UndoBar {
     shell.add_css_class("rp-undo-shell");
     shell.append(&bar);
 
-    UndoBar { shell, label, undo, close }
+    UndoBar {
+        shell,
+        label,
+        undo,
+        close,
+    }
 }
 
 /// Scrolled row of at most five continue cards, with the undo snackbar **under** the strip (in-layout, not under the window bottom toolbar).
@@ -217,8 +224,7 @@ pub struct RecentContext {
 impl RecentContext {
     /// Rebuilds cards from the current history (first five paths).
     pub fn refill(&self) {
-        let paths: Vec<std::path::PathBuf> =
-            crate::history::load().into_iter().take(5).collect();
+        let paths: Vec<std::path::PathBuf> = crate::history::load().into_iter().take(5).collect();
         let v: Vec<CardData> = card_data_list(&paths);
         fill_row(
             &self.row,

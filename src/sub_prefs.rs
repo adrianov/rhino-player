@@ -41,11 +41,7 @@ pub fn apply_sub_pos_for_toolbar(mpv: &Mpv, bars_revealed: bool, bottom_h: i32, 
     let pos = if !bars_revealed {
         100i64
     } else {
-        let bh = if bottom_h > 0 {
-            bottom_h as f64
-        } else {
-            52.0
-        };
+        let bh = if bottom_h > 0 { bottom_h as f64 } else { 52.0 };
         let gh = gl_h.max(1) as f64;
         (100.0 - 100.0 * bh / gh).round() as i64
     }

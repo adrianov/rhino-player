@@ -9,7 +9,9 @@ use crate::app::APP_ID;
 /// Adds `CARGO_MANIFEST_DIR/data/icons` to the process icon search path so the app id icon
 /// resolves from the build tree (e.g. `cargo run`) without a system install.
 pub fn register_hicolor_from_manifest() {
-    let dir: PathBuf = [env!("CARGO_MANIFEST_DIR"), "data", "icons"].iter().collect();
+    let dir: PathBuf = [env!("CARGO_MANIFEST_DIR"), "data", "icons"]
+        .iter()
+        .collect();
     if !dir.is_dir() {
         return;
     }

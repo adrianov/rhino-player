@@ -14,10 +14,8 @@ pub const SUFFIX: &[&str] = &[
 /// `true` for a regular file whose extension is in [SUFFIX] (case-insensitive).
 pub fn is_video_path(p: &Path) -> bool {
     p.is_file()
-        && p.extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| {
-                let l = e.to_ascii_lowercase();
-                SUFFIX.contains(&l.as_str())
-            })
+        && p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+            let l = e.to_ascii_lowercase();
+            SUFFIX.contains(&l.as_str())
+        })
 }

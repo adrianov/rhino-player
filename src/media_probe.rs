@@ -67,10 +67,14 @@ pub struct ListRemoveUndo {
 /// Call **before** [remove_continue_entry] for a manual dismiss.
 pub fn capture_list_remove_undo(path: &Path) -> ListRemoveUndo {
     let path = path.to_path_buf();
-    let watch_later = watch_later_config_for(&path)
-        .and_then(|p| std::fs::read(&p).ok().map(|b| (p, b)));
+    let watch_later =
+        watch_later_config_for(&path).and_then(|p| std::fs::read(&p).ok().map(|b| (p, b)));
     let media = db::snapshot_media_row(&path);
-    ListRemoveUndo { path, watch_later, media }
+    ListRemoveUndo {
+        path,
+        watch_later,
+        media,
+    }
 }
 
 /// Restore sidecar + DB; caller re-adds history via [crate::history::record].
@@ -253,11 +257,7 @@ pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
 
 /// One `vo=image` still (writes into [tmp_dir]), with [loadfile] already applied by the caller, or
 /// shared setup through [run_vo_image_one_frame].
-fn run_vo_image_after_load(
-    m: &mut Mpv,
-    tmp: &Path,
-    deadline_secs: u64,
-) -> Option<Vec<u8>> {
+fn run_vo_image_after_load(m: &mut Mpv, tmp: &Path, deadline_secs: u64) -> Option<Vec<u8>> {
     let deadline = Instant::now() + Duration::from_secs(deadline_secs);
     let mut end_err = false;
     loop {
@@ -379,11 +379,7 @@ fn first_image_in(dir: &Path) -> Option<PathBuf> {
 /// First frame file from [vo=image] (``jpg`` default, or ``png`` / ``jpeg``).
 fn pick_vo_out(dir: &Path) -> Option<PathBuf> {
     first_image_in(dir).or_else(|| {
-        for name in [
-            "00000001.jpg",
-            "00000001.jpeg",
-            "00000001.png",
-        ] {
+        for name in ["00000001.jpg", "00000001.jpeg", "00000001.png"] {
             let p = dir.join(name);
             if p.is_file() {
                 return Some(p);
@@ -434,9 +430,7 @@ pub fn record_playback_for_current(mpv: &Mpv) {
     let d = mpv.get_property::<f64>("duration");
     let t = mpv.get_property::<f64>("time-pos");
     match (d, t) {
-        (Ok(dur), Ok(pos))
-            if dur.is_finite() && dur > 0.0 && pos.is_finite() && pos >= 0.0 =>
-        {
+        (Ok(dur), Ok(pos)) if dur.is_finite() && dur > 0.0 && pos.is_finite() && pos >= 0.0 => {
             db::set_playback(&can, dur, pos);
         }
         (Ok(dur), _) if dur.is_finite() && dur > 0.0 => {
@@ -446,11 +440,7 @@ pub fn record_playback_for_current(mpv: &Mpv) {
     }
 }
 
-fn card_one(
-    path: &Path,
-    durs: &HashMap<String, f64>,
-    tpos: &HashMap<String, f64>,
-) -> CardData {
+fn card_one(path: &Path, durs: &HashMap<String, f64>, tpos: &HashMap<String, f64>) -> CardData {
     if !path.exists() {
         return CardData {
             path: path.to_path_buf(),
@@ -479,8 +469,5 @@ fn card_one(
 pub fn card_data_list(paths: &[PathBuf]) -> Vec<CardData> {
     let durs = db::load_duration_map();
     let tpos = db::load_time_pos_map();
-    paths
-        .iter()
-        .map(|p| card_one(p, &durs, &tpos))
-        .collect()
+    paths.iter().map(|p| card_one(p, &durs, &tpos)).collect()
 }

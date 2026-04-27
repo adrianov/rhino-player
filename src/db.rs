@@ -82,30 +82,34 @@ const K_AUDIO_TRACK_NAME: &str = "audio_track_name";
 pub fn load_audio() -> (f64, bool) {
     let vol = with_conn(|c| {
         let o = c
-            .query_row("SELECT v FROM settings WHERE k = ?1", params![K_VOL], |row| {
-                let s: String = row.get(0)?;
-                Ok(s)
-            })
+            .query_row(
+                "SELECT v FROM settings WHERE k = ?1",
+                params![K_VOL],
+                |row| {
+                    let s: String = row.get(0)?;
+                    Ok(s)
+                },
+            )
             .optional()?;
-        Ok(
-            o.and_then(|s| s.parse::<f64>().ok())
-                .filter(|x: &f64| x.is_finite())
-                .map(|x| x.clamp(0.0, 200.0))
-                .unwrap_or(100.0),
-        )
+        Ok(o.and_then(|s| s.parse::<f64>().ok())
+            .filter(|x: &f64| x.is_finite())
+            .map(|x| x.clamp(0.0, 200.0))
+            .unwrap_or(100.0))
     })
     .unwrap_or(100.0);
     let mute = with_conn(|c| {
         let o = c
-            .query_row("SELECT v FROM settings WHERE k = ?1", params![K_MUTE], |row| {
-                let s: String = row.get(0)?;
-                Ok(s)
-            })
+            .query_row(
+                "SELECT v FROM settings WHERE k = ?1",
+                params![K_MUTE],
+                |row| {
+                    let s: String = row.get(0)?;
+                    Ok(s)
+                },
+            )
             .optional()?;
-        Ok(
-            o.map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
-                .unwrap_or(false),
-        )
+        Ok(o.map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+            .unwrap_or(false))
     })
     .unwrap_or(false);
     (vol, mute)
@@ -118,15 +122,17 @@ const K_SEEK_BAR_PREVIEW: &str = "seek_bar_preview";
 pub fn load_seek_bar_preview() -> bool {
     with_conn(|c| {
         let o = c
-            .query_row("SELECT v FROM settings WHERE k = ?1", params![K_SEEK_BAR_PREVIEW], |row| {
-                let s: String = row.get(0)?;
-                Ok(s)
-            })
+            .query_row(
+                "SELECT v FROM settings WHERE k = ?1",
+                params![K_SEEK_BAR_PREVIEW],
+                |row| {
+                    let s: String = row.get(0)?;
+                    Ok(s)
+                },
+            )
             .optional()?;
-        Ok(
-            o.map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
-                .unwrap_or(true),
-        )
+        Ok(o.map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+            .unwrap_or(true))
     })
     .unwrap_or(true)
 }
@@ -163,7 +169,9 @@ pub fn save_audio(volume: f64, muted: bool) {
 }
 
 pub fn load_audio_track_name() -> Option<String> {
-    get_setting_str(K_AUDIO_TRACK_NAME).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    get_setting_str(K_AUDIO_TRACK_NAME)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 pub fn save_audio_track_name(name: &str) {
@@ -224,10 +232,7 @@ pub fn load_video() -> VideoPrefs {
 }
 
 pub fn save_video(p: &VideoPrefs) {
-    put_setting(
-        K_VIDEO_SMOOTH_60,
-        if p.smooth_60 { "1" } else { "0" },
-    );
+    put_setting(K_VIDEO_SMOOTH_60, if p.smooth_60 { "1" } else { "0" });
     put_setting(K_VIDEO_VS, &p.vs_path);
     put_setting(K_VIDEO_MVTOOLS_LIB, &p.mvtools_lib);
 }
@@ -446,7 +451,8 @@ pub fn set_duration(path: &Path, sec: f64) {
 /// Last playback time (libmpv `time-pos`, seconds) for the recent bar; complements watch_later.
 pub fn load_time_pos_map() -> HashMap<String, f64> {
     with_conn(|c| {
-        let mut s = c.prepare("SELECT path, time_pos_sec FROM media WHERE time_pos_sec IS NOT NULL")?;
+        let mut s =
+            c.prepare("SELECT path, time_pos_sec FROM media WHERE time_pos_sec IS NOT NULL")?;
         let m = s.query_map([], |row| {
             let p: String = row.get(0)?;
             let t: f64 = row.get(1)?;
@@ -634,7 +640,9 @@ pub fn take_thumb_if_fresh(path: &str, file_mtime_sec: i64, time_pos: f64) -> Op
             .optional()?;
         Ok(match row {
             Some((Some(png), Some(m), Some(tp)))
-                if m == file_mtime_sec && tp.is_finite() && (time_pos - tp).abs() < THUMB_TPOS_SKIP_EPS =>
+                if m == file_mtime_sec
+                    && tp.is_finite()
+                    && (time_pos - tp).abs() < THUMB_TPOS_SKIP_EPS =>
             {
                 Some(png)
             }

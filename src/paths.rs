@@ -37,9 +37,7 @@ pub fn bundled_mvtools_60() -> Option<PathBuf> {
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let c = dir
-                .join("../share/rhino-player/vs")
-                .join(BUNDLED_MVT60_VPY);
+            let c = dir.join("../share/rhino-player/vs").join(BUNDLED_MVT60_VPY);
             if c.is_file() {
                 return std::fs::canonicalize(&c).ok().or(Some(c));
             }
@@ -61,7 +59,8 @@ pub const RHINO_PLAYBACK_SPEED_VAR: &str = "RHINO_PLAYBACK_SPEED";
 pub fn mvtools_from_env() -> Option<PathBuf> {
     let p = std::env::var(RHINO_MVTOOLS_LIB_VAR).ok()?;
     let b = PathBuf::from(p.trim());
-    b.is_file().then(|| std::fs::canonicalize(&b).ok().unwrap_or(b))
+    b.is_file()
+        .then(|| std::fs::canonicalize(&b).ok().unwrap_or(b))
 }
 
 /// **Search only** (no env, no SQLite cache): common distro paths, **pipx vsrepo** under
@@ -79,8 +78,7 @@ pub fn mvtools_lib_search() -> Option<PathBuf> {
     }
     let home = std::env::var_os("HOME")?;
     let local = PathBuf::from(home).join(".local");
-    mvtools_in_pipx_venvs(&local)
-        .or_else(|| find_file_breadth_first(&local, MVTOOLS_SO, 14, 8000))
+    mvtools_in_pipx_venvs(&local).or_else(|| find_file_breadth_first(&local, MVTOOLS_SO, 14, 8000))
 }
 
 /// `~/.local/share/pipx/venvs/<name>/lib/python*/site-packages/vapoursynth/plugins/vsrepo/libmvtools.so`
@@ -104,11 +102,7 @@ fn mvtools_in_pipx_venvs(local: &Path) -> Option<PathBuf> {
             if !pft.is_dir() {
                 continue;
             }
-            if !py
-                .file_name()
-                .to_string_lossy()
-                .starts_with("python")
-            {
+            if !py.file_name().to_string_lossy().starts_with("python") {
                 continue;
             }
             let p = py

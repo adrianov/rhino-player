@@ -21,7 +21,9 @@ pub enum ContinueBarUndo {
 impl ContinueBarUndo {
     pub fn target_path(&self) -> &Path {
         match self {
-            ContinueBarUndo::ListRemove(s) | ContinueBarUndo::Trash { snap: s, .. } => s.path.as_path(),
+            ContinueBarUndo::ListRemove(s) | ContinueBarUndo::Trash { snap: s, .. } => {
+                s.path.as_path()
+            }
         }
     }
 }
@@ -34,8 +36,7 @@ pub fn apply(u: &ContinueBarUndo) -> Result<(), String> {
             Ok(())
         }
         ContinueBarUndo::Trash { snap, in_trash } => {
-            trash_xdg::untrash_to_target(in_trash, &snap.path)
-                .map_err(|e| e.to_string())?;
+            trash_xdg::untrash_to_target(in_trash, &snap.path).map_err(|e| e.to_string())?;
             restore_list_remove_undo(snap);
             Ok(())
         }
