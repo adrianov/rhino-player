@@ -328,6 +328,17 @@ fn register_video_app_actions(
             let Some(b) = s.get::<bool>() else {
                 return;
             };
+            if b && !can_find_mvtools(&p.borrow()) {
+                {
+                    let mut g = p.borrow_mut();
+                    g.smooth_60 = false;
+                    db::save_video(&g);
+                }
+                a.set_state(&false.to_variant());
+                show_smooth_setup_dialog(&app_s);
+                gla.queue_render();
+                return;
+            }
             a.set_state(s);
             {
                 let mut g = p.borrow_mut();
@@ -444,6 +455,16 @@ fn register_video_app_actions(
                     eprintln!("[rhino] choose-vs: path required");
                     return;
                 };
+                if !can_find_mvtools(&p2.borrow()) {
+                    {
+                        let mut g = p2.borrow_mut();
+                        g.smooth_60 = false;
+                        db::save_video(&g);
+                    }
+                    sync_smooth_60_to_off(&app3);
+                    show_smooth_setup_dialog(&app3);
+                    return;
+                }
                 {
                     let mut g = p2.borrow_mut();
                     g.vs_path = path.to_str().unwrap_or("").to_string();
@@ -458,6 +479,9 @@ fn register_video_app_actions(
                     .smooth_auto_off;
                     if off {
                         sync_smooth_60_to_off(&app3);
+                        if !can_find_mvtools(&p2.borrow()) {
+                            show_smooth_setup_dialog(&app3);
+                        }
                     } else if let Some(sa) = app3
                         .lookup_action("smooth-60")
                         .and_then(|a| a.downcast::<gio::SimpleAction>().ok())

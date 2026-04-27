@@ -57,8 +57,8 @@ fn mvt_path_to_store(p: &Path) -> String {
 /// Resolves `libmvtools.so`, sets `RHINO_MVTOOLS_LIB` (in-process mpv inherits the environment).
 /// Order: env [paths::mvtools_from_env], then **cached** [VideoPrefs::mvtools_lib] if still a file, else
 /// [paths::mvtools_lib_search]; on success, saves the full path in settings so the scan is not repeated
-/// while the file exists.
-fn apply_mvtools_env(v: &mut VideoPrefs) {
+/// while the file exists. Returns `false` when `libmvtools.so` cannot be resolved.
+fn apply_mvtools_env(v: &mut VideoPrefs) -> bool {
     if let Some(p) = paths::mvtools_from_env() {
         let s = mvt_path_to_store(&p);
         if v.mvtools_lib != s {
@@ -71,14 +71,14 @@ fn apply_mvtools_env(v: &mut VideoPrefs) {
             v.mvtools_lib,
             paths::RHINO_MVTOOLS_LIB_VAR
         );
-        return;
+        return true;
     }
     let c = v.mvtools_lib.trim();
     if !c.is_empty() {
         if Path::new(c).is_file() {
             std::env::set_var(paths::RHINO_MVTOOLS_LIB_VAR, c);
             eprintln!("[rhino] video: libmvtools -> {c} (cached in settings)");
-            return;
+            return true;
         }
         v.mvtools_lib.clear();
         db::save_video(v);
@@ -88,11 +88,13 @@ fn apply_mvtools_env(v: &mut VideoPrefs) {
         db::save_video(v);
         std::env::set_var(paths::RHINO_MVTOOLS_LIB_VAR, &v.mvtools_lib);
         eprintln!("[rhino] video: libmvtools -> {}", v.mvtools_lib);
+        true
     } else {
         eprintln!(
-            "[rhino] video: libmvtools.so not found; set {} or install vapoursynth-mvtools (VapourSynth may still autoload the plugin; see `data/vs/README.md`).",
+            "[rhino] video: libmvtools.so not found; set {} or install MVTools with vsrepo (see `data/vs/README.md`).",
             paths::RHINO_MVTOOLS_LIB_VAR
         );
+        false
     }
 }
 
@@ -241,6 +243,10 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
         Some(s) => set_playback_speed_env(s),
         None => set_playback_speed_env_from_mpv(mpv),
     }
+    if !apply_mvtools_env(v) {
+        turn_off_smooth_60_in_prefs(v);
+        return true;
+    }
     let Some(p) = resolve_vs_script_path(v) else {
         eprintln!(
             "[rhino] video: VapourSynth: no .vpy (install mvtools + data/vs bundle; see `data/vs/README.md`)."
@@ -248,7 +254,6 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
         turn_off_smooth_60_in_prefs(v);
         return true;
     };
-    apply_mvtools_env(v);
     eprintln!("[rhino] video: VapourSynth script = {p}");
     let spec = format!(
         "vapoursynth:file={}:buffered-frames={VS_BUFFERED_FRAMES}:concurrent-frames=auto",

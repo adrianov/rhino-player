@@ -55,4 +55,5 @@ include!("app/recent_undo.rs");
 include!("app/chrome_wiring.rs");
 include!("app/open_handler.rs");
 include!("app/seek_wiring.rs");
+include!("app/vs_setup_dialog.rs");
 include!("app/build_window.rs");
