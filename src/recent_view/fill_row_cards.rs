@@ -180,7 +180,14 @@ pub fn fill_row(
     }
     sync_card_sizes(row, &cards.borrow());
     let cards2 = Rc::clone(&cards);
-    row.connect_notify_local(Some("width"), move |r, _| {
-        sync_card_sizes(r, &cards2.borrow());
-    });
+    let hrow = row.clone();
+    if let Some(parent) = hrow.parent() {
+        parent.connect_notify_local(Some("width"), move |_, _| {
+            sync_card_sizes(&hrow, &cards2.borrow());
+        });
+    } else {
+        row.connect_notify_local(Some("width"), move |r, _| {
+            sync_card_sizes(r, &cards2.borrow());
+        });
+    }
 }

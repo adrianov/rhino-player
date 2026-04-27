@@ -117,8 +117,7 @@ pub fn apply() {
             min-height: 132px;
         }
         .rp-recent-card:hover {
-            border-color: rgba(255, 255, 255, 0.18);
-            box-shadow: 0 14px 34px rgba(0, 0, 0, 0.58);
+            border-color: rgba(255, 255, 255, 0.22);
         }
         .rp-recent-bg { border-radius: 0; }
         .rp-recent-bg-miss { background-color: #2d2d2d; }
