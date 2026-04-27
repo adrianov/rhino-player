@@ -104,15 +104,16 @@ cargo test
 
 ## Code quality (complexity, not AbcSize)
 
-There is no Rust equivalent of **RuboCop’s `Metrics/AbcSize`**. The usual substitute is [Clippy](https://doc.rust-lang.org/clippy/)—especially **`cognitive_complexity`**, with thresholds in **`clippy.toml`**. `cargo build` does **not** run Clippy; use it in CI and before merging:
+There is no Rust equivalent of **RuboCop’s `Metrics/AbcSize`**. The usual substitute is [Clippy](https://doc.rust-lang.org/clippy/)—especially **`cognitive_complexity`**, with thresholds in **`clippy.toml`**. Rhino also has a project module-size check (`cargo module-lines`) that fails Rust source modules over **1000** lines. `cargo build` does **not** run these checks; use them in CI and before merging:
 
 ```bash
 cargo clippy --all-targets --all-features
-# or the project alias:
+# project aliases:
+cargo module-lines
 cargo qcheck
 ```
 
-See **`.cursor/rules/complexity-and-module-design.mdc`** for policy on when to refactor a feature that spreads across “too many” files.
+See **`.cursor/rules/complexity-and-module-design.mdc`** for policy on when to refactor a feature that spreads across “too many” files or grows a module past the line limit.
 
 ## Run
 
