@@ -10,7 +10,7 @@
 
 **Long description:** Use `Gio.Settings` with a compiled schema, or a TOML/JSON file; the implementation choice is recorded here when fixed. A sync step applies: `sub-*`, `slang`/`alang`, `save-position-on-quit`, `volume`, `hwdec` vs `vf` hflip/vflip, loudnorm filter when normalization is on. **Per-file stop position** is implemented in the player core via libmpv: `save-position-on-quit` and a dedicated `watch-later-dir` (see [mpv embed](03-mpv-embedding.md)) so the next `loadfile` of the same path resumes where playback stopped, without sharing the user’s default `mpv` watch_later store unless we later add a setting.
 
-**Implemented in SQLite (see `db.rs`):** among other keys, `seek_bar_preview` toggles **Progress bar preview** (seek-bar hover thumbnail; see [18-thumbnail-preview](18-thumbnail-preview.md)).
+**Implemented in SQLite (see `db.rs`):** among other keys, `seek_bar_preview` toggles **Progress Bar Preview** (seek-bar hover thumbnail; see [18-thumbnail-preview](18-thumbnail-preview.md)).
 
 **Specification:**
 

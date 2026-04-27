@@ -2,7 +2,7 @@
 
 **Name:** Open files, folders, and command-line integration
 
-**Implementation status:** In progress — **Open video** dialog + **optional first `argv` path** on launch; not yet: drag-and-drop, `HANDLES_OPEN` / remote activation, open-folder-as-playlist, `--new-window`, single-instance policy.
+**Implementation status:** In progress — **Open Video** dialog + **optional first `argv` path** on launch; not yet: drag-and-drop, `HANDLES_OPEN` / remote activation, open-folder-as-playlist, `--new-window`, single-instance policy.
 
 **Use cases:** Open from the file manager, drag files in, or pass paths on the command line; use one running window or several, depending on preference.
 

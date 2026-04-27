@@ -18,7 +18,7 @@
 - **m** toggles mute (see [Audio volume / mute](22-audio-volume-mute.md)).
 - **Up** / **Down** adjust volume by 5% (clamped).
 - **q** and **Ctrl+Q** run `app.quit` (resume snapshot, then exit).
-- **Ctrl+W** runs `app.close-video`: same as that post-fullscreen Escape path (return to the **continue / recent** grid and stop the current file) — **does not** quit the app. The **bottom** transport bar and main menu both expose **Close video** for a mouse-only path. The action is disabled when the grid is already showing or the player is not ready.
+- **Ctrl+W** runs `app.close-video`: same as that post-fullscreen Escape path (return to the **continue / recent** grid and stop the current file) — **does not** quit the app. The **bottom** transport bar and main menu both expose **Close Video** for a mouse-only path. The action is disabled when the grid is already showing or the player is not ready.
 - **Delete** and **KP_Delete** run `app.move-to-trash` when a **local file** is playing (not streams); same as the main menu **Move to Trash** (see [27-move-to-trash](27-move-to-trash.md)). Disabled on the continue grid or for non-file sources.
 - **Enter** and **KP_Enter** toggle fullscreen (see [Window behavior](17-window-behavior.md)).
 - On the **continue / recent** grid, **double** primary click on the **empty** area (padding above, below, or beside the card row, not on a card) toggles fullscreen the same as on the video (see [Recent videos](21-recent-videos-launch.md)).
