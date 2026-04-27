@@ -269,6 +269,10 @@ fn maybe_advance_sibling_on_eof(
     recent: &gtk::ScrolledWindow,
     last_path: &Rc<RefCell<Option<PathBuf>>>,
     seof: &SiblingEofState,
+    exit_after_current: &Rc<Cell<bool>>,
+    app: &adw::Application,
+    sub_pref: &Rc<RefCell<db::SubPrefs>>,
+    idle_inhib: &Rc<RefCell<Option<u32>>>,
     on_start: &Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
     on_loaded: Option<Rc<dyn Fn()>>,
@@ -308,6 +312,13 @@ fn maybe_advance_sibling_on_eof(
         return;
     }
     if seof.done.get() {
+        return;
+    }
+    if exit_after_current.get() {
+        seof.done.set(true);
+        seof.stall.set((0.0, 0));
+        drop(g);
+        schedule_quit_persist(app, win, player, sub_pref, idle_inhib);
         return;
     }
     let finished = local_file_from_mpv(&pl.mpv).or_else(|| last_path.borrow().clone());

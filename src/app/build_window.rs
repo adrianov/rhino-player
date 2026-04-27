@@ -34,6 +34,7 @@ fn build_window(
         nav_can_prev: Cell::new(false),
         nav_can_next: Cell::new(false),
     });
+    let exit_after_current = Rc::new(Cell::new(false));
     let fs_restore = Rc::new(RefCell::new(None::<(i32, i32)>));
     // Stops `connect_maximized_notify` from re-calling `fullscreen` in the `maximized && !fullscreen`
     // case right after `unfullscreen` (same event tick as leaving fullscreen).
@@ -76,6 +77,10 @@ fn build_window(
     let menu = gio::Menu::new();
     menu.append(Some("Open video…"), Some("app.open"));
     menu.append(Some("Close video"), Some("app.close-video"));
+    menu.append(
+        Some("Exit After Current Video"),
+        Some("app.exit-after-current"),
+    );
     menu.append(Some("Move to Trash"), Some("app.move-to-trash"));
     menu.append_submenu(Some("Preferences"), &pref_menu);
     menu.append(Some("About Rhino Player"), Some("app.about"));
@@ -931,13 +936,17 @@ fn build_window(
     }
 
     start_transport_poll(TransportPollCtx {
+        app: app.clone(),
         player: player.clone(),
+        sub_pref: sub_pref.clone(),
         win: win.clone(),
         gl: gl_area.clone(),
         recent: recent_scrl.clone(),
         last_path: last_path.clone(),
         sibling_seof: sibling_seof.clone(),
+        exit_after_current: exit_after_current.clone(),
         win_aspect: win_aspect.clone(),
+        idle_inhib: Rc::clone(&idle_inhib),
         on_video_chrome: on_video_chrome.clone(),
         on_file_loaded: Rc::clone(&on_file_loaded),
         reapply_60: reapply_60.clone(),
@@ -978,5 +987,6 @@ fn build_window(
         win_aspect: Rc::clone(&win_aspect),
         bar_show: bar_show.clone(),
         idle_inhib: Rc::clone(&idle_inhib),
+        exit_after_current: exit_after_current.clone(),
     });
 }

@@ -166,13 +166,17 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
 }
 
 struct TransportPollCtx {
+    app: adw::Application,
     player: Rc<RefCell<Option<MpvBundle>>>,
+    sub_pref: Rc<RefCell<db::SubPrefs>>,
     win: adw::ApplicationWindow,
     gl: gtk::GLArea,
     recent: gtk::ScrolledWindow,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     sibling_seof: Rc<SiblingEofState>,
+    exit_after_current: Rc<Cell<bool>>,
     win_aspect: Rc<Cell<Option<f64>>>,
+    idle_inhib: Rc<RefCell<Option<u32>>>,
     on_video_chrome: Rc<dyn Fn()>,
     on_file_loaded: Rc<dyn Fn()>,
     reapply_60: VideoReapply60,
@@ -197,13 +201,17 @@ struct TransportPollCtx {
 /// Keeps transport widgets in sync with mpv state; legacy timer until mpv event wiring replaces it.
 fn start_transport_poll(ctx: TransportPollCtx) {
     let TransportPollCtx {
+        app,
         player,
+        sub_pref,
         win,
         gl,
         recent,
         last_path,
         sibling_seof,
+        exit_after_current,
         win_aspect,
+        idle_inhib,
         on_video_chrome,
         on_file_loaded,
         reapply_60,
@@ -237,7 +245,11 @@ fn start_transport_poll(ctx: TransportPollCtx) {
         Duration::from_millis(200),
         glib::clone!(
             #[strong]
+            app,
+            #[strong]
             player,
+            #[strong]
+            sub_pref,
             #[strong]
             win,
             #[strong]
@@ -248,6 +260,10 @@ fn start_transport_poll(ctx: TransportPollCtx) {
             last_path,
             #[strong]
             sibling_seof,
+            #[strong]
+            exit_after_current,
+            #[strong]
+            idle_inhib,
             #[strong]
             on_video_chrome,
             #[strong]
@@ -264,6 +280,10 @@ fn start_transport_poll(ctx: TransportPollCtx) {
                     &recent,
                     &last_path,
                     sibling_seof.as_ref(),
+                    &exit_after_current,
+                    &app,
+                    &sub_pref,
+                    &idle_inhib,
                     &on_video_chrome,
                     Rc::clone(&win_aspect),
                     Some(Rc::clone(&on_file_loaded)),

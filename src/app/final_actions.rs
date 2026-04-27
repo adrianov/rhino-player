@@ -17,6 +17,7 @@ struct FinalActionCtx {
     win_aspect: Rc<Cell<Option<f64>>>,
     bar_show: Rc<Cell<bool>>,
     idle_inhib: Rc<RefCell<Option<u32>>>,
+    exit_after_current: Rc<Cell<bool>>,
 }
 
 fn wire_final_actions(ctx: FinalActionCtx) {
@@ -39,6 +40,7 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         win_aspect,
         bar_show,
         idle_inhib,
+        exit_after_current,
     } = ctx;
 
     let open = gio::SimpleAction::new("open", None);
@@ -161,6 +163,26 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         }
     ));
     app.add_action(&quit);
+
+    let exit_after = gio::SimpleAction::new_stateful(
+        "exit-after-current",
+        None,
+        &exit_after_current.get().to_variant(),
+    );
+    {
+        let flag = Rc::clone(&exit_after_current);
+        exit_after.connect_change_state(move |a, s| {
+            let Some(s) = s else {
+                return;
+            };
+            let Some(on) = s.get::<bool>() else {
+                return;
+            };
+            flag.set(on);
+            a.set_state(s);
+        });
+    }
+    app.add_action(&exit_after);
 
     register_video_app_actions(
         &app,
