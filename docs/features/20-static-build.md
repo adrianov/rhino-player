@@ -12,6 +12,26 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Release and dependency story (documentation-level acceptance)
+  Scenario: Documented build produces an artifact
+    Given maintainers follow the documented release path (CI or script)
+    When they run the prescribed release build on a supported environment
+    Then an artifact is produced with listed dynamic dependencies or bundle layout
+
+  Scenario: Dependency transparency
+    Given a reader opens this document before packaging Rhino
+    When they compare runtime needs against a target distro
+    Then GTK4, libadwaita, libmpv, and graphics prerequisites are explicit without guessing hidden linkage
+
+  Scenario: Release hardening options are opt-in
+    Given optional LTO, strip, or panic settings are mentioned
+    When a packager enables them
+    Then trade-offs remain documented rather than silent defaults
+```
+
 - CI or documented script produces an artifact for at least one path (e.g. `cargo build --release` with documented dynamic system libs, or another agreed bundle).
 - List runtime dependencies: GTK4, libadwaita, libmpv, OpenGL, ffmpeg libs as required by mpv.
 - Document the trade-off between shipping against distro packages vs self-contained bundles for maintainers.

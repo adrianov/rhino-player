@@ -12,6 +12,31 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Subtitles styling and selection
+  Scenario: Header button appears only when subs exist
+    Given track-list eventually contains at least one subtitle stream for the loaded file
+    When scanning completes
+    Then the Subtitles menu button appears with track rows and styling controls
+
+  Scenario: Manual pick persists for future files
+    Given the user selects a subtitle track or Off from the popover
+    When load completes on later files
+    Then SQLite stores the last label choice and Off preference influences whether auto-pick runs
+
+  Scenario: Auto-pick uses saved label or LANG before similarity threshold
+    Given sub_off is false and load finishes with delay after styling apply
+    When auto-pick runs without user intervention
+    Then sid selects best match among tracks using normalized Levenshtein vs saved label or LANG fallback
+
+  Scenario: Toolbar clearance keeps subs readable
+    Given the bottom toolbar may hide or show during playback
+    When chrome visibility changes
+    Then sub-pos adjusts so subtitles remain above the transport row when documented
+```
+
 - `sub-color` / `sub-border-color` as **`#RRGGBB` strings**; `sub-border-size` / `sub-scale` and `sub-ass-override=force` so ASS subs follow the app style; re-apply after each load.
 - `sub-pos` (0–100, 100 = mpv default at bottom) is raised when the bottom **ToolbarView** bar is revealed so text stays **above** the seek/times row (scaled with window and bar height); resets when chrome auto-hides.
 - `sid` + `sub-visibility` for track choice and **Off**; manual track choice updates the **last label** in SQLite and clears the “subs off” flag for the next file’s Levenshtein pass.

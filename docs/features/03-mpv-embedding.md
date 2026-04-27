@@ -14,6 +14,26 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Embedded mpv video surface
+  Scenario: Resume vs fresh start after natural end
+    Given watch-later and SQLite resume integration are configured as specified
+    When playback reaches natural end for the current file (EOF or near-end rule)
+    Then resume/watch-later sidecars are cleared so the next open may start from the beginning
+
+  Scenario: Video region visibility
+    Given no media is loaded
+    When the empty state or placeholder applies per shell rules
+    Then the GL video surface shows the documented idle/start presentation instead of opaque playback
+
+  Scenario: Paused seek with heavy video filter
+    Given a frame-interpolation or external vf graph may alter paused frames
+    When the user seeks while paused under conditions where still-frame fallback is required
+    Then the UI avoids presenting an unintended black frame per documented vf handling
+```
+
 - mpv is configured with `vo=libmpv`, OSC off, and internal bindings loaded from a memory buffer or file (see [Input shortcuts](13-input-shortcuts.md)).
 - When the XDG config path exists, set `save-position-on-quit`, `watch-later-dir` (`~/.config/rhino/watch_later`), and `write-filename-in-watch-later-config` so resume keys match real paths. Before opening another file, the app flushes the outgoing file with `write-watch-later-config` and DB snapshot—**except** when playback reached a **natural end** (EOF or within ~3s of a known `duration`): then the app **removes** that file’s watch_later sidecar and clears SQLite `time_pos` so the next open starts at **0** (including re-opening the same file, sibling next/prev, and Escape / quit).
 - A GL area fills the video region; on realize, create render context; on render, pass FBO size accounting for scale factor; request redraw on mpv’s update callback. Playback timing is applied in [26-sixty-fps-motion](26-sixty-fps-motion.md); the removed display-resample path is documented in [25-smooth-playback](25-smooth-playback.md).

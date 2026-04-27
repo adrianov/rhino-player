@@ -12,6 +12,26 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Playlist side dialog (target behavior — not started)
+  Scenario: Follow active playlist row
+    Given the playlist dialog is open and mpv advances playlist-pos
+    When the position changes
+    Then the list scrolls to keep the current row visible
+
+  Scenario: Reorder with playlist-move
+    Given multiple queued items
+    When the user drags rows to a new order
+    Then mpv playlist-move updates indices consistently with UI order
+
+  Scenario: Save portable m3u8
+    Given the user saves the playlist to disk
+    When the operation completes
+    Then paths and titles are written for reuse across installs per portability rules
+```
+
 - Scroll to current item on `playlist-pos` change.
 - Right-click `open_containing_folder` for local files only.
 - Save dialog filters `.m3u8` and writes paths/titles.

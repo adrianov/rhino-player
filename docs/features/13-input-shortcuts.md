@@ -12,6 +12,37 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Keyboard and pointer input
+  Scenario: App accelerators win over mpv forwarding
+    Given a key combination is bound as a GTK application shortcut
+    When the user presses it with the main window focused
+    Then the application handles it and does not forward the same chord to mpv
+
+  Scenario: Space with continue grid preloaded video
+    Given the recent grid is visible and a first card is warm-preloaded per recent spec
+    When the user presses Space
+    Then the video is revealed and playback starts instead of staying behind the grid
+
+  Scenario: Close Video without quitting
+    Given a file with duration is loaded and the grid is not showing
+    When the user activates Ctrl+W or Close Video
+    Then playback stops and the continue grid appears without terminating the process
+
+  Scenario: Escape twice returns to browse with pause-first semantics
+    Given playback may be active or fullscreen per escape-first rule
+    When the user presses Escape twice per documented sequencing
+    Then audio stops promptly on first Esc where specified and navigation ends on recent grid when history exists
+
+  Scenario: Trash shortcut eligibility
+    Given a local file path is playing
+    When the user presses Delete
+    Then Move to Trash follows the trash feature rules
+    And the action is inactive for streams or when the grid has focus per spec
+```
+
 - Do not pass keys that match registered app accelerators to mpv.
 - **Space** toggles play/pause via the mpv `pause` property when the main window is focused (and the player is ready). If the continue grid is visible and the preloaded first item is ready, Space first reveals that video and starts playback instead of playing behind the grid.
 - **Primary double-click** on the video view toggles fullscreen. **Secondary (right) single-click** on the video view toggles play/pause the same as Space (when a file with duration is loaded).

@@ -12,6 +12,31 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Fixed-step playback speed
+  Scenario: Canonical speeds only in UI and mpv
+    Given media with measurable duration is loaded
+    When the user selects 1.0×, 1.5×, or 2.0× from the header list
+    Then mpv speed equals that canonical step and list highlight stays synchronized via guard flags
+
+  Scenario: Snap drift after external speed changes
+    Given mpv reports speed outside the canonical trio beyond tolerance after load
+    When sync logic runs after FileLoaded hooks
+    Then speed snaps to nearest canonical step so rows never diverge silently from mpv
+
+  Scenario: Disabled without playable timeline
+    Given duration is unavailable so transport disables seeking
+    When the speed button sensitivity mirrors seek eligibility rules
+    Then speed controls remain inactive until duration becomes usable like seek bar policy
+
+  Scenario: Interaction with Smooth Video vf layer
+    Given sixty-fps-motion vf depends on approximate 1.0× playback
+    When user chooses non-1.0 speeds from this control
+    Then vapoursynth insertion follows sixty-fps-motion document rather than silent mismatch
+```
+
 - **mpv:** `speed` in `{ 1.0, 1.5, 2.0 }` only. Read `speed` after load; if not within 0.01 of one, pick **nearest** and `set` to that canonical value.
 - **UI — header (LTR, left of subtitles/volume/hamburger end cluster):** `gtk::MenuButton` (icon: `speedometer-symbolic` where the theme provides it) + `gtk::Popover` with heading “Playback speed” and a `ListBox` of `1.0×`, `1.5×`, `2.0×`. **Disabled** when there is no open media; **enabled** when `duration` is available like the seek bar.
 - **Events:** On row selection, `set` `speed` and `queue_render` the GL area as needed. Use a re-entrancy flag so programmatic `select_row` (sync from mpv) does not loop. Auto-hide and menu switching treat the speed popover like volume/subtitles.

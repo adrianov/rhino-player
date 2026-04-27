@@ -12,6 +12,33 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Sibling folder queue
+  Scenario: Auto-advance to next file in folder
+    Given a local video is playing with a known sibling order
+    When natural end-of-playback occurs (EOF, EndFile, or documented tail-stall)
+    Then the next sorted video in the same directory loads automatically
+    And watch-later and resume snapshots follow try_load rules
+
+  Scenario: Advance to next sibling folder when current folder is exhausted
+    Given the current file is last in its directory by sorted order
+    When end-of-playback occurs
+    Then the first sorted video in the next sibling subdirectory under the parent loads
+    Or playback stops when no further sibling folders exist per walk-up rules
+
+  Scenario: Exit After Current Video overrides advance
+    Given the session-only Exit After Current Video option is enabled
+    When end-of-playback occurs
+    Then the application exits without loading another sibling file
+
+  Scenario: Manual Prev/Next matches automatic order
+    Given a local file with duration is open
+    When the user activates bottom-bar Previous or Next
+    Then the loaded file matches the same folder and sibling ordering as EOF advance
+```
+
 - **Trigger:** `eof-reached==true` (mpv property change) **or** mpv `EndFile` event **or** the tail-stall case above, once per logical end (guarded by `SiblingEofState` that resets when not at an end, e.g. new file, seek, or Escape). The last successfully loaded canonical path from [try_load] is used if mpv’s `path` is empty. If the session-only **Exit After Current Video** main-menu checkmark is on, EOF quits the app instead of loading the next sibling.
 - **Local files only** — if neither mpv’s path nor the cached last path resolves, do nothing.
 - **Same directory:** list video files in the file’s **parent** (canonical paths, same extension set as the implementation), sort, advance to the next after the current file.

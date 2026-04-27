@@ -12,6 +12,26 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Per-video options menu (target behavior — not started)
+  Scenario: Controls reflect mpv state on open
+    Given media is loaded with adjustable video properties
+    When the options popover opens
+    Then widgets match current mpv values without stale placeholders
+
+  Scenario: Changes apply immediately
+    Given the options menu is open
+    When the user adjusts crop, zoom, color, delay, or speed controls
+    Then mpv receives the matching property or command asynchronously
+
+  Scenario: Reset restores defaults
+    Given the user has altered multiple video-related properties
+    When they activate Reset all as documented
+    Then documented defaults are restored without requiring an app restart
+```
+
 - On menu open, read current property values and sync widgets.
 - On change, set mpv property or command asynchronously.
 - “Reset all” returns documented defaults.

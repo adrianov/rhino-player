@@ -1,12 +1,45 @@
 ---
-description: Document-first development for Rhino Player; implement only after docs exist.
+description: Document-first captures business rules (Gherkin); not filenames or code layout.
 alwaysApply: true
 ---
 
-# Document-first development
+# Document-first = business behavior first
 
-- **Before** adding or changing user-visible behavior, add or update the matching file under `docs/`. Every feature is described there before (or in lockstep with) code.
-- Each feature document must include, in Markdown: **name**, **implementation status**, **use cases** (who benefits and what problem it solves), **short description**, **long description**, and **specification** (testable requirements and acceptance criteria).
-- The index is `docs/README.md`. New features get a new doc linked from the index; status there should stay consistent with the feature file.
-- Prefer small, reviewable changes: one feature doc (or a focused update) per logical change when possible.
-- Product framing and use-case index: `docs/product-and-use-cases.md` (complements per-feature specs; not a replacement for `docs/features/…` acceptance criteria).
+“Document first” applies to **what the product must do** for users—rules, outcomes, and constraints—not to naming files, choosing Rust modules, or describing class/function identifiers unless those names encode a **business concept**.
+
+## What to write under `docs/` first
+
+Before (or in tight lockstep with) implementing **user-visible or externally observable behavior**, capture it in `docs/features/…` so reviewers and agents share one source of truth.
+
+Each feature doc should still carry: **name**, **implementation status**, **use cases**, **short description**, **long description**. Those frame **why** and **context**.
+
+The **specification** section should emphasize **behavior** agents and humans can verify—not implementation trivia.
+
+## Specification: prefer Gherkin (Given–When–Then)
+
+Use **Gherkin-style scenarios** as the default shape for acceptance criteria. The rigid **Given / When / Then** structure acts like a prompt template: it fixes **starting state**, **action**, and **expected outcome**, which maps cleanly to tests and implementation checks.
+
+**Example:**
+
+```gherkin
+Given a user has an expired session
+When they attempt to post a "Vibe Code Request"
+Then the system should redirect to the login page.
+```
+
+For Rhino Player, scenarios should use domain language the product already uses (e.g. playing a file, recent grid, Smooth 60, sibling next), not crate or file paths unless the spec is purely about packaging or install layout.
+
+You can add **And** / **But** lines, or **Scenario Outline** + **Examples** tables when many similar cases matter.
+
+### What does *not* belong in “document first” as a substitute for business rules
+
+- Dictating **internal** file names, module splits, or type names unless the user story is literally about maintenance or public API naming.
+- Long narrative that only restates code structure without testable outcomes.
+
+Those details belong in code review and refactoring, not in place of clear **Given–When–Then** behavior.
+
+## Housekeeping
+
+- Index and cross-links: `docs/README.md`.
+- Product-level stories and personas: `docs/product-and-use-cases.md` (complements per-feature specs; it does not replace scenario-level acceptance criteria in `docs/features/…`).
+- Prefer small doc changes: one feature file (or one focused edit) per logical behavior change when practical.

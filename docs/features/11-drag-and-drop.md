@@ -12,6 +12,22 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Drag and drop onto the video surface (target behavior — not started)
+  Scenario: Drop opens media
+    Given the main window accepts drops
+    When the user drops playable media paths onto the video area
+    Then loadfile runs with replace or append-play per documented ordering rules
+
+  Scenario: Subtitle file while playing
+    Given a video is playing
+    When the user drops a file that matches subtitle heuristics
+    Then subtitles are added with sub-add and selection as specified
+    Otherwise a new media load follows the documented replace/append rule
+```
+
 - Drop targets accept file list and plain URL string where GTK allows.
 - Directory drops load as playlist (mpv `loadfile` with directory).
 - If playing and file looks like a subtitle, `sub-add` with select; otherwise media `loadfile` with correct mode.

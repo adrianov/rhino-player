@@ -8,6 +8,21 @@
 
 **Historical note:** When this feature *was* in the app, it re-timed decoded frames to the display refresh without synthesizing in-between *content* frames. Research ideas (tscale variants, VRR) below are **not** implemented and **not** on the current roadmap for this product shape.
 
+**Scenarios (Gherkin) — archived intent (feature removed):**
+
+```gherkin
+Feature: Smooth playback via mpv display-resample / interpolation (removed)
+  Scenario: Legacy SQLite key ignored
+    Given an old database contains video_mpv_smooth from earlier releases
+    When Rhino starts or saves preferences today
+    Then that key is not read or written and Smooth Video follows VapourSynth docs instead
+
+  Scenario: Behavioral replacement for ~60 fps intent
+    Given the user wants smoother motion on a fixed-Hz display
+    When they enable Smooth Video (~60 FPS at 1.0×) per sixty-fps-motion documentation
+    Then motion interpolation expectations align with VapourSynth FlowFPS behavior rather than removed mpv interpolation toggles
+```
+
 | Area | Ideas (not implemented) |
 |------|--------|
 | tscale | `mitchell`, `catmull_rom`, or `lanczos` for sharpness/ringing tradeoffs |

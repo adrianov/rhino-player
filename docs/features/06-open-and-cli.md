@@ -12,6 +12,26 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Open files and CLI integration (target behavior — partly implemented)
+  Scenario: Video-only Open dialog
+    Given the user chooses Open Video from the shell
+    When the dialog is presented
+    Then listed extensions match documented video suffixes and exclude unrelated types until separate flows ship
+
+  Scenario: Secondary activation respects window preference
+    Given another instance activates with paths while open-new-windows is off
+    When files are handed to the running application
+    Then loads target the active window per documented replace-or-append rules
+
+  Scenario: Command-line startup path
+    Given the user launches with supported argv paths
+    When the first window paints without conflicting session rules
+    Then those paths load instead of the empty-state recent grid where applicable
+```
+
 - The main **Open** dialog lists **video** only (`video/*` plus common video suffixes), not still images. Separate flows (later) for subtitle and external audio.
 - `HANDLES_OPEN` or Rust equivalent: activate app, load paths with `append-play` or `replace` per action.
 - `open-new-windows` preference: when off, new files go to the active window (stop current and append/replace per product rules for “open from outside”).

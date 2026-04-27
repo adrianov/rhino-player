@@ -14,6 +14,21 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Preferences and persistent settings
+  Scenario: Live apply for most toggles
+    Given the user changes a documented preference while media is playing
+    When the change is committed in the preferences UI
+    Then mpv receives the matching update without restart except for documented exceptions
+
+  Scenario: Keys and defaults are defined
+    Given a shipped user-visible preference
+    When the product references that setting in documentation
+    Then a storage key and default value exist and stay consistent with implementation
+```
+
 - Every user-visible option has a key and default.
 - Changing a setting updates mpv live without restart, except when a reinit is unavoidable (document exceptions).
 - Window maximized state may be remembered (`is-maximized`).

@@ -12,6 +12,31 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Seek bar thumbnail preview
+  Scenario: Preview only for local files when enabled
+    Given Progress Bar Preview is on in preferences
+    When the user hovers the seek bar on a resolved local regular file
+    Then a popover shows a small GL thumbnail near the pointer at the hovered time
+    And streams and non-file paths show no preview
+
+  Scenario: Debounced seek keeps UI responsive
+    Given hover moves quickly along the bar
+    When preview seeks run
+    Then debounce and cancellation rules prevent overlapping stale seeks from dominating the main loop
+
+  Scenario: Single auxiliary player instance
+    Given preview is active during a session
+    Then only one MpvPreviewGl-backed preview exists at a time for O(1) resource use
+
+  Scenario: Toggle off hides preview chrome only
+    Given seek_bar_preview is false in settings
+    When the user hovers the seek bar
+    Then no thumbnail GL content appears while transport remains usable
+```
+
 - **Settings:** [SQLite] key `seek_bar_preview` = `0` / `1`; default **on**; toggled from **main menu → Preferences → Progress Bar Preview** ([gio] stateful `seek-bar-preview`).
 - **Local file:** `path` from [mpv] `path` (or the app’s `last_path` cache when mpv is empty) must resolve to a **regular** file; `http://` and similar have **no** thumbnail.
 - **Placement:** Hovered time = `(x / width) * duration` in widget coordinates and drives the preview seek; the popover is **not** arrow tip (`set_has_arrow(false)`), **non-modal** so accelerators keep working, and points to a small rect just above the pointer (`set_pointing_to`), position **Top** with a small upward offset so the framed thumbnail sits above the seek bar without overlapping it. The popover is opened only from the debounced local-file/setting path, the `GLArea` is visible before first popup, and hover motion repositions the existing popover immediately without calling `popup()` repeatedly.

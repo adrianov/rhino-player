@@ -12,6 +12,26 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Transport controls and progress
+  Scenario: Seek reflects playback position
+    Given a file with known duration is playing or paused
+    When the user moves the seek bar to a new position
+    Then playback jumps to that timeline position with audio and video aligned per mpv seek rules
+
+  Scenario: Seek bar disabled without measurable duration
+    Given duration is unknown or zero
+    When the user inspects the transport bar
+    Then the seek control is disabled until duration becomes available
+
+  Scenario: Playback speed lives in the header
+    Given multi-speed playback is implemented per playback-speed feature
+    When the user changes speed from the header control
+    Then mpv speed updates and chrome stays consistent with documented sensitivity rules
+```
+
 - Properties observed: `time-pos`, `duration`, `pause`, `mute`, `volume`, `volume-max`, `speed`, `fullscreen` (or window fullscreen state), `media-title` for window title. **Speed** 1.0× / 1.5× / 2.0× is in the **header** only (left of subtitle/volume/main-menu popovers; see [28](28-playback-speed.md)). In the **bottom** bar (LTR order): **Previous** and **Next** to skip by sibling-folder rules when applicable (see [07](07-sibling-folder-queue.md)), then play/pause, then elapsed and seek. Play/pause is `sensitive` only when `duration` > 0, toggles `pause` (same as Space; see [Input shortcuts](13-input-shortcuts.md)). **Previous/Next** are `sensitive` when a skip target exists in that order (often disabled at the first or last file in the chain). **Speed** in the header is `sensitive` when the seek bar is (duration > 0).
 - Seek bar: upper bound = duration; disabled when duration unknown/zero. User seeks use mpv `seek <seconds> absolute+keyframes` (fallback: setting `time-pos`) so audio/video stay aligned, including with filtered video. When playback is paused and the active `vf` contains VapourSynth, the app temporarily clears that `vf` before the seek so mpv can render a normal paused still frame instead of a black filtered surface; Smooth 60 is reapplied on the next Play/Space unpause if the preference is still enabled. Optional **hover preview**: popover with a **thumbnail** of the frame at the hover time; see [18-thumbnail-preview](18-thumbnail-preview.md) (toggled in **Preferences**).
 - User setting toggles between elapsed and negative remaining time (`show-remaining`).

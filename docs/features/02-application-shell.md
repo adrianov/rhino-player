@@ -14,6 +14,28 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Application shell
+  Scenario: Quit from keyboard
+    Given the main window is open
+    When the user activates quit (e.g. q or Ctrl+Q)
+    Then the application exits after completing documented persistence
+
+  Scenario: Close Video leaves the app running
+    Given a video is playing or loaded in the main window
+    When the user activates Close Video (or Ctrl+W)
+    Then playback stops and the continue/recent affordance is shown
+    And the application process does not exit solely for that reason
+
+  Scenario: Exit After Current Video takes precedence over sibling advance
+    Given the session-only "Exit After Current Video" menu item is enabled
+    When the current media reaches natural end-of-playback as defined for EOF handling
+    Then the application quits
+    And the sibling-folder queue does not load another file first
+```
+
 - Application ID in reverse-DNS form (`ch.rhino.RhinoPlayer`) registered once; the same string is the **icon name** in the hicolor theme, `.desktop` `Icon=`, and window / About dialog branding. **GNOME** (and similar) resolve dash / app switcher artwork from a **Freedesktop** `applications/*.desktop` on `XDG_DATA_DIRS`, not from `GtkWindow` alone; the project ships `data/install-to-user-dirs.sh` to install into `~/.local/share` for local runs.
 - Global shortcuts: at minimum quit (q, Ctrl+Q) and open preferences (Ctrl+,) as applicable; about from app menu.
 - Main-menu item labels use title capitalization for desktop-menu readability, matching macOS-style menu wording.

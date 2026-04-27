@@ -1,6 +1,6 @@
 # Rhino Player — documentation
 
-Features are specified here **before** implementation. Each feature file lives in `docs/features/` and includes name, status, use cases, short and long descriptions, and a specification.
+Features are specified here **before** implementation, focused on **business behavior**: who it helps, what must happen, and verifiable outcomes. Prefer **Gherkin** (`Given` / `When` / `Then`) scenarios in each feature’s specification over restating code layout or internal file names. Each file in `docs/features/` includes name, status, use cases, short and long descriptions, and that behavioral specification.
 
 A short **product / tree snapshot** is in the root [README](../README.md). The table below is the **index**: each **Status** cell summarizes that file; the feature doc’s **Implementation status** line is the detailed source of truth when they differ in wording.
 

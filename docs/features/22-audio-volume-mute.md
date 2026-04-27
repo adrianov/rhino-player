@@ -12,6 +12,26 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Volume, mute, and persistence
+  Scenario: Popover and shortcuts agree with mpv
+    Given the Sound popover is open or keys adjust volume
+    When mute toggles or scale moves within volume-max
+    Then mpv volume and mute mirror chrome without orphan notifications
+
+  Scenario: Scroll wheel adjusts volume on video only when visible
+    Given playback chrome allows wheel delivery on GLArea and grid is hidden
+    When the user scrolls vertically with proportional steps
+    Then volume moves by clamped increments without exceeding bounds
+
+  Scenario: Persist last audible settings across quit
+    Given playback ran long enough to reflect real volume and mute
+    When the application reaches quit before commit_quit stops playback
+    Then SQLite stores master_volume and master_mute for next launch defaults
+```
+
 - `volume` and `mute` on libmpv stay consistent with the popover, scroll wheel, and keys.
 - The scale does not show a numeric value label (`draw_value` = false); level is read from the slider and the header icon. Mute is the icon-only toggle in the popover; mute state does not change the stored volume value (unmute restores the prior level).
 - **Scroll (video):** vertical scroll on `GLArea` adjusts volume by 5% per notched step (smoothed trackpads aggregate sensibly; small `dy` values change volume proportionally, clamped to range).

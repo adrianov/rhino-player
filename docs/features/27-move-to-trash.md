@@ -12,6 +12,27 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Move current file to trash
+  Scenario: Trash during playback returns to browse with undo chance
+    Given a local regular file path is loaded with chrome visible (grid hidden)
+    When Move to Trash succeeds via menu or Delete shortcut
+    Then the file lands in Freedesktop trash, resume clears, history removes the path
+    And navigation matches Close Video except undo stack may retain trash undo entry
+
+  Scenario: Guardrails for streams and grid
+    Given playback is a URL stream or the continue grid covers the stage
+    When the user attempts Move to Trash or Delete
+    Then the action stays disabled without destructive calls
+
+  Scenario: Undo restores file and snapshots when trash entry exists
+    Given trash wrote files/… entry discoverable via trash_xdg
+    When Undo activates within snackbar timing rules
+    Then untrash restores original path plus watch_later/media snapshot semantics per recent grid doc
+```
+
 - **GAction** `app.move-to-trash` on [adw::Application]; **enabled** when the player is ready, the **continue** overlay is **hidden**, and [local_file_from_mpv] points at an existing **regular file** on disk; otherwise **disabled**.
 - **Menu:** [gio::Menu] entry **“Move to Trash”** after **Close Video** (or next to it in the main menu), before the **Preferences** submenu. On the **continue** grid, each card (hover) shows a **trash** control to the **left** of “remove from list” when the path is a real **file**; [gtk::gio::File::trash] then [media_probe::remove_continue_entry] (or equivalent), then **refill**; the **Undo** bar may show **moved to trash** (same LIFO as **remove from list** when a matching `Trash/files/…` entry is found under XDG trash).
 - **Shortcut** [Delete] (and **KP_Delete** for the keypad) — same affordance as many file managers. Does **not** use Shift+Delete (often “delete permanently” elsewhere).

@@ -12,6 +12,21 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Cargo project and build layout
+  Scenario: Build from a clean checkout
+    Given documented system dependencies for GTK4 / libadwaita / Rust are installed
+    When a contributor runs cargo build from the repository root
+    Then the crate builds without undisclosed extra steps
+
+  Scenario: Tests (when present)
+    Given integration or unit tests exist for the crate
+    When they run cargo test from the repository root
+    Then tests complete successfully with the same documented prerequisites
+```
+
 - `cargo build` and `cargo test` (once tests exist) run from the repo root without extra steps beyond documented system dependencies.
 - `Cargo.toml` lists crate name `rhino-player` (or agreed binary name) and a minimal set of direct dependencies, with a short comment on why each is needed.
 - `src/main.rs` is the process entry; additional modules are added as focused `src/<module>.rs` files or under a feature directory such as `src/app/` as the codebase grows.

@@ -12,6 +12,21 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Playlist navigation (target behavior — not fully implemented)
+  Scenario: Shuffle changes order
+    Given multiple items are queued in mpv’s playlist
+    When the user enables shuffle through the playlist UI
+    Then playback order reflects shuffle without corrupting playlist-count semantics per mpv
+
+  Scenario: Previous wraps when wrap policy applies
+    Given shuffle or wrap behavior is enabled and more than one item exists
+    When the user activates previous at the first item (where wrap is specified)
+    Then playback moves to the designated wrap target instead of stopping
+```
+
 - `playlist-pos`, `playlist-count`, and `playlist` introspection to drive button sensitivity.
 - `playlist-shuffle` / `playlist-unshuffle` on shuffle toggle; `loop-file` and `loop-playlist` are mutually exclusive in UI (activating one clears the other’s infinite mode).
 - Prev at first item goes to last; next at last goes to first (wrap) when list has more than one item.

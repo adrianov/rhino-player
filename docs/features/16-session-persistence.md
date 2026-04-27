@@ -12,5 +12,25 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Session playlist restore (target behavior — not started)
+  Scenario: Save session on exit when enabled
+    Given save-session is true and a playlist exists
+    When the application exits cleanly
+    Then an m3u playlist file is written under the documented XDG config path
+
+  Scenario: Restore on startup when alone
+    Given save-session is true and a saved playlist file exists
+    When the first window activates without conflicting CLI or grid rules
+    Then that playlist loads with replace per coordination with open-on-start features
+
+  Scenario: Empty playlist removes stale file
+    Given save-session is true but the queue is empty
+    When session save runs
+    Then the last-playlist file is removed or left absent as specified
+```
+
 - Path: e.g. `~/.config/rhino/last-playlist.m3u8` (TBD, mirror XDG).
 - `save_last_playlist_file` and `restore_last_playlist` behaviors are defined and testable.

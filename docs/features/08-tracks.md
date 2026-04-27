@@ -12,6 +12,28 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Multi-track selection
+  Scenario: Sound popover shows audio list when needed
+    Given the current track-list contains at least two audio streams
+    When the user opens the Sound control
+    Then a scrollable radio list of audio tracks appears above the volume row
+    And a single audio stream does not show a redundant track block
+
+  Scenario: Choosing a track updates mpv and persistence
+    Given multiple audio streams exist for the loaded file
+    When the user selects a different audio row
+    Then mpv aid updates to that track id
+    And per-file and global preference keys in SQLite reflect the choice
+
+  Scenario: Restored aid on load
+    Given a saved per-file aid exists and that track still exists in track-list
+    When a new file finishes loading and the delayed apply runs
+    Then the saved aid is restored before global name-based preference is considered
+```
+
 **Audio track selection (current)**
 
 - A header **MenuButton** (volume / sound icon) with tooltip for sound; **one** popover shared with [volume UI](22-audio-volume-mute.md): **Volume** row first; the **track** block (scroll list) appears only when `track-list` contains at least **two** **audio** streams. No separate “Audio” heading in the popover.

@@ -12,6 +12,36 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Recent videos grid on empty launch
+  Scenario: Grid on empty launch without CLI or session takeover
+    Given the first window is shown with no CLI paths and session restore does not replace the view
+    When history has at least one valid local entry
+    Then up to five cards appear most-recent-first with thumb, filename, and percent progress
+
+  Scenario: Open card starts playback visibly
+    Given a continue card or warm-preloaded path is ready with documented rules
+    When the user activates the card or Space with preloaded media
+    Then loadfile completes, grid hides after reveal timing, and audio does not lead video
+
+  Scenario: Remove or trash with undo stack
+    Given a card shows remove and trash controls on hover for an existing file
+    When remove or trash is chosen
+    Then history and resume update, snackbar offers Undo within the LIFO stack rules, and trash can untrash when applicable
+
+  Scenario: Completed file leaves the continue list
+    Given a local file reaches natural end or user-driven “done” criteria while another file loads
+    When those conditions from the sibling and near-end rules apply
+    Then that file is removed from continue history with resume cleared
+
+  Scenario: Padding double-click toggles fullscreen
+    Given the grid is visible with spacer padding around the card row
+    When the user double-clicks primary on padding (not cards)
+    Then fullscreen toggles like the main video surface
+```
+
 - **Trigger:** The grid appears when the first window is shown and **no CLI arguments** request a path, and the app is not (for this release) **replacing** that with a mandatory “restore last session” full-playlist load that fills the main view—see [Session: restore last playlist](16-session-persistence.md) for coordination; the spec for “who wins” must be a single line in this file when session restore ships.
 - **Play on card open:** A click on a recent card (or the same **Open** dialog path) must **unpause** after `loadfile` so playback **starts** even if watch_later had stored a **paused** session for that file. On empty launch, once the main `vo=libmpv` player is ready behind the continue list, the first continue item may be preloaded **paused** with the normal video preferences, including the bundled/custom VapourSynth script when Smooth 60 is enabled; clicking that same first card skips a second `loadfile`, performs a hidden current-position keyframe resync while the grid is still visible, then reveals and unpauses the warm player. Pressing **Play** or **Space** while that preloaded file is available behind the continue grid must reveal and unpause the video the same way, not play it behind the grid. Returning from playback to a non-empty continue list keeps the current file loaded and paused, so reopening the same card can use the same warm path; if the continue list is empty, playback is stopped. Opening from the **CLI** on startup may still respect saved pause (implementation: `try_load(..., play_on_start)` in `src/app/load.rs`).
 - **Warm reveal timing:** The warm preloaded player stays **paused** during the keyframe resync. The continue grid remains visible for a short reveal delay (currently `WARM_REVEAL_DELAY_MS`) so the user does not see the seek/redraw transition; only after that delay does the app hide the grid, reveal chrome, present the window, and clear `pause`. Do not reintroduce an independent delayed unpause before this reveal path, or audio can start behind the grid and drift from video.

@@ -12,6 +12,26 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Chapters (target behavior — not started)
+  Scenario: Chapter marks with data
+    Given mpv exposes a non-empty chapter-list
+    When the seek bar is shown
+    Then chapter start times are reflected as marks at sorted positions on the scale
+
+  Scenario: Empty chapters hide UI affordances
+    Given chapter-list is empty or unavailable
+    When the window is visible
+    Then chapter-specific marks and menus stay hidden or cleared
+
+  Scenario: Seek by chapter index
+    Given chapters exist and the user selects a chapter from the menu
+    When the action activates
+    Then mpv chapter property updates and playback jumps to that chapter start
+```
+
 - Sort chapters by `time`.
 - `select-chapter` state syncs with `chapter` property.
 - If no chapters, hide the chapters menu and clear marks.

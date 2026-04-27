@@ -33,6 +33,31 @@
 
 ## 3. Proposed product rules
 
+**Scenarios (Gherkin)** — acceptance targets once implemented:
+
+```gherkin
+Feature: Recent list semantics — finished vs in progress (planned)
+  Scenario: Finished local file drops from continue intent
+    Given natural EOF fires once per file without duplicate sibling_eof_done races
+    When no further sibling load replaces playback for that finish event
+    Then history/media cleanup follows §3–§4 rules without misleading end-frame thumbnails
+
+  Scenario: In-progress playback stays visible until finished rules remove it
+    Given the user paused mid-file or escaped back with partial progress
+    When thumbnails refresh under stale-position rules from §4
+    Then cards reflect stored percent without capturing forbidden finished-only snapshots
+
+  Scenario: Manual remove with undo affordance
+    Given the remove control activates without confirmation dialogs
+    When the entry leaves history per §3.3
+    Then an undo path can restore snapshot data within the documented toast timeout semantics
+
+  Scenario: Finish plus sibling advance removes only completed row
+    Given sibling queue loads the next file after EOF per sibling advance doc
+    When try_load records opens for the advancing pair
+    Then completed path removal precedes next-file history record without duplicates or orphans
+```
+
 ### 3.1 “Finished” file (no longer “continue watching”)
 
 - **Definition (v1):** Natural **end of playback** for a local file: we already detect **`eof-reached`** for sibling advance. Treat **“user watched to EOF”** the same when **there is no next file** to load: still **exactly one** `eof` handling pass per file (existing `sibling_eof_done` gate).

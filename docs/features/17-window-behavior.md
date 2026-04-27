@@ -12,6 +12,31 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Window, fullscreen, and presentation
+  Scenario: Idle inhibit while playing behind chrome
+    Given a real media path is loaded, playback is not paused, and the recent grid is hidden
+    When those conditions hold during playback
+    Then GTK inhibits IDLE and SUSPEND for dim and sleep control as specified
+
+  Scenario: Fullscreen and maximize interplay
+    Given documented fullscreen and maximize wiring on GTK/Wayland
+    When the user enters fullscreen from the video or titlebar per spec
+    Then fullscreen, maximize, and restore dimensions behave without losing last windowed size for restore
+
+  Scenario: Fit-on-open for landscape only
+    Given a newly loaded file reports display dimensions to mpv
+    When width is greater than height and the window is not fullscreen or maximized
+    Then the window resizes toward the documented landscape aspect clamp
+
+  Scenario: Post-resize aspect lock — not shipped
+    Given manual resize has ended with video visible
+    When acceptance criteria for aspect lock are evaluated on Wayland + GTK4
+    Then the feature remains documented as incomplete until a future implementation passes acceptance tests
+```
+
 - **Inhibit (IDLE + SUSPEND):** request when a real file/URL is loaded (`path` not empty, not the mpv placeholders `null`/`undefined`), `pause` is false, and the **recent-videos** grid is **not** visible; remove the inhibit when any of those fail, and always **uninhibit** before quit. Implementation polls periodically (e.g. 500ms) to sync with pause/load/grid state.
 - Autohide timeout default (e.g. 2s) and exceptions when popovers or menus are open.
 - **Escape** leaves fullscreen; when not fullscreen, it can return to the recent-videos view (see [Input shortcuts](13-input-shortcuts.md)).

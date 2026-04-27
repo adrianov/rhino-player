@@ -15,7 +15,7 @@
 
 ## Workflow
 
-- **Document-first**: see `.cursor/rules/document-first.mdc`. Do not implement substantial features without an up-to-date `docs/features/…` file (status, short/long description, specification).
+- **Document-first**: see `.cursor/rules/document-first.mdc`. Capture **business rules** and acceptance criteria first (prefer **Gherkin** Given–When–Then in `docs/features/…`), not internal filenames or module layout unless the story is about those concerns.
 - **Known UX not achieved in testing (Composer 2 Fast pass):** one-click switch between header `MenuButton` popovers — see `docs/README.md` (*Tooling note*) and `docs/features/17-window-behavior.md`. Revisit with a different model or deeper GTK review.
 
 ## Conventions

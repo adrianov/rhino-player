@@ -12,6 +12,36 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: Optional ~60 fps motion via VapourSynth
+  Scenario: Toggle applies vf only at ~1.0× speed with MVTools resolved
+    Given Smooth Video intent is stored as enabled and libmvtools.so resolves successfully
+    When playback speed is approximately 1.0× and media is loaded
+    Then the vapoursynth vf line is present with buffered/concurrent settings per spec
+
+  Scenario: Faster playback skips vf without clearing user intent
+    Given Smooth Video remains checked in preferences
+    When mpv speed moves to 1.5× or 2.0× per header speed rows
+    Then the vapoursynth vf is omitted while preference stays saved for return to 1.0×
+
+  Scenario: Incomplete setup opens helper dialog without silent failure
+    Given MVTools or vapoursynth-capable mpv is missing when enabling Smooth Video or picking a script
+    When vf apply fails or prerequisites are absent
+    Then the setup dialog explains installation paths and SQLite reflects disabled smooth until resolved
+
+  Scenario: Paused seek clears vf briefly for still frame
+    Given vapoursynth graph is active and the user seeks while paused per documented branch
+    When seeks occur during pause
+    Then vf clears temporarily so GLArea shows a normal frame before replay restores Smooth Video rules
+
+  Scenario: RHINO_PLAYBACK_SPEED matches UI speed around vf rebuild
+    Given speed row or watch-later adjusts mpv speed near vf changes
+    When the idle-chain reapplies vf or env before script reload
+    Then RHINO_PLAYBACK_SPEED matches the intended row speed before FlowFPS assumptions run
+```
+
 - **Settings** (SQLite `settings`): `video_smooth_60` = `0` / `1`; `video_vs_path` = UTF-8 path to `.vpy` (may be empty for bundled script); `video_mvtools_lib` = cached absolute path to `libmvtools.so` after a successful find (reused on next run if the file still exists, so the app does not rescan). [save/load](14-preferences.md) with other video prefs.
 - **Menu:** **Preferences → Smooth Video (~60 FPS at 1.0×)** (stateful bool GAction `smooth-60`); the label reflects *when* the mvtools path runs, not a separate extra toggle. **Changing playback speed** does **not** uncheck the item — prefs are unchanged; only the **vapoursynth** [vf] is skipped when [mpv] `speed` is not ~**1.0×**. When `video_vs_path` is set, a second row shows the **script file name** (basename only) with a stateful GAction `vs-custom` (checkbox) — unchecking **clears** `video_vs_path` (reverts to the bundled `.vpy`) and reapplies `vf`. **Choose VapourSynth Script…** sets the path, turns Smooth 60 on, and saves only after `libmvtools.so` is found. With no player, prefs + menu update; if `libmvtools.so` is not found, Rhino keeps Smooth 60 off and opens a setup dialog. With a player, `vf` is reapplied only after MVTools is resolved. If Smooth 60 is auto-disabled because `libmvtools.so` cannot be resolved or libmpv rejects the `vapoursynth` filter, the app opens the same modal setup dialog with selectable copy-paste commands for installing VapourSynth, `vsrepo`, MVTools, and a VapourSynth-capable mpv/libmpv build. The dialog also appears after choosing/loading a `.vpy` when setup is incomplete, and the chosen path is not saved when MVTools is missing. The **Preferences** submenu is rebuilt when the custom path is added or removed so the name row appears or disappears.
 - **Playback speed & bundled script (with [28](28-playback-speed.md)):** The app only installs the `vapoursynth` [vf] when [mpv] **speed** is **~1.0×**; at **1.5×/2.0** (or any other rate) the [vf] is omitted and decode stays on the **auto** `hwdec` path—**Smooth 60** is not auto-unchecked; after a header **speed** change, the app defers [apply_mpv_video] to the next **GLib idle** so **libmpv** has applied [speed] before the [vf] graph is rebuilt, and passes the row value as a hint so **1.0×** is not missed. Before the [vf] is added, the app sets **`RHINO_PLAYBACK_SPEED`** in the process environment to the current [mpv](https://mpv.io/manual/master/#options-speed) `speed` (e.g. `1.0`, `1.5`, `2.0`). The bundled `rhino_60_mvtools.vpy` uses **exact** rationals for those speeds. At **1.0** it only tags the source with **`AssumeFPS`** once, then **FlowFPS** to **60/1** (no second **`AssumeFPS(×1)`**), so timing matches the pre–speed-ramp script and does not skew A/V. At **1.5** / **2.0** it **also** retimes the clip with **`AssumeFPS(× speed)`** before **FlowFPS**, so **(source fps × speed)** is the content rate mvtools sees and only the “missing” in-betweens toward 60 are synthesized. If **(source fps as `Fraction` × speed)** is **≥ 60/1** in **rational** form, the script **skips** mvtools (faster; e.g. exact 30×2). A **float + ε** threshold was **removed**: tags like **60000/1001** (≈59.94) must **not** skip **FlowFPS**, or real **24p** often looked un-smoothed. When the user changes `speed` in the UI, **vf clr** and **re-add** run so the script reloads; the app writes **`RHINO_PLAYBACK_SPEED` from the row value** before rebuild to avoid a same-tick **[get_property](https://mpv.io/manual/master/#command-interface)** race with [mpv] `set_property`. A **~320 ms** one-shot after [loadfile] (on-file-loaded) resyncs **Smooth 60** / `vf` / env so the header list **snaps** [mpv] `speed` to 1.0/1.5/2.0, **`RHINO_PLAYBACK_SPEED` matches** [mpv] when [watch-later](https://mpv.io/manual/master/#options-save-position-on-quit) restored `speed`, and the [vf] string matches the **~1.0×** mvtools rule (e.g. no script at sped-up rate) — all **event-driven**, not the transport **~200 ms** tick. **Custom** `.vpy` files can read **`RHINO_PLAYBACK_SPEED`** the same way or ignore it.

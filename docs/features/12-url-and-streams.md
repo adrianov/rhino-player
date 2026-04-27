@@ -12,5 +12,21 @@
 
 **Specification:**
 
+**Scenarios (Gherkin):**
+
+```gherkin
+Feature: URL and network streams (target behavior — not started)
+  Scenario: Open validated URL
+    Given the user enters or pastes a supported scheme or normalized hostname
+    When they confirm Open or Add in the dialog
+    Then mpv receives loadfile with replace or append-play as chosen
+    And invalid input is rejected without corrupting the playlist
+
+  Scenario: Playlist dialog stays in sync
+    Given the playlist dialog is visible
+    When a new URL is appended successfully
+    Then the dialog content refreshes like other queue updates
+```
+
 - Parse URL, validate, call `loadfile` with the correct mode.
 - If the playlist dialog is open, refresh it after add (same window flow as other queue updates).
