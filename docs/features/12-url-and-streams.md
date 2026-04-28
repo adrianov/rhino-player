@@ -4,7 +4,7 @@
 status: planned
 priority: p2
 layers: [ui, mpv]
-related: [05, 06, 19]
+related: [06, 07]
 mpv_props: [protocol-list]
 ---
 
@@ -26,21 +26,15 @@ Feature: URL and network streams
     When they confirm Open
     Then mpv runs loadfile with replace for that URL
 
-  Scenario: Add validated URL appends to the queue
+  Scenario: Add validated URL appends after the current item
     Given the user enters a supported scheme or normalized hostname
     When they confirm Add
-    Then mpv runs loadfile with append-play for that URL
-    And the playlist count increases by one
+    Then the playback engine loads the URL after the current item without replacing it
 
   Scenario: Invalid input is rejected
     Given the user enters input that matches no allowed scheme and is not a path
     When they confirm Open or Add
-    Then no loadfile runs and the playlist is unchanged
-
-  Scenario: Playlist dialog refreshes on append
-    Given the playlist dialog is visible
-    When a URL is appended successfully
-    Then the dialog content reflects the new entry
+    Then no loadfile runs and the queue of titles is unchanged
 ```
 
 ## Notes

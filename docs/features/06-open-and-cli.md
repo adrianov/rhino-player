@@ -4,7 +4,7 @@
 status: wip
 priority: p1
 layers: [ui, platform, mpv]
-related: [05, 07, 11, 12, 21]
+related: [07, 11, 12, 21]
 actions: [app.open]
 ---
 
@@ -13,9 +13,9 @@ actions: [app.open]
 - Use one running window or several, depending on preference.
 
 ## Description
-File dialogs open or add media; folders open as playlists; URL dialogs handle network sources. `GApplication`’s `open` receives external file lists and forwards them to the active window or a new one per preference. A `--new-window` flag exists for secondary instances when supported. On launch, the first `argv` path (if any) loads instead of showing the recent grid.
+File dialogs open or add media; folders follow the same sibling-folder rules as in-product navigation (see [07-sibling-folder-queue](07-sibling-folder-queue.md)); URL dialogs handle network sources. `GApplication`’s `open` receives external file lists and forwards them to the active window or a new one per preference. A `--new-window` flag exists for secondary instances when supported. On launch, the first `argv` path (if any) loads instead of showing the recent grid.
 
-Today the **Open Video** dialog and CLI startup path are wired; drag-and-drop, single-instance policy, folder-as-playlist, and `HANDLES_OPEN` for remote activation are not.
+Today the **Open Video** dialog and CLI startup path are wired; drag-and-drop, single-instance policy, full folder-open behaviour, and `HANDLES_OPEN` for remote activation are not.
 
 ## Behavior
 

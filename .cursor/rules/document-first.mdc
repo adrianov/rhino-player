@@ -152,7 +152,7 @@ When creating or editing a feature doc, an agent must verify:
 ## Workflow for changes
 
 - **Add a feature**: pick the next free `NN`, create the file with `status: planned` and at least one scenario, add an index row in `docs/README.md`. Implementation may start once the scenarios are reviewable.
-- **Change a feature**: update **scenarios first**, then code. If behavior is dropped, mark `status: removed` and keep the file as a history pointer.
+- **Change a feature**: update **scenarios first**, then code. If behavior is dropped, either mark `status: removed` and keep the file as a history pointer, or **delete** the feature file and remove its index row when no stub is wanted (leave the `NN` unused — do not reuse the number for unrelated specs).
 - **Bug fix**: if existing scenarios already cover it, code only; otherwise add the missing scenario before the fix.
 - **Re-binding (porting to another stack)**: scenarios should not need edits. Only `## Notes` is rewritten for the new binding. If a scenario does need editing, that means the contract leaked binding details — fix the leak, do not duplicate the spec per platform.
 

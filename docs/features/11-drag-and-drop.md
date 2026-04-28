@@ -4,7 +4,7 @@
 status: planned
 priority: p2
 layers: [ui, mpv]
-related: [05, 06, 08, 24]
+related: [06, 07, 08, 24]
 ---
 
 ## Use cases
@@ -32,10 +32,10 @@ Feature: Drag and drop onto the video surface
     Then sub-add loads the file as a subtitle track
     And the dropped subtitle becomes selected
 
-  Scenario: Folder drop loads the directory as a playlist
+  Scenario: Folder drop opens the directory for playback
     Given the user drops a directory
     When the drop completes
-    Then mpv loadfile receives the directory path
+    Then the playback engine receives the directory path per open-file rules
 ```
 
 ## Notes

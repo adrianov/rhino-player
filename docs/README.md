@@ -23,7 +23,6 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 02 | [Application shell (Adwaita app, lifecycle)](features/02-application-shell.md) | done |
 | 03 | [mpv embed: render context and video surface](features/03-mpv-embedding.md) | done |
 | 04 | [Transport: play, pause, seek, progress UI](features/04-transport-and-progress.md) | done |
-| 05 | [Playlist: queue, prev/next, shuffle, loop](features/05-playlist.md) | planned |
 | 06 | [Open files: file picker, folder, CLI, single-instance](features/06-open-and-cli.md) | wip |
 | 07 | [Sibling folder queue (folder playback)](features/07-sibling-folder-queue.md) | done |
 | 08 | [Tracks: audio, video, subtitles](features/08-tracks.md) | wip |
@@ -34,10 +33,8 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 13 | [Keyboard, mouse, and shortcuts](features/13-input-shortcuts.md) | done |
 | 14 | [Preferences and persistent settings](features/14-preferences.md) | wip |
 | 15 | [MPRIS2 (media keys, shell integration)](features/15-mpris.md) | planned |
-| 16 | [Session: restore last playlist](features/16-session-persistence.md) | planned |
 | 17 | [Window: size, fullscreen, UI auto-hide, inhibit idle](features/17-window-behavior.md) | wip |
 | 18 | [Thumbnails: seek bar preview](features/18-thumbnail-preview.md) | done |
-| 19 | [Playlist dialog (list, reorder, save m3u8)](features/19-playlist-dialog.md) | planned |
 | 20 | [Static release binary and dependencies](features/20-static-build.md) | planned |
 | 21 | [Recent videos grid on empty launch](features/21-recent-videos-launch.md) | done |
 | 22 | [Audio: volume, mute, persistence](features/22-audio-volume-mute.md) | done |
@@ -47,6 +44,8 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 26 | [~60 fps motion (VapourSynth)](features/26-sixty-fps-motion.md) | done |
 | 27 | [Move current file to trash](features/27-move-to-trash.md) | done |
 | 28 | [Playback speed: fixed steps incl. 8.0× skip](features/28-playback-speed.md) | done |
+
+Feature numbers **05**, **16**, and **19** are unused (withdrawn playlist / session-playlist topics; files removed).
 
 ## Tooling note (Composer 2 Fast)
 

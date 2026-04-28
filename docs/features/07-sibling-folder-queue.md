@@ -4,7 +4,7 @@
 status: done
 priority: p1
 layers: [mpv, fs, ui]
-related: [02, 03, 04, 05, 06, 13, 28]
+related: [02, 03, 04, 06, 13, 21, 28]
 mpv_props: [eof-reached, time-pos, duration, path]
 ---
 
@@ -71,4 +71,4 @@ Feature: Sibling folder queue
 - Local files only: with no resolvable path, no advance runs.
 - Implementation: `src/sibling_advance.rs`, `src/app/load.rs::maybe_advance_sibling_on_eof`, `src/app/transport_events.rs::wire_transport_events`.
 - Sensitivity and tooltips update on `path` change plus `FileLoaded` / `VideoReconfig`; chrome controls update from `mpv_observe_property` events with no-op-change guards (so tooltip-show timers are not reset).
-- Out of scope here: m3u playlist UI, shuffle, MIME probing — those belong with [05-playlist](05-playlist.md).
+- Out of scope here: arbitrary multi-title playlists, shuffle, MIME probing.

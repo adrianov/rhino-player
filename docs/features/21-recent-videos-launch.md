@@ -4,7 +4,7 @@
 status: done
 priority: p1
 layers: [ui, db, mpv, fs]
-related: [03, 06, 13, 14, 16, 17, 18, 23, 27]
+related: [03, 06, 13, 14, 17, 18, 23, 27]
 settings: [seek_bar_preview]
 mpv_props: [path, time-pos, duration, eof-reached]
 ---
@@ -102,7 +102,7 @@ Feature: Recent videos grid on empty launch
 ```
 
 ## Notes
-- Trigger: empty CLI args **and** no mandatory session restore. Coordination with [16-session-persistence](16-session-persistence.md) when session restore ships must record "who wins" in a single line here.
+- Trigger: empty CLI args; first paint follows this grid and CLI rules in [06-open-and-cli](06-open-and-cli.md).
 - Deduplication: opening a path moves it to the front; capacity 20, display 5; `history::load` prunes missing files.
 - Card UI: each card uses about 40% of the strip width with a minimum size; image uses cover style (no letterboxing); title and progress sit in a soft bottom gradient overlay; the percentage is a small translucent pill; the trash icon sits left of the close icon on hover.
 - Snackbar: pill-shaped at the bottom; auto-hide after 10 s; remove and trash share one session LIFO stack; Undo snapshots include watch-later sidecar bytes plus the full media row; trash entries also store the `Trash/files/…` path for untrash.
