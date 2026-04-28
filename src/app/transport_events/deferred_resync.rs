@@ -29,6 +29,7 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     }
     let bar_visible = ctx.bar_show.get() || ctx.recent_visible.get();
     update_time_labels(&ctx.widgets, pos, dur);
+    sync_duration_label(&ctx.widgets, dur);
     sync_seek_range(&ctx.widgets, dur);
     sync_speed_button(&ctx.widgets, dur);
     refresh_play_button(ctx);

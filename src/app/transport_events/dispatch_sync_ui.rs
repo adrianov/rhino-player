@@ -156,9 +156,9 @@ fn sync_seek_pos(w: &TransportWidgets, pos: f64, dur: f64) {
     w.seek_sync.set(false);
 }
 
-/// Updates only the bottom-left clock from mpv's `time-pos`. The right-hand duration label
-/// is set once per file by [sync_duration_label] from the `Duration` event — not on every
-/// tick — so it never blinks while the user drags the seek thumb.
+/// Updates the bottom-left clock from mpv's `time-pos`. The right-hand duration label is
+/// updated by [sync_duration_label] from the `Duration` property event and on each
+/// [transport_tick] once mpv reports a length (covers demuxers that expose duration after load).
 fn update_time_labels(w: &TransportWidgets, pos: f64, _dur: f64) {
     if w.seek_grabbed.get() {
         return;
