@@ -3,7 +3,7 @@
 
 # Maximum cognitive complexity for a function (analogue to overgrown nesting/branches).
 # Lower = stricter. Tune if a real algorithm needs a single complex function; prefer splitting instead.
-cognitive-complexity-threshold = 25
+cognitive-complexity-threshold = 10
 
 # Per-function soft target; matches the 300-line module guideline in
 # `.cursor/rules/refactor-touched-longest.mdc`.

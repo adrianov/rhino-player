@@ -30,7 +30,7 @@ strsim = "0.11"
 # Clippy: see clippy.toml for thresholds. Module length is policed by
 # `.cursor/rules/refactor-touched-longest.mdc` and `clippy::too_many_lines`.
 [lints.clippy]
-cognitive_complexity = "warn"
+cognitive_complexity = "deny"
 too_many_lines = "warn"
 
 [profile.release]
