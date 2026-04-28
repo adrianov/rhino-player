@@ -42,13 +42,16 @@ pub fn run() -> i32 {
         adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
         db::init();
         theme::apply();
-        // Route SIGTERM through the GLib main loop so the normal quit path runs
+        // Route termination signals through the GLib main loop so the normal quit path runs
         // (saves resume position, stops mpv) instead of instant process death.
-        let a = app.clone();
-        glib::unix_signal_add_local(libc::SIGTERM, move || {
-            a.activate_action("quit", None);
-            glib::ControlFlow::Break
-        });
+        // SIGKILL cannot be caught.
+        for sig in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+            let a = app.clone();
+            glib::unix_signal_add_local(sig, move || {
+                a.activate_action("quit", None);
+                glib::ControlFlow::Break
+            });
+        }
     });
 
     let player: Rc<RefCell<Option<MpvBundle>>> = Rc::new(RefCell::new(None));
