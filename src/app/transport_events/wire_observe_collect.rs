@@ -19,9 +19,9 @@ const PROP_PATH: u64 = 6;
 /// State + UI tick. 1 Hz is enough for the time labels and seek-bar thumb at any speed; sibling
 /// advance fires within a second of mpv reaching `core-idle` near the end.
 const TICK_INTERVAL: Duration = Duration::from_secs(1);
-/// Window before `duration` where `core-idle=true` is treated as natural EOF. Generous so it
-/// catches mpv stopping a few seconds early at high speed (8× decoder/audio stall) as well as 1×.
-const TICK_EOF_TAIL_SEC: f64 = 5.0;
+/// Seconds before `duration` where `core-idle=true` is treated as natural EOF (decoder stall near
+/// the tail, including high playback speed).
+const TICK_EOF_TAIL_SEC: f64 = 1.5;
 
 #[derive(Clone, Debug)]
 enum TransportEv {
