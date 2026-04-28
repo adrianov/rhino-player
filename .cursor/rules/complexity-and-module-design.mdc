@@ -31,17 +31,17 @@ If implementing **one** user-visible feature or a single story causes changes ac
 
 **Goal:** keep source files small enough to review, navigate, and edit safely (including with AI). The project **recommends** keeping Rust files under `src/` around **300 lines** or less when it is practical.
 
-- **`cargo module-lines`** (via `scripts/check-module-lines.sh`) is **advisory only**: it prints **warnings** and **always exits 0** — it is **not** a merge gate. Refactor when it fits your change (same area, pre-existing debt, or a dedicated cleanup), not as an automatic blocker.
+- **`cargo module-lines`** (via `scripts/check-module-lines.sh`) prints **warnings** above the **soft** line limit and **exits non-zero** above the **hard** limit (merge gate). Refactor when it fits your change (same area, pre-existing debt, or a dedicated cleanup); do not grow past the hard cap without an intentional limit update.
 - **`clippy::too_many_lines`** (see **`clippy.toml`**, **`too-many-lines-threshold`**) is also set to **warn**, not **deny**.
 - If **several** modules are over the limit, prefer **one file per refactor**, working from the **longest** file downward (largest payoffs first, smaller diffs). Do not try to “fix every oversized file” in a single pass unless the work is already scoped that way.
 - When you **do** split a file: remove dead code and duplication first; then extract cohesive, feature-shaped modules with narrow boundaries (UI / mpv / storage), without growing the codebase just to hit a number.
 - **`include!` splits** (and any extra modules created for length) must use **meaningful filenames** that reflect responsibility (e.g. `chrome_fullscreen_and_fit.rs`), not ordinal names like `1.rs` / `part2.rs`, so separation of concerns stays obvious in the tree and in reviews.
 
-`RHINO_MODULE_LINE_LIMIT` overrides the default threshold (default **300**) for the advisory script, e.g. local experiments.
+`RHINO_MODULE_LINE_LIMIT` (default **300**) and `RHINO_MODULE_LINE_HARD` (default **995**, longest over-soft module at introduction) override the script; lower the hard default when that module shrinks.
 
 ## Where configuration lives
 
 - **`clippy.toml`** — threshold for `cognitive_complexity`, `too_many_lines`, and other Clippy config.
-- **`scripts/check-module-lines.sh`** — **advisory** length report for Rust sources under `src/` (soft limit; **longest-first** message when anything is over).
+- **`scripts/check-module-lines.sh`** — length check for Rust sources under `src/` (soft warn, hard fail; sorted **longest-first** in messages).
 - **`Cargo.toml` → `[lints]`** — project-wide lint level for selected Clippy lints.
 - **`.cursorrules` / this rule** — human and agent policy; not a replacement for `cargo clippy` on the machine.

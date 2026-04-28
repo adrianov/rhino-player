@@ -1,4 +1,4 @@
-//! Cargo entry point: runs `scripts/check-module-lines.sh` (advisory soft limit; always exits 0 if the script runs).
+//! Cargo entry point: runs `scripts/check-module-lines.sh` (soft limit warns; hard limit exits 1).
 
 use std::process::{self, Command};
 
