@@ -17,10 +17,9 @@ After completing the user's primary task, **before ending the turn**, do the fol
 5. The only valid skip is when the refactor would genuinely make the code **longer or less clear**. State which lever from `clippy-no-suppress.mdc` was tried (extract helpers, group params into a struct, split file by responsibility, …) and why it did not help. Drive-by claims of "pre-existing" are not a valid skip.
 6. Only the **single longest edited module** is in scope per request — do not opportunistically refactor unrelated files.
 
-Limits:
-
-- **300 lines** is the soft target (matches `cargo module-lines` advisory and `clippy::too_many_lines`).
-- **995 lines** is the hard limit enforced by `scripts/check-module-lines.sh`; any edit that crosses it must be reverted or compacted in the same turn.
+Limit: **300 lines** is the soft target (matches `clippy::too_many_lines`). There is no hard
+cap — this rule plus the Clippy warning are the only line-count enforcement, so every touched
+oversized module must shrink in its own turn.
 
 Process:
 

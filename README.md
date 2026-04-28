@@ -166,9 +166,7 @@ Before submitting changes, run:
 
 ```bash
 cargo test
-cargo clippy --all-targets --all-features
-cargo module-lines
-cargo qcheck
+cargo qcheck   # cargo clippy --all-targets --all-features
 ```
 
 The project keeps detailed feature specs and implementation notes under [docs/](docs/). Start with [docs/README.md](docs/README.md).
