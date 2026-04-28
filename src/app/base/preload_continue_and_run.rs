@@ -37,11 +37,18 @@ pub fn run() -> i32 {
         .flags(gio::ApplicationFlags::HANDLES_OPEN)
         .build();
 
-    app.connect_startup(|_app| {
+    app.connect_startup(|app| {
         icons::register_hicolor_from_manifest();
         adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
         db::init();
         theme::apply();
+        // Route SIGTERM through the GLib main loop so the normal quit path runs
+        // (saves resume position, stops mpv) instead of instant process death.
+        let a = app.clone();
+        glib::unix_signal_add_local(libc::SIGTERM, move || {
+            a.activate_action("quit", None);
+            glib::ControlFlow::Break
+        });
     });
 
     let player: Rc<RefCell<Option<MpvBundle>>> = Rc::new(RefCell::new(None));
