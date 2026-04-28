@@ -102,6 +102,13 @@ fn header_popover_non_modal(pop: &gtk::Popover) {
 
 /// No built-in “menu button group.” Before the [gtk::MenuButton] default: close other menus,
 /// then an idle [set_active] if the first press did not open the target (e.g. lost to popover stack).
+fn ensure_active_idle(btn: gtk::MenuButton) {
+    glib::idle_add_local(move || {
+        if !btn.is_active() { btn.set_active(true); }
+        glib::ControlFlow::Break
+    });
+}
+
 fn header_menubtns_switch(menus: [gtk::MenuButton; 4]) {
     for (i, menu) in menus.iter().enumerate() {
         let g = gtk::GestureClick::new();
@@ -117,21 +124,11 @@ fn header_menubtns_switch(menus: [gtk::MenuButton; 4]) {
             .collect();
         let c = this.clone();
         g.connect_pressed(move |_, n, _, _| {
-            if n != 1 {
-                return;
-            }
+            if n != 1 { return; }
             let had_other = sibs.iter().any(|b| b.is_active());
-            for b in &sibs {
-                b.set_active(false);
-            }
+            for b in &sibs { b.set_active(false); }
             if had_other && !c.is_active() {
-                let t = c.clone();
-                glib::idle_add_local(move || {
-                    if !t.is_active() {
-                        t.set_active(true);
-                    }
-                    glib::ControlFlow::Break
-                });
+                ensure_active_idle(c.clone());
             }
         });
         this.add_controller(g);

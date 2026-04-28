@@ -35,6 +35,7 @@ struct PlayToggleCtx {
     recent: gtk::ScrolledWindow,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     on_video_chrome: Rc<dyn Fn()>,
+    on_file_loaded: Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
     sub_menu: Option<gtk::MenuButton>,
     /// Bottom-bar play/pause button. The toggle handler updates its icon
@@ -108,6 +109,7 @@ fn schedule_warm_reveal(ctx: PlayToggleCtx) {
             let _ = b.mpv.set_property("pause", false);
         }
         ctx.gl.queue_render();
+        (ctx.on_file_loaded)();
         glib::ControlFlow::Break
     });
 }

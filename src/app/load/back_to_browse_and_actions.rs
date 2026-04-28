@@ -11,17 +11,17 @@ fn back_to_browse(
     cancel_undo_timer(&c.undo_timer);
     if clear_undo {
         *c.undo_remove_stack.borrow_mut() = Vec::new();
-        sync_undo_bar(
-            &c.undo_label,
-            &c.undo_btn,
-            &c.undo_shell,
-            &c.undo_remove_stack,
-        );
     }
+    sync_undo_bar(&c.undo_label, &c.undo_btn, &c.undo_shell, &c.undo_remove_stack);
     c.win_aspect.set(None);
-    *c.last_path.borrow_mut() = None;
     c.sibling_seof.done.set(false);
-    c.sibling_nav.set_no_media();
+    // Keep last_path set to the warm preload target so prev/next remain active
+    // on the browse screen and the sibling nav works immediately after warm resume.
+    let warm_path = c.player.borrow().as_ref()
+        .and_then(|b| local_file_from_mpv(&b.mpv))
+        .and_then(|p| std::fs::canonicalize(&p).ok());
+    *c.last_path.borrow_mut() = warm_path.clone();
+    c.sibling_nav.refresh(warm_path.as_deref(), &c.sibling_seof);
     let paths: Vec<PathBuf> = history::load().into_iter().take(5).collect();
     if paths.is_empty() {
         recent.set_visible(false);
@@ -78,6 +78,20 @@ fn back_to_browse(
             glib::ControlFlow::Break
         });
     });
+}
+
+/// Wraps [back_to_browse] into a single `Rc<dyn Fn(bool)>` closure (arg = `clear_undo`).
+/// Build once in `build_window`; pass to every call site instead of repeating [BackToBrowseCtx].
+fn make_browse_back(
+    ctx: BackToBrowseCtx,
+    win: adw::ApplicationWindow,
+    gl: gtk::GLArea,
+    recent: gtk::ScrolledWindow,
+    row: gtk::Box,
+) -> Rc<dyn Fn(bool)> {
+    Rc::new(move |clear_undo| {
+        back_to_browse(&ctx, &win, &gl, &recent, &row, clear_undo);
+    })
 }
 
 /// Enables [gio::SimpleAction] `app.close-video` when the player is ready and the continue grid is hidden.

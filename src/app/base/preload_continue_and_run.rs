@@ -88,9 +88,7 @@ pub fn run() -> i32 {
         app.connect_activate(move |a: &adw::Application| {
             if a.windows().is_empty() {
                 if file_boot.borrow().is_none() {
-                    if let Some(arg) = std::env::args().nth(1) {
-                        *file_boot.borrow_mut() = Some(PathBuf::from(arg));
-                    }
+                    *file_boot.borrow_mut() = std::env::args().nth(1).map(PathBuf::from);
                 }
                 build_window(a, &p, Rc::clone(&file_boot), Rc::clone(&on_open_slot));
             }

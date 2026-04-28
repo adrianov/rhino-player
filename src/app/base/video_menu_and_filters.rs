@@ -207,11 +207,8 @@ fn register_video_app_actions(
                     return;
                 };
                 if !can_find_mvtools(&p2.borrow()) {
-                    {
-                        let mut g = p2.borrow_mut();
-                        g.smooth_60 = false;
-                        db::save_video(&g);
-                    }
+                    p2.borrow_mut().smooth_60 = false;
+                    db::save_video(&p2.borrow());
                     sync_smooth_60_to_off(&app3);
                     show_smooth_setup_dialog(&app3);
                     return;
@@ -222,27 +219,7 @@ fn register_video_app_actions(
                     g.smooth_60 = true;
                     db::save_video(&g);
                 }
-                if let Some(plr) = pl2.borrow().as_ref() {
-                    let off = {
-                        let mut g = p2.borrow_mut();
-                        video_pref::apply_mpv_video(&plr.mpv, &mut g, None)
-                    }
-                    .smooth_auto_off;
-                    if off {
-                        sync_smooth_60_to_off(&app3);
-                        show_smooth_setup_dialog(&app3);
-                    } else if let Some(sa) = app3
-                        .lookup_action("smooth-60")
-                        .and_then(|a| a.downcast::<gio::SimpleAction>().ok())
-                    {
-                        sa.set_state(&p2.borrow().smooth_60.to_variant());
-                    }
-                } else if let Some(sa) = app3
-                    .lookup_action("smooth-60")
-                    .and_then(|a| a.downcast::<gio::SimpleAction>().ok())
-                {
-                    sa.set_state(&true.to_variant());
-                }
+                apply_vs_path_chosen(&pl2, &p2, &app3);
                 video_pref_submenu_rebuild(&pref2, &p2.borrow(), &app3);
                 gl2.queue_render();
             });
@@ -250,5 +227,29 @@ fn register_video_app_actions(
     }
     app.add_action(&choose);
     video_pref_submenu_rebuild(pref_menu, &v0, app);
+}
+
+fn smooth_60_action(app: &adw::Application) -> Option<gio::SimpleAction> {
+    app.lookup_action("smooth-60")
+        .and_then(|a| a.downcast::<gio::SimpleAction>().ok())
+}
+
+/// Applies or reports an error after the user chose a VapourSynth path.
+fn apply_vs_path_chosen(
+    pl: &Rc<RefCell<Option<MpvBundle>>>,
+    p: &Rc<RefCell<db::VideoPrefs>>,
+    app: &adw::Application,
+) {
+    if let Some(plr) = pl.borrow().as_ref() {
+        let off = video_pref::apply_mpv_video(&plr.mpv, &mut p.borrow_mut(), None).smooth_auto_off;
+        if off {
+            sync_smooth_60_to_off(app);
+            show_smooth_setup_dialog(app);
+        } else if let Some(sa) = smooth_60_action(app) {
+            sa.set_state(&p.borrow().smooth_60.to_variant());
+        }
+    } else if let Some(sa) = smooth_60_action(app) {
+        sa.set_state(&true.to_variant());
+    }
 }
 

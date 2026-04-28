@@ -70,36 +70,21 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
             let vp_320 = Rc::clone(&vp_onload);
             let app_320 = app_onload.clone();
             let _ = glib::timeout_add_local(Duration::from_millis(320), move || {
-                if let Some(b) = p2.borrow().as_ref() {
-                    schedule_sub_button_scan(p2.clone(), sub320.clone());
-                    let pr = sp2.borrow();
-                    sub_prefs::apply_mpv(&b.mpv, &pr);
-                    let show = if r3.is_visible() { true } else { b3.get() };
-                    sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, bot2.height(), g3.height());
-                    audio_tracks::restore_saved_audio(&b.mpv);
-                    audio_tracks::ensure_playable_audio(&b.mpv);
-                    sub_tracks::autopick_sub_track(&b.mpv, &pr);
-                    let listed = playback_speed::sync_list(&b.mpv, &syf320, &sl320);
-                    let mut g = vp_320.borrow_mut();
-                    if g.smooth_60 {
-                        let off = if let Some(s) = listed {
-                            video_pref::refresh_smooth_for_playback_speed(&b.mpv, &mut g, Some(s))
-                        } else if video_pref::needs_playback_speed_env_resync(&b.mpv) {
-                            video_pref::refresh_smooth_for_playback_speed(&b.mpv, &mut g, None)
-                        } else {
-                            video_pref::resync_smooth_if_speed_mismatch(&b.mpv, &mut g)
-                        };
-                        if off {
-                            sync_smooth_60_to_off(&app_320);
-                        }
-                    }
-                }
-                if let Some(a) = close_a2.borrow().as_ref() {
-                    sync_close_video_action(a, &p2, &r3);
-                }
-                if let Some(a) = trash_a2.borrow().as_ref() {
-                    sync_trash_action(a, &p2, &r3);
-                }
+                on_320ms_tick(On320Ctx {
+                    player: p2.clone(),
+                    sub_pref: sp2.clone(),
+                    recent: r3.clone(),
+                    bar_show: b3.clone(),
+                    bottom: bot2.clone(),
+                    gl: g3.clone(),
+                    sub_btn: sub320.clone(),
+                    speed_sync_flag: syf320.clone(),
+                    speed_list: sl320.clone(),
+                    video_pref: vp_320.clone(),
+                    app: app_320.clone(),
+                    close_action: close_a2.clone(),
+                    trash_action: trash_a2.clone(),
+                });
                 glib::ControlFlow::Break
             });
             // 60p: [try_load] chains a second idle to [reapply_60_if_still_missing]. This 320ms hook
@@ -170,5 +155,56 @@ fn wire_sub_style_controls(ctx: SubStyleCtx) {
             db::save_sub(&sp.borrow());
             gll.queue_render();
         });
+    }
+}
+
+struct On320Ctx {
+    player: Rc<RefCell<Option<MpvBundle>>>,
+    sub_pref: Rc<RefCell<db::SubPrefs>>,
+    recent: gtk::ScrolledWindow,
+    bar_show: Rc<Cell<bool>>,
+    bottom: gtk::Box,
+    gl: gtk::GLArea,
+    sub_btn: gtk::MenuButton,
+    speed_sync_flag: Rc<Cell<bool>>,
+    speed_list: gtk::ListBox,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
+    app: adw::Application,
+    close_action: Rc<RefCell<Option<gio::SimpleAction>>>,
+    trash_action: Rc<RefCell<Option<gio::SimpleAction>>>,
+}
+
+fn on_320ms_tick(c: On320Ctx) {
+    if let Some(b) = c.player.borrow().as_ref() {
+        schedule_sub_button_scan(c.player.clone(), c.sub_btn);
+        let pr = c.sub_pref.borrow();
+        sub_prefs::apply_mpv(&b.mpv, &pr);
+        let show = c.recent.is_visible() || c.bar_show.get();
+        sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, c.bottom.height(), c.gl.height());
+        audio_tracks::restore_saved_audio(&b.mpv);
+        audio_tracks::ensure_playable_audio(&b.mpv);
+        sub_tracks::autopick_sub_track(&b.mpv, &pr);
+        let listed = playback_speed::sync_list(&b.mpv, &c.speed_sync_flag, &c.speed_list);
+        let mut g = c.video_pref.borrow_mut();
+        if g.smooth_60 && resync_smooth_speed(&b.mpv, &mut g, listed) {
+            sync_smooth_60_to_off(&c.app);
+        }
+    }
+    if let Some(a) = c.close_action.borrow().as_ref() {
+        sync_close_video_action(a, &c.player, &c.recent);
+    }
+    if let Some(a) = c.trash_action.borrow().as_ref() {
+        sync_trash_action(a, &c.player, &c.recent);
+    }
+}
+
+/// Returns `true` if smooth-60 was turned off (needs UI sync).
+fn resync_smooth_speed(mpv: &Mpv, vp: &mut db::VideoPrefs, listed: Option<f64>) -> bool {
+    if let Some(s) = listed {
+        video_pref::refresh_smooth_for_playback_speed(mpv, vp, Some(s))
+    } else if video_pref::needs_playback_speed_env_resync(mpv) {
+        video_pref::refresh_smooth_for_playback_speed(mpv, vp, None)
+    } else {
+        video_pref::resync_smooth_if_speed_mismatch(mpv, vp)
     }
 }

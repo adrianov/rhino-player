@@ -59,21 +59,18 @@ fn build_speed_menu(
             if let Some(b) = p.borrow().as_ref() {
                 let _ = b.mpv.set_property("speed", v);
                 glr.queue_render();
-                // Defer vf rebuild: libmpv can still report the old speed on the same GTK tick as
-                // set_property; mvtools_vf_eligible + add_smooth_60 must see 1.0× when returning.
-                let bref = p.clone();
-                let vp2 = Rc::clone(&vp);
-                let ap2 = ap.clone();
-                let _ = glib::idle_add_local_once(move || {
-                    if let Some(pl) = bref.borrow().as_ref() {
-                        let mut g = vp2.borrow_mut();
-                        if video_pref::refresh_smooth_for_playback_speed(&pl.mpv, &mut g, Some(v))
-                        {
-                            sync_smooth_60_to_off(&ap2);
-                        }
-                    }
-                });
             }
+            // Defer vf rebuild: libmpv can still report the old speed on the same GTK tick as
+            // set_property; mvtools_vf_eligible + add_smooth_60 must see 1.0× when returning.
+            let bref = p.clone();
+            let vp2 = Rc::clone(&vp);
+            let ap2 = ap.clone();
+            let _ = glib::idle_add_local_once(move || {
+                let Some(ref pl) = *bref.borrow() else { return };
+                if video_pref::refresh_smooth_for_playback_speed(&pl.mpv, &mut vp2.borrow_mut(), Some(v)) {
+                    sync_smooth_60_to_off(&ap2);
+                }
+            });
             smb.set_active(false);
         });
     }

@@ -40,16 +40,9 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                 b.set(false);
             } else {
                 b.set(true);
-                if let Some((gw, gh)) = fr.borrow_mut().take() {
-                    if w.is_maximized() {
-                        w.unmaximize();
-                    }
-                    w.set_default_size(gw, gh);
-                }
+                restore_windowed_size(&fr, w);
                 let s = skip_fs.clone();
-                let _ = glib::source::idle_add_local_once(move || {
-                    s.set(false);
-                });
+                let _ = glib::source::idle_add_local_once(move || { s.set(false); });
             }
             apply_chrome(
                 &root_fs,
@@ -66,18 +59,10 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                 let bot2 = bottom_fs.clone();
                 let p2 = p_fs.clone();
                 let b2 = b.clone();
-                // Use a short timeout so GTK has time to re-layout the windowed geometry before
-                // we read bottom.height() and gl.height() for the sub-pos calculation.
+                // Short timeout so GTK re-layouts windowed geometry before reading heights.
                 let _ = glib::timeout_add_local_once(
                     std::time::Duration::from_millis(50),
-                    move || {
-                        gl2.queue_render();
-                        if let Some(bundle) = p2.borrow().as_ref() {
-                            sub_prefs::apply_sub_pos_for_toolbar(
-                                &bundle.mpv, b2.get(), bot2.height(), gl2.height(),
-                            );
-                        }
-                    },
+                    move || schedule_sub_pos(&gl2, &p2, b2.get(), bot2.height()),
                 );
             }
         });
@@ -105,4 +90,23 @@ fn w_in_max_mode(ctx: &WindowInputCtx) {
             w.fullscreen();
         }
     });
+}
+
+fn restore_windowed_size(fr: &Rc<RefCell<Option<(i32, i32)>>>, w: &adw::ApplicationWindow) {
+    if let Some((gw, gh)) = fr.borrow_mut().take() {
+        if w.is_maximized() { w.unmaximize(); }
+        w.set_default_size(gw, gh);
+    }
+}
+
+fn schedule_sub_pos(
+    gl: &gtk::GLArea,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    show: bool,
+    bot_h: i32,
+) {
+    gl.queue_render();
+    if let Some(bundle) = player.borrow().as_ref() {
+        sub_prefs::apply_sub_pos_for_toolbar(&bundle.mpv, show, bot_h, gl.height());
+    }
 }

@@ -82,34 +82,13 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
                     sync_smooth_60_to_off(&app_realize);
                 }
                 if preload_auto_off.is_some() {
-                    let p_pause = p_realize.clone();
-                    let r_pause = recent_rz.clone();
-                    let _ = glib::timeout_add_local(Duration::from_millis(100), move || {
-                        if r_pause.is_visible() {
-                            if let Some(b) = p_pause.borrow().as_ref() {
-                                let _ = b.mpv.set_property("pause", true);
-                            }
-                        }
-                        glib::ControlFlow::Break
-                    });
-                    let p_60 = p_realize.clone();
-                    let r_60 = reapply_rz.clone();
-                    let rec_60 = recent_rz.clone();
-                    let app_60 = app_realize.clone();
-                    let _ = glib::idle_add_local_once(move || {
-                        if !rec_60.is_visible() {
-                            return;
-                        }
-                        if let Some(b) = p_60.borrow().as_ref() {
-                            let off = {
-                                let mut g = r_60.vp.borrow_mut();
-                                video_pref::reapply_60_if_still_missing(&b.mpv, &mut g)
-                            };
-                            if off {
-                                sync_smooth_60_to_off(&app_60);
-                            }
-                        }
-                    });
+                    schedule_preload_pause(p_realize.clone(), recent_rz.clone());
+                    schedule_preload_reapply_60(
+                        p_realize.clone(),
+                        reapply_rz.clone(),
+                        recent_rz.clone(),
+                        app_realize.clone(),
+                    );
                 }
                 drain_recent_backfill(&pending_rz);
                 sync_close_video_action(&close_video, &p_realize, &recent_rz);
@@ -164,6 +143,35 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
             b.draw(area);
         }
         glib::Propagation::Stop
+    });
+}
+
+fn schedule_preload_pause(
+    player: Rc<RefCell<Option<MpvBundle>>>,
+    recent: gtk::ScrolledWindow,
+) {
+    let _ = glib::timeout_add_local(Duration::from_millis(100), move || {
+        if recent.is_visible() {
+            if let Some(b) = player.borrow().as_ref() {
+                let _ = b.mpv.set_property("pause", true);
+            }
+        }
+        glib::ControlFlow::Break
+    });
+}
+
+fn schedule_preload_reapply_60(
+    player: Rc<RefCell<Option<MpvBundle>>>,
+    reapply: VideoReapply60,
+    recent: gtk::ScrolledWindow,
+    app: adw::Application,
+) {
+    let _ = glib::idle_add_local_once(move || {
+        if !recent.is_visible() { return; }
+        if let Some(b) = player.borrow().as_ref() {
+            let off = video_pref::reapply_60_if_still_missing(&b.mpv, &mut reapply.vp.borrow_mut());
+            if off { sync_smooth_60_to_off(&app); }
+        }
     });
 }
 
