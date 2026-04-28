@@ -200,16 +200,13 @@ impl MpvBundle {
         thread_local! {
             static DRAIN: std::cell::RefCell<Option<Box<dyn Fn()>>> = const { std::cell::RefCell::new(None) };
         }
+        fn call_drain() {
+            DRAIN.with(|s| { if let Some(f) = s.borrow().as_ref() { f(); } });
+        }
         DRAIN.with(|s| *s.borrow_mut() = Some(Box::new(on_main)));
         let mctx = glib::MainContext::default();
         self.mpv.set_wakeup_callback(move || {
-            mctx.clone().invoke(|| {
-                DRAIN.with(|s| {
-                    if let Some(f) = s.borrow().as_ref() {
-                        f();
-                    }
-                });
-            });
+            mctx.clone().invoke(call_drain);
         });
     }
 
