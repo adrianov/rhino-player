@@ -2,6 +2,8 @@ struct WindowInputCtx {
     win: adw::ApplicationWindow,
     root: adw::ToolbarView,
     header: adw::HeaderBar,
+    /// Wraps `root` so overlay children appear above the ToolbarView bottom bar.
+    outer_ovl: gtk::Overlay,
     ovl: gtk::Overlay,
     bottom: gtk::Box,
     gl: gtk::GLArea,

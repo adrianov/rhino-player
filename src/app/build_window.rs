@@ -1,6 +1,8 @@
 include!("build_window/app_menus.rs");
+include!("build_window/aspect_resize.rs");
 include!("build_window/header_popovers.rs");
 include!("build_window/sibling_nav_buttons.rs");
+include!("build_window/speed_menu.rs");
 include!("build_window/volume_wiring.rs");
 
 fn build_window(
@@ -89,33 +91,17 @@ fn build_window(
         sub_menu,
     } = build_header_popovers(&sub_pref);
 
-    let speed_list = gtk::ListBox::new();
-    speed_list.set_activate_on_single_click(true);
-    speed_list.add_css_class("rich-list");
-    for s in &["1.0×", "1.5×", "2.0×", "8.0×"] {
-        let row = gtk::ListBoxRow::new();
-        let lab = gtk::Label::new(Some(*s));
-        lab.set_halign(gtk::Align::Start);
-        lab.set_margin_start(10);
-        lab.set_margin_end(10);
-        lab.set_margin_top(6);
-        lab.set_margin_bottom(6);
-        row.set_child(Some(&lab));
-        speed_list.append(&row);
-    }
-    let speed_col = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    speed_col.add_css_class("rp-popover-box");
-    speed_col.append(&speed_list);
-    let speed_pop = gtk::Popover::new();
-    speed_pop.add_css_class("rp-header-popover");
-    speed_pop.set_child(Some(&speed_col));
-    header_popover_non_modal(&speed_pop);
-    let speed_mbtn = gtk::MenuButton::new();
-    speed_mbtn.set_icon_name("speedometer-symbolic");
-    speed_mbtn.set_tooltip_text(Some("Playback speed"));
-    speed_mbtn.set_popover(Some(&speed_pop));
-    speed_mbtn.set_sensitive(false);
-    speed_mbtn.add_css_class("flat");
+    let gl_area = gtk::GLArea::new();
+    gl_area.add_css_class("rp-gl");
+    gl_area.set_hexpand(true);
+    gl_area.set_vexpand(true);
+    gl_area.set_auto_render(false);
+    gl_area.set_has_stencil_buffer(false);
+    gl_area.set_has_depth_buffer(false);
+
+    // speed_sync and speed_list handler wired inside build_speed_menu
+    let SpeedMenuResult { speed_mbtn, speed_list, speed_sync } =
+        build_speed_menu(player, &gl_area, &video_pref, app);
 
     let menu_btn = gtk::MenuButton::new();
     menu_btn.set_icon_name("open-menu-symbolic");
@@ -150,7 +136,6 @@ fn build_window(
         menu_btn.clone(),
     ]);
 
-    let gl_area = gtk::GLArea::new();
     {
         let p = player.clone();
         let bx = audio_tracks_box.clone();
@@ -194,13 +179,6 @@ fn build_window(
             sec.set_visible(show);
         });
     }
-    gl_area.add_css_class("rp-gl");
-    gl_area.set_hexpand(true);
-    gl_area.set_vexpand(true);
-    gl_area.set_auto_render(false);
-    gl_area.set_has_stencil_buffer(false);
-    gl_area.set_has_depth_buffer(false);
-
     let seek_adj = gtk::Adjustment::new(0.0, 0.0, 1.0, 0.2, 1.0, 0.0);
     let seek = gtk::Scale::new(gtk::Orientation::Horizontal, Some(&seek_adj));
     seek.set_hexpand(true);
@@ -224,46 +202,6 @@ fn build_window(
     bottom.append(&wrap_prev);
     bottom.append(&play_pause);
     bottom.append(&wrap_next);
-    let speed_sync = Rc::new(Cell::new(false));
-    let vp_speed = Rc::clone(&video_pref);
-    let app_speed = app.clone();
-    {
-        let p = player.clone();
-        let glr = gl_area.clone();
-        let sy = speed_sync.clone();
-        let smb = speed_mbtn.clone();
-        let vp = Rc::clone(&vp_speed);
-        let ap = app_speed.clone();
-        speed_list.connect_row_activated(move |list2, row| {
-            if sy.get() {
-                return;
-            }
-            let i: u32 = (0i32..playback_speed::SPEEDS.len() as i32)
-                .find(|&ix| list2.row_at_index(ix).is_some_and(|r| r == *row))
-                .unwrap_or(0) as u32;
-            let v = playback_speed::value_at(i);
-            if let Some(b) = p.borrow().as_ref() {
-                let _ = b.mpv.set_property("speed", v);
-                glr.queue_render();
-                // Defer [vf] rebuild: libmpv can still report the old [speed] on the same GTK tick as
-                // [set_property]; [mvtools_vf_eligible] + [add_smooth_60] must see 1.0× when returning from faster steps.
-                let bref = p.clone();
-                let vp2 = Rc::clone(&vp);
-                let ap2 = ap.clone();
-                let vh = v;
-                let _ = glib::idle_add_local_once(move || {
-                    if let Some(pl) = bref.borrow().as_ref() {
-                        let mut g = vp2.borrow_mut();
-                        if video_pref::refresh_smooth_for_playback_speed(&pl.mpv, &mut g, Some(vh))
-                        {
-                            sync_smooth_60_to_off(&ap2);
-                        }
-                    }
-                });
-            }
-            smb.set_active(false);
-        });
-    }
     bottom.append(&time_left);
     bottom.append(&seek);
     bottom.append(&time_right);
@@ -277,20 +215,29 @@ fn build_window(
         bottom.append(&b);
     }
 
+    let ovl = gtk::Overlay::new();
+    ovl.add_css_class("rp-stack");
+    ovl.add_css_class("rp-page-stack");
+    ovl.set_child(Some(&gl_area));
+
+    // Wraps the ToolbarView so overlay children are rendered above the bottom bar.
+    let outer_ovl = gtk::Overlay::new();
+
     let (seek_sync, seek_grabbed) = (Rc::new(Cell::new(false)), Rc::new(Cell::new(false)));
-    seek_bar_preview::connect(
+    let seek_preview = seek_bar_preview::connect(
         &seek,
         &seek_adj,
         Rc::clone(player),
         Rc::clone(&last_path),
         Rc::clone(&seek_bar_on),
         seek_grabbed.clone(),
+        seek_bar_preview::SeekPreviewCtx {
+            ovl: outer_ovl.clone(),
+            bottom: bottom.clone(),
+        },
     );
-
-    let ovl = gtk::Overlay::new();
-    ovl.add_css_class("rp-stack");
-    ovl.add_css_class("rp-page-stack");
-    ovl.set_child(Some(&gl_area));
+    // Container lives on the same GdkSurface — no compositor round-trip on show/hide.
+    outer_ovl.add_overlay(&seek_preview.container);
 
     let (recent_scrl, flow_recent, sp_empty, undo_bar) = recent_view::new_scroll();
     recent_scrl.set_vexpand(true);
@@ -492,6 +439,7 @@ fn build_window(
         win: win.clone(),
         root: root.clone(),
         header: header.clone(),
+        outer_ovl: outer_ovl.clone(),
         ovl: ovl.clone(),
         bottom: bottom.clone(),
         gl: gl_area.clone(),
@@ -589,74 +537,13 @@ fn build_window(
         vol_sync: vol_sync.clone(),
     });
 
-    {
-        let deb = aspect_resize_end_deb.clone();
-        let wired = aspect_resize_wired.clone();
-        let w = win.clone();
-        let r = recent_scrl.clone();
-        let wa = win_aspect.clone();
-        w.connect_map(glib::clone!(
-            #[strong]
-            w,
-            #[strong]
-            r,
-            #[strong]
-            wa,
-            #[strong]
-            deb,
-            #[strong]
-            wired,
-            move |_| {
-                if wired.get() {
-                    return;
-                }
-                let on_resize: Rc<dyn Fn()> = Rc::new(glib::clone!(
-                    #[strong]
-                    deb,
-                    #[strong]
-                    w,
-                    #[strong]
-                    r,
-                    #[strong]
-                    wa,
-                    move || schedule_window_aspect_on_resize_end(Rc::clone(&deb), &w, &r, &wa)
-                ));
-                let Some(n) = w.native() else {
-                    return;
-                };
-                let Some(surf) = n.surface() else {
-                    return;
-                };
-                surf.connect_width_notify(glib::clone!(
-                    #[strong]
-                    on_resize,
-                    move |_| on_resize()
-                ));
-                surf.connect_height_notify(glib::clone!(
-                    #[strong]
-                    on_resize,
-                    move |_| on_resize()
-                ));
-                let gw: &gtk::Window = w.upcast_ref();
-                gw.connect_default_width_notify(glib::clone!(
-                    #[strong]
-                    on_resize,
-                    move |_| on_resize()
-                ));
-                gw.connect_default_height_notify(glib::clone!(
-                    #[strong]
-                    on_resize,
-                    move |_| on_resize()
-                ));
-                wired.set(true);
-                if aspect_debug() {
-                    eprintln!(
-                        "[rhino] aspect: resize-end hooks (GdkSurface + GtkWindow default size)"
-                    );
-                }
-            }
-        ));
-    }
+    wire_aspect_resize_on_map(
+        &win,
+        &recent_scrl,
+        &win_aspect,
+        &aspect_resize_end_deb,
+        &aspect_resize_wired,
+    );
 
     wire_transport_events(TransportSetup {
         app: app.clone(),

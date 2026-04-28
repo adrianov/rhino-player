@@ -4,7 +4,8 @@ fn w_in_set_shell(ctx: &WindowInputCtx) {
     ctx.root.add_top_bar(&ctx.header);
     ctx.root.set_content(Some(&win_h));
     ctx.root.add_bottom_bar(&ctx.bottom);
-    ctx.win.set_content(Some(&ctx.root));
+    ctx.outer_ovl.set_child(Some(&ctx.root));
+    ctx.win.set_content(Some(&ctx.outer_ovl));
 }
 
 fn w_in_fullscreen(ctx: &WindowInputCtx) {
@@ -62,8 +63,16 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
             w.queue_draw();
             if !w.is_fullscreen() {
                 let gl2 = gl_fs.clone();
+                let bot2 = bottom_fs.clone();
+                let p2 = p_fs.clone();
+                let b2 = b.clone();
                 let _ = glib::source::idle_add_local_once(move || {
                     gl2.queue_render();
+                    if let Some(bundle) = p2.borrow().as_ref() {
+                        sub_prefs::apply_sub_pos_for_toolbar(
+                            &bundle.mpv, b2.get(), bot2.height(), gl2.height(),
+                        );
+                    }
                 });
             }
         });

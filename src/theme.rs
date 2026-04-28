@@ -66,20 +66,6 @@ pub fn apply() {
             background: none;
         }
         /* Seek hover preview (see docs/features/18-thumbnail-preview.md) */
-        popover.rp-seek-popover {
-            background: none;
-            background-color: transparent;
-            border: none;
-            box-shadow: none;
-            padding: 0;
-        }
-        popover.rp-seek-popover > contents {
-            background: none;
-            background-color: transparent;
-            border: none;
-            box-shadow: none;
-            padding: 0;
-        }
         frame.rp-seek-thumb-frame {
             padding: 3px;
             background-color: #2d2d2d;
