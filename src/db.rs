@@ -1,5 +1,5 @@
 //! Single SQLite file under XDG config: `~/.config/rhino/rhino.sqlite`.
-//! mpv [paths::watch_later] files stay separate because libmpv needs a directory.
+//! Resume position is also persisted here (`media.time_pos_sec`) and applied via `loadfile … start=`.
 
 include!("db/connection_init_and_audio.rs");
 include!("db/video_sub_prefs.rs");

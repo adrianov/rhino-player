@@ -1,9 +1,6 @@
 
-/// `eof-reached` is the usual “finished” signal, but with `keep-open` and the GL render path it can stay
-/// false while `time-pos` sits just short of `duration` (e.g. one second left) so nothing advances. We also
-/// treat as natural end: **unpaused**, within `SIBLING_END_SLACK_SEC` of the end, and the same `time-pos` for
-/// `SIBLING_POS_STALL_TICKS` consecutive poll periods (~200 ms each) — playback stuck in the tail.
-/// `sibling_eof_done` still allows a single `try_load` per logical end. Clears when not at an end state.
+/// Advance to the next sibling only on mpv **natural** end: `eof-reached` or `EndFile` with EOF reason.
+/// `sibling_eof_done` allows one `try_load` per logical end; cleared when `eof-reached` becomes false.
 #[allow(clippy::too_many_arguments)]
 fn maybe_advance_sibling_on_eof(
     player: &Rc<RefCell<Option<MpvBundle>>>,
@@ -28,38 +25,11 @@ fn maybe_advance_sibling_on_eof(
     let Some(pl) = g.as_ref() else {
         return;
     };
-    let eof = pl.mpv.get_property::<bool>("eof-reached").unwrap_or(false);
-    let pos = pl.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
-    let dur = pl.mpv.get_property::<f64>("duration").unwrap_or(0.0);
-    let paused = pl.mpv.get_property::<bool>("pause").unwrap_or(true);
-    let rem = if dur > 0.0 && pos.is_finite() {
-        dur - pos
-    } else {
-        f64::INFINITY
-    };
-    let in_slack = dur > 0.0 && rem <= SIBLING_END_SLACK_SEC;
-    if paused || !in_slack || eof {
-        seof.stall.set((0.0, 0));
-    } else {
-        let (lp, n) = seof.stall.get();
-        if (pos - lp).abs() < SIBLING_POS_EPS {
-            seof.stall.set((lp, n.saturating_add(1).min(250)));
-        } else {
-            seof.stall.set((pos, 0));
-        }
-    }
-    let stalled = in_slack && !paused && !eof && seof.stall.get().1 >= SIBLING_POS_STALL_TICKS;
-    let at_end = eof || stalled;
-    if !at_end {
-        seof.done.set(false);
-        return;
-    }
     if seof.done.get() {
         return;
     }
     if exit_after_current.get() {
         seof.done.set(true);
-        seof.stall.set((0.0, 0));
         drop(g);
         schedule_quit_persist(app, win, player, sub_pref, idle_inhib);
         return;
@@ -67,7 +37,6 @@ fn maybe_advance_sibling_on_eof(
     let finished = local_file_from_mpv(&pl.mpv).or_else(|| last_path.borrow().clone());
     let Some(finished) = finished else {
         seof.done.set(true);
-        seof.stall.set((0.0, 0));
         return;
     };
     let next = sibling_advance::next_after_eof(&finished);
@@ -83,15 +52,15 @@ fn maybe_advance_sibling_on_eof(
             win_aspect: Rc::clone(&win_aspect),
             on_loaded: on_loaded.as_ref().map(Rc::clone),
             reapply_60: Some(reapply.clone()),
+            reset_speed_to_normal: true,
         };
         if let Err(e) = try_load(&np, player, win, gl, recent, &o) {
             eprintln!("[rhino] sibling advance: {e}");
             seof.done.set(false);
-            seof.stall.set((0.0, 0));
         }
     } else if no_sibling {
         // [try_load] only runs on a path change; with no follow-up file, EOF still left the
-        // title in continue + watch_later — drop both here.
+        // title in the continue list and DB — drop both here.
         remove_continue_entry(&finished);
     }
 }

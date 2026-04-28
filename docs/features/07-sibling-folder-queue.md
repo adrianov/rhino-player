@@ -4,7 +4,7 @@
 status: done
 priority: p1
 layers: [mpv, fs, ui]
-related: [02, 03, 04, 05, 06, 13]
+related: [02, 03, 04, 05, 06, 13, 28]
 mpv_props: [eof-reached, time-pos, duration, path]
 ---
 
@@ -18,7 +18,7 @@ On natural EOF, the next file in **sorted** order in the current directory loads
 
 Sibling videos use the shared extension list from `src/video_ext.rs` (same as **Open Video**); the listing is non-recursive per directory and ordering uses `lexical_sort::natural_lexical_cmp` (case-insensitive, with natural digit runs). Bottom-bar **Previous** / **Next** use the same ordering when a local file with duration is loaded.
 
-The primary trigger is mpv’s `eof-reached` change plus the `EndFile` event. With `keep-open` and the libmpv GL path, a stuck tail (unpaused, within ~1.75 s of duration, same `time-pos` for ~3 ticks) also advances; the watcher is a short timer that runs only inside that tail window, not a steady poll.
+The primary triggers are natural end-of-playback signals from the playback engine (`eof-reached` and end-of-file with EOF reason). There is no timed tail poll.
 
 ## Behavior
 
@@ -31,8 +31,9 @@ Feature: Sibling folder queue
 
   Scenario: Auto-advance to next file in folder
     Given the current file has a next sibling in sorted order
-    When natural end-of-playback occurs (EOF, EndFile, or tail-stall)
+    When natural end-of-playback occurs
     Then the next sorted video in the same directory loads automatically
+    And the playback rate is the default normal speed
     And resume snapshot writes follow try_load rules
 
   Scenario: Advance to next sibling folder when current folder is exhausted
@@ -64,7 +65,8 @@ Feature: Sibling folder queue
 ```
 
 ## Notes
-- Trigger sources: `eof-reached==true`, mpv `EndFile`, or the tail-stall guard, all delivered through the mpv event drain.
+- Trigger sources: `eof-reached==true`, mpv `EndFile` with EOF reason, via the mpv event drain.
+- Before loading the next sibling after EOF, mpv `speed` is set to **1.0** when it was not already (see [28-playback-speed](28-playback-speed.md)).
 - The last successfully loaded canonical path is used when `path` is empty.
 - Local files only: with no resolvable path, no advance runs.
 - Implementation: `src/sibling_advance.rs`, `src/app/load.rs::maybe_advance_sibling_on_eof`, `src/app/transport_events.rs::wire_transport_events`.

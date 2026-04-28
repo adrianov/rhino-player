@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -8,7 +7,6 @@ use libmpv2::mpv_end_file_reason;
 use libmpv2::Mpv;
 
 use crate::db;
-use crate::paths;
 
 /// Near-end window (seconds); matches [percent_from_resume] and `app` sibling/continue rules.
 const NEAR_END: f64 = 3.0;
@@ -24,40 +22,21 @@ pub struct CardData {
     pub missing: bool,
 }
 
-fn read_start_from_wl(p: &Path) -> Option<f64> {
-    let f = std::fs::File::open(p).ok()?;
-    for line in BufReader::new(f).lines().map_while(|l| l.ok()) {
-        let t = line.trim();
-        if let Some(v) = t.strip_prefix("start=") {
-            return v.trim().parse().ok();
-        }
-    }
-    None
-}
-
-/// Find mpv’s watch_later file for this path. libmpv 0.35+ with
-/// `write-filename-in-watch-later-config` stores the path in a line `# /full/path` (not `filename=…`).
-/// Older or other builds may use `filename=…` — we accept both.
-/// Remove per-file `watch_later` sidecar and DB `time_pos` so the next `loadfile` starts at 0.
+/// Drop SQLite resume position so the next `loadfile` starts at 0.
 pub fn clear_resume_for_path(media: &Path) {
-    if let Some(wl) = watch_later_config_for(media) {
-        let _ = std::fs::remove_file(wl);
-    }
     db::clear_resume_position(media);
 }
 
-/// Clear watch-later/DB resume, then drop [path] from continue **history** (dismiss, trash, EOF with no next, etc.).
+/// Clear DB resume, then drop [path] from continue **history** (dismiss, trash, EOF with no next, etc.).
 pub fn remove_continue_entry(path: &Path) {
     clear_resume_for_path(path);
     crate::history::remove(path);
 }
 
-/// In-memory token so **Undo** after “remove from list” can put back resume + `media` cache.
+/// In-memory token so **Undo** after "remove from list" can put back the SQLite `media` row.
 #[derive(Debug, Clone)]
 pub struct ListRemoveUndo {
     pub path: PathBuf,
-    /// Exact watch_later file path and bytes, if it existed.
-    pub watch_later: Option<(PathBuf, Vec<u8>)>,
     /// Full SQLite `media` row for this path, if any.
     pub media: Option<db::MediaRowSnapshot>,
 }
@@ -65,24 +44,12 @@ pub struct ListRemoveUndo {
 /// Call **before** [remove_continue_entry] for a manual dismiss.
 pub fn capture_list_remove_undo(path: &Path) -> ListRemoveUndo {
     let path = path.to_path_buf();
-    let watch_later =
-        watch_later_config_for(&path).and_then(|p| std::fs::read(&p).ok().map(|b| (p, b)));
     let media = db::snapshot_media_row(&path);
-    ListRemoveUndo {
-        path,
-        watch_later,
-        media,
-    }
+    ListRemoveUndo { path, media }
 }
 
-/// Restore sidecar + DB; caller re-adds history via [crate::history::record].
+/// Restore SQLite row; caller re-adds history via [crate::history::record].
 pub fn restore_list_remove_undo(s: &ListRemoveUndo) {
-    if let Some((ref p, ref bytes)) = s.watch_later {
-        if let Some(parent) = p.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(p, bytes);
-    }
     if let Some(ref m) = s.media {
         db::apply_media_snapshot(m);
     }
@@ -121,47 +88,6 @@ pub fn is_done_enough_to_drop_continue(mpv: &Mpv) -> bool {
     dur > 60.0 && pos / dur >= 0.85
 }
 
-/// Match `s` to watch_later file contents (same as [watch_later_config_for] for a path string when the file is gone).
-fn watch_later_file_matching_path_stored(s: &str) -> Option<PathBuf> {
-    let dir = paths::watch_later()?;
-    for e in std::fs::read_dir(&dir).ok()?.flatten() {
-        let p = e.path();
-        if !p.is_file() {
-            continue;
-        }
-        if let Ok(txt) = std::fs::read_to_string(&p) {
-            for line in txt.lines() {
-                let t = line.trim();
-                if let Some(rest) = t.strip_prefix("filename=") {
-                    if rest == s {
-                        return Some(p);
-                    }
-                }
-                if let Some(rest) = t.strip_prefix("#") {
-                    if rest.trim() == s {
-                        return Some(p);
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-fn watch_later_config_for(media: &Path) -> Option<PathBuf> {
-    let s: String = if let Ok(can) = std::fs::canonicalize(media) {
-        can.to_str()?.to_string()
-    } else {
-        media.to_str()?.to_string()
-    };
-    watch_later_file_matching_path_stored(s.as_str())
-}
-
-fn resume_start_seconds(path: &Path) -> Option<f64> {
-    let wl = watch_later_config_for(path)?;
-    read_start_from_wl(&wl)
-}
-
 fn percent_from_resume(start: Option<f64>, duration: Option<f64>) -> f64 {
     match (start, duration) {
         (Some(s), Some(d)) if d > 0.0 => {
@@ -191,12 +117,11 @@ fn path_tag(path: &str) -> u64 {
     h
 }
 
-/// DB hit for a **canonical** path (avoids a second [canonicalize] in [ensure_thumbnail]).
-fn thumb_time_for_path(path: &Path, key: &str) -> f64 {
+/// Wanted thumb time for a **canonical** path (DB key is the canonical path string).
+fn thumb_time_for_path(key: &str) -> f64 {
     let target = db::load_time_pos_map()
         .get(key)
         .copied()
-        .or_else(|| resume_start_seconds(path))
         .unwrap_or(GRID_FALLBACK_SEC);
     let dur = db::load_duration_map().get(key).copied().unwrap_or(0.0);
     if dur.is_finite() && dur > 1.0 {
@@ -209,7 +134,7 @@ fn thumb_time_for_path(path: &Path, key: &str) -> f64 {
 fn db_thumb_for_canon_path(can: &Path) -> Option<Vec<u8>> {
     let s = can.to_str()?;
     let mtime = db::file_mtime_sec(can)?;
-    let t = thumb_time_for_path(can, s);
+    let t = thumb_time_for_path(s);
     db::take_thumb_if_fresh(s, mtime, t)
 }
 

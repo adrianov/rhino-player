@@ -33,6 +33,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
         on_video_chrome: video_chrome_key,
         win_aspect: wa_esc.clone(),
         sub_menu: None,
+        play_pause: ctx.play_pause.clone(),
     };
     let k = gtk::EventControllerKey::new();
     k.connect_key_pressed(move |_, key, _code, _m| {

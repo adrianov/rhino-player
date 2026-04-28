@@ -17,13 +17,6 @@ pub fn app_config() -> Option<PathBuf> {
     Some(dir)
 }
 
-/// Per-file resume data for mpv (`--watch-later-dir`), isolated from the standalone `mpv` CLI.
-pub fn watch_later() -> Option<PathBuf> {
-    let d = app_config()?.join("watch_later");
-    std::fs::create_dir_all(&d).ok()?;
-    Some(d)
-}
-
 const BUNDLED_MVT60_VPY: &str = "rhino_60_mvtools.vpy";
 
 /// Bundled `data/vs/…/rhino_60_mvtools.vpy` when **Preferences** → VapourSynth is active and DB
@@ -51,7 +44,7 @@ const MVTOOLS_SO: &str = "libmvtools.so";
 /// Environment key for the absolute path to **libmvtools.so** (Rhino and bundled `.vpy` `LoadPlugin`).
 pub const RHINO_MVTOOLS_LIB_VAR: &str = "RHINO_MVTOOLS_LIB";
 
-/// Playback speed (e.g. `1.0`, `1.5`, `2.0`) for the bundled `rhino_60_mvtools.vpy` so **FlowFPS** only fills
+/// Playback speed (e.g. `1.0`, `1.5`, `2.0`, `8.0`) for the bundled `rhino_60_mvtools.vpy` so **FlowFPS** only fills
 /// frames to **~60** against **(source fps × speed)**. Set with [crate::video_pref::set_playback_speed_env_from_mpv] or [crate::video_pref::set_playback_speed_env] (known UI value) before the vf is built.
 pub const RHINO_PLAYBACK_SPEED_VAR: &str = "RHINO_PLAYBACK_SPEED";
 

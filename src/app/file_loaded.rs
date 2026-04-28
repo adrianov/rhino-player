@@ -107,7 +107,7 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
                 glib::ControlFlow::Break
             });
             // 60p: [try_load] chains a second idle to [reapply_60_if_still_missing]. This 320ms hook
-            // catches watch-later [speed] / list snap and [vf] vs [mvtools_vf_eligible] in one pass.
+            // catches list snap and [vf] vs [mvtools_vf_eligible] in one pass.
         }
     })
 }

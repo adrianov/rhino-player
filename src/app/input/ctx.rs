@@ -31,6 +31,7 @@ struct WindowInputCtx {
     on_video_chrome: Rc<dyn Fn()>,
     browse_chrome: Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
+    play_pause: gtk::Button,
     undo_shell: gtk::Box,
     undo_label: gtk::Label,
     undo_btn: gtk::Button,

@@ -71,6 +71,7 @@ fn schedule_bars_autohide(ctx: Rc<ChromeBarHide>) {
                 || ctx2.sub.is_active()
                 || ctx2.speed.is_active()
                 || ctx2.main.is_active()
+                || ctx2.seek_grabbed.get()
             {
                 schedule_bars_autohide(Rc::clone(&ctx2));
             } else {

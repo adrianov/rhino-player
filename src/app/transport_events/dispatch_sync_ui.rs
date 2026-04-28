@@ -1,3 +1,5 @@
+/// Dispatch property-change / FileLoaded / VideoReconfig / PathChanged events.
+/// Time-pos, core-idle, and EOF detection live in [transport_tick] (see deferred_resync.rs).
 fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
     let w = &ctx.widgets;
     if std::env::var_os("RHINO_TRANSPORT_TRACE").is_some() {
@@ -6,65 +8,47 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
     match ev {
         TransportEv::Pause(p) => {
             ctx.cache.borrow_mut().pause = p;
-            sync_play_button(w, ctx.cache.borrow().duration, p);
+            refresh_play_button(ctx);
         }
         TransportEv::Duration(d) => {
             let d = if d.is_finite() { d } else { 0.0 };
             ctx.cache.borrow_mut().duration = d;
             sync_seek_range(w, d);
-            sync_play_button(w, d, ctx.cache.borrow().pause);
+            sync_duration_label(w, d);
             sync_speed_button(w, d);
+            refresh_play_button(ctx);
         }
-        TransportEv::TimePos(p) => apply_time_pos(ctx, p),
         TransportEv::Volume(v) => sync_volume(w, v),
         TransportEv::Mute(m) => sync_mute(w, m),
         TransportEv::VolumeMax(vmax) => sync_volume_max(w, vmax),
-        TransportEv::EofReached(eof) => {
-            ctx.cache.borrow_mut().eof = eof;
-            if eof {
-                run_sibling_eof(ctx);
+        TransportEv::FileLoaded => {
+            // New file: apply the SQLite-driven resume (if any), reset the one-shot EOF guard,
+            // and let `transport_tick` pick up state.
+            if let Ok(g) = ctx.player.try_borrow() {
+                if let Some(b) = g.as_ref() {
+                    b.apply_pending_resume();
+                }
             }
-        }
-        TransportEv::EndFile => run_sibling_eof(ctx),
-        TransportEv::FileLoaded | TransportEv::VideoReconfig => {
+            ctx.eof.sibling_seof.done.set(false);
             sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);
             refresh_sibling_nav(ctx);
-            resync_play_button(ctx);
+            transport_tick(ctx);
+            schedule_transport_resync_on_idle(ctx);
+        }
+        TransportEv::VideoReconfig => {
+            sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);
+            refresh_sibling_nav(ctx);
+            transport_tick(ctx);
         }
         TransportEv::PathChanged => {
+            ctx.eof.sibling_seof.done.set(false);
             refresh_sibling_nav(ctx);
-            resync_play_button(ctx);
+            transport_tick(ctx);
         }
     }
 }
 
-/// On `FileLoaded` / `VideoReconfig`, mpv may have already emitted the new `pause` /
-/// `duration` values before the observer was installed (warm preload), or the events
-/// may have been coalesced. Re-read both properties straight from mpv so the play
-/// button always reflects the actual playback state without waiting for the next event.
-fn resync_play_button(ctx: &Rc<TransportCtx>) {
-    let g = match ctx.player.try_borrow() {
-        Ok(g) => g,
-        Err(_) => return,
-    };
-    let Some(b) = g.as_ref() else {
-        return;
-    };
-    let pause = b.mpv.get_property::<bool>("pause").unwrap_or(false);
-    let dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
-    let dur = if dur.is_finite() { dur } else { 0.0 };
-    {
-        let mut c = ctx.cache.borrow_mut();
-        c.pause = pause;
-        c.duration = dur;
-    }
-    sync_play_button(&ctx.widgets, dur, pause);
-    sync_speed_button(&ctx.widgets, dur);
-    sync_seek_range(&ctx.widgets, dur);
-}
-
-/// Recomputes Prev/Next sensitivity + tooltips. Called on `path`/`FileLoaded`/`VideoReconfig`
-/// instead of the previous 200ms poll, so the bottom-bar nav always reflects the loaded file.
+/// Recomputes Prev/Next sensitivity + tooltips. Called on `path`/`FileLoaded`/`VideoReconfig`.
 fn refresh_sibling_nav(ctx: &Rc<TransportCtx>) {
     let cur = current_local_path(&ctx.player).or_else(|| ctx.eof.last_path.borrow().clone());
     ctx.sibling_nav
@@ -75,30 +59,6 @@ fn current_local_path(player: &Rc<RefCell<Option<MpvBundle>>>) -> Option<PathBuf
     let g = player.try_borrow().ok()?;
     let b = g.as_ref()?;
     local_file_from_mpv(&b.mpv)
-}
-
-fn apply_time_pos(ctx: &Rc<TransportCtx>, p: f64) {
-    let dur = {
-        let mut c = ctx.cache.borrow_mut();
-        c.pos = p;
-        c.duration
-    };
-    let bar_visible = ctx.bar_show.get() || ctx.recent_visible.get();
-    if bar_visible {
-        update_time_labels(&ctx.widgets, p, dur);
-    }
-    let now = Instant::now();
-    let allow = {
-        let c = ctx.cache.borrow();
-        c.last_pos_apply
-            .map(|t| now.duration_since(t) >= TIME_POS_MIN_GAP)
-            .unwrap_or(true)
-    };
-    if !allow || !bar_visible {
-        return;
-    }
-    ctx.cache.borrow_mut().last_pos_apply = Some(now);
-    sync_seek_pos(&ctx.widgets, p, dur);
 }
 
 fn sync_window_aspect_from_player(
@@ -134,37 +94,17 @@ fn run_sibling_eof(ctx: &Rc<TransportCtx>) {
     );
 }
 
-fn update_tail_timer(ctx: &Rc<TransportCtx>) {
-    let cache = ctx.cache.borrow();
-    let needs = !cache.pause
-        && cache.duration > 0.0
-        && cache.pos.is_finite()
-        && (cache.duration - cache.pos) <= SIBLING_END_SLACK_SEC;
-    drop(cache);
-    let mut slot = ctx.tail_timer.borrow_mut();
-    if needs {
-        if slot.is_some() {
-            return;
-        }
-        let ctx_t = ctx.clone();
-        let id = glib::timeout_add_local(TAIL_STALL_INTERVAL, move || {
-            run_sibling_eof(&ctx_t);
-            let c = ctx_t.cache.borrow();
-            let still = !c.pause
-                && c.duration > 0.0
-                && c.pos.is_finite()
-                && (c.duration - c.pos) <= SIBLING_END_SLACK_SEC;
-            if still {
-                glib::ControlFlow::Continue
-            } else {
-                *ctx_t.tail_timer.borrow_mut() = None;
-                glib::ControlFlow::Break
-            }
-        });
-        *slot = Some(id);
-    } else if let Some(id) = slot.take() {
-        id.remove();
-    }
+/// Refresh play/pause icon from `cache.pause` — the user's explicit intent. The optimistic
+/// click handler in [crate::app::recent_undo::flip_play_icon] writes the same icon, so the
+/// tick reconciliation never flickers the button after a toggle. Brief decoder priming
+/// (`core-idle=true` right after un-pause) is no longer factored in, and EOF stalls are
+/// resolved by sibling advance within `TICK_EOF_TAIL_SEC`.
+fn refresh_play_button(ctx: &Rc<TransportCtx>) {
+    let (dur, paused) = {
+        let c = ctx.cache.borrow();
+        (c.duration, c.pause)
+    };
+    sync_play_button(&ctx.widgets, dur, paused);
 }
 
 fn sync_play_button(w: &TransportWidgets, dur: f64, paused: bool) {
@@ -204,7 +144,7 @@ fn sync_seek_range(w: &TransportWidgets, dur: f64) {
 }
 
 fn sync_seek_pos(w: &TransportWidgets, pos: f64, dur: f64) {
-    if dur <= 0.0 || !pos.is_finite() {
+    if dur <= 0.0 || !pos.is_finite() || w.seek_grabbed.get() {
         return;
     }
     let v = pos.clamp(0.0, dur);
@@ -216,14 +156,23 @@ fn sync_seek_pos(w: &TransportWidgets, pos: f64, dur: f64) {
     w.seek_sync.set(false);
 }
 
-fn update_time_labels(w: &TransportWidgets, pos: f64, dur: f64) {
-    let pos_s = format_time(pos);
-    if w.time_left.label().as_str() != pos_s {
-        w.time_left.set_label(&pos_s);
+/// Updates only the bottom-left clock from mpv's `time-pos`. The right-hand duration label
+/// is set once per file by [sync_duration_label] from the `Duration` event — not on every
+/// tick — so it never blinks while the user drags the seek thumb.
+fn update_time_labels(w: &TransportWidgets, pos: f64, _dur: f64) {
+    if w.seek_grabbed.get() {
+        return;
     }
+    let pos_s = format_time(pos);
+    if w.time_left.text().as_str() != pos_s {
+        w.time_left.set_text(&pos_s);
+    }
+}
+
+fn sync_duration_label(w: &TransportWidgets, dur: f64) {
     let dur_s = format_time(dur);
-    if w.time_right.label().as_str() != dur_s {
-        w.time_right.set_label(&dur_s);
+    if w.time_right.text().as_str() != dur_s {
+        w.time_right.set_text(&dur_s);
     }
 }
 

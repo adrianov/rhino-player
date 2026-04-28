@@ -1,6 +1,6 @@
 //! Undo bar: restore after **remove from list** or **move to trash** (see [crate::trash_xdg]).
 //!
-//! `history::record` is left to the app after `apply`; both branches fix disk + `db` + watch_later.
+//! `history::record` is left to the app after `apply`; both branches fix disk + `db`.
 
 use std::path::{Path, PathBuf};
 

@@ -18,11 +18,13 @@ struct LoadOpts {
     /// Fuzzy subtitle auto-pick + hook after a successful `loadfile`.
     on_loaded: Option<Rc<dyn Fn()>>,
     reapply_60: Option<VideoReapply60>,
+    /// Before `loadfile`, set mpv speed to **1.0** if it was changed (sibling EOF advance).
+    reset_speed_to_normal: bool,
 }
 
 /// Load a file, hide the recent grid overlay, show video; [LoadOpts::record] appends to recent history.
-/// [play_on_start]: clear `pause` so playback runs (watch_later can restore a paused file after load; a
-/// short delayed [set_property] catches that). **false** for CLI open-on-launch to respect saved state.
+/// [play_on_start]: clear `pause` so playback runs after the SQLite resume `start=` is applied.
+/// **false** for CLI open-on-launch to respect saved state.
 fn try_load(
     path: &Path,
     player: &Rc<RefCell<Option<MpvBundle>>>,
@@ -52,6 +54,11 @@ fn try_load(
             warm_hit = true;
             eprintln!("[rhino] try_load: warm preload hit");
         } else {
+            // Normalize speed before `loadfile` for sibling auto-advance (mpv keeps `speed`
+            // across loadfile within a session; resume position is read from SQLite, not mpv).
+            if o.reset_speed_to_normal {
+                crate::playback_speed::force_normal(&b.mpv);
+            }
             let clear_outgoing_resume =
                 is_done_enough_to_drop_continue(&b.mpv) && local_file_from_mpv(&b.mpv).is_some();
             let drop_from_history = prev.as_ref().is_some_and(|p| {
@@ -73,6 +80,7 @@ fn try_load(
         if let Some(r) = o.reapply_60.as_ref() {
             let p = Rc::clone(player);
             let r0 = r.clone();
+            let gl_idle = gl.clone();
             let _ = glib::idle_add_local_once(move || {
                 if let Some(b) = p.borrow().as_ref() {
                     let a = {
@@ -84,8 +92,10 @@ fn try_load(
                         show_smooth_setup_dialog(&r0.app);
                     }
                 }
+                gl_idle.queue_render();
                 let p2 = Rc::clone(&p);
                 let r1 = r0.clone();
+                let gl2 = gl_idle.clone();
                 let _ = glib::idle_add_local_once(move || {
                     if let Some(b) = p2.borrow().as_ref() {
                         let off = {
@@ -97,6 +107,7 @@ fn try_load(
                             show_smooth_setup_dialog(&r1.app);
                         }
                     }
+                    gl2.queue_render();
                 });
             });
         }
@@ -159,6 +170,12 @@ fn try_load(
         sync_window_aspect_from_mpv(&b.mpv, o.win_aspect.as_ref());
     }
     schedule_window_fit_h_video(Rc::clone(player), win.clone());
+    if !warm_hit {
+        transport_drain_after_loadfile();
+        let _ = glib::idle_add_local_once(|| {
+            transport_drain_after_loadfile();
+        });
+    }
     if let Some(f) = o.on_loaded.clone() {
         glib::source::idle_add_local_once(move || f());
     }
@@ -203,14 +220,9 @@ fn vol_mute_pop_icon(muted: bool) -> &'static str {
     }
 }
 
-const SIBLING_END_SLACK_SEC: f64 = 1.75;
-const SIBLING_POS_STALL_TICKS: u8 = 3;
-const SIBLING_POS_EPS: f64 = 0.04;
-
-/// State for `maybe_advance_sibling_on_eof`: one-shot flag and tail stall detection.
+/// State for `maybe_advance_sibling_on_eof`: one-shot guard per logical end.
 struct SiblingEofState {
     done: Cell<bool>,
-    stall: Cell<(f64, u8)>,
     /// Last canonical path for which `nav_sensitivity` was computed; avoids `prev` / `next` directory walks every 200ms.
     nav_key: RefCell<Option<PathBuf>>,
     nav_can_prev: Cell<bool>,

@@ -12,9 +12,9 @@ use std::os::raw::c_void;
 use std::path::Path;
 use std::ptr;
 
+use crate::db;
 use crate::db::VideoPrefs;
 use crate::media_probe;
-use crate::paths;
 use crate::video_pref::apply_mpv_video;
 
 type EglGetProcAddress = unsafe extern "C" fn(*const c_char) -> *mut c_void;
@@ -53,6 +53,9 @@ pub struct MpvBundle {
     pub mpv: Mpv,
     render: RenderContext,
     gl_ptr: usize,
+    /// Resume time (seconds) for the next `FileLoaded`. Set by [load_file_path] from `db::resume_pos`,
+    /// applied + cleared by [apply_pending_resume] after the file is loaded.
+    pending_resume: std::cell::Cell<Option<f64>>,
 }
 
 impl MpvBundle {
@@ -79,20 +82,15 @@ impl MpvBundle {
             let _ = init.set_option("vd-lavc-threads", "0");
             let _ = init.set_option("ao", "pulse");
             let _ = init.set_option("keep-open", "yes");
-            if let Some(ref dir) = paths::watch_later() {
-                if let Some(s) = dir.to_str() {
-                    let _ = init.set_option("save-position-on-quit", "yes");
-                    let _ = init.set_option("watch-later-dir", s);
-                    // Store path text in the watch_later file so keys match the same file across opens.
-                    let _ = init.set_option("write-filename-in-watch-later-config", "yes");
-                }
-            }
+            // Resume position is owned by SQLite (`db::resume_pos` → `loadfile … start=`); mpv's
+            // watch_later mechanism is disabled to avoid double-bookkeeping and to keep `speed` /
+            // `pause` from leaking across sessions.
+            let _ = init.set_option("save-position-on-quit", "no");
+            let _ = init.set_option("resume-playback", "no");
             Ok(())
         })
         .map_err(|e| format!("{e:?}"))?;
 
-        // Re-assert: some init options apply more reliably as properties on the open handle.
-        let _ = mpv.set_property("save-position-on-quit", true);
         let auto_off = apply_mpv_video(&mpv, video, None).smooth_auto_off;
         // Thumbnails: prefer JPEG (fast); PNG path uses minimum compression.
         let _ = mpv.set_property("screenshot-format", "jpeg");
@@ -132,6 +130,7 @@ impl MpvBundle {
                 mpv,
                 render,
                 gl_ptr,
+                pending_resume: std::cell::Cell::new(None),
             },
             auto_off,
         ))
@@ -152,68 +151,34 @@ impl MpvBundle {
         let _ = self.render.render::<EglState>(fbo, w, h, true);
     }
 
-    /// End playback; call after watch-later / DB snapshot. Safe to skip before process exit.
+    /// End playback; call after the SQLite snapshot. Safe to skip before process exit.
     pub fn stop_playback(&self) {
         let _ = self.mpv.command("stop", &[]);
     }
 
-    /// Write the current file’s state into `watch_later` (separate from shutdown-time save).
-    pub fn write_resume_snapshot(&self) {
-        let _ = self.mpv.command("write-watch-later-config", &[]);
-    }
-
-    /// Duration + position for the recent grid (local files only); thumbnails refresh when the grid is shown.
+    /// Persist `duration` + `time-pos` (and clear them if at natural end) for the open local file.
+    /// Single source of truth for resume — replaces the old mpv `watch_later` sidecar dance.
     pub fn save_playback_state(&self) {
+        if let Some(p) = media_probe::local_file_from_mpv(&self.mpv) {
+            if media_probe::is_natural_end(&self.mpv) {
+                media_probe::clear_resume_for_path(&p);
+                return;
+            }
+        }
         media_probe::record_playback_for_current(&self.mpv);
     }
 
-    /// Mute+pause to silence immediately, then write `watch_later` with the **prior** mute/pause so
-    /// the next run does not resume muted or paused. Re-hush for thumbnail I/O, then [stop].
-    /// If playback was at the **natural end**, resume data is [cleared](media_probe::clear_resume_for_path) instead of saved.
+    /// Save SQLite resume snapshot, then stop playback. Used at process quit.
     pub fn commit_quit(&self) {
-        let at_end = media_probe::is_natural_end(&self.mpv);
-        if at_end {
-            if let Some(p) = media_probe::local_file_from_mpv(&self.mpv) {
-                media_probe::clear_resume_for_path(&p);
-            }
-        }
-        let mute0 = self.mpv.get_property::<bool>("mute").unwrap_or(false);
-        let pause0 = self.mpv.get_property::<bool>("pause").unwrap_or(false);
-        let _ = self.mpv.set_property("mute", true);
-        let _ = self.mpv.set_property("pause", true);
-        let _ = self.mpv.set_property("mute", mute0);
-        let _ = self.mpv.set_property("pause", pause0);
-        if !at_end {
-            let _ = self.mpv.command("write-watch-later-config", &[]);
-        }
-        let _ = self.mpv.set_property("mute", true);
-        let _ = self.mpv.set_property("pause", true);
         self.save_playback_state();
         self.stop_playback();
     }
 
-    /// Write resume for the current file, or clear it if playback finished (EOF / within ~3s of end).
+    /// Save SQLite resume snapshot before leaving the open file (e.g. **Back to Browse**).
     pub fn snapshot_outgoing_before_leave(&self) {
-        if let Some(p) = media_probe::local_file_from_mpv(&self.mpv) {
-            if media_probe::is_natural_end(&self.mpv) {
-                media_probe::clear_resume_for_path(&p);
-            } else {
-                let _ = self.mpv.command("write-watch-later-config", &[]);
-                media_probe::record_playback_for_current(&self.mpv);
-            }
-        } else {
-            let _ = self.mpv.command("write-watch-later-config", &[]);
-            media_probe::record_playback_for_current(&self.mpv);
-        }
+        self.save_playback_state();
     }
 
-    /// Save the current file’s position, then `loadfile` the new path. Uses a **canonical** path
-    /// string so the watch_later index matches the next open of the same file. Resume from the
-    /// previous session is **only** from libmpv’s `watch_later` + `resume-playback` (we do not pass
-    /// `start=` in `loadfile`—combining that with the same sidecar can double-apply the offset and
-    /// cause **slight A/V desync**).
-    /// When [clear_outgoing_resume] is true, the outgoing file reached the end: drop watch_later + DB
-    /// position (next open from 0) and do not write a final end snapshot.
     /// Subscribe to mpv property changes. Each tuple is `(reply_id, name, format)`.
     /// `reply_id` is echoed back on the [Event::PropertyChange] so handlers can dispatch quickly.
     pub fn observe_props(&self, props: &[(u64, &str, Format)]) -> Result<(), String> {
@@ -259,19 +224,34 @@ impl MpvBundle {
         }
     }
 
+    /// Save outgoing resume to SQLite, then `loadfile` the new path. The new file's resume position
+    /// (if any in SQLite) is stashed in [pending_resume]; [apply_pending_resume] consumes it after
+    /// `FileLoaded`. We do **not** pass `start=` as a loadfile option — older mpv (≤ 0.35) treats
+    /// the third positional argument as `<index>` and rejects the whole command.
+    /// When [clear_outgoing_resume] is true, the outgoing file reached the end: drop its DB resume.
     pub fn load_file_path(&self, path: &Path, clear_outgoing_resume: bool) -> Result<(), String> {
         if clear_outgoing_resume {
             if let Some(p) = media_probe::local_file_from_mpv(&self.mpv) {
                 media_probe::clear_resume_for_path(&p);
             }
         } else {
-            self.write_resume_snapshot();
             media_probe::record_playback_for_current(&self.mpv);
         }
         let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let s = canonical.to_str().ok_or("media path is not valid UTF-8")?;
+        self.pending_resume.set(db::resume_pos(&canonical));
         self.mpv
             .command("loadfile", &[s, "replace"])
             .map_err(|e| format!("{e:?}"))
+    }
+
+    /// Apply the resume stashed by the most recent [load_file_path]. Idempotent and a no-op when
+    /// nothing is pending. Call once per `FileLoaded` from the transport-event drain.
+    pub fn apply_pending_resume(&self) {
+        let Some(t) = self.pending_resume.replace(None) else {
+            return;
+        };
+        let s = format!("{t:.4}");
+        let _ = self.mpv.command("seek", &[s.as_str(), "absolute+keyframes"]);
     }
 }

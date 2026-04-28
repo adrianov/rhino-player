@@ -1,42 +1,35 @@
-// Event-driven transport / volume / mute / EOF wiring (replaces a 200ms poll).
+// Transport / volume / mute / EOF wiring.
 //
-// All UI mirrors of mpv state are driven by `mpv_observe_property` + `mpv_set_wakeup_callback`,
-// drained on the GTK main thread. See `.cursor/rules/events-over-polling.mdc` and
-// `docs/features/03-mpv-embedding.md`.
+// Property observation is used for state that changes on user/UI action (pause, duration, volume,
+// mute, volume-max, path) so the UI updates immediately. Time-pos, core-idle, eof-reached, and
+// speed are sampled by [transport_tick] every second instead — libmpv property-change events for
+// those are unreliable at high playback speed (see `docs/features/04-transport-and-progress.md`,
+// `events-over-polling.mdc`: this is a documented fallback when no reliable event exists).
 //
-// The only periodic timer left is a short tail-stall watcher that runs while playback is
-// within ~1.75 s of the end (libmpv's `keep-open` can leave `eof-reached==false` for ~1 s near
-// the tail; see `docs/features/07-sibling-folder-queue.md`).
-//
-// Diagnostics: set `RHINO_TRANSPORT_TRACE=1` in the environment to print every dispatched event
-// to stderr — useful when transport UI (play button icon, seek slider) appears stuck, to confirm
-// whether mpv is delivering `Pause` / `Duration` events or the issue is somewhere else.
+// The 1-second tick also handles **sibling auto-advance** on natural EOF (see [docs/features/07-sibling-folder-queue.md]).
+// Diagnostics: set `RHINO_TRANSPORT_TRACE=1` to print each dispatched event to stderr.
 
 const PROP_PAUSE: u64 = 1;
-const PROP_TIME_POS: u64 = 2;
-const PROP_DURATION: u64 = 3;
-const PROP_VOLUME: u64 = 4;
-const PROP_MUTE: u64 = 5;
-const PROP_VOLUME_MAX: u64 = 6;
-const PROP_EOF_REACHED: u64 = 7;
-const PROP_PATH: u64 = 8;
+const PROP_DURATION: u64 = 2;
+const PROP_VOLUME: u64 = 3;
+const PROP_MUTE: u64 = 4;
+const PROP_VOLUME_MAX: u64 = 5;
+const PROP_PATH: u64 = 6;
 
-const TAIL_STALL_INTERVAL: Duration = Duration::from_millis(200);
-/// Lower bound between two `time-pos` driven seek-slider redraws. mpv emits `time-pos`
-/// every video frame (24–60 Hz), but adjacent chrome (tooltips, hover popovers) can flicker
-/// when the seek `GtkScale` repaints that often. 10 Hz is smooth enough for seek feedback.
-const TIME_POS_MIN_GAP: Duration = Duration::from_millis(100);
+/// State + UI tick. 1 Hz is enough for the time labels and seek-bar thumb at any speed; sibling
+/// advance fires within a second of mpv reaching `core-idle` near the end.
+const TICK_INTERVAL: Duration = Duration::from_secs(1);
+/// Window before `duration` where `core-idle=true` is treated as natural EOF. Generous so it
+/// catches mpv stopping a few seconds early at high speed (8× decoder/audio stall) as well as 1×.
+const TICK_EOF_TAIL_SEC: f64 = 5.0;
 
 #[derive(Clone, Debug)]
 enum TransportEv {
     Pause(bool),
-    TimePos(f64),
     Duration(f64),
     Volume(f64),
     Mute(bool),
     VolumeMax(f64),
-    EofReached(bool),
-    EndFile,
     FileLoaded,
     VideoReconfig,
     /// `path` changed; consumers re-read mpv to fetch the up-to-date file path.
@@ -48,6 +41,9 @@ struct TransportWidgets {
     seek: gtk::Scale,
     seek_adj: gtk::Adjustment,
     seek_sync: Rc<Cell<bool>>,
+    /// True while the user is pressing the seek thumb (mouse / touch). The 1 Hz tick skips
+    /// programmatic position writes so dragging the thumb is not interrupted.
+    seek_grabbed: Rc<Cell<bool>>,
     time_left: gtk::Label,
     time_right: gtk::Label,
     speed_menu: gtk::MenuButton,
@@ -57,24 +53,13 @@ struct TransportWidgets {
     vol_sync: Rc<Cell<bool>>,
 }
 
+#[derive(Default)]
 struct TransportCache {
     duration: f64,
     pause: bool,
-    eof: bool,
     pos: f64,
-    last_pos_apply: Option<Instant>,
-}
-
-impl Default for TransportCache {
-    fn default() -> Self {
-        Self {
-            duration: 0.0,
-            pause: false,
-            eof: false,
-            pos: 0.0,
-            last_pos_apply: None,
-        }
-    }
+    /// True when mpv playback core is not progressing (EOF with `keep-open=yes`, buffering, seeking, stalled).
+    core_idle: bool,
 }
 
 struct TransportEofCtx {
@@ -103,7 +88,10 @@ struct TransportCtx {
     /// Toggled to keep the recent grid path in sync; if `recent` is visible the seek bar is hidden too.
     recent_visible: Rc<Cell<bool>>,
     sibling_nav: SiblingNavUi,
-    tail_timer: Rc<RefCell<Option<glib::SourceId>>>,
+    /// Coalesce [glib::idle_add_local_once] resyncs on `FileLoaded` / `path` churn.
+    idle_resync_pending: Rc<Cell<bool>>,
+    /// 1 Hz timer source id (kept so it can be replaced if observers re-install).
+    tick: Rc<RefCell<Option<glib::SourceId>>>,
     cache: Rc<RefCell<TransportCache>>,
 }
 
@@ -157,8 +145,16 @@ fn wire_transport_events(s: TransportSetup) {
         bar_show: s.bar_show,
         recent_visible,
         sibling_nav: s.sibling_nav,
-        tail_timer: Rc::new(RefCell::new(None)),
+        idle_resync_pending: Rc::new(Cell::new(false)),
+        tick: Rc::new(RefCell::new(None)),
         cache: Rc::new(RefCell::new(TransportCache::default())),
+    });
+
+    let ctx_drain = Rc::clone(&ctx);
+    TRANSPORT_DRAIN.with(|slot| {
+        *slot.borrow_mut() = Some(Rc::new(move || {
+            drain_into_main(&ctx_drain);
+        }));
     });
 
     if !install_observers_when_ready(&ctx) {
@@ -175,6 +171,22 @@ thread_local! {
     /// Set by [wire_transport_events] when the mpv bundle is not ready yet.
     /// Invoked by [trigger_transport_install] from the GLArea realize path once the bundle exists.
     static TRANSPORT_INSTALL: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+}
+
+thread_local! {
+    /// [try_load] calls this after `loadfile` so `FileLoaded` / `path` / `duration` reach the transport
+    /// UI without waiting for the next libmpv wakeup (continue grid + **Previous** could otherwise leave
+    /// the clock and seek bar on the old title until user interaction).
+    static TRANSPORT_DRAIN: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+}
+
+/// Drain libmpv events into [dispatch_event] immediately. Safe no-op before the GL realize hook runs.
+fn transport_drain_after_loadfile() {
+    TRANSPORT_DRAIN.with(|slot| {
+        if let Some(f) = slot.borrow().as_ref() {
+            f();
+        }
+    });
 }
 
 /// Called from `wire_mpv_realize` right after the mpv bundle is created, so transport-event
@@ -206,12 +218,10 @@ fn install_observers_when_ready(ctx: &Rc<TransportCtx>) -> bool {
     };
     if let Err(e) = b.observe_props(&[
         (PROP_PAUSE, "pause", Format::Flag),
-        (PROP_TIME_POS, "time-pos", Format::Double),
         (PROP_DURATION, "duration", Format::Double),
         (PROP_VOLUME, "volume", Format::Double),
         (PROP_MUTE, "mute", Format::Flag),
         (PROP_VOLUME_MAX, "volume-max", Format::Double),
-        (PROP_EOF_REACHED, "eof-reached", Format::Flag),
         (PROP_PATH, "path", Format::String),
     ]) {
         eprintln!("[rhino] transport observe_props failed: {e}");
@@ -223,12 +233,12 @@ fn install_observers_when_ready(ctx: &Rc<TransportCtx>) -> bool {
         eprintln!("[rhino] transport install: observers wired, draining initial events");
     }
     drop(g);
-    // Initial property values are emitted asynchronously by libmpv; pull current state
-    // directly from mpv so the play / seek / nav UI is correct **right now**, even if
-    // the warm-preloaded file finished loading before observers were registered.
-    resync_play_button(ctx);
+    // Pull current state directly from mpv so the play / seek / nav UI is correct **right now**,
+    // even if the warm-preloaded file finished loading before observers were registered.
+    transport_tick(ctx);
     refresh_sibling_nav(ctx);
     drain_into_main(ctx);
+    install_transport_tick(ctx);
     true
 }
 
@@ -237,7 +247,6 @@ fn drain_into_main(ctx: &Rc<TransportCtx>) {
     for e in evs {
         dispatch_event(ctx, e);
     }
-    update_tail_timer(ctx);
 }
 
 fn collect_events(player: &Rc<RefCell<Option<MpvBundle>>>) -> Vec<TransportEv> {
@@ -257,7 +266,6 @@ fn collect_events(player: &Rc<RefCell<Option<MpvBundle>>>) -> Vec<TransportEv> {
                 out.push(t);
             }
         }
-        Event::EndFile(_) => out.push(TransportEv::EndFile),
         Event::FileLoaded => out.push(TransportEv::FileLoaded),
         Event::VideoReconfig => out.push(TransportEv::VideoReconfig),
         _ => {}
@@ -268,14 +276,11 @@ fn collect_events(player: &Rc<RefCell<Option<MpvBundle>>>) -> Vec<TransportEv> {
 fn property_event(id: u64, data: PropertyData<'_>) -> Option<TransportEv> {
     Some(match (id, &data) {
         (PROP_PAUSE, PropertyData::Flag(v)) => TransportEv::Pause(*v),
-        (PROP_TIME_POS, PropertyData::Double(v)) => TransportEv::TimePos(*v),
         (PROP_DURATION, PropertyData::Double(v)) => TransportEv::Duration(*v),
         (PROP_VOLUME, PropertyData::Double(v)) => TransportEv::Volume(*v),
         (PROP_MUTE, PropertyData::Flag(v)) => TransportEv::Mute(*v),
         (PROP_VOLUME_MAX, PropertyData::Double(v)) => TransportEv::VolumeMax(*v),
-        (PROP_EOF_REACHED, PropertyData::Flag(v)) => TransportEv::EofReached(*v),
         (PROP_PATH, PropertyData::Str(_)) => TransportEv::PathChanged,
         _ => return None,
     })
 }
-

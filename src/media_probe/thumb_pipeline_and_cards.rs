@@ -11,7 +11,7 @@ pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
     let s = can.to_str()?;
     let mtime = db::file_mtime_sec(&can)?;
     let tag = path_tag(s);
-    let t = thumb_time_for_path(&can, s);
+    let t = thumb_time_for_path(s);
     let b = run_libmpv_image_frame(&can, tag, t)?;
     db::set_thumb(s, &b, mtime, t);
     Some(b)
@@ -184,7 +184,7 @@ pub(crate) fn local_file_from_mpv(mpv: &Mpv) -> Option<PathBuf> {
 }
 
 /// Store `duration` and `time-pos` in [crate::db] for the open local file. Use before switching
-/// files or on close so the recent grid can show % without depending on watch_later text matching.
+/// files or on close so the recent grid can show %.
 pub fn record_playback_for_current(mpv: &Mpv) {
     let Some(can) = local_file_from_mpv(mpv) else {
         return;
@@ -213,9 +213,7 @@ fn card_one(path: &Path, durs: &HashMap<String, f64>, tpos: &HashMap<String, f64
     }
     let abs = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let s = abs.to_str();
-    let st = s
-        .and_then(|k| tpos.get(k).copied())
-        .or_else(|| resume_start_seconds(&abs));
+    let st = s.and_then(|k| tpos.get(k).copied());
     let dur = s.and_then(|k| durs.get(k).copied());
     let pct = percent_from_resume(st, dur);
     let thumb = cached_thumbnail_for_display(&abs);

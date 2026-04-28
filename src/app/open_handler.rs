@@ -29,6 +29,7 @@ fn make_on_open_handler(ctx: OpenHandlerCtx) -> RcPathFn {
                 win_aspect: ctx.win_aspect.clone(),
                 on_loaded: Some(Rc::clone(&ctx.on_loaded)),
                 reapply_60: Some(ctx.reapply_60.clone()),
+                reset_speed_to_normal: false,
             },
         );
         match loaded {

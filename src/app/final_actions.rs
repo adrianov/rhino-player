@@ -108,6 +108,7 @@ fn wire_final_actions(ctx: FinalActionCtx) {
                         win_aspect: wa2.clone(),
                         on_loaded: Some(oload),
                         reapply_60: Some(re_o.clone()),
+                        reset_speed_to_normal: false,
                     },
                 ) {
                     eprintln!("[rhino] open: try_load: {e}");

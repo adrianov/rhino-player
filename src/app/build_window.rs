@@ -1,3 +1,8 @@
+include!("build_window/app_menus.rs");
+include!("build_window/header_popovers.rs");
+include!("build_window/sibling_nav_buttons.rs");
+include!("build_window/volume_wiring.rs");
+
 fn build_window(
     app: &adw::Application,
     player: &Rc<RefCell<Option<MpvBundle>>>,
@@ -29,7 +34,6 @@ fn build_window(
     let seek_bar_on = Rc::new(Cell::new(db::load_seek_bar_preview()));
     let sibling_seof = Rc::new(SiblingEofState {
         done: Cell::new(false),
-        stall: Cell::new((0.0, 0u8)),
         nav_key: RefCell::new(None),
         nav_can_prev: Cell::new(false),
         nav_can_next: Cell::new(false),
@@ -67,135 +71,28 @@ fn build_window(
     wrap_next.set_can_target(true);
     wrap_next.append(&btn_next);
     let sibling_nav = SiblingNavUi::new(&btn_prev, &btn_next, &wrap_prev, &wrap_next);
-    let pref_menu = gio::Menu::new();
-    pref_menu.append(Some(SMOOTH60_MENU_LABEL), Some("app.smooth-60"));
-    pref_menu.append(
-        Some("Choose VapourSynth Script (.vpy)…"),
-        Some("app.choose-vs"),
-    );
-    let menu = gio::Menu::new();
-    menu.append(Some("Open Video…"), Some("app.open"));
-    menu.append(Some("Close Video"), Some("app.close-video"));
-    menu.append(
-        Some("Exit After Current Video"),
-        Some("app.exit-after-current"),
-    );
-    menu.append(Some("Move to Trash"), Some("app.move-to-trash"));
-    menu.append_submenu(Some("Preferences"), &pref_menu);
-    menu.append(Some("About Rhino Player"), Some("app.about"));
-    menu.append(Some("Quit"), Some("app.quit"));
-    let vol_adj = gtk::Adjustment::new(100.0, 0.0, 100.0, 1.0, 5.0, 0.0);
-    let vol_scale = gtk::Scale::new(gtk::Orientation::Horizontal, Some(&vol_adj));
-    vol_scale.set_draw_value(false);
-    vol_scale.set_hexpand(true);
-    vol_scale.set_size_request(240, -1);
-    vol_scale.set_valign(gtk::Align::Center);
-    vol_scale.set_tooltip_text(Some("Volume"));
-    vol_scale.add_css_class("rp-vol");
-    let vol_mute_btn = gtk::ToggleButton::builder()
-        .icon_name("audio-volume-high-symbolic")
-        .valign(gtk::Align::Center)
-        .vexpand(false)
-        .tooltip_text("Mute")
-        .build();
-    vol_mute_btn.add_css_class("flat");
-    vol_mute_btn.add_css_class("circular");
-    let vol_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    vol_row.set_valign(gtk::Align::Center);
-    vol_row.set_size_request(300, -1);
-    vol_row.append(&vol_mute_btn);
-    vol_row.append(&vol_scale);
-
-    let audio_tracks_block = Rc::new(Cell::new(false));
-    let audio_tracks_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    audio_tracks_box.set_margin_top(2);
-    let audio_tracks_scrl = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .vscrollbar_policy(gtk::PolicyType::Automatic)
-        .propagate_natural_width(true)
-        .propagate_natural_height(true)
-        .min_content_width(400)
-        .max_content_height(480)
-        .child(&audio_tracks_box)
-        .build();
-    let audio_tracks_section = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    audio_tracks_section.append(&audio_tracks_scrl);
-    audio_tracks_section.set_visible(false);
-    let sound_col = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    sound_col.add_css_class("rp-popover-box");
-    sound_col.append(&vol_row);
-    sound_col.append(&audio_tracks_section);
-    let vol_pop = gtk::Popover::new();
-    vol_pop.add_css_class("rp-header-popover");
-    vol_pop.set_child(Some(&sound_col));
-    header_popover_non_modal(&vol_pop);
-    let vol_menu = gtk::MenuButton::new();
-    vol_menu.set_icon_name("audio-volume-high-symbolic");
-    vol_menu.set_tooltip_text(Some("Volume and mute; audio track list if several tracks"));
-    vol_menu.set_popover(Some(&vol_pop));
-    vol_menu.add_css_class("flat");
-
-    let sp_init = sub_pref.borrow().clone();
-    let sub_tracks_block = Rc::new(Cell::new(false));
-    let sub_tracks_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    sub_tracks_box.set_margin_top(2);
-    let sub_tracks_scrl = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .vscrollbar_policy(gtk::PolicyType::Automatic)
-        .propagate_natural_width(true)
-        .propagate_natural_height(true)
-        .min_content_width(360)
-        .max_content_height(280)
-        .child(&sub_tracks_box)
-        .build();
-    let sub_tracks_section = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    sub_tracks_section.append(&sub_tracks_scrl);
-    sub_tracks_section.set_visible(false);
-
-    let sub_scale_adj = gtk::Adjustment::new(sp_init.scale, 0.3, 2.0, 0.05, 0.1, 0.0);
-    let sub_scale = gtk::Scale::new(gtk::Orientation::Horizontal, Some(&sub_scale_adj));
-    sub_scale.set_draw_value(true);
-    sub_scale.set_digits(2);
-    sub_scale.set_hexpand(true);
-    sub_scale.set_size_request(240, -1);
-    sub_scale.set_tooltip_text(Some("Subtitle size (mpv sub-scale)"));
-
-    let sub_color_btn = gtk::ColorDialogButton::new(Some(gtk::ColorDialog::new()));
-    sub_color_btn.set_rgba(&sub_prefs::u32_to_rgba(sp_init.color));
-    sub_color_btn.set_tooltip_text(Some("Subtitle text color"));
-
-    let sub_opts = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    let sub_size_label = gtk::Label::new(Some("Size"));
-    sub_size_label.set_xalign(0.0);
-    sub_size_label.add_css_class("caption");
-    sub_opts.append(&sub_size_label);
-    sub_opts.append(&sub_scale);
-    let sub_color_label = gtk::Label::new(Some("Text Color"));
-    sub_color_label.set_xalign(0.0);
-    sub_color_label.add_css_class("caption");
-    sub_opts.append(&sub_color_label);
-    sub_opts.append(&sub_color_btn);
-
-    let sub_col = gtk::Box::new(gtk::Orientation::Vertical, 10);
-    sub_col.add_css_class("rp-popover-box");
-    sub_col.append(&sub_tracks_section);
-    sub_col.append(&sub_opts);
-
-    let sub_pop = gtk::Popover::new();
-    sub_pop.add_css_class("rp-header-popover");
-    sub_pop.set_child(Some(&sub_col));
-    header_popover_non_modal(&sub_pop);
-    let sub_menu = gtk::MenuButton::new();
-    sub_menu.set_icon_name("media-view-subtitles-symbolic");
-    sub_menu.set_tooltip_text(Some("Subtitles: tracks and style"));
-    sub_menu.set_popover(Some(&sub_pop));
-    sub_menu.add_css_class("flat");
-    sub_menu.set_visible(false);
+    let (menu, pref_menu) = build_app_menus();
+    let HeaderPopovers {
+        vol_adj,
+        vol_mute_btn,
+        audio_tracks_block,
+        audio_tracks_box,
+        audio_tracks_section,
+        vol_pop,
+        vol_menu,
+        sub_tracks_block,
+        sub_tracks_box,
+        sub_tracks_section,
+        sub_scale_adj,
+        sub_color_btn,
+        sub_pop,
+        sub_menu,
+    } = build_header_popovers(&sub_pref);
 
     let speed_list = gtk::ListBox::new();
     speed_list.set_activate_on_single_click(true);
     speed_list.add_css_class("rich-list");
-    for s in &["1.0×", "1.5×", "2.0×"] {
+    for s in &["1.0×", "1.5×", "2.0×", "8.0×"] {
         let row = gtk::ListBoxRow::new();
         let lab = gtk::Label::new(Some(*s));
         lab.set_halign(gtk::Align::Start);
@@ -341,7 +238,7 @@ fn build_window(
             if sy.get() {
                 return;
             }
-            let i: u32 = (0i32..3)
+            let i: u32 = (0i32..playback_speed::SPEEDS.len() as i32)
                 .find(|&ix| list2.row_at_index(ix).is_some_and(|r| r == *row))
                 .unwrap_or(0) as u32;
             let v = playback_speed::value_at(i);
@@ -349,7 +246,7 @@ fn build_window(
                 let _ = b.mpv.set_property("speed", v);
                 glr.queue_render();
                 // Defer [vf] rebuild: libmpv can still report the old [speed] on the same GTK tick as
-                // [set_property]; [mvtools_vf_eligible] + [add_smooth_60] must see 1.0× when returning from 1.5/2.0.
+                // [set_property]; [mvtools_vf_eligible] + [add_smooth_60] must see 1.0× when returning from faster steps.
                 let bref = p.clone();
                 let vp2 = Rc::clone(&vp);
                 let ap2 = ap.clone();
@@ -380,12 +277,14 @@ fn build_window(
         bottom.append(&b);
     }
 
+    let (seek_sync, seek_grabbed) = (Rc::new(Cell::new(false)), Rc::new(Cell::new(false)));
     seek_bar_preview::connect(
         &seek,
         &seek_adj,
         Rc::clone(player),
         Rc::clone(&last_path),
         Rc::clone(&seek_bar_on),
+        seek_grabbed.clone(),
     );
 
     let ovl = gtk::Overlay::new();
@@ -484,6 +383,7 @@ fn build_window(
         bottom: bottom.clone(),
         player: player.clone(),
         squelch: motion_squelch.clone(),
+        seek_grabbed: seek_grabbed.clone(),
     });
 
     let on_video_chrome: Rc<dyn Fn()> = {
@@ -520,6 +420,7 @@ fn build_window(
             on_video_chrome: on_video_chrome.clone(),
             win_aspect: win_aspect.clone(),
             sub_menu: Some(sub_menu.clone()),
+            play_pause: play_pause.clone(),
         },
     );
     let browse_chrome: Rc<dyn Fn()> = {
@@ -553,118 +454,20 @@ fn build_window(
     });
     *on_open_slot.borrow_mut() = Some(on_open.clone());
 
-    {
-        let p = player.clone();
-        let w = win.clone();
-        let gla = gl_area.clone();
-        let rec = recent_scrl.clone();
-        let lp = last_path.clone();
-        let ovid = on_open_vid.clone();
-        let wa = win_aspect.clone();
-        let seof = sibling_seof.clone();
-        let ol = Rc::clone(&on_file_loaded);
-        btn_prev.connect_clicked(glib::clone!(
-            #[strong]
-            p,
-            #[strong]
-            w,
-            #[strong]
-            gla,
-            #[strong]
-            rec,
-            #[strong]
-            lp,
-            #[strong]
-            ovid,
-            #[strong]
-            wa,
-            #[strong]
-            seof,
-            #[strong]
-            ol,
-            #[strong]
-            reapply_60,
-            move |_| {
-                let g = p.borrow();
-                let Some(pl) = g.as_ref() else {
-                    return;
-                };
-                let cur = local_file_from_mpv(&pl.mpv).or_else(|| lp.borrow().clone());
-                let Some(cur) = cur.filter(|c| c.is_file()) else {
-                    return;
-                };
-                let Some(np) = sibling_advance::prev_before_current(&cur) else {
-                    return;
-                };
-                seof.done.set(false);
-                seof.stall.set((0.0, 0));
-                drop(g);
-                let o = LoadOpts {
-                    record: true,
-                    play_on_start: true,
-                    last_path: Rc::clone(&lp),
-                    on_start: Some(Rc::clone(&ovid)),
-                    win_aspect: Rc::clone(&wa),
-                    on_loaded: Some(Rc::clone(&ol)),
-                    reapply_60: Some(reapply_60.clone()),
-                };
-                if let Err(e) = try_load(&np, &p, &w, &gla, &rec, &o) {
-                    eprintln!("[rhino] previous: {e}");
-                }
-            }
-        ));
-        let ol2 = Rc::clone(&on_file_loaded);
-        btn_next.connect_clicked(glib::clone!(
-            #[strong]
-            p,
-            #[strong]
-            w,
-            #[strong]
-            gla,
-            #[strong]
-            rec,
-            #[strong]
-            lp,
-            #[strong]
-            ovid,
-            #[strong]
-            wa,
-            #[strong]
-            seof,
-            #[strong]
-            ol2,
-            #[strong]
-            reapply_60,
-            move |_| {
-                let g = p.borrow();
-                let Some(pl) = g.as_ref() else {
-                    return;
-                };
-                let cur = local_file_from_mpv(&pl.mpv).or_else(|| lp.borrow().clone());
-                let Some(cur) = cur.filter(|c| c.is_file()) else {
-                    return;
-                };
-                let Some(np) = sibling_advance::next_after_eof(&cur) else {
-                    return;
-                };
-                seof.done.set(false);
-                seof.stall.set((0.0, 0));
-                drop(g);
-                let o = LoadOpts {
-                    record: true,
-                    play_on_start: true,
-                    last_path: Rc::clone(&lp),
-                    on_start: Some(Rc::clone(&ovid)),
-                    win_aspect: Rc::clone(&wa),
-                    on_loaded: Some(Rc::clone(&ol2)),
-                    reapply_60: Some(reapply_60.clone()),
-                };
-                if let Err(e) = try_load(&np, &p, &w, &gla, &rec, &o) {
-                    eprintln!("[rhino] next: {e}");
-                }
-            }
-        ));
-    }
+    wire_sibling_nav_buttons(SiblingNavCtx {
+        btn_prev: btn_prev.clone(),
+        btn_next: btn_next.clone(),
+        player: player.clone(),
+        win: win.clone(),
+        gl: gl_area.clone(),
+        recent: recent_scrl.clone(),
+        last_path: last_path.clone(),
+        on_video_chrome: on_open_vid.clone(),
+        win_aspect: win_aspect.clone(),
+        sibling_seof: sibling_seof.clone(),
+        on_file_loaded: Rc::clone(&on_file_loaded),
+        reapply_60: reapply_60.clone(),
+    });
 
     let recent_wiring = wire_recent_undo(RecentUndoCtx {
         player: player.clone(),
@@ -718,6 +521,7 @@ fn build_window(
         on_video_chrome: on_video_chrome.clone(),
         browse_chrome: browse_chrome.clone(),
         win_aspect: win_aspect.clone(),
+        play_pause: play_pause.clone(),
         undo_shell: undo_shell.clone(),
         undo_label: undo_label.clone(),
         undo_btn: undo_btn.clone(),
@@ -772,103 +576,18 @@ fn build_window(
         move_to_trash: video_file_actions.move_to_trash,
     });
 
-    // Shared with [start_transport_poll]; prevents programmatic seek updates from re-seeking mpv.
-    let seek_sync = Rc::new(Cell::new(false));
-    wire_seek_control(&seek, player, &gl_area, seek_sync.clone());
+    wire_seek_control(&seek, player, &gl_area, seek_sync.clone(), seek_grabbed.clone(), time_left.clone(), Rc::clone(&video_pref));
 
     let vol_sync = Rc::new(Cell::new(false));
-    let p_vctl = player.clone();
-    let vi = vol_menu.clone();
-    let vm = vol_mute_btn.clone();
-    let vsx = vol_sync.clone();
-    vol_adj.connect_value_changed(glib::clone!(
-        #[strong]
-        p_vctl,
-        #[strong]
-        vi,
-        #[strong]
-        vm,
-        #[strong]
-        vsx,
-        move |a| {
-            if vsx.get() {
-                return;
-            }
-            if let Some(b) = p_vctl.borrow().as_ref() {
-                let v = a.value();
-                let _ = b.mpv.set_property("volume", v);
-                if v > 0.5 {
-                    let _ = b.mpv.set_property("mute", false);
-                }
-                let m = b.mpv.get_property::<bool>("mute").unwrap_or(false);
-                let cur = b.mpv.get_property::<f64>("volume").unwrap_or(v);
-                vi.set_icon_name(vol_icon(m, cur));
-                vsx.set(true);
-                if vm.is_active() != m {
-                    vm.set_active(m);
-                }
-                vm.set_icon_name(vol_mute_pop_icon(m));
-                vm.set_tooltip_text(Some(if m { "Unmute" } else { "Mute" }));
-                vsx.set(false);
-            }
-        }
-    ));
-    let p_mute = player.clone();
-    let vi2 = vol_menu.clone();
-    let vsx2 = vol_sync.clone();
-    vol_mute_btn.connect_toggled(glib::clone!(
-        #[strong]
-        p_mute,
-        #[strong]
-        vi2,
-        #[strong]
-        vsx2,
-        move |ch| {
-            if vsx2.get() {
-                return;
-            }
-            if let Some(b) = p_mute.borrow().as_ref() {
-                let m = ch.is_active();
-                let _ = b.mpv.set_property("mute", m);
-                let vol = b.mpv.get_property::<f64>("volume").unwrap_or(0.0);
-                vi2.set_icon_name(vol_icon(m, vol));
-                ch.set_icon_name(vol_mute_pop_icon(m));
-                ch.set_tooltip_text(Some(if m { "Unmute" } else { "Mute" }));
-            }
-        }
-    ));
-
-    {
-        let p = player.clone();
-        let r = recent_scrl.clone();
-        let vmi = vol_menu.clone();
-        let sc = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
-        sc.set_propagation_phase(gtk::PropagationPhase::Target);
-        sc.connect_scroll(glib::clone!(
-            #[strong]
-            p,
-            #[strong]
-            r,
-            #[strong]
-            vmi,
-            move |_, _dx, dy| {
-                if r.is_visible() {
-                    return glib::Propagation::Proceed;
-                }
-                let g = p.borrow();
-                let Some(b) = g.as_ref() else {
-                    return glib::Propagation::Proceed;
-                };
-                let step = if dy.abs() < 0.5 { -dy * 4.0 } else { -dy * 5.0 };
-                nudge_mpv_volume(&b.mpv, step);
-                let vol = b.mpv.get_property::<f64>("volume").unwrap_or(0.0);
-                let m = b.mpv.get_property::<bool>("mute").unwrap_or(false);
-                vmi.set_icon_name(vol_icon(m, vol));
-                glib::Propagation::Stop
-            }
-        ));
-        gl_area.add_controller(sc);
-    }
+    wire_volume_controls(VolumeCtx {
+        player: player.clone(),
+        recent: recent_scrl.clone(),
+        gl: gl_area.clone(),
+        vol_menu: vol_menu.clone(),
+        vol_adj: vol_adj.clone(),
+        vol_mute_btn: vol_mute_btn.clone(),
+        vol_sync: vol_sync.clone(),
+    });
 
     {
         let deb = aspect_resize_end_deb.clone();
@@ -961,6 +680,7 @@ fn build_window(
             seek: seek.clone(),
             seek_adj: seek_adj.clone(),
             seek_sync: seek_sync.clone(),
+            seek_grabbed: seek_grabbed.clone(),
             time_left: time_left.clone(),
             time_right: time_right.clone(),
             speed_menu: speed_mbtn.clone(),

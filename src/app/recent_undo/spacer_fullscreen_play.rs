@@ -37,6 +37,10 @@ struct PlayToggleCtx {
     on_video_chrome: Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
     sub_menu: Option<gtk::MenuButton>,
+    /// Bottom-bar play/pause button. The toggle handler updates its icon
+    /// optimistically so the click feels instant; the 1 Hz transport tick
+    /// reconciles with mpv's actual state right after.
+    play_pause: gtk::Button,
 }
 
 fn toggle_play_pause(ctx: &PlayToggleCtx) -> bool {
@@ -70,10 +74,25 @@ fn toggle_play_pause(ctx: &PlayToggleCtx) -> bool {
         }
     }
     if b.mpv.set_property("pause", !paused).is_ok() {
+        flip_play_icon(&ctx.play_pause, !paused);
         ctx.gl.queue_render();
         return true;
     }
     false
+}
+
+/// Optimistic icon swap so the click is felt immediately. The 1 Hz transport
+/// tick will reconcile with mpv's `pause` + `core-idle` shortly after.
+fn flip_play_icon(btn: &gtk::Button, now_paused: bool) {
+    let (icon, tip) = if now_paused {
+        ("media-playback-start-symbolic", "Play (Space)")
+    } else {
+        ("media-playback-pause-symbolic", "Pause (Space)")
+    };
+    if btn.icon_name().as_deref() != Some(icon) {
+        btn.set_icon_name(icon);
+    }
+    btn.set_tooltip_text(Some(tip));
 }
 
 fn schedule_warm_reveal(ctx: PlayToggleCtx) {

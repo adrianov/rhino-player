@@ -21,7 +21,6 @@ fn back_to_browse(
     c.win_aspect.set(None);
     *c.last_path.borrow_mut() = None;
     c.sibling_seof.done.set(false);
-    c.sibling_seof.stall.set((0.0, 0));
     c.sibling_nav.set_no_media();
     let paths: Vec<PathBuf> = history::load().into_iter().take(5).collect();
     if paths.is_empty() {
@@ -105,7 +104,7 @@ fn sync_trash_action(
     a.set_enabled(ok);
 }
 
-/// Hides the window, then (after GTK can draw the hide) saves watch_later/DB, stops, and quits.
+/// Hides the window, then (after GTK can draw the hide) saves DB resume, stops, and quits.
 fn schedule_quit_persist(
     app: &adw::Application,
     win: &adw::ApplicationWindow,

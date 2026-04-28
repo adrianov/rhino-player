@@ -146,6 +146,7 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
                             win_aspect: wa_st.clone(),
                             on_loaded: Some(Rc::clone(&ol_rz)),
                             reapply_60: Some(reapply_rz.clone()),
+                            reset_speed_to_normal: false,
                         },
                     ) {
                         eprintln!("[rhino] try_load (startup): {e}");

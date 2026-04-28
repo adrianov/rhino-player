@@ -1,9 +1,13 @@
+/// `seek_grabbed` is set by `wire_seek_control` while the user is actively scrubbing — when true,
+/// the popover reads the slider's authoritative `value()` so its time label matches the bottom-left
+/// clock (raw cursor X / width is slightly off; `gtk::Scale` accounts for the handle width).
 pub fn connect(
     seek: &gtk::Scale,
     seek_adj: &gtk::Adjustment,
     player: Rc<RefCell<Option<MpvBundle>>>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     enabled: Rc<Cell<bool>>,
+    seek_grabbed: Rc<Cell<bool>>,
 ) -> Rc<SeekPreviewState> {
     let last_xy = Rc::new(RefCell::new(None::<(f64, f64)>));
     let deb = Rc::new(RefCell::new(None::<glib::SourceId>));
@@ -95,6 +99,8 @@ pub fn connect(
         serial,
         #[strong]
         loaded_path,
+        #[strong]
+        seek_grabbed,
         move |_, x, y| {
             if st.last_xy.borrow().is_some_and(|p| p == (x, y)) {
                 return;
@@ -107,7 +113,14 @@ pub fn connect(
             if dur <= 0.0 {
                 return;
             }
-            let t = (x / w).clamp(0.0, 1.0) * dur;
+            // During drag, mirror the slider's authoritative value so the popover and bottom-left
+            // clock agree. On hover (no drag), derive from cursor X — `gtk::Scale::value()` only
+            // updates on click/drag, not hover.
+            let t = if seek_grabbed.get() {
+                st.seek.value().clamp(0.0, dur)
+            } else {
+                (x / w).clamp(0.0, 1.0) * dur
+            };
             st.hover_t.set(t);
             st.time_lbl.set_text(&format_time(t));
             set_preview_size(&gl, &st.seek, &st.player);

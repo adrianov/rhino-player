@@ -52,6 +52,9 @@ struct ChromeBarHide {
     bottom: gtk::Box,
     player: Rc<RefCell<Option<MpvBundle>>>,
     squelch: Rc<Cell<Option<Instant>>>,
+    /// True while the user is pressing the seek thumb. Auto-hide reschedules itself instead of
+    /// hiding the bars so the slider does not vanish under the cursor mid-drag.
+    seek_grabbed: Rc<Cell<bool>>,
 }
 
 fn show_pointer(gl: &gtk::GLArea) {

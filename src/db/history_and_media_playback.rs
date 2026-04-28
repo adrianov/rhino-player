@@ -98,7 +98,24 @@ pub fn set_duration(path: &Path, sec: f64) {
     });
 }
 
-/// Last playback time (libmpv `time-pos`, seconds) for the recent bar; complements watch_later.
+/// Resume position (seconds) for one file. Used by `loadfile` to pass `start=<sec>`.
+/// Same path key as [remove_history] / [clear_resume_position].
+pub fn resume_pos(path: &Path) -> Option<f64> {
+    let s = history_key(path)?;
+    with_conn(|c| {
+        c.query_row(
+            "SELECT time_pos_sec FROM media WHERE path = ?1",
+            params![&s],
+            |row| row.get::<_, Option<f64>>(0),
+        )
+        .optional()
+    })
+    .flatten()
+    .flatten()
+    .filter(|t| t.is_finite() && *t > 0.0)
+}
+
+/// Last playback time (libmpv `time-pos`, seconds) for the recent bar.
 pub fn load_time_pos_map() -> HashMap<String, f64> {
     with_conn(|c| {
         let mut s =
@@ -173,7 +190,7 @@ pub fn load_audio_aid(path: &Path) -> Option<i64> {
     .filter(|aid| *aid > 0)
 }
 
-/// Clear stored resume so the next open starts from 0 (watch_later is removed separately in [media_probe]).
+/// Clear stored resume so the next open starts from 0.
 /// Uses the same path key as [remove_history] so deleted-on-disk files still match DB rows.
 pub fn clear_resume_position(path: &Path) {
     let Some(s) = history_key(path) else {

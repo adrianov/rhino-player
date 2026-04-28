@@ -126,18 +126,47 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn unique_tmp(prefix: &str) -> PathBuf {
-        let n = SystemTime::now()
+    /// Real `temp_dir` layout for tests. [ScratchTmpOrder] avoids picking up unrelated videos when
+    /// `prev_before_current` / `next_after_eof` walk up to `/tmp`: **First** = no lexically earlier
+    /// peers scanned; **Last** = no later peers scanned.
+    #[derive(Clone, Copy)]
+    enum ScratchTmpOrder {
+        First,
+        Last,
+    }
+
+    fn scratch_island(label: &str, order: ScratchTmpOrder) -> PathBuf {
+        let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        std::env::temp_dir().join(format!("{prefix}-{n}"))
+        let prefix = match order {
+            ScratchTmpOrder::First => "!rhino_sib",
+            ScratchTmpOrder::Last => "zzz_rhino_sib",
+        };
+        let p = std::env::temp_dir().join(format!(
+            "{}_{}_{}_{:?}_{}",
+            prefix,
+            label,
+            std::process::id(),
+            std::thread::current().id(),
+            nanos
+        ));
+        fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    /// Video files for “single folder” cases; island root has no loose videos, only this subdir.
+    fn media_flat(island: &Path) -> PathBuf {
+        let m = island.join("media");
+        fs::create_dir_all(&m).unwrap();
+        m
     }
 
     #[test]
     fn natural_episode_order() {
-        let base = unique_tmp("rhino_nat_ep");
-        fs::create_dir_all(&base).unwrap();
+        let island = scratch_island("nat_ep", ScratchTmpOrder::First);
+        let base = media_flat(&island);
         for name in ["ep2.mkv", "ep10.mkv", "ep1.mkv"] {
             fs::write(base.join(name), b"x").unwrap();
         }
@@ -148,25 +177,26 @@ mod tests {
         assert_eq!(n1, fs::canonicalize(&e2).unwrap());
         let n2 = next_after_eof(&e2).unwrap();
         assert_eq!(n2, fs::canonicalize(&e10).unwrap());
-        let _ = fs::remove_dir_all(&base);
+        let _ = fs::remove_dir_all(&island);
     }
 
     #[test]
     fn same_folder_next() {
-        let base = unique_tmp("rhino_sib1");
-        fs::create_dir_all(&base).unwrap();
+        let island = scratch_island("sib1", ScratchTmpOrder::First);
+        let base = media_flat(&island);
         let a = base.join("a.mp4");
         let b = base.join("b.mp4");
         fs::write(&a, b"x").unwrap();
         fs::write(&b, b"x").unwrap();
         let na = next_after_eof(&a).unwrap();
         assert_eq!(fs::canonicalize(na).unwrap(), fs::canonicalize(&b).unwrap());
-        let _ = fs::remove_dir_all(&base);
+        let _ = fs::remove_dir_all(&island);
     }
 
     #[test]
     fn last_in_folder_goes_to_next_sibling_subdir() {
-        let base = unique_tmp("rhino_sib2");
+        let island = scratch_island("sib2", ScratchTmpOrder::First);
+        let base = &island;
         let s1 = base.join("S1");
         let s2 = base.join("S2");
         fs::create_dir_all(&s1).unwrap();
@@ -177,24 +207,25 @@ mod tests {
         fs::write(&v2, b"x").unwrap();
         let n = next_after_eof(&v1).unwrap();
         assert_eq!(fs::canonicalize(n).unwrap(), fs::canonicalize(&v2).unwrap());
-        let _ = fs::remove_dir_all(&base);
+        let _ = fs::remove_dir_all(island);
     }
 
     #[test]
     fn last_in_last_sibling_stops() {
-        let base = unique_tmp("rhino_sib3");
+        let island = scratch_island("sib3", ScratchTmpOrder::Last);
+        let base = &island;
         let s1 = base.join("S1");
         fs::create_dir_all(&s1).unwrap();
         let v1 = s1.join("e.mp4");
         fs::write(&v1, b"x").unwrap();
         assert!(next_after_eof(&v1).is_none());
-        let _ = fs::remove_dir_all(&base);
+        let _ = fs::remove_dir_all(island);
     }
 
     #[test]
     fn prev_same_folder() {
-        let base = unique_tmp("rhino_prev1");
-        fs::create_dir_all(&base).unwrap();
+        let island = scratch_island("prev1", ScratchTmpOrder::First);
+        let base = media_flat(&island);
         let a = base.join("a.mp4");
         let b = base.join("b.mp4");
         fs::write(&a, b"x").unwrap();
@@ -202,12 +233,13 @@ mod tests {
         let ca = fs::canonicalize(&a).unwrap();
         assert_eq!(prev_before_current(&b).unwrap(), ca);
         assert!(prev_before_current(&a).is_none());
-        let _ = fs::remove_dir_all(&base);
+        let _ = fs::remove_dir_all(&island);
     }
 
     #[test]
     fn prev_from_first_in_folder_to_previous_sibling_last() {
-        let base = unique_tmp("rhino_prev2");
+        let island = scratch_island("prev2", ScratchTmpOrder::First);
+        let base = &island;
         let s1 = base.join("S1");
         let s2 = base.join("S2");
         fs::create_dir_all(&s1).unwrap();
@@ -218,12 +250,13 @@ mod tests {
         fs::write(&v2, b"x").unwrap();
         let p = prev_before_current(&v2).unwrap();
         assert_eq!(fs::canonicalize(p).unwrap(), fs::canonicalize(&v1).unwrap());
-        let _ = fs::remove_dir_all(&base);
+        let _ = fs::remove_dir_all(island);
     }
 
     #[test]
     fn skips_dir_without_videos() {
-        let base = unique_tmp("rhino_sib4");
+        let island = scratch_island("sib4", ScratchTmpOrder::First);
+        let base = &island;
         for name in ["A", "B", "C"] {
             fs::create_dir_all(base.join(name)).unwrap();
         }
@@ -233,19 +266,19 @@ mod tests {
         fs::write(&vc, b"x").unwrap();
         let n = next_after_eof(&va).unwrap();
         assert_eq!(fs::canonicalize(n).unwrap(), fs::canonicalize(&vc).unwrap());
-        let _ = fs::remove_dir_all(&base);
+        let _ = fs::remove_dir_all(island);
     }
 
     #[test]
     fn vob_sibling_uses_shared_ext_list() {
-        let base = unique_tmp("rhino_sib_vob");
-        fs::create_dir_all(&base).unwrap();
+        let island = scratch_island("sib_vob", ScratchTmpOrder::First);
+        let base = media_flat(&island);
         let a = base.join("a.vob");
         let b = base.join("b.vob");
         fs::write(&a, b"x").unwrap();
         fs::write(&b, b"x").unwrap();
         let n = next_after_eof(&a).unwrap();
         assert_eq!(fs::canonicalize(n).unwrap(), fs::canonicalize(&b).unwrap());
-        let _ = fs::remove_dir_all(&base);
+        let _ = fs::remove_dir_all(&island);
     }
 }
