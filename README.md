@@ -16,7 +16,7 @@ Rhino Player is a Linux desktop video player for GNOME, Ubuntu, and similar syst
 - **Audio track switching:** choose between available audio tracks while watching a video.
 - **Seek preview:** hover over the progress bar to preview frames before jumping.
 - **Clean playback view:** auto-hiding header, transport controls, and pointer keep the video area focused.
-- **Fast playback controls:** play/pause, seek, fullscreen, elapsed/remaining time, keyboard shortcuts, and quick 1.0× / 1.5× / 2.0× speed choices.
+- **Fast playback controls:** play/pause, seek, fullscreen, elapsed/remaining time, keyboard shortcuts, and quick 1.0× / 1.5× / 2.0× / 8.0× speed choices.
 - **Continue-list cleanup:** remove items from the continue grid or move local files to Trash, with session undo.
 - **Desktop integration:** Freedesktop desktop entry, icon theme assets, and AppStream metadata for GNOME-style launchers and app grids.
 
@@ -149,7 +149,7 @@ ldd /path/to/rhino-player | grep libmpv
 
 Once the checks pass, start Rhino, open a video, and enable **Preferences → Smooth Video (~60 FPS at 1.0×)**. The built-in `data/vs/rhino_60_mvtools.vpy` script is used by default; choose a custom `.vpy` only if you want to replace it.
 
-Smooth 60 runs only around **1.0×** playback speed. At 1.5× / 2.0× Rhino skips the filter. Expect higher CPU use while it is active, and a brief warm-up while the filter graph starts.
+Smooth 60 runs only around **1.0×** playback speed. At faster fixed steps Rhino skips the filter. Expect higher CPU use while it is active, and a brief warm-up while the filter graph starts.
 
 More detail: [docs/features/26-sixty-fps-motion.md](docs/features/26-sixty-fps-motion.md) and [data/vs/README.md](data/vs/README.md).
 

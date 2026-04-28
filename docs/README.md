@@ -46,7 +46,7 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 25 | [Smooth video playback (display-resample) — removed](features/25-smooth-playback.md) | removed |
 | 26 | [~60 fps motion (VapourSynth)](features/26-sixty-fps-motion.md) | done |
 | 27 | [Move current file to trash](features/27-move-to-trash.md) | done |
-| 28 | [Playback speed: 1.0× / 1.5× / 2.0×](features/28-playback-speed.md) | done |
+| 28 | [Playback speed: fixed steps incl. 8.0× skip](features/28-playback-speed.md) | done |
 
 ## Tooling note (Composer 2 Fast)
 

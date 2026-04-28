@@ -6,6 +6,7 @@ use crate::db;
 use crate::db::VideoPrefs;
 use crate::paths;
 use crate::paths::RHINO_PLAYBACK_SPEED_VAR;
+use crate::playback_speed::MAX_FIXED_SPEED;
 
 /// [apply_mpv_video] result (replaces a bare `bool` for "smooth was auto-off" on older call sites).
 #[derive(Debug)]
@@ -81,7 +82,8 @@ fn normalized_env_speed(s: f64) -> f64 {
     if !s.is_finite() {
         return 1.0;
     }
-    let s = if s > 0.01 && s < 8.0 { s } else { 1.0 };
+    // Cap at the fastest fixed UI step so env matches mpv (see playback_speed::MAX_FIXED_SPEED).
+    let s = if s > 0.01 && s <= MAX_FIXED_SPEED { s } else { 1.0 };
     (s * 10.0).round() / 10.0
 }
 
@@ -117,7 +119,7 @@ fn mvtools_vf_eligible(mpv: &Mpv, speed_hint: Option<f64>) -> bool {
     (s - 1.0).abs() <= PLAYBACK_1X_EPS
 }
 
-/// `true` when the process env disagrees with current [mpv] `speed` (e.g. [vf] added before watch-later
+/// `true` when the process env disagrees with current [mpv] `speed` (e.g. [vf] added before resume
 /// applied playback speed, or UI set `speed` before the resync read ran).
 pub fn needs_playback_speed_env_resync(mpv: &Mpv) -> bool {
     let want = {

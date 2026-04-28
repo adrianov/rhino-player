@@ -2,8 +2,8 @@
 //! See `docs/features/26-sixty-fps-motion.md`. Sets [crate::paths::RHINO_PLAYBACK_SPEED_VAR] from mpv
 //! `speed` before the VapourSynth filter is built. The graph is **rebuilt on events**: after [loadfile]
 //! (idle + follow-up idle), when the user picks **playback speed** in the header (deferred idle), and on
-//! the **on-file-loaded** hook (one-shot) so **watch-later** restored `speed` / UI list align with the [vf]
-//! and env. There is **no** periodic "watch" on `vf` for runtime plugin failures — `vf` add failure still
+//! the **on-file-loaded** hook (one-shot) so the UI speed list and the [vf] / env stay aligned across
+//! `loadfile`. There is **no** periodic "watch" on `vf` for runtime plugin failures — `vf` add failure still
 //! clears the pref at apply time; a script that dies *after* add is a rare install issue (toggle off in
 //! **Preferences** or fix mvtools).
 //! Set `RHINO_VIDEO_LOG=1` for per-step mpv result lines on stderr.

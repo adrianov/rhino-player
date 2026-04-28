@@ -40,5 +40,5 @@ Feature: Per-video options menu
 ```
 
 ## Notes
-- The dedicated speed control with three steps (1.0× / 1.5× / 2.0×) is owned by [28-playback-speed](28-playback-speed.md); this menu may surface a free-form slider later.
+- The dedicated speed control with fixed steps (1.0× / 1.5× / 2.0× / 8.0×) is owned by [28-playback-speed](28-playback-speed.md); this menu may surface a free-form slider later.
 - Keep flip / rotate behind a feature check when hardware decode lacks a `-copy` path.

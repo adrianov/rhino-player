@@ -33,7 +33,7 @@ Feature: Optional ~60 fps motion via VapourSynth
 
   Scenario: Faster speeds skip vf without clearing user intent
     Given video_smooth_60 remains true in preferences
-    When mpv speed is 1.5× or 2.0×
+    When mpv speed is a fixed step other than approximately 1.0×
     Then the vapoursynth vf is omitted
     And video_smooth_60 stays true so 1.0× re-applies the filter
 

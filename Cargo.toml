@@ -27,7 +27,7 @@ serde_json = "1.0"
 # Subtitle / language hint fuzzy match in `sub_tracks`.
 strsim = "0.11"
 
-# Clippy: cognitive complexity (see clippy.toml). `cargo module-lines` is advisory (soft limit; see `scripts/check-module-lines.sh`).
+# Clippy: cognitive complexity (see clippy.toml). `cargo module-lines` runs `scripts/check-module-lines.sh` (soft warn / hard fail).
 [lints.clippy]
 cognitive_complexity = "warn"
 too_many_lines = "warn"

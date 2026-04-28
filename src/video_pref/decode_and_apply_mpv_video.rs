@@ -230,12 +230,14 @@ mod model_tests {
         assert!(mvtools_vf_wanted_for_speed(1.0));
         assert!(!mvtools_vf_wanted_for_speed(1.5));
         assert!(!mvtools_vf_wanted_for_speed(2.0));
+        assert!(!mvtools_vf_wanted_for_speed(8.0));
     }
 
     #[test]
     fn sped_up_does_not_require_vapoursynth_in_vf() {
         assert!(!graph_lacks_script_while_wanted(true, 1.5, false));
         assert!(!graph_lacks_script_while_wanted(true, 2.0, false));
+        assert!(!graph_lacks_script_while_wanted(true, 8.0, false));
     }
 
     #[test]
