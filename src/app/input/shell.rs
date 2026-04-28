@@ -66,14 +66,19 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                 let bot2 = bottom_fs.clone();
                 let p2 = p_fs.clone();
                 let b2 = b.clone();
-                let _ = glib::source::idle_add_local_once(move || {
-                    gl2.queue_render();
-                    if let Some(bundle) = p2.borrow().as_ref() {
-                        sub_prefs::apply_sub_pos_for_toolbar(
-                            &bundle.mpv, b2.get(), bot2.height(), gl2.height(),
-                        );
-                    }
-                });
+                // Use a short timeout so GTK has time to re-layout the windowed geometry before
+                // we read bottom.height() and gl.height() for the sub-pos calculation.
+                let _ = glib::timeout_add_local_once(
+                    std::time::Duration::from_millis(50),
+                    move || {
+                        gl2.queue_render();
+                        if let Some(bundle) = p2.borrow().as_ref() {
+                            sub_prefs::apply_sub_pos_for_toolbar(
+                                &bundle.mpv, b2.get(), bot2.height(), gl2.height(),
+                            );
+                        }
+                    },
+                );
             }
         });
     }
