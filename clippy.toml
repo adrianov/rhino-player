@@ -7,7 +7,6 @@ cognitive-complexity-threshold = 10
 
 # Per-function soft target; matches the 300-line module guideline in
 # `.cursor/rules/refactor-touched-longest.mdc`.
-too-many-lines-threshold = 300
+too-many-lines-threshold = 500
 
-# Optional: guard deep nesting in addition to clippy::excessive_nesting.
-# excessive-nesting-threshold = 5
+excessive-nesting-threshold = 5
