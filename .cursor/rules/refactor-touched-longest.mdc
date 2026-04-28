@@ -1,0 +1,35 @@
+---
+description: After each request, refactor the longest edited Rust module if it is over 300 lines.
+alwaysApply: true
+---
+
+# Refactor the longest edited module per request
+
+After completing the user's primary task, **before ending the turn**, do the following:
+
+1. List the Rust source files (`src/**/*.rs`) **edited in this request** — including new files you created.
+2. Sort them by line count, **longest first**.
+3. If the longest one is **over 300 lines**, refactor it now in the same turn:
+   - Remove dead code, duplication, and stale fallbacks first.
+   - If still > 300 lines, **extract cohesive submodules** with meaningful names that reflect responsibility (UI / mpv / persistence / platform), wired through `include!(…)` from a thin parent (see `complexity-and-module-design.mdc`).
+   - Keep public API stable; refactoring must not change behavior. All existing tests and `cargo qcheck` must still pass.
+4. **Pre-existing tech debt is not an excuse to skip.** The goal is gradual elimination — every request that edits an oversized module must shrink it (or extract one cohesive submodule from it) in the same turn. Even a small extraction (≥ 100 lines moved out) is acceptable progress; doing nothing is not.
+5. The only valid skip is when the refactor would genuinely make the code **longer or less clear**. State which lever from `clippy-no-suppress.mdc` was tried (extract helpers, group params into a struct, split file by responsibility, …) and why it did not help. Drive-by claims of "pre-existing" are not a valid skip.
+6. Only the **single longest edited module** is in scope per request — do not opportunistically refactor unrelated files.
+
+Limits:
+
+- **300 lines** is the soft target (matches `cargo module-lines` advisory and `clippy::too_many_lines`).
+- **995 lines** is the hard limit enforced by `scripts/check-module-lines.sh`; any edit that crosses it must be reverted or compacted in the same turn.
+
+Process:
+
+```
+edited Rust files in this request
+  → wc -l
+  → pick longest
+  → if > 300 → simplify / extract submodules (one file at a time, this one)
+  → run `cargo qcheck` and `cargo test --lib` before ending the turn
+```
+
+This rule complements `complexity-and-module-design.mdc` (which describes *how* to refactor) by specifying *when* refactoring is mandatory: at the end of every request that touched an oversized module. Long-standing debt is paid down one extraction per touched-module-per-request.
