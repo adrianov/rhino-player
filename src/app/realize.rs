@@ -77,7 +77,7 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
                     sub_prefs::apply_mpv(&b.mpv, &s);
                 }
                 *p_realize.borrow_mut() = Some(b);
-                let preload_auto_off = preload_first_continue(&p_realize, &vp_realize, &recent_rz);
+                let preload_auto_off = preload_first_continue(&p_realize, &vp_realize, &recent_rz, &last_rz);
                 if preload_auto_off == Some(true) {
                     sync_smooth_60_to_off(&app_realize);
                 }

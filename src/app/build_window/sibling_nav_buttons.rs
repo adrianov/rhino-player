@@ -49,12 +49,12 @@ fn make_sibling_nav_click(
     let ol = Rc::clone(&ctx.on_file_loaded);
     let r60 = ctx.reapply_60.clone();
     move |_| {
-        let g = p.borrow();
-        let Some(pl) = g.as_ref() else {
+        let cur = lp.borrow().clone();
+        let Some(cur) = cur.filter(|c| c.is_file()) else {
             return;
         };
-        let cur = local_file_from_mpv(&pl.mpv).or_else(|| lp.borrow().clone());
-        let Some(cur) = cur.filter(|c| c.is_file()) else {
+        let g = p.borrow();
+        if g.is_none() {
             return;
         };
         let Some(np) = pick(&cur) else {

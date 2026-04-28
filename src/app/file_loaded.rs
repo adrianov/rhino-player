@@ -54,11 +54,7 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
         let vp_onload = Rc::clone(&video_pref);
         let app_onload = app.clone();
         move || {
-            let cur = p
-                .borrow()
-                .as_ref()
-                .and_then(|b| local_file_from_mpv(&b.mpv))
-                .or_else(|| lp.borrow().clone());
+            let cur = lp.borrow().clone();
             nav.refresh(cur.as_deref(), seof.as_ref());
             let p2 = p.clone();
             let sp2 = sp.clone();

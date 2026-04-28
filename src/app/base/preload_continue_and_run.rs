@@ -2,13 +2,9 @@ fn preload_first_continue(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     video: &Rc<RefCell<db::VideoPrefs>>,
     recent: &impl IsA<gtk::Widget>,
+    last_path: &Rc<RefCell<Option<PathBuf>>>,
 ) -> Option<bool> {
-    let has_file = player
-        .borrow()
-        .as_ref()
-        .and_then(|b| local_file_from_mpv(&b.mpv))
-        .is_some();
-    if !recent.is_visible() || has_file {
+    if !recent.is_visible() || last_path.borrow().is_some() {
         return None;
     }
     let path = history::load().into_iter().next()?;
@@ -17,6 +13,7 @@ fn preload_first_continue(
     let _ = b.mpv.set_property("pause", true);
     b.load_file_path(&path, false).ok()?;
     let _ = b.mpv.set_property("pause", true);
+    *last_path.borrow_mut() = std::fs::canonicalize(&path).ok();
     Some(video_pref::apply_mpv_video(&b.mpv, &mut video.borrow_mut(), None).smooth_auto_off)
 }
 

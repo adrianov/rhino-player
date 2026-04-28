@@ -50,15 +50,9 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
 
 /// Recomputes Prev/Next sensitivity + tooltips. Called on `path`/`FileLoaded`/`VideoReconfig`.
 fn refresh_sibling_nav(ctx: &Rc<TransportCtx>) {
-    let cur = current_local_path(&ctx.player).or_else(|| ctx.eof.last_path.borrow().clone());
+    let cur = ctx.eof.last_path.borrow().clone();
     ctx.sibling_nav
         .refresh(cur.as_deref(), ctx.eof.sibling_seof.as_ref());
-}
-
-fn current_local_path(player: &Rc<RefCell<Option<MpvBundle>>>) -> Option<PathBuf> {
-    let g = player.try_borrow().ok()?;
-    let b = g.as_ref()?;
-    local_file_from_mpv(&b.mpv)
 }
 
 fn sync_window_aspect_from_player(
