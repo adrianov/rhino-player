@@ -21,16 +21,15 @@ fn make_on_open_handler(ctx: OpenHandlerCtx) -> RcPathFn {
             &ctx.win,
             &ctx.gl,
             &ctx.recent,
-            &LoadOpts {
-                record: true,
-                play_on_start: true,
-                last_path: ctx.last_path.clone(),
-                on_start: Some(Rc::clone(&ctx.on_start)),
-                win_aspect: ctx.win_aspect.clone(),
-                on_loaded: Some(Rc::clone(&ctx.on_loaded)),
-                reapply_60: Some(ctx.reapply_60.clone()),
-                reset_speed_to_normal: false,
-            },
+            &LoadOpts::replace_media(
+                ctx.last_path.clone(),
+                Some(Rc::clone(&ctx.on_start)),
+                ctx.win_aspect.clone(),
+                Some(Rc::clone(&ctx.on_loaded)),
+                Some(ctx.reapply_60.clone()),
+                true,
+                false,
+            ),
         );
         match loaded {
             Ok(()) => schedule_sub_button_scan(ctx.player.clone(), ctx.sub_menu.clone()),

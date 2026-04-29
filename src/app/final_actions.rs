@@ -100,16 +100,15 @@ fn wire_final_actions(ctx: FinalActionCtx) {
                     aw,
                     &gl_w,
                     &recent_choose,
-                    &LoadOpts {
-                        record: true,
-                        play_on_start: true,
-                        last_path: last_fp.clone(),
-                        on_start: Some(ovc2),
-                        win_aspect: wa2.clone(),
-                        on_loaded: Some(oload),
-                        reapply_60: Some(re_o.clone()),
-                        reset_speed_to_normal: false,
-                    },
+                    &LoadOpts::replace_media(
+                        last_fp.clone(),
+                        Some(ovc2),
+                        wa2.clone(),
+                        Some(oload),
+                        Some(re_o.clone()),
+                        true,
+                        false,
+                    ),
                 ) {
                     eprintln!("[rhino] open: try_load: {e}");
                 }

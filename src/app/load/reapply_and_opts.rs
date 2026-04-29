@@ -1,0 +1,47 @@
+#[derive(Clone)]
+struct VideoReapply60 {
+    vp: Rc<RefCell<db::VideoPrefs>>,
+    app: adw::Application,
+}
+
+/// Options for [try_load] (keeps the arity clippy limit without `allow`).
+struct LoadOpts {
+    record: bool,
+    play_on_start: bool,
+    /// Filled on success so [maybe_advance_sibling_on_eof] can resolve a path if mpv clears it at idle EOF.
+    last_path: Rc<RefCell<Option<PathBuf>>>,
+    /// Reveal chrome and (re)start 3s auto-hide; `None` for tests or callers without UI bundle.
+    on_start: Option<Rc<dyn Fn()>>,
+    /// `Some(w/h)` for [sync_window_aspect_from_mpv] / [apply_window_video_aspect]; cleared with no video.
+    win_aspect: Rc<Cell<Option<f64>>>,
+    /// Fuzzy subtitle auto-pick + hook after a successful `loadfile`.
+    on_loaded: Option<Rc<dyn Fn()>>,
+    reapply_60: Option<VideoReapply60>,
+    /// Before `loadfile`, set mpv speed to **1.0** if it was changed (sibling EOF advance).
+    reset_speed_to_normal: bool,
+}
+
+impl LoadOpts {
+    /// One builder for Opens (menu, drag-drop, **`open`/`activate`**, Nautilus, folder buttons, sibling EOF).
+    /// Keeps **`record`: true** (recent history row); callers set **`play_on_start`**, **`reset_speed_to_normal`**, and the shared **`Rc`** fields.
+    fn replace_media(
+        last_path: Rc<RefCell<Option<PathBuf>>>,
+        on_start: Option<Rc<dyn Fn()>>,
+        win_aspect: Rc<Cell<Option<f64>>>,
+        on_loaded: Option<Rc<dyn Fn()>>,
+        reapply_60: Option<VideoReapply60>,
+        play_on_start: bool,
+        reset_speed_to_normal: bool,
+    ) -> Self {
+        Self {
+            record: true,
+            play_on_start,
+            last_path,
+            on_start,
+            win_aspect,
+            on_loaded,
+            reapply_60,
+            reset_speed_to_normal,
+        }
+    }
+}

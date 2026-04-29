@@ -62,16 +62,15 @@ fn make_sibling_nav_click(
         };
         seof.done.set(false);
         drop(g);
-        let o = LoadOpts {
-            record: true,
-            play_on_start: true,
-            last_path: Rc::clone(&lp),
-            on_start: Some(Rc::clone(&ovid)),
-            win_aspect: Rc::clone(&wa),
-            on_loaded: Some(Rc::clone(&ol)),
-            reapply_60: Some(r60.clone()),
-            reset_speed_to_normal: false,
-        };
+        let o = LoadOpts::replace_media(
+            Rc::clone(&lp),
+            Some(Rc::clone(&ovid)),
+            Rc::clone(&wa),
+            Some(Rc::clone(&ol)),
+            Some(r60.clone()),
+            true,
+            false,
+        );
         if let Err(e) = try_load(&np, &p, &w, &gl, &rec, &o) {
             eprintln!("[rhino] {label}: {e}");
         }

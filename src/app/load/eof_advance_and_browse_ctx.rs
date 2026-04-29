@@ -44,16 +44,15 @@ fn maybe_advance_sibling_on_eof(
     drop(g);
     seof.done.set(true);
     if let Some(np) = next {
-        let o = LoadOpts {
-            record: true,
-            play_on_start: true,
-            last_path: Rc::clone(last_path),
-            on_start: Some(Rc::clone(on_start)),
-            win_aspect: Rc::clone(&win_aspect),
-            on_loaded: on_loaded.as_ref().map(Rc::clone),
-            reapply_60: Some(reapply.clone()),
-            reset_speed_to_normal: true,
-        };
+        let o = LoadOpts::replace_media(
+            Rc::clone(last_path),
+            Some(Rc::clone(on_start)),
+            Rc::clone(&win_aspect),
+            on_loaded.as_ref().map(Rc::clone),
+            Some(reapply.clone()),
+            true,
+            true,
+        );
         if let Err(e) = try_load(&np, player, win, gl, recent, &o) {
             eprintln!("[rhino] sibling advance: {e}");
             seof.done.set(false);
