@@ -62,6 +62,30 @@ fn log_vf_diagnostics(mpv: &Mpv, vlog: bool) {
     }
 }
 
+/// After [loadfile]: draw **without** the VapourSynth `vf`, but already on the **Smooth** decode path
+/// (`hwdec=no`, `vd-lavc-dr=no`) so the next idle only runs `vf add` instead of swapping hw→sw decode
+/// and attaching the script at once — that combined jump commonly produced several seconds of black.
+/// Attach VapourSynth on the following idle ([apply_mpv_video]). If Smooth 60 is off, not ~1.0×, or no media
+/// is open yet, this delegates to [apply_mpv_video].
+pub fn apply_mpv_fast_start_after_load(mpv: &Mpv, v: &mut VideoPrefs) -> MpvVideoApply {
+    let use_mvtools_now = v.smooth_60 && mvtools_vf_eligible(mpv, None);
+    if !use_mvtools_now || !mpv_has_open_media(mpv) {
+        return apply_mpv_video(mpv, v, None);
+    }
+    let vlog = video_log();
+    if vf_string_has_vapoursynth(mpv) {
+        clear_vf(mpv, vlog);
+    }
+    set_smooth_decode(mpv, vlog);
+    if video_log() {
+        eprintln!("[rhino] video: after load — sw decode without vf yet; Smooth `vf` on next idle")
+    }
+    log_vf_diagnostics(mpv, vlog);
+    MpvVideoApply {
+        smooth_auto_off: false,
+    }
+}
+
 /// [apply_mpv_video] when the VapourSynth [vf] was not installed yet; see [mvtools_vf_eligible] for when
 /// the filter is actually added.
 pub fn complete_vapoursynth_attach(mpv: &Mpv, v: &mut VideoPrefs) -> bool {
@@ -72,6 +96,9 @@ pub fn complete_vapoursynth_attach(mpv: &Mpv, v: &mut VideoPrefs) -> bool {
 /// If Smooth 60 is on, **speed** is ~1.0×, and `vapoursynth` is still not in the `vf` list (e.g. post-load
 /// race), run [apply_mpv_video] once. Called from the **second** [loadfile] idle (chained), not from a timer.
 pub fn reapply_60_if_still_missing(mpv: &Mpv, v: &mut VideoPrefs) -> bool {
+    if mpv.get_property::<bool>("pause").unwrap_or(true) {
+        return false;
+    }
     if !v.smooth_60 || !mpv_has_open_media(mpv) {
         return false;
     }
@@ -91,13 +118,9 @@ fn vf_string_has_vapoursynth(mpv: &Mpv) -> bool {
     }
 }
 
-/// True when the active mpv video filter list contains VapourSynth.
-pub fn has_vapoursynth_vf(mpv: &Mpv) -> bool {
-    vf_string_has_vapoursynth(mpv)
-}
-
-/// Clear VapourSynth only for paused seeking, so mpv can show a still frame without a black GL surface.
-pub fn clear_vapoursynth_for_paused_seek(mpv: &Mpv) -> bool {
+/// Drop the Smooth / VapourSynth `vf` while **paused** so the player shows a normal still frame;
+/// restore with [apply_mpv_video] when playback resumes (transport `pause` handling).
+pub fn unload_smooth_on_pause(mpv: &Mpv) -> bool {
     if !vf_string_has_vapoursynth(mpv) {
         return false;
     }
@@ -128,7 +151,7 @@ fn resync_av_after_vf_change(mpv: &Mpv) {
     let end = (dur - 0.05).max(0.0);
     let t = pos.clamp(0.0, end);
     let s = format!("{:.4}", t);
-    match mpv.command("seek", &[s.as_str(), "absolute+keyframes"]) {
+    match mpv.command("seek", &[s.as_str(), "absolute+exact"]) {
         Ok(()) => {
             if video_log() {
                 eprintln!("[rhino] video: A/V resync after vf (seek) @ {t:.3}s");
@@ -160,7 +183,8 @@ fn log_apply(v: &VideoPrefs) {
 pub fn apply_mpv_video(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> MpvVideoApply {
     let vlog = video_log();
     log_apply(v);
-    let use_mvtools = v.smooth_60 && mvtools_vf_eligible(mpv, speed_hint);
+    let paused = mpv.get_property::<bool>("pause").unwrap_or(true);
+    let use_mvtools = v.smooth_60 && mvtools_vf_eligible(mpv, speed_hint) && !paused;
     let want_60 = v.smooth_60;
     let had_vapoursynth = vf_string_has_vapoursynth(mpv);
     if !use_mvtools {

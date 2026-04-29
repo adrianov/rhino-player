@@ -244,11 +244,13 @@ impl MpvBundle {
 
     /// Apply the resume stashed by the most recent [load_file_path]. Idempotent and a no-op when
     /// nothing is pending. Call once per `FileLoaded` from the transport-event drain.
+    /// Uses **`absolute+exact`** so the demuxer lands on the saved time (keyframe-only seeks can
+    /// sit at 0s briefly on load and fight the continue grid).
     pub fn apply_pending_resume(&self) {
         let Some(t) = self.pending_resume.replace(None) else {
             return;
         };
         let s = format!("{t:.4}");
-        let _ = self.mpv.command("seek", &[s.as_str(), "absolute+keyframes"]);
+        let _ = self.mpv.command("seek", &[s.as_str(), "absolute+exact"]);
     }
 }

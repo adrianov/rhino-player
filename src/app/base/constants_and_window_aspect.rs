@@ -85,17 +85,35 @@ fn same_open_target(a: &Path, b: &Path) -> bool {
     }
 }
 
+/// Re-seek before revealing the video after a **warm** open (preloaded file on the continue grid).
+///
+/// Right after `loadfile`, mpv can still report `time-pos`≈0 while [MpvBundle::apply_pending_resume]
+/// is about to apply (or has not updated the clock yet). Doing a keyframe seek to 0 would **stick**
+/// at the start despite a large [db::resume_pos]. Prefer the saved position when playback time is
+/// still near zero but SQLite has a plausible mid-file resume.
 fn resync_warm_continue(mpv: &Mpv) {
     let dur = mpv.get_property::<f64>("duration").unwrap_or(0.0);
-    let pos = mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
-    if !dur.is_finite() || dur <= 0.0 || !pos.is_finite() {
+    if !dur.is_finite() || dur <= 0.0 {
         return;
+    }
+    let mut pos = mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
+    if !pos.is_finite() {
+        return;
+    }
+    if pos < 2.0 {
+        if let Some(p) = crate::media_probe::local_file_from_mpv(mpv) {
+            if let Some(db_t) = db::resume_pos(&p) {
+                if db_t > 5.0 && db_t < dur {
+                    pos = db_t;
+                }
+            }
+        }
     }
     let t = pos.clamp(0.0, (dur - 0.05).max(0.0));
     let s = format!("{t:.4}");
     let _ = mpv.set_property("pause", true);
     if mpv
-        .command("seek", &[s.as_str(), "absolute+keyframes"])
+        .command("seek", &[s.as_str(), "absolute+exact"])
         .is_err()
     {
         let _ = mpv.set_property("time-pos", t);

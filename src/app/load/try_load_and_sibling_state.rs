@@ -1,27 +1,5 @@
 /// [video_pref::apply_mpv_video] after [loadfile] so the VapourSynth filter attaches when [path] is valid.
-#[derive(Clone)]
-struct VideoReapply60 {
-    vp: Rc<RefCell<db::VideoPrefs>>,
-    app: adw::Application,
-}
-
-/// Options for [try_load] (keeps the arity clippy limit without `allow`).
-struct LoadOpts {
-    record: bool,
-    play_on_start: bool,
-    /// Filled on success so [maybe_advance_sibling_on_eof] can resolve a path if mpv clears it at idle EOF.
-    last_path: Rc<RefCell<Option<PathBuf>>>,
-    /// Reveal chrome and (re)start 3s auto-hide; `None` for tests or callers without UI bundle.
-    on_start: Option<Rc<dyn Fn()>>,
-    /// `Some(w/h)` for [sync_window_aspect_from_mpv] / [apply_window_video_aspect]; cleared with no video.
-    win_aspect: Rc<Cell<Option<f64>>>,
-    /// Fuzzy subtitle auto-pick + hook after a successful `loadfile`.
-    on_loaded: Option<Rc<dyn Fn()>>,
-    reapply_60: Option<VideoReapply60>,
-    /// Before `loadfile`, set mpv speed to **1.0** if it was changed (sibling EOF advance).
-    reset_speed_to_normal: bool,
-}
-
+///
 /// Load a file, hide the recent grid overlay, show video; [LoadOpts::record] appends to recent history.
 /// [play_on_start]: clear `pause` so playback runs after the SQLite resume `start=` is applied.
 /// **false** for CLI open-on-launch to respect saved state.
@@ -98,7 +76,8 @@ fn load_file_into_player(
     Ok(false)
 }
 
-/// Schedules two idle passes that apply / re-check the 60fps VapourSynth filter after loadfile.
+/// Schedules two idle passes after `loadfile`: **fast** decode (no Smooth 60 vf yet), then full
+/// [video_pref::apply_mpv_video] when Smooth 60 is enabled so the script attaches on the next idle.
 fn schedule_reapply_60(player: &Rc<RefCell<Option<MpvBundle>>>, gl: &gtk::GLArea, o: &LoadOpts) {
     let Some(r) = o.reapply_60.as_ref() else { return };
     let p = Rc::clone(player);
@@ -106,7 +85,7 @@ fn schedule_reapply_60(player: &Rc<RefCell<Option<MpvBundle>>>, gl: &gtk::GLArea
     let gl0 = gl.clone();
     let _ = glib::idle_add_local_once(move || {
         if let Some(b) = p.borrow().as_ref() {
-            let a = video_pref::apply_mpv_video(&b.mpv, &mut r0.vp.borrow_mut(), None);
+            let a = video_pref::apply_mpv_fast_start_after_load(&b.mpv, &mut r0.vp.borrow_mut());
             if a.smooth_auto_off {
                 sync_smooth_60_to_off(&r0.app);
                 show_smooth_setup_dialog(&r0.app);
@@ -117,12 +96,18 @@ fn schedule_reapply_60(player: &Rc<RefCell<Option<MpvBundle>>>, gl: &gtk::GLArea
         let r1 = r0.clone();
         let gl1 = gl0.clone();
         let _ = glib::idle_add_local_once(move || {
+            let mut turned_off_ui = false;
             if let Some(b) = p2.borrow().as_ref() {
-                let off = video_pref::reapply_60_if_still_missing(&b.mpv, &mut r1.vp.borrow_mut());
-                if off {
-                    sync_smooth_60_to_off(&r1.app);
-                    show_smooth_setup_dialog(&r1.app);
+                let mut vp = r1.vp.borrow_mut();
+                if vp.smooth_60 {
+                    let a = video_pref::apply_mpv_video(&b.mpv, &mut vp, None);
+                    turned_off_ui = a.smooth_auto_off
+                        || video_pref::reapply_60_if_still_missing(&b.mpv, &mut vp);
                 }
+            }
+            if turned_off_ui {
+                sync_smooth_60_to_off(&r1.app);
+                show_smooth_setup_dialog(&r1.app);
             }
             gl1.queue_render();
         });
@@ -130,6 +115,8 @@ fn schedule_reapply_60(player: &Rc<RefCell<Option<MpvBundle>>>, gl: &gtk::GLArea
 }
 
 /// Hides recent grid and kicks off playback (immediate or delayed warm reveal).
+/// Always raises the window so openings from external handlers (e.g. file manager while in background)
+/// bring the UI to the foreground.
 fn reveal_ui_after_load(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     win: &adw::ApplicationWindow,
@@ -138,6 +125,7 @@ fn reveal_ui_after_load(
     o: &LoadOpts,
     warm_hit: bool,
 ) {
+    win.present();
     let delayed_warm = warm_hit && o.play_on_start;
     if !delayed_warm {
         recent_layer.set_visible(false);

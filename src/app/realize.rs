@@ -60,6 +60,11 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
     let pending_rz = pending_recent_backfill.clone();
     gl.connect_realize(move |area| {
         area.make_current();
+        // Preload fills the bundle with the first history item; optional `argv[1]` / portal open
+        // runs `try_load` right after GL init and replaces that file — follow-up preload idles must
+        // NOT run alongside `schedule_reapply_60`, or multiple `vf` teardown/rebuild bursts can freeze
+        // the GPU / main loop.
+        let skip_preload_followups = file_boot_rz.borrow().is_some();
         let init = {
             let mut v = vp_realize.borrow_mut();
             MpvBundle::new(area, &mut v)
@@ -81,7 +86,7 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
                 if preload_auto_off == Some(true) {
                     sync_smooth_60_to_off(&app_realize);
                 }
-                if preload_auto_off.is_some() {
+                if preload_auto_off.is_some() && !skip_preload_followups {
                     schedule_preload_pause(p_realize.clone(), recent_rz.clone());
                     schedule_preload_reapply_60(
                         p_realize.clone(),
@@ -117,16 +122,15 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
                         &win_rz,
                         &gl_rz,
                         &recent_rz,
-                        &LoadOpts {
-                            record: true,
-                            play_on_start: false,
-                            last_path: last_rz.clone(),
-                            on_start: Some(Rc::clone(&on_vid_rz)),
-                            win_aspect: wa_st.clone(),
-                            on_loaded: Some(Rc::clone(&ol_rz)),
-                            reapply_60: Some(reapply_rz.clone()),
-                            reset_speed_to_normal: false,
-                        },
+                        &LoadOpts::replace_media(
+                            last_rz.clone(),
+                            Some(Rc::clone(&on_vid_rz)),
+                            wa_st.clone(),
+                            Some(Rc::clone(&ol_rz)),
+                            Some(reapply_rz.clone()),
+                            false,
+                            false,
+                        ),
                     ) {
                         eprintln!("[rhino] try_load (startup): {e}");
                     }
@@ -167,10 +171,19 @@ fn schedule_preload_reapply_60(
     app: adw::Application,
 ) {
     let _ = glib::idle_add_local_once(move || {
-        if !recent.is_visible() { return; }
+        if !recent.is_visible() {
+            return;
+        }
         if let Some(b) = player.borrow().as_ref() {
-            let off = video_pref::reapply_60_if_still_missing(&b.mpv, &mut reapply.vp.borrow_mut());
-            if off { sync_smooth_60_to_off(&app); }
+            let mut vp = reapply.vp.borrow_mut();
+            if !vp.smooth_60 {
+                return;
+            }
+            let off = video_pref::apply_mpv_video(&b.mpv, &mut vp, None).smooth_auto_off
+                || video_pref::reapply_60_if_still_missing(&b.mpv, &mut vp);
+            if off {
+                sync_smooth_60_to_off(&app);
+            }
         }
     });
 }

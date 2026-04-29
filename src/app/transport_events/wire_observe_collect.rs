@@ -80,6 +80,7 @@ struct TransportEofCtx {
 
 struct TransportCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
     widgets: TransportWidgets,
     eof: TransportEofCtx,
     /// Bottom-bar visibility flag; transient seek-slider redraws are skipped while it is `false`
@@ -100,6 +101,7 @@ struct TransportCtx {
 struct TransportSetup {
     app: adw::Application,
     player: Rc<RefCell<Option<MpvBundle>>>,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
     sub_pref: Rc<RefCell<db::SubPrefs>>,
     win: adw::ApplicationWindow,
     gl: gtk::GLArea,
@@ -126,6 +128,7 @@ fn wire_transport_events(s: TransportSetup) {
     }
     let ctx = Rc::new(TransportCtx {
         player: s.player.clone(),
+        video_pref: s.video_pref.clone(),
         widgets: s.widgets,
         eof: TransportEofCtx {
             app: s.app,

@@ -1,3 +1,24 @@
+fn sync_smooth_vf_on_pause_transition(ctx: &Rc<TransportCtx>, paused: bool) {
+    // Smooth 60 `.vpy` stays off while paused and reapplies after playback resumes (`pause=no`).
+    let g = match ctx.player.try_borrow() {
+        Ok(g) => g,
+        Err(_) => return,
+    };
+    let Some(b) = g.as_ref() else {
+        return;
+    };
+    if !matches!(b.mpv.get_property::<String>("path"), Ok(ref s) if !s.trim().is_empty()) {
+        return;
+    }
+    if paused {
+        let _ = video_pref::unload_smooth_on_pause(&b.mpv);
+    } else {
+        let mut vp = ctx.video_pref.borrow_mut();
+        let _ = video_pref::apply_mpv_video(&b.mpv, &mut vp, None);
+    }
+    ctx.eof.gl.queue_render();
+}
+
 /// Dispatch property-change / FileLoaded / VideoReconfig / PathChanged events.
 /// Time-pos, core-idle, and EOF detection live in [transport_tick] (see deferred_resync.rs).
 fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
@@ -9,6 +30,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
         TransportEv::Pause(p) => {
             ctx.cache.borrow_mut().pause = p;
             refresh_play_button(ctx);
+            sync_smooth_vf_on_pause_transition(ctx, p);
         }
         TransportEv::Duration(d) => {
             let d = if d.is_finite() { d } else { 0.0 };

@@ -225,7 +225,7 @@ fn build_window(
 
     wire_seek_control(
         &w.seek, player, &w.gl_area, seek_sync.clone(), seek_grabbed.clone(),
-        w.time_left.clone(), Rc::clone(&video_pref),
+        w.time_left.clone(),
     );
 
     let vol_sync = Rc::new(Cell::new(false));
@@ -240,7 +240,8 @@ fn build_window(
     );
 
     wire_transport_events(TransportSetup {
-        app: app.clone(), player: player.clone(), sub_pref: sub_pref.clone(),
+        app: app.clone(), player: player.clone(), video_pref: Rc::clone(&video_pref),
+        sub_pref: sub_pref.clone(),
         win: w.win.clone(), gl: w.gl_area.clone(), recent: w.recent_scrl.clone(),
         last_path: last_path.clone(), sibling_seof: sibling_seof.clone(),
         sibling_nav: w.sibling_nav.clone(), exit_after_current: exit_after_current.clone(),
