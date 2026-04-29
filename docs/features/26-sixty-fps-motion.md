@@ -49,11 +49,11 @@ Feature: Optional ~60 fps motion via VapourSynth
     Then a row shows the script basename next to a checkbox vs-custom
     And unchecking that row clears video_vs_path and reverts to the bundled .vpy
 
-  Scenario: Paused seek temporarily clears vf for still frame
-    Given a vapoursynth filter graph is active and the player is paused
-    When the user seeks
-    Then the app temporarily clears vf so mpv renders a normal still frame
-    And Smooth 60 is reapplied on the next unpause if the preference remains enabled
+  Scenario: Pause unloads temporal smoothing until playback resumes
+    Given Smooth Video is enabled for approximately 1.0× playback
+    When playback is paused
+    Then the temporal-smoothing filter graph is unloaded
+    And when playback resumes that graph is restored if Smooth Video remains enabled
 
   Scenario: Speed change resyncs RHINO_PLAYBACK_SPEED before vf rebuild
     Given the user selects a speed row from the header list
@@ -78,6 +78,12 @@ Feature: Optional ~60 fps motion via VapourSynth
     Then it uses the cached path without searching disk
     And RHINO_MVTOOLS_LIB takes precedence when set in the environment
 
+  Scenario: First picture appears before temporal smoothing attaches
+    Given video_smooth_60 is true with MVTools resolving and playback is approximately 1.0×
+    When the user loads a local title while Smooth Video remains enabled
+    Then a visible picture appears before the temporal upscaling stage runs
+    And the temporal upscaling stage runs shortly afterward
+
   Scenario: Disable clears vf and restores hwdec / vd-lavc-dr
     Given a vapoursynth graph is active
     When the user disables Smooth Video or speed leaves ~1.0×
@@ -88,10 +94,10 @@ Feature: Optional ~60 fps motion via VapourSynth
 ## Notes
 - Settings: `video_smooth_60` 0/1, `video_vs_path` UTF-8 path (empty for bundled), `video_mvtools_lib` cached absolute path. Persisted with other video prefs (see [14-preferences](14-preferences.md)).
 - Menu wiring: stateful `smooth-60` action (Preferences → Smooth Video (~60 FPS at 1.0×)); `vs-custom` row appears when `video_vs_path` is non-empty; **Choose VapourSynth Script…** sets the path and saves only after MVTools is resolved.
-- mpv defaults are otherwise untouched (no forced `video-sync`, `interpolation`, or `hwdec`); GTK frame clock and libmpv presentation paths still drive vsync.
+- mpv defaults are otherwise untouched when Smooth is off (no forced `video-sync`, `interpolation`, or `hwdec`); GTK frame clock and libmpv presentation paths still drive vsync.
 - The vf line is `vapoursynth:file=…:buffered-frames=24:concurrent-frames=auto`. Deeper queues give MVTools more headroom at the cost of memory and seek latency.
-- Before adding the vf, force `hwdec=no` and `vd-lavc-dr=no` (direct rendering can bypass the CPU filter path).
-- After loadfile, run `apply_mpv_video` on the first GLib idle, then chain a second idle that re-applies if the vf line is still missing while Smooth 60 is on and speed ~1.0×. After an actual vf clear/replace, `seek <time-pos> absolute+keyframes` re-aligns A/V (skipped when `time-pos` < ~0.12 s); on seek failure, set `time-pos`.
+- Pause (`pause=yes`): unload the `vf` graph and restore software-friendly decode defaults for a normal still frame; playback (`pause=no`): run full filter application again when Smooth applies. Implemented from libmpv `pause` property observation, not per-seek juggling.
+- After loadfile, GLib idle **1** applies `hwdec=no` and `vd-lavc-dr=no` but **not** the `vapoursynth` vf yet (plain software decode until the filter graph is ready); idle **2** runs full [apply_mpv_video] ([reapply_60_if_still_missing] afterward). After other vf clear/replace, `seek <time-pos> absolute+exact` re-aligns A/V (skipped when `time-pos` < ~0.12 s); on seek failure, set `time-pos`.
 - The bundled script tags source with `AssumeFPS` once at 1.0×, then `FlowFPS(60/1)` (no second `AssumeFPS(×1)`). At 1.5× / 2.0× it retimes with `AssumeFPS(× speed)` first, then `FlowFPS`.
 - `libmvtools.so` resolution order: `RHINO_MVTOOLS_LIB` env, then cached `video_mvtools_lib` if still a file, then a bounded search (common distro paths, pipx / vsrepo under `~/.local`). On success the absolute path is saved to `video_mvtools_lib` and printed to stderr (e.g. `libmvtools -> …`).
 - Subtitles (libass) are rendered outside the VapourSynth graph; A/B test by watching motion (pans), or briefly turn subs off.

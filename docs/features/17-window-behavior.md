@@ -12,9 +12,10 @@ mpv_props: [pause, path, dwidth, dheight, fullscreen]
 - Immersive fullscreen with chrome that hides when not needed.
 - The screen does not lock or sleep during a movie.
 - On opening a landscape file, the window resizes to match its aspect.
+- When another application had foreground focus, opening a media title raises the viewer.
 
 ## Description
-The shell uses `adw::ToolbarView` with content extending to top and bottom edges, so chrome overlays the GLArea instead of shrinking it. A `GtkWindowHandle` wraps the main content for primary-drag window move (more reliable than manual GestureDrag on GL/Wayland). Fullscreen and maximize are wired to GTK / Wayland conventions; `gtk::Application::inhibit` with IDLE+SUSPEND prevents dim and sleep while a real file plays and the recent grid is hidden. Pointer hides on the GLArea after 3 seconds without motion. On opening a new file, the window resizes to match landscape aspect (target width 960 px, max height 900 px); portrait, square, or unknown sizes leave the window alone.
+The shell uses `adw::ToolbarView` with content extending to top and bottom edges, so chrome overlays the GLArea instead of shrinking it. A `GtkWindowHandle` wraps the main content for primary-drag window move (more reliable than manual GestureDrag on GL/Wayland). Fullscreen and maximize are wired to GTK / Wayland conventions; `gtk::Application::inhibit` with IDLE+SUSPEND prevents dim and sleep while a real file plays and the recent grid is hidden. Pointer hides on the GLArea after 3 seconds without motion. On opening a new file, the window is presented so it can take focus when another app was foreground; the window resizes to match landscape aspect (target width 960 px, max height 900 px); portrait, square, or unknown sizes leave the window alone.
 
 **Post-resize aspect lock** (snapping the window to current display video aspect after the user finishes resizing) and **one-click switching between header `MenuButton` popovers** were attempted but did not validate in manual testing in the current pass. They are documented as not shipped.
 
@@ -23,6 +24,11 @@ The shell uses `adw::ToolbarView` with content extending to top and bottom edges
 ```gherkin
 @status:wip @priority:p1 @layer:ui @area:window
 Feature: Window, fullscreen, and presentation
+
+  Scenario: Open path brings the window forward
+    Given another application had foreground focus
+    When the viewer loads a local media title from an open gesture
+    Then the viewer window is presented so it advances to the top
 
   Scenario: Idle inhibit while playing behind chrome
     Given a real media path is loaded, pause is false, and the recent grid is hidden
