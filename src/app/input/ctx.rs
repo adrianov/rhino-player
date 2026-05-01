@@ -30,7 +30,14 @@ struct WindowInputCtx {
     on_file_loaded: Rc<dyn Fn()>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     win_aspect: Rc<Cell<Option<f64>>>,
+    sibling_seof: Rc<SiblingEofState>,
     play_pause: gtk::Button,
+    seek: gtk::Scale,
+    seek_sync: Rc<Cell<bool>>,
+    time_left: gtk::Label,
+    fs_clock: gtk::Label,
+    fs_clock_tick: Rc<RefCell<Option<glib::SourceId>>>,
+    reapply_60: VideoReapply60,
 }
 
 fn wire_window_input(ctx: WindowInputCtx) {

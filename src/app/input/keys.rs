@@ -21,8 +21,18 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
         sub_menu: None,
         play_pause: ctx.play_pause.clone(),
     };
+    let seek_sc = ctx.seek.clone();
+    let seek_sync_sc = ctx.seek_sync.clone();
+    let time_left_sc = ctx.time_left.clone();
+    let gl_seek = ctx.gl.clone();
+    let reapply_seek = ctx.reapply_60.clone();
+    let last_path_nav = ctx.last_path.clone();
+    let on_vid_nav = ctx.on_video_chrome.clone();
+    let win_aspect_nav = ctx.win_aspect.clone();
+    let seof_nav = ctx.sibling_seof.clone();
+    let on_loaded_nav = ctx.on_file_loaded.clone();
     let k = gtk::EventControllerKey::new();
-    k.connect_key_pressed(move |_, key, _code, _m| {
+    k.connect_key_pressed(move |_c, key, _code, m| {
         if key == gtk::gdk::Key::Escape {
             if win_key.is_fullscreen() {
                 skip_key.set(true);
@@ -38,7 +48,11 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
             browse_back(true);
             return glib::Propagation::Stop;
         }
-        if key == gtk::gdk::Key::Return || key == gtk::gdk::Key::KP_Enter {
+        if key == gtk::gdk::Key::Return
+            || key == gtk::gdk::Key::KP_Enter
+            || key == gtk::gdk::Key::f
+            || key == gtk::gdk::Key::F
+        {
             toggle_fullscreen(&win_key, &fr_key, &lu_key, &skip_key);
             return glib::Propagation::Stop;
         }
@@ -67,6 +81,74 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
                 return glib::Propagation::Proceed;
             };
             nudge_mpv_volume(&b.mpv, -5.0);
+            return glib::Propagation::Stop;
+        }
+        if m.contains(gtk::gdk::ModifierType::CONTROL_MASK) {
+            if key == gtk::gdk::Key::Left || key == gtk::gdk::Key::KP_Left {
+                try_load_sibling_pick(
+                    sibling_advance::prev_before_current,
+                    "previous",
+                    &SiblingNavTryRefs {
+                        player: &p,
+                        win: &win_key,
+                        gl: &gl_seek,
+                        recent: &recent_esc,
+                        last_path: &last_path_nav,
+                        on_video_chrome: &on_vid_nav,
+                        win_aspect: &win_aspect_nav,
+                        sibling_seof: &seof_nav,
+                        on_file_loaded: &on_loaded_nav,
+                    },
+                );
+                return glib::Propagation::Stop;
+            }
+            if key == gtk::gdk::Key::Right || key == gtk::gdk::Key::KP_Right {
+                try_load_sibling_pick(
+                    sibling_advance::next_after_eof,
+                    "next",
+                    &SiblingNavTryRefs {
+                        player: &p,
+                        win: &win_key,
+                        gl: &gl_seek,
+                        recent: &recent_esc,
+                        last_path: &last_path_nav,
+                        on_video_chrome: &on_vid_nav,
+                        win_aspect: &win_aspect_nav,
+                        sibling_seof: &seof_nav,
+                        on_file_loaded: &on_loaded_nav,
+                    },
+                );
+                return glib::Propagation::Stop;
+            }
+        }
+        if key == gtk::gdk::Key::Left || key == gtk::gdk::Key::KP_Left {
+            if recent_esc.is_visible() || !seek_sc.is_sensitive() {
+                return glib::Propagation::Proceed;
+            }
+            seek_arrow_step(
+                &p,
+                &seek_sc,
+                &seek_sync_sc,
+                &time_left_sc,
+                &gl_seek,
+                &reapply_seek,
+                -5.0,
+            );
+            return glib::Propagation::Stop;
+        }
+        if key == gtk::gdk::Key::Right || key == gtk::gdk::Key::KP_Right {
+            if recent_esc.is_visible() || !seek_sc.is_sensitive() {
+                return glib::Propagation::Proceed;
+            }
+            seek_arrow_step(
+                &p,
+                &seek_sc,
+                &seek_sync_sc,
+                &time_left_sc,
+                &gl_seek,
+                &reapply_seek,
+                5.0,
+            );
             return glib::Propagation::Stop;
         }
         if key != gtk::gdk::Key::space {

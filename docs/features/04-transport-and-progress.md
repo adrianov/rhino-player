@@ -66,4 +66,4 @@ Feature: Transport controls and progress
 - Properties observed: `time-pos`, `duration`, `pause`, `mute`, `volume`, `volume-max`, `speed`, `path`, `fullscreen`, `media-title`.
 - Seek uses `seek <seconds> absolute+keyframes` (fallback: setting `time-pos`).
 - Optional hover preview popover is owned by [18-thumbnail-preview](18-thumbnail-preview.md).
-- Keyboard 5s / 10s seeks live in [13-input-shortcuts](13-input-shortcuts.md).
+- Keyboard arrow seeks (± five seconds) live in this feature; transport uses the same seek behavior as the bottom bar ([04-transport-and-progress](04-transport-and-progress.md)).

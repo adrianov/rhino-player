@@ -194,6 +194,7 @@ fn build_window(
         w.win.clone(), w.gl_area.clone(), w.recent_scrl.clone(), w.flow_recent.clone(),
     );
 
+    let fs_clock_tick = Rc::new(RefCell::new(None::<glib::SourceId>));
     wire_window_input(WindowInputCtx {
         win: w.win.clone(), root: w.root.clone(), header: w.header.clone(),
         outer_ovl: w.outer_ovl.clone(), video_handle: w.video_handle.clone(),
@@ -208,7 +209,14 @@ fn build_window(
         on_browse_back: on_browse_back.clone(),
         on_video_chrome: on_video_chrome.clone(), on_file_loaded: Rc::clone(&on_file_loaded),
         last_path: last_path.clone(), win_aspect: win_aspect.clone(),
+        sibling_seof: sibling_seof.clone(),
         play_pause: w.play_pause.clone(),
+        seek: w.seek.clone(),
+        seek_sync: seek_sync.clone(),
+        time_left: w.time_left.clone(),
+        fs_clock: w.fs_clock.clone(),
+        fs_clock_tick,
+        reapply_60: reapply_60.clone(),
     });
 
     let video_file_actions = wire_video_file_actions(VideoFileActionCtx {
@@ -231,10 +239,15 @@ fn build_window(
         move_to_trash: video_file_actions.move_to_trash,
     });
 
-    wire_seek_control(
-        &w.seek, player, &w.gl_area, seek_sync.clone(), seek_grabbed.clone(),
-        w.time_left.clone(), seek_preview.hover_t.clone(),
-    );
+    wire_seek_control(&w.seek, SeekControlDeps {
+        player: player.clone(),
+        gl: w.gl_area.clone(),
+        seek_sync: seek_sync.clone(),
+        seek_grabbed: seek_grabbed.clone(),
+        time_left: w.time_left.clone(),
+        preview_hover_t: seek_preview.hover_t.clone(),
+        reapply_60: reapply_60.clone(),
+    });
 
     let vol_sync = Rc::new(Cell::new(false));
     wire_volume_controls(VolumeCtx {

@@ -6,8 +6,49 @@ fn w_in_set_shell(ctx: &WindowInputCtx) {
     ctx.win.set_content(Some(&ctx.outer_ovl));
 }
 
+fn refresh_fs_wall_clock(lbl: &gtk::Label) {
+    lbl.set_label(format_wall_clock_now().as_str());
+}
+
+fn stop_fs_clock_tick(slot: &Rc<RefCell<Option<glib::SourceId>>>) {
+    if let Some(id) = slot.borrow_mut().take() {
+        id.remove();
+    }
+}
+
+fn fs_clock_timer_step(
+    wo: &adw::ApplicationWindow,
+    tick_slot: &Rc<RefCell<Option<glib::SourceId>>>,
+    lbl: &gtk::Label,
+) -> glib::ControlFlow {
+    if !wo.is_fullscreen() {
+        stop_fs_clock_tick(tick_slot);
+        glib::ControlFlow::Break
+    } else {
+        refresh_fs_wall_clock(lbl);
+        glib::ControlFlow::Continue
+    }
+}
+
+fn show_fs_wall_clock_fullscreen(
+    lbl: &gtk::Label,
+    tick_slot: &Rc<RefCell<Option<glib::SourceId>>>,
+    win: &adw::ApplicationWindow,
+) {
+    refresh_fs_wall_clock(lbl);
+    lbl.set_visible(true);
+    stop_fs_clock_tick(tick_slot);
+    let fc = lbl.clone();
+    let fts = tick_slot.clone();
+    let wo = win.clone();
+    let id = glib::timeout_add_seconds_local(1, move || fs_clock_timer_step(&wo, &fts, &fc));
+    *tick_slot.borrow_mut() = Some(id);
+}
+
 fn w_in_fullscreen(ctx: &WindowInputCtx) {
     let gl_area = &ctx.gl;
+    let fs_clock = ctx.fs_clock.clone();
+    let fs_tick_slot = ctx.fs_clock_tick.clone();
     {
         let root_fs = ctx.root.clone();
         let gl_fs = gl_area.clone();
@@ -21,8 +62,8 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
         let lgl = ctx.last_gl_xy.clone();
         let fr = ctx.fs_restore.clone();
         let skip_fs = ctx.skip_max_to_fs.clone();
-        let win = ctx.win.clone();
-        win.connect_fullscreened_notify(move |w| {
+        let win_sig = ctx.win.clone();
+        win_sig.connect_fullscreened_notify(move |w| {
             if let Some(id) = nav.borrow_mut().take() {
                 id.remove();
             }
@@ -36,8 +77,11 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                     w.maximize();
                 }
                 b.set(false);
+                show_fs_wall_clock_fullscreen(&fs_clock, &fs_tick_slot, w);
             } else {
                 b.set(true);
+                stop_fs_clock_tick(&fs_tick_slot);
+                fs_clock.set_visible(false);
                 restore_windowed_size(&fr, w);
                 let s = skip_fs.clone();
                 let _ = glib::source::idle_add_local_once(move || { s.set(false); });

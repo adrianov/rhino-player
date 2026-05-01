@@ -15,6 +15,13 @@ pub fn apply() {
             box-shadow: none;
             border: none;
         }
+        label.rp-fs-clock {
+            color: #c0bfbc;
+            font-family: monospace, monospace;
+            font-feature-settings: "tnum";
+            margin-inline-end: 10px;
+            font-size: 0.95em;
+        }
         .rp-stack {
             background-color: #242424;
         }

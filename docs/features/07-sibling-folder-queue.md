@@ -57,6 +57,11 @@ Feature: Sibling folder queue
     When the user activates the bottom-bar Previous or Next
     Then the loaded file matches the same folder and sibling ordering as EOF advance
 
+  Scenario: Ctrl with arrows jumps previous / next sibling
+    Given a local file with duration is open
+    When the user presses Ctrl+Left or Ctrl+Right (including keypad arrows with Ctrl)
+    Then the loaded file matches the same outcome as activating Previous or Next respectively
+
   Scenario: Tooltips reflect the next / previous filename
     Given a sibling target exists for Previous or Next
     When the user hovers the corresponding button

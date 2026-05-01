@@ -46,6 +46,7 @@ use crate::video_pref;
 pub const APP_ID: &str = "ch.rhino.RhinoPlayer";
 include!("app/base.rs");
 include!("app/load.rs");
+include!("app/wall_clock_fmt.rs");
 include!("app/realize.rs");
 include!("app/final_actions.rs");
 include!("app/input.rs");

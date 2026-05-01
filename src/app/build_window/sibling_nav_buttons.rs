@@ -1,3 +1,49 @@
+/// Shared refs for [try_load_sibling_pick] (bottom-bar buttons + Ctrl+arrow shortcuts).
+struct SiblingNavTryRefs<'a> {
+    player: &'a Rc<RefCell<Option<MpvBundle>>>,
+    win: &'a adw::ApplicationWindow,
+    gl: &'a gtk::GLArea,
+    recent: &'a gtk::ScrolledWindow,
+    last_path: &'a Rc<RefCell<Option<PathBuf>>>,
+    on_video_chrome: &'a Rc<dyn Fn()>,
+    win_aspect: &'a Rc<Cell<Option<f64>>>,
+    sibling_seof: &'a Rc<SiblingEofState>,
+    on_file_loaded: &'a Rc<dyn Fn()>,
+}
+
+/// Loads another local file using the same sibling-folder ordering as EOF advance (**Previous** /
+/// **Next** buttons and Ctrl+Left / Ctrl+Right shortcuts).
+fn try_load_sibling_pick(
+    pick: fn(&Path) -> Option<PathBuf>,
+    log_tag: &'static str,
+    r: &SiblingNavTryRefs<'_>,
+) {
+    let cur = r.last_path.borrow().clone();
+    let Some(cur) = cur.filter(|c| c.is_file()) else {
+        return;
+    };
+    let g = r.player.borrow();
+    if g.is_none() {
+        return;
+    }
+    let Some(np) = pick(&cur) else {
+        return;
+    };
+    r.sibling_seof.done.set(false);
+    drop(g);
+    let o = LoadOpts::replace_media(
+        Rc::clone(r.last_path),
+        Some(Rc::clone(r.on_video_chrome)),
+        Rc::clone(r.win_aspect),
+        Some(Rc::clone(r.on_file_loaded)),
+        true,
+        false,
+    );
+    if let Err(e) = try_load(&np, r.player, r.win, r.gl, r.recent, &o) {
+        eprintln!("[rhino] {log_tag}: {e}");
+    }
+}
+
 /// Wires the bottom-bar **previous** / **next** buttons to the sibling-folder queue
 /// (`docs/features/07-sibling-folder-queue.md`).
 ///
@@ -47,29 +93,16 @@ fn make_sibling_nav_click(
     let seof = Rc::clone(&ctx.sibling_seof);
     let ol = Rc::clone(&ctx.on_file_loaded);
     move |_| {
-        let cur = lp.borrow().clone();
-        let Some(cur) = cur.filter(|c| c.is_file()) else {
-            return;
-        };
-        let g = p.borrow();
-        if g.is_none() {
-            return;
-        };
-        let Some(np) = pick(&cur) else {
-            return;
-        };
-        seof.done.set(false);
-        drop(g);
-        let o = LoadOpts::replace_media(
-            Rc::clone(&lp),
-            Some(Rc::clone(&ovid)),
-            Rc::clone(&wa),
-            Some(Rc::clone(&ol)),
-            true,
-            false,
-        );
-        if let Err(e) = try_load(&np, &p, &w, &gl, &rec, &o) {
-            eprintln!("[rhino] {label}: {e}");
-        }
+        try_load_sibling_pick(pick, label, &SiblingNavTryRefs {
+            player: &p,
+            win: &w,
+            gl: &gl,
+            recent: &rec,
+            last_path: &lp,
+            on_video_chrome: &ovid,
+            win_aspect: &wa,
+            sibling_seof: &seof,
+            on_file_loaded: &ol,
+        });
     }
 }

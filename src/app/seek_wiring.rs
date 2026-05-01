@@ -9,6 +9,16 @@
 ///
 /// Motion over the bar always updates **`hover_t`**. When hover preview is off, **`seek_bar_preview`**
 /// skips **`loadfile`** / GL **only** — **`hover_t`** still tracks the pointer.
+struct SeekControlDeps {
+    player: Rc<RefCell<Option<MpvBundle>>>,
+    gl: gtk::GLArea,
+    seek_sync: Rc<Cell<bool>>,
+    seek_grabbed: Rc<Cell<bool>>,
+    time_left: gtk::Label,
+    preview_hover_t: Rc<Cell<f64>>,
+    reapply_60: VideoReapply60,
+}
+
 struct SeekCtx {
     seek: gtk::Scale,
     player: Rc<RefCell<Option<MpvBundle>>>,
@@ -17,25 +27,28 @@ struct SeekCtx {
     seek_grabbed: Rc<Cell<bool>>,
     time_left: gtk::Label,
     preview_hover_t: Rc<Cell<f64>>,
+    reapply_60: VideoReapply60,
 }
 
-fn wire_seek_control(
-    seek: &gtk::Scale,
-    player: &Rc<RefCell<Option<MpvBundle>>>,
-    gl: &gtk::GLArea,
-    seek_sync: Rc<Cell<bool>>,
-    seek_grabbed: Rc<Cell<bool>>,
-    time_left: gtk::Label,
-    preview_hover_t: Rc<Cell<f64>>,
-) {
-    let ctx = Rc::new(SeekCtx {
-        seek: seek.clone(),
-        player: player.clone(),
-        gl: gl.clone(),
+fn wire_seek_control(seek: &gtk::Scale, d: SeekControlDeps) {
+    let SeekControlDeps {
+        player,
+        gl,
         seek_sync,
         seek_grabbed,
         time_left,
         preview_hover_t,
+        reapply_60,
+    } = d;
+    let ctx = Rc::new(SeekCtx {
+        seek: seek.clone(),
+        player,
+        gl,
+        seek_sync,
+        seek_grabbed,
+        time_left,
+        preview_hover_t,
+        reapply_60,
     });
     wire_value_changed(&ctx);
     wire_press_release(&ctx);
@@ -54,8 +67,9 @@ fn wire_value_changed(ctx: &Rc<SeekCtx>) {
         }
         if !c.seek_grabbed.get() {
             quick_seek(&c, v);
+        } else {
+            c.gl.queue_render();
         }
-        c.gl.queue_render();
     });
 }
 
@@ -103,14 +117,75 @@ fn commit_preview_seek(ctx: &SeekCtx) {
     ctx.seek.set_value(t);
     ctx.seek_sync.set(false);
     quick_seek(ctx, t);
-    ctx.gl.queue_render();
+}
+
+/// Seek main mpv with `absolute+keyframes`. Drops vapoursynth **`vf`** before the seek when present so
+/// mpv can draw a real frame (paused seeks especially often went black through FlowFPS). When playback
+/// was **not** paused, Smooth is reapplied immediately after the seek.
+fn main_player_seek_keyframes(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    gl: &gtk::GLArea,
+    reapply_60: &VideoReapply60,
+    seconds: &str,
+) {
+    let paused;
+    let cleared;
+    {
+        let g = player.borrow();
+        let Some(b) = g.as_ref() else {
+            return;
+        };
+        paused = b.mpv.get_property::<bool>("pause").unwrap_or(true);
+        cleared = video_pref::unload_smooth_on_pause(&b.mpv);
+        let _ = b.mpv.command("seek", &[seconds, "absolute+keyframes"]);
+    }
+    if cleared && !paused {
+        smooth_vf_attach_if_playing(player.clone(), gl.clone(), reapply_60.clone(), false);
+    }
+    gl.queue_render();
 }
 
 fn quick_seek(ctx: &SeekCtx, v: f64) {
-    let g = ctx.player.borrow();
+    let s = format!("{v:.4}");
+    main_player_seek_keyframes(&ctx.player, &ctx.gl, &ctx.reapply_60, &s);
+}
+
+/// Steps **playback position** by `delta_sec` (e.g. −5 / +5 for arrow keys); keeps UI scale + clock aligned.
+fn seek_arrow_step(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    seek: &gtk::Scale,
+    seek_sync: &Rc<Cell<bool>>,
+    time_left: &gtk::Label,
+    gl: &gtk::GLArea,
+    reapply_60: &VideoReapply60,
+    delta_sec: f64,
+) {
+    let g = player.borrow();
     let Some(b) = g.as_ref() else {
         return;
     };
-    let s = format!("{v:.4}");
-    let _ = b.mpv.command("seek", &[s.as_str(), "absolute+keyframes"]);
+    let pos = b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
+    let dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
+    let pos = if pos.is_finite() { pos.max(0.0) } else { 0.0 };
+    let dur = if dur.is_finite() { dur.max(0.0) } else { 0.0 };
+    let adj_u = seek.adjustment().upper();
+    let adj_u = if adj_u.is_finite() { adj_u.max(0.0) } else { 0.0 };
+    let len = if adj_u > 0.0 {
+        adj_u
+    } else if dur > 0.0 {
+        dur
+    } else {
+        return;
+    };
+    let nt = (pos + delta_sec).clamp(0.0, len);
+    drop(g);
+    let s_abs = format!("{nt:.4}");
+    main_player_seek_keyframes(player, gl, reapply_60, &s_abs);
+    seek_sync.set(true);
+    seek.set_value(nt);
+    seek_sync.set(false);
+    let ts = format_time(nt);
+    if time_left.text().as_str() != ts {
+        time_left.set_text(&ts);
+    }
 }

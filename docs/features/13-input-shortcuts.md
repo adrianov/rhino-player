@@ -4,7 +4,7 @@
 status: done
 priority: p1
 layers: [input, ui, mpv]
-related: [02, 17, 21, 22, 27]
+related: [02, 07, 17, 21, 22, 27]
 actions: [app.quit, app.open, app.close-video, app.move-to-trash, app.exit-after-current]
 ---
 
@@ -14,7 +14,7 @@ actions: [app.quit, app.open, app.close-video, app.move-to-trash, app.exit-after
 - Mouse maps match typical player expectations.
 
 ## Description
-GTK accelerators handle window-scope shortcuts in capture phase. Application accelerators are not forwarded to mpv to avoid double-handling. Mouse maps cover primary double-click (toggle fullscreen), right-click (toggle pause), and scroll on the video surface (volume).
+GTK accelerators handle window-scope shortcuts in capture phase. Application accelerators are not forwarded to mpv to avoid double-handling. Mouse maps cover primary double-click (toggle fullscreen), right-click (toggle pause), and scroll on the video surface (volume). **Enter**, **KP_Enter**, **f**, and **F** share one fullscreen toggle like typical players.
 
 ## Behavior
 
@@ -59,6 +59,17 @@ Feature: Keyboard and pointer input
     Then app.move-to-trash runs per 27-move-to-trash
     And streams or grid focus leave the action disabled
 
+  Scenario: Ctrl with arrows jumps previous / next sibling
+    Given a file with duration is loaded and the continue grid is hidden
+    When the user presses Ctrl+Left or Ctrl+Right (including keypad arrows with Ctrl)
+    Then the previous or next sibling in folder order loads like the bottom-bar buttons
+
+  Scenario: Arrow keys step playback by five seconds
+    Given a file with duration is loaded and the continue grid is hidden
+    When the user presses Left or Right (including keypad arrows)
+    Then playback position moves backward or forward by five seconds respectively
+    And the position stays within the beginning and end of the media
+
   Scenario: Volume keys nudge by 5%
     Given the player is ready
     When the user presses Up or Down
@@ -76,9 +87,9 @@ Feature: Keyboard and pointer input
     Then app.quit writes resume snapshot
     And the application exits
 
-  Scenario: Enter toggles fullscreen
+  Scenario: Enter or f toggles fullscreen
     Given the main window is focused
-    When the user presses Enter or KP_Enter
+    When the user presses Enter, KP_Enter, f, or F
     Then fullscreen toggles like double-click on the video surface
 
   Scenario: Right click toggles play / pause
@@ -90,4 +101,7 @@ Feature: Keyboard and pointer input
 ## Notes
 - Default bindings load from a memory `input.conf`; an optional user `input.conf` under `~/.config/rhino/` is reserved for later (TBD).
 - Empty-area double-click on the recent grid spacers also toggles fullscreen (see [21-recent-videos-launch](21-recent-videos-launch.md)).
+- **f** / **F** toggles fullscreen like Enter or KP_Enter.
 - Tab focuses chrome temporarily.
+- Arrow Left / Right (and keypad arrows) step **playback position** five seconds when the seek bar is enabled and the continue grid is hidden; implementation shares the transport seek path ([04-transport-and-progress](04-transport-and-progress.md)).
+- Ctrl+Left / Ctrl+Right load the previous / next sibling file like the bottom bar ([07-sibling-folder-queue](07-sibling-folder-queue.md)).

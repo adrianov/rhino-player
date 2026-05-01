@@ -36,6 +36,8 @@ struct WindowWidgets {
     flow_recent: gtk::Box,
     recent_spacers: [gtk::Box; 4],
     undo_bar: crate::recent_view::UndoBar,
+    /// Local wall-clock readout; visible only in fullscreen (`docs/features/17-window-behavior.md`).
+    fs_clock: gtk::Label,
 }
 
 fn build_widgets(
@@ -100,6 +102,12 @@ fn build_widgets(
 
     let menu_btn = build_menu_button(menu);
 
+    let fs_clock = gtk::Label::new(None);
+    fs_clock.add_css_class("rp-fs-clock");
+    fs_clock.set_valign(gtk::Align::Center);
+    fs_clock.set_tooltip_text(Some("Local time"));
+    fs_clock.set_visible(false);
+
     let root = adw::ToolbarView::new();
     let header = adw::HeaderBar::new();
     header.add_css_class("rpb-header");
@@ -107,6 +115,7 @@ fn build_widgets(
     header.pack_end(&vol_menu);
     header.pack_end(&sub_menu);
     header.pack_end(&speed_mbtn);
+    header.pack_end(&fs_clock);
 
     let seek_adj = gtk::Adjustment::new(0.0, 0.0, 1.0, 0.2, 1.0, 0.0);
     let seek = gtk::Scale::new(gtk::Orientation::Horizontal, Some(&seek_adj));
@@ -146,6 +155,7 @@ fn build_widgets(
         sub_scale_adj, sub_color_btn,
         vol_pop, sub_pop, pref_menu,
         recent_scrl, flow_recent, recent_spacers, undo_bar,
+        fs_clock,
     }
 }
 
