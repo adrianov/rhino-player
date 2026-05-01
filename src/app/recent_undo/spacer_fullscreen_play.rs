@@ -30,6 +30,7 @@ struct PlayToggleCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
     win: adw::ApplicationWindow,
+    video_handle: gtk::WindowHandle,
     gl: gtk::GLArea,
     recent: gtk::ScrolledWindow,
     last_path: Rc<RefCell<Option<PathBuf>>>,
@@ -122,17 +123,26 @@ fn wire_play_toggles(play_pause: &gtk::Button, ctx: PlayToggleCtx) {
         });
     }
 
-    let rpp = gtk::GestureClick::new();
-    rpp.set_button(gtk::gdk::BUTTON_SECONDARY);
-    rpp.set_propagation_phase(gtk::PropagationPhase::Capture);
-    let gl = ctx.gl.clone();
-    {
-        let press_ctx = ctx;
-        rpp.connect_pressed(move |_, n_press, _, _| {
-            if n_press == 1 {
-                toggle_play_pause(&press_ctx);
-            }
-        });
-    }
-    gl.add_controller(rpp);
+    // Keep secondary-click on WindowHandle capture: GTK runs built-in shell menu handlers on the
+    // handle before the GLArea child sees the gesture unless we Stop here.
+    let sec = gtk::EventControllerLegacy::new();
+    sec.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let vh_ctx = ctx.clone();
+    sec.connect_event(move |_, ev| {
+        if ev.event_type() != gtk::gdk::EventType::ButtonPress {
+            return glib::Propagation::Proceed;
+        }
+        let Some(be) = ev.downcast_ref::<gtk::gdk::ButtonEvent>() else {
+            return glib::Propagation::Proceed;
+        };
+        if be.button() != gtk::gdk::BUTTON_SECONDARY {
+            return glib::Propagation::Proceed;
+        }
+        if toggle_play_pause(&vh_ctx) {
+            glib::Propagation::Stop
+        } else {
+            glib::Propagation::Proceed
+        }
+    });
+    ctx.video_handle.add_controller(sec);
 }

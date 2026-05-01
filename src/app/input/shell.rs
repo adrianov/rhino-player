@@ -1,8 +1,6 @@
 fn w_in_set_shell(ctx: &WindowInputCtx) {
-    let win_h = gtk::WindowHandle::new();
-    win_h.set_child(Some(&ctx.ovl));
     ctx.root.add_top_bar(&ctx.header);
-    ctx.root.set_content(Some(&win_h));
+    ctx.root.set_content(Some(&ctx.video_handle));
     ctx.root.add_bottom_bar(&ctx.bottom);
     ctx.outer_ovl.set_child(Some(&ctx.root));
     ctx.win.set_content(Some(&ctx.outer_ovl));

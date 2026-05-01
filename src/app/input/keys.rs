@@ -11,6 +11,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
         player: p.clone(),
         video_pref: Rc::clone(&ctx.video_pref),
         win: win_key.clone(),
+        video_handle: ctx.video_handle.clone(),
         gl: ctx.gl.clone(),
         recent: recent_esc.clone(),
         last_path: ctx.last_path.clone(),

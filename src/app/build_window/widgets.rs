@@ -4,7 +4,7 @@ struct WindowWidgets {
     root: adw::ToolbarView,
     header: adw::HeaderBar,
     outer_ovl: gtk::Overlay,
-    ovl: gtk::Overlay,
+    video_handle: gtk::WindowHandle,
     gl_area: gtk::GLArea,
     bottom: gtk::Box,
     play_pause: gtk::Button,
@@ -125,6 +125,8 @@ fn build_widgets(
 
     let bottom = build_bottom_bar(&wrap_prev, &play_pause, &wrap_next, &time_left, &seek, &time_right);
     let ovl = build_video_overlay(&gl_area);
+    let video_handle = gtk::WindowHandle::new();
+    video_handle.set_child(Some(&ovl));
     let outer_ovl = gtk::Overlay::new();
 
     let (recent_scrl, flow_recent, recent_spacers, undo_bar) = recent_view::new_scroll();
@@ -135,7 +137,7 @@ fn build_widgets(
     ovl.add_overlay(&recent_scrl);
 
     WindowWidgets {
-        win, root, header, outer_ovl, ovl, gl_area, bottom, play_pause, sibling_nav,
+        win, root, header, outer_ovl, video_handle, gl_area, bottom, play_pause, sibling_nav,
         menu_btn, vol_menu, sub_menu, speed_mbtn, speed_list, speed_sync,
         seek, seek_adj, time_left, time_right,
         vol_adj, vol_mute_btn,

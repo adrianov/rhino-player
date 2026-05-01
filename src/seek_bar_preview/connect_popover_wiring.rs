@@ -9,7 +9,6 @@ pub fn connect(
     player: Rc<RefCell<Option<MpvBundle>>>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     enabled: Rc<Cell<bool>>,
-    seek_grabbed: Rc<Cell<bool>>,
     ctx: SeekPreviewCtx,
 ) -> Rc<SeekPreviewState> {
     let SeekPreviewCtx { ovl, bottom } = ctx;
@@ -83,8 +82,6 @@ pub fn connect(
     mot.connect_motion(glib::clone!(
         #[strong]
         st,
-        #[strong]
-        seek_grabbed,
         move |_, x, y| {
             if st.last_xy.borrow().is_some_and(|p| p == (x, y)) {
                 return;
@@ -92,18 +89,21 @@ pub fn connect(
             *st.last_xy.borrow_mut() = Some((x, y));
 
             let dur = st.seek_adj.upper();
-            if dur <= 0.0 || !st.enabled.get() {
+            if dur <= 0.0 {
                 st.hide();
                 return;
             }
 
-            let t = if seek_grabbed.get() {
-                st.seek.value().clamp(0.0, dur)
-            } else {
-                (x / f64::from(st.seek.width().max(1))).clamp(0.0, 1.0) * dur
-            };
+            let t = (x / f64::from(st.seek.width().max(1)))
+                .clamp(0.0, 1.0)
+                * dur;
             st.hover_t.set(t);
             st.time_lbl.set_text(&format_time(t));
+
+            if !st.enabled.get() {
+                return;
+            }
+
             set_preview_size(&st);
 
             let path_ok = st

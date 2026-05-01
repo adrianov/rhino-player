@@ -4,7 +4,9 @@ struct WindowInputCtx {
     header: adw::HeaderBar,
     /// Wraps `root` so overlay children appear above the ToolbarView bottom bar.
     outer_ovl: gtk::Overlay,
-    ovl: gtk::Overlay,
+    /// [gtk::WindowHandle] around the video overlay; install capture handlers here so they run
+    /// before the shell’s built-in secondary‑click window menu.
+    video_handle: gtk::WindowHandle,
     bottom: gtk::Box,
     gl: gtk::GLArea,
     recent: gtk::ScrolledWindow,

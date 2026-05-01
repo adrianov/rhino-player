@@ -53,8 +53,7 @@ fn build_window(
     let (seek_sync, seek_grabbed) = (Rc::new(Cell::new(false)), Rc::new(Cell::new(false)));
     let seek_preview = seek_bar_preview::connect(
         &w.seek, &w.seek_adj, Rc::clone(player), Rc::clone(&last_path),
-        Rc::clone(&seek_bar_on), seek_grabbed.clone(),
-        seek_bar_preview::SeekPreviewCtx { ovl: w.outer_ovl.clone(), bottom: w.bottom.clone() },
+        Rc::clone(&seek_bar_on), seek_bar_preview::SeekPreviewCtx { ovl: w.outer_ovl.clone(), bottom: w.bottom.clone() },
     );
     // Container lives on the same GdkSurface — no compositor round-trip on show/hide.
     w.outer_ovl.add_overlay(&seek_preview.container);
@@ -124,7 +123,9 @@ fn build_window(
     wire_menu_chrome(Rc::clone(&ch_hide), &w.vol_menu, &w.sub_menu, &w.speed_mbtn, &w.menu_btn);
     wire_play_toggles(&w.play_pause, PlayToggleCtx {
         app: app.clone(), player: player.clone(), video_pref: Rc::clone(&video_pref),
-        win: w.win.clone(), gl: w.gl_area.clone(), recent: w.recent_scrl.clone(),
+        win: w.win.clone(),
+        video_handle: w.video_handle.clone(),
+        gl: w.gl_area.clone(), recent: w.recent_scrl.clone(),
         last_path: last_path.clone(), on_video_chrome: on_video_chrome.clone(),
         on_file_loaded: Rc::clone(&on_file_loaded),
         win_aspect: win_aspect.clone(), sub_menu: Some(w.sub_menu.clone()),
@@ -196,7 +197,8 @@ fn build_window(
 
     wire_window_input(WindowInputCtx {
         win: w.win.clone(), root: w.root.clone(), header: w.header.clone(),
-        outer_ovl: w.outer_ovl.clone(), ovl: w.ovl.clone(), bottom: w.bottom.clone(),
+        outer_ovl: w.outer_ovl.clone(), video_handle: w.video_handle.clone(),
+        bottom: w.bottom.clone(),
         gl: w.gl_area.clone(), recent: w.recent_scrl.clone(),
         app: app.clone(), player: player.clone(), video_pref: Rc::clone(&video_pref),
         bar_show: bar_show.clone(), nav_t: nav_t.clone(), cur_t: cur_t.clone(),
@@ -232,7 +234,7 @@ fn build_window(
 
     wire_seek_control(
         &w.seek, player, &w.gl_area, seek_sync.clone(), seek_grabbed.clone(),
-        w.time_left.clone(),
+        w.time_left.clone(), seek_preview.hover_t.clone(),
     );
 
     let vol_sync = Rc::new(Cell::new(false));
