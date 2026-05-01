@@ -48,6 +48,18 @@ pub const RHINO_MVTOOLS_LIB_VAR: &str = "RHINO_MVTOOLS_LIB";
 /// frames to **~60** against **(source fps × speed)**. Set with [crate::video_pref::set_playback_speed_env_from_mpv] or [crate::video_pref::set_playback_speed_env] (known UI value) before the vf is built.
 pub const RHINO_PLAYBACK_SPEED_VAR: &str = "RHINO_PLAYBACK_SPEED";
 
+/// Source frames-per-second (decimal, e.g. `29.970029970`) Rhino sets from mpv's `container-fps`
+/// before attaching the bundled `rhino_60_mvtools.vpy`. mpv's vapoursynth filter often passes
+/// `fps_num=0 / fps_den=0` to the script even when the container is CFR (29.970, 23.976, etc.);
+/// the script falls back to this value and rationalizes it (e.g. `30000/1001`) so FlowFPS gets
+/// a real cadence instead of the old hardcoded `24000/1001` which silently stretched 29.97
+/// content by 25 %.
+pub const RHINO_SOURCE_FPS_VAR: &str = "RHINO_SOURCE_FPS";
+
+/// Bumped in-process before each `vf add vapoursynth` so the bundled `.vpy` can stderr-log **once**
+/// per attach — mpv may evaluate the script several times for one filter (graph / concurrency).
+pub const RHINO_VPY_LOG_EPOCH_VAR: &str = "RHINO_VPY_LOG_EPOCH";
+
 /// [RHINO_MVTOOLS_LIB_VAR] if set to an existing file; otherwise `None`.
 pub fn mvtools_from_env() -> Option<PathBuf> {
     let p = std::env::var(RHINO_MVTOOLS_LIB_VAR).ok()?;

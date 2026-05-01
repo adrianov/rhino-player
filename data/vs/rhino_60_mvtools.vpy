@@ -7,6 +7,7 @@
 # **mpv from a shell** does not set `RHINO_PLAYBACK_SPEED` (Rhino sets it from mpv `speed` when adding vf).
 import math
 import os
+import sys
 from collections import deque
 from fractions import Fraction
 
@@ -17,8 +18,25 @@ _LOCAL_MAX_DEPTH = 14
 _LOCAL_MAX_DIR_READS = 8000
 _TARGET_NUM = 60
 _TARGET_DEN = 1
+_TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_OVERLAP = 16
 _MV_GLOBAL_HINT = {"global": True}
+
+# mpv may run this script multiple times per single `vf` attach; Rhino sets `RHINO_VPY_LOG_EPOCH`
+# so we stderr-log once per attach. Without it (e.g. plain `mpv`), log every evaluation as before.
+_logged_stderr_epoch = None
+
+
+def _stderr_banner_once_per_rhino_attach(msg: str) -> bool:
+    """Return True the first time (per Rhino vf attach) we should print `msg` to stderr."""
+    global _logged_stderr_epoch
+    epoch = (os.environ.get("RHINO_VPY_LOG_EPOCH") or "").strip()
+    if epoch:
+        if _logged_stderr_epoch == epoch:
+            return False
+        _logged_stderr_epoch = epoch
+    print(msg, file=sys.stderr, flush=True)
+    return True
 
 
 def _mvtools_paths():
@@ -130,6 +148,28 @@ def _speed_frac_from_env() -> Fraction:
     return Fraction(x).limit_denominator(4)
 
 
+def _src_fps_from_env() -> tuple[int, int] | None:
+    """Recover the source cadence from `RHINO_SOURCE_FPS` (Rhino sets it from mpv's `container-fps`).
+
+    Many otherwise-CFR mp4s reach this script with `video_in.fps_num=0 / fps_den=0` because mpv's
+    vapoursynth filter does not always forward the container's rate. Without a fallback the script
+    has to give up and passthrough, which kills smoothing for plain 29.97 / 23.976 / 30 clips.
+    `limit_denominator(1001)` snaps decimals back to NTSC-friendly rationals (29.970 -> 30000/1001,
+    23.976 -> 24000/1001, 30.0 -> 30/1) so FlowFPS still gets an exact ratio.
+    """
+    t = (os.environ.get("RHINO_SOURCE_FPS") or "").strip()
+    if not t:
+        return None
+    try:
+        x = float(t)
+    except ValueError:
+        return None
+    if not (0.1 < x < 1000.0):
+        return None
+    f = Fraction(x).limit_denominator(1001)
+    return f.numerator, f.denominator
+
+
 def _mul_src_fps_rational(num: int, den: int, speed_frac: Fraction) -> tuple[int, int]:
     a = Fraction(num, den) * speed_frac
     n, d = a.numerator, a.denominator
@@ -165,51 +205,78 @@ core.max_cache_size = 4096
 
 clip = video_in
 spd_frac = _speed_frac_from_env()
-src_num = clip.fps_num if clip.fps_num > 0 else 24000
-src_den = clip.fps_den if clip.fps_den > 0 else 1001
-if _as_float(src_num, src_den) <= 0:
-    src_num, src_den = 24000, 1000
-clip = core.std.AssumeFPS(clip, fpsnum=src_num, fpsden=src_den)
-
-base_src = Fraction(src_num, src_den)
-# Passthrough mvtools only when (source fps × speed) is **already** ≥ 60/1 in **rational** math.
-# Do **not** use `float` + ε here: common tags like 60000/1001 (≈59.94) plus 0.2 hit ≥60 and
-# accidentally skipped **FlowFPS** (regression: “24p” looked un-smoothed when mpv reported ~59.94).
-if base_src * spd_frac >= Fraction(60, 1):
+src_num = clip.fps_num
+src_den = clip.fps_den
+# `video_in` reports the source rate as `0/0` for **VFR** clips (no single cadence) **and**
+# for many CFR mp4s where mpv's vapoursynth filter simply does not forward the container's
+# fps. Rhino publishes `RHINO_SOURCE_FPS` from mpv's `container-fps` exactly to recover
+# smoothing in that second case — fall back to it when present, then **only** passthrough
+# when the cadence really is unknown. AssumeFPS-ing a true VFR clip to a guessed rate (the
+# old fallback was hard-coded `24000/1001`) silently rescales declared duration: an actual
+# 29.97 retagged as 23.976 then FlowFPS'd to 60 produces `2.5N` output frames = **25 %
+# longer than audio**, the "many frames + slowed down" drift the user reported.
+fps_origin = "video_in"
+if src_num <= 0 or src_den <= 0:
+    fb = _src_fps_from_env()
+    if fb is not None:
+        src_num, src_den = fb
+        fps_origin = "RHINO_SOURCE_FPS"
+_banner = (
+    f"[rhino_60_mvtools] source fps_num={src_num} fps_den={src_den} "
+    f"(origin={fps_origin}) speed={spd_frac} ({float(spd_frac):.3f})"
+)
+if src_num <= 0 or src_den <= 0 or _as_float(src_num, src_den) <= 0:
+    if _stderr_banner_once_per_rhino_attach(_banner):
+        print(
+            "[rhino_60_mvtools] source fps unknown (likely VFR; no RHINO_SOURCE_FPS) — "
+            "passthrough, smoothing skipped to avoid A/V drift",
+            file=sys.stderr,
+            flush=True,
+        )
     clip.set_output()
 else:
-    # 1.0×: do **not** re-tag the clip; second AssumeFPS(×1) + FlowFPS can skew duration vs
-    # audio (mvtools/mpv clock). 1.5/2.0: retime so FlowFPS only fills toward 60 from (fps×S).
-    if spd_frac == 1:
-        work = clip
+    _stderr_banner_once_per_rhino_attach(_banner)
+    clip = core.std.AssumeFPS(clip, fpsnum=src_num, fpsden=src_den)
+    base_src = Fraction(src_num, src_den)
+    # Passthrough mvtools only when (source fps × speed) is **already** ≥ 60/1 in **rational** math.
+    # Do **not** use `float` + ε here: common tags like 60000/1001 (≈59.94) plus 0.2 hit ≥60 and
+    # accidentally skipped **FlowFPS** (regression: “24p” looked un-smoothed when mpv reported ~59.94).
+    if base_src * spd_frac >= Fraction(60, 1):
+        clip.set_output()
     else:
-        sn, sd = _mul_src_fps_rational(src_num, src_den, spd_frac)
-        work = core.std.AssumeFPS(clip, fpsnum=sn, fpsden=sd)
-    # Keep the fast preset, blend block edges, and let MVTools detect broad camera pans.
-    sup = core.mv.Super(work, pel=1, sharp=1, chroma=True)
-    v_backward = core.mv.Analyse(
-        sup,
-        blksize=32,
-        overlap=_MV_OVERLAP,
-        search=0,
-        isb=True,
-        **_MV_GLOBAL_HINT,
-    )
-    v_forward = core.mv.Analyse(
-        sup,
-        blksize=32,
-        overlap=_MV_OVERLAP,
-        search=0,
-        isb=False,
-        **_MV_GLOBAL_HINT,
-    )
-    clip = core.mv.FlowFPS(
-        work,
-        sup,
-        v_backward,
-        v_forward,
-        num=_TARGET_NUM,
-        den=_TARGET_DEN,
-        mask=0,
-    )
-    clip.set_output()
+        # 1.0×: do **not** re-tag the clip; second AssumeFPS(×1) + FlowFPS can skew duration
+        # vs audio (mvtools/mpv clock). 1.5/2.0: retime so FlowFPS only fills toward 60 from
+        # (fps×S).
+        if spd_frac == 1:
+            work = clip
+        else:
+            sn, sd = _mul_src_fps_rational(src_num, src_den, spd_frac)
+            work = core.std.AssumeFPS(clip, fpsnum=sn, fpsden=sd)
+        # Keep the fast preset, blend block edges, let MVTools detect broad camera pans.
+        sup = core.mv.Super(work, pel=1, sharp=1, chroma=True)
+        v_backward = core.mv.Analyse(
+            sup,
+            blksize=32,
+            overlap=_MV_OVERLAP,
+            search=0,
+            isb=True,
+            **_MV_GLOBAL_HINT,
+        )
+        v_forward = core.mv.Analyse(
+            sup,
+            blksize=32,
+            overlap=_MV_OVERLAP,
+            search=0,
+            isb=False,
+            **_MV_GLOBAL_HINT,
+        )
+        clip = core.mv.FlowFPS(
+            work,
+            sup,
+            v_backward,
+            v_forward,
+            num=_TARGET_NUM,
+            den=_TARGET_DEN,
+            mask=0,
+        )
+        clip.set_output()
