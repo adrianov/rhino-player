@@ -64,9 +64,9 @@ fn toggle_play_pause(ctx: &PlayToggleCtx) -> bool {
         return true;
     }
     let paused = b.mpv.get_property::<bool>("pause").unwrap_or(false);
-    if paused {
-        // While paused, `apply_mpv_video` will not attach the `vf` (it requires `pause=no`).
-        // Unpause routes through `sync_smooth_vf_on_pause_transition` (immediate attach when playing).
+        if paused {
+            // While paused, `apply_mpv_video` keeps an existing vapoursynth `vf`; seeks strip it first.
+            // Unpause routes through `sync_smooth_vf_on_pause_transition` when `vf` is missing.
         let off = {
             let mut pref = ctx.video_pref.borrow_mut();
             video_pref::resync_smooth_if_speed_mismatch(b, &mut pref).smooth_auto_off

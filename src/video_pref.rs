@@ -3,8 +3,8 @@
 //! `speed` before the VapourSynth filter is built. The graph is **rebuilt on events**: after mpv
 //! reports new media (**`FileLoaded`** and **`path`** change — coalesced to one idle — covering Open,
 //! drag-drop, sibling EOF advance, **Previous** / **Next**, and `loadfile`), when the user picks
-//! **playback speed** in the header (deferred idle), and on unpause after Smooth unloaded the `vf`
-//! for a still frame. There is **no** periodic "watch" on `vf` for runtime plugin failures — `vf` add failure still
+//! **playback speed** in the header (deferred idle), and after unpause when **`vapoursynth`** was
+//! stripped for a **seek while paused** or similar. There is **no** periodic "watch" on `vf` for runtime plugin failures — `vf` add failure still
 //! clears the pref at apply time; a script that dies *after* add is a rare install issue (toggle off in
 //! **Preferences** or fix mvtools).
 //! Set `RHINO_VIDEO_LOG=1` for per-step mpv result lines on stderr.
@@ -25,7 +25,8 @@
 //! reuses that path if the file still exists, avoiding a full search.
 //!
 //! [try_load] drains mpv so those transport events run; other hooks (speed, Preferences)
-//! call [apply_mpv_video] directly. Transport `pause=no` re-attaches the `vf` after Smooth unloaded it for a paused still frame.
+//! call [apply_mpv_video] directly. Transport **`Pause(false)`** runs [smooth_vf_attach_if_playing]
+//! when **`vapoursynth`** is missing (e.g. after a seek while paused).
 
 include!("video_pref/mvtools_speed_vf_setup.rs");
 include!("video_pref/smooth_vf_match.rs");

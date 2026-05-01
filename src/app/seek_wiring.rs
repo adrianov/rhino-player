@@ -119,9 +119,9 @@ fn commit_preview_seek(ctx: &SeekCtx) {
     quick_seek(ctx, t);
 }
 
-/// Seek main mpv with `absolute+keyframes`. Drops vapoursynth **`vf`** before the seek when present so
-/// mpv can draw a real frame (paused seeks especially often went black through FlowFPS). When playback
-/// was **not** paused, Smooth is reapplied immediately after the seek.
+/// Seek main mpv with `absolute+keyframes`. Drops vapoursynth **`vf`** before the seek when still
+/// present (needed for correct frames while **paused**; during playback Smooth is reapplied right
+/// after the seek).
 fn main_player_seek_keyframes(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     gl: &gtk::GLArea,

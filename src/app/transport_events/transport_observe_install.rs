@@ -1,7 +1,7 @@
 thread_local! {
     /// Coalesce one-shot GTK idle retries when [collect_events] cannot `borrow_mut` the player
     /// (e.g. UI code holds `borrow()` across `mpv.set_property("pause", …)`). Without a retry,
-    /// libmpv events stay queued until the next wakeup and pause transitions skip Smooth `vf` reattach.
+    /// libmpv events stay queued until the next wakeup and pause/unpause may skip redundant Smooth `vf` work.
     static TRANSPORT_DRAIN_RETRY_PENDING: Cell<bool> = const { Cell::new(false) };
 }
 

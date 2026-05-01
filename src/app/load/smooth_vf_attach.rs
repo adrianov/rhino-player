@@ -50,6 +50,7 @@ fn smooth_vf_attach_if_playing(
             && video_pref::mvtools_vf_eligible(&b.mpv, None)
             && video_pref::vf_chain_has_vapoursynth(&b.mpv)
         {
+            gl.queue_render();
             return;
         }
     }

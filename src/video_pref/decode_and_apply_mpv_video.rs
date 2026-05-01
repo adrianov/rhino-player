@@ -100,8 +100,9 @@ fn vf_string_has_vapoursynth(mpv: &Mpv) -> bool {
     }
 }
 
-/// Drop the Smooth / VapourSynth `vf` while **paused** so the player shows a normal still frame;
-/// restore with [apply_mpv_video] when playback resumes (transport `pause` handling).
+/// Drop the vapoursynth `vf` immediately before a **seek** (or similar position jump) when it is
+/// still present so mpv can decode a real frame — especially while **paused**. Plain pause/unpause
+/// does not call this.
 pub fn unload_smooth_on_pause(mpv: &Mpv) -> bool {
     if !vf_string_has_vapoursynth(mpv) {
         return false;
@@ -160,12 +161,8 @@ fn apply_mpv_video_impl(
     let want_60 = v.smooth_60;
     let had_vapoursynth = vf_string_has_vapoursynth(mpv);
     if !use_mvtools {
-        if had_vapoursynth {
-            if paused && want_60 {
-                eprintln!(
-                    "[rhino] video: Smooth — vapoursynth vf cleared while paused (still frame); reapplies on unpause"
-                );
-            }
+        let keep_vf_during_pause = paused && want_60;
+        if had_vapoursynth && !keep_vf_during_pause {
             clear_vf(mpv, vlog);
             set_auto_decode(mpv, vlog);
         }

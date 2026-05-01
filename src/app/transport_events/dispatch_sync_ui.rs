@@ -27,16 +27,14 @@ fn has_open_path(mpv: &Mpv) -> bool {
 }
 
 fn sync_smooth_vf_on_pause_transition(ctx: &Rc<TransportCtx>, paused: bool) {
-    // Smooth 60: **always** drop the `vf` while paused so mpv shows a normal decoder still frame.
-    // Leaving FlowFPS / mvtools active during pause breaks seeks (often a black GL surface until play).
-    // Unpause runs [smooth_vf_attach_if_playing], which reapplies the graph when Smooth is on.
+    // Smooth 60: keep vapoursynth `vf` across pause/unpause so FlowFPS is not torn down and rebuilt
+    // on every tap of Space. Seeks while paused still strip via [main_player_seek_keyframes] /
+    // [video_pref::unload_smooth_on_pause].
     with_bundle(&ctx.player, |b| {
         if !has_open_path(&b.mpv) {
             return;
         }
-        if paused {
-            let _ = video_pref::unload_smooth_on_pause(&b.mpv);
-        } else {
+        if !paused {
             smooth_vf_attach_if_playing(
                 Rc::clone(&ctx.player),
                 ctx.eof.gl.clone(),
