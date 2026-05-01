@@ -2,12 +2,10 @@
 use glib::prelude::Cast;
 use glib::translate::from_glib_borrow;
 use gtk::prelude::*;
-use libloading::{Library, Symbol};
 pub use libmpv2::events::{Event, PropertyData};
 pub use libmpv2::Format;
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 use libmpv2::Mpv;
-use std::os::raw::c_char;
 use std::os::raw::c_void;
 use std::path::Path;
 use std::ptr;
@@ -16,15 +14,13 @@ use crate::db;
 use crate::db::VideoPrefs;
 use crate::media_probe;
 use crate::video_pref::apply_mpv_video_init;
-
-type EglGetProcAddress = unsafe extern "C" fn(*const c_char) -> *mut c_void;
-type GlGetIntegerv = unsafe extern "C" fn(u32, *mut i32);
+use gl_platform::GlDynLib;
 
 const GL_FRAMEBUFFER_BINDING: u32 = 0x8ca6;
 
 #[derive(Copy, Clone)]
 struct EglState {
-    get: EglGetProcAddress,
+    get: gl_platform::GlGetProcAddressFn,
 }
 
 fn egl_proc(s: &EglState, name: &str) -> *mut c_void {
@@ -45,11 +41,9 @@ fn egl_proc(s: &EglState, name: &str) -> *mut c_void {
         .unwrap_or(ptr::null_mut())
 }
 
-/// Owns [`libloading::Library`] for `libEGL` / `libGL` for the process lifetime.
+/// Owns loaded GL/EGL (Linux) or relies on GTK’s GL (macOS); see [`GlDynLib`].
 pub struct MpvBundle {
-    _egl: Library,
-    _gl: Library,
-    gl_get: GlGetIntegerv,
+    _gl: GlDynLib,
     pub mpv: Mpv,
     render: RenderContext,
     gl_ptr: usize,
@@ -63,16 +57,10 @@ impl MpvBundle {
     /// [VideoPrefs] (optional VapourSynth 60 fps `vf`) from SQLite; see [apply_mpv_video].
     /// The `bool` is `true` when **Smooth Video (~60 FPS at 1.0×)** was auto-disabled (VapourSynth `vf` rejected); sync UI.
     pub fn new(gl_area: &gtk::GLArea, video: &mut VideoPrefs) -> Result<(Self, bool), String> {
-        let _egl = unsafe { Library::new("libEGL.so.1") }.map_err(|e| e.to_string())?;
-        let _gl = unsafe { Library::new("libGL.so.1") }.map_err(|e| e.to_string())?;
-
-        let egl_get: Symbol<EglGetProcAddress> =
-            unsafe { _egl.get(b"eglGetProcAddress\0") }.map_err(|e| e.to_string())?;
-        let gl_get: Symbol<GlGetIntegerv> =
-            unsafe { _gl.get(b"glGetIntegerv\0") }.map_err(|e| e.to_string())?;
-
-        let egl_state = EglState { get: *egl_get };
-        let gl_get = *gl_get;
+        let gl_libs = GlDynLib::load()?;
+        let egl_state = EglState {
+            get: gl_libs.get_proc,
+        };
 
         let mut mpv = Mpv::with_initializer(|init| {
             init.set_option("vo", "libmpv")?;
@@ -80,7 +68,7 @@ impl MpvBundle {
             // 0 = auto: libavcodec can use multiple CPU threads for software decode
             // (independent of heavy single-threaded sections in some filters / MVTools).
             let _ = init.set_option("vd-lavc-threads", "0");
-            let _ = init.set_option("ao", "pulse");
+            let _ = init.set_option("ao", gl_platform::mpv_default_audio_output());
             let _ = init.set_option("keep-open", "yes");
             // Resume position is owned by SQLite (`db::resume_pos` → `loadfile … start=`); mpv's
             // watch_later mechanism is disabled to avoid double-bookkeeping and to keep `speed` /
@@ -124,9 +112,7 @@ impl MpvBundle {
 
         Ok((
             Self {
-                _egl,
-                _gl,
-                gl_get,
+                _gl: gl_libs,
                 mpv,
                 render,
                 gl_ptr,
@@ -147,7 +133,7 @@ impl MpvBundle {
             return;
         }
         let mut fbo: i32 = 0;
-        unsafe { (self.gl_get)(GL_FRAMEBUFFER_BINDING, &mut fbo) };
+        unsafe { (self._gl.gl_get_integerv)(GL_FRAMEBUFFER_BINDING, &mut fbo) };
         let _ = self.render.render::<EglState>(fbo, w, h, true);
     }
 

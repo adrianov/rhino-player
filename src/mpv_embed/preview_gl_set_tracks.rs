@@ -1,9 +1,7 @@
 /// Auxiliary thumbnail player: video-only [libmpv] with [vo=libmpv], isolated from user playback
 /// settings, tracks, scripts, watch-later, and resume state.
 pub struct MpvPreviewGl {
-    _egl: Library,
-    _gl: Library,
-    gl_get: GlGetIntegerv,
+    _gl: GlDynLib,
     pub mpv: Mpv,
     render: RenderContext,
     gl_ptr: usize,
@@ -12,16 +10,10 @@ pub struct MpvPreviewGl {
 impl MpvPreviewGl {
     /// Call from [gtk::GLArea::connect_realize] with a current context ([make_current]).
     pub fn new(gl_area: &gtk::GLArea) -> Result<Self, String> {
-        let _egl = unsafe { Library::new("libEGL.so.1") }.map_err(|e| e.to_string())?;
-        let _gl = unsafe { Library::new("libGL.so.1") }.map_err(|e| e.to_string())?;
-
-        let egl_get: Symbol<EglGetProcAddress> =
-            unsafe { _egl.get(b"eglGetProcAddress\0") }.map_err(|e| e.to_string())?;
-        let gl_get: Symbol<GlGetIntegerv> =
-            unsafe { _gl.get(b"glGetIntegerv\0") }.map_err(|e| e.to_string())?;
-
-        let egl_state = EglState { get: *egl_get };
-        let gl_get = *gl_get;
+        let gl_libs = GlDynLib::load()?;
+        let egl_state = EglState {
+            get: gl_libs.get_proc,
+        };
 
         let mut mpv = Mpv::with_initializer(|init| {
             init.set_option("vo", "libmpv")?;
@@ -91,9 +83,7 @@ impl MpvPreviewGl {
         });
 
         Ok(Self {
-            _egl,
-            _gl,
-            gl_get,
+            _gl: gl_libs,
             mpv,
             render,
             gl_ptr,
@@ -111,7 +101,7 @@ impl MpvPreviewGl {
             return;
         }
         let mut fbo: i32 = 0;
-        unsafe { (self.gl_get)(GL_FRAMEBUFFER_BINDING, &mut fbo) };
+        unsafe { (self._gl.gl_get_integerv)(GL_FRAMEBUFFER_BINDING, &mut fbo) };
         if self.render.render::<EglState>(fbo, w, h, true).is_ok() {
             self.render.report_swap();
         }
