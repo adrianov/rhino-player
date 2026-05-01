@@ -38,6 +38,27 @@ cargo build --release
 ./target/release/rhino-player
 ```
 
+### macOS (experimental)
+
+GTK 4, libadwaita, and mpv are provided by [Homebrew](https://brew.sh/). From a shell:
+
+```bash
+brew install gtk4 libadwaita mpv pkgconf
+export PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:$(brew --prefix)/share/pkgconfig"
+export PATH="$(brew --prefix)/bin:$PATH"
+cargo build --release
+./target/release/rhino-player
+```
+
+Or use the project helper (same exports):
+
+```bash
+source ./scripts/macos-dev-env.sh
+cargo build --release
+```
+
+**Smooth Video (VapourSynth + MVTools)** is still aimed at Linux; core playback and the rest of the UI should work on macOS.
+
 You can pass a file path:
 
 ```bash

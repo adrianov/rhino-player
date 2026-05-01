@@ -55,9 +55,9 @@ Feature: Embedded mpv video surface
 ```
 
 ## Notes
-- Render context: `libmpv2` `RenderContext`, EGL `eglGetProcAddress`, `libGL` for `GL_FRAMEBUFFER_BINDING`, `RenderParam::FlipY(true)`.
+- Render context: `libmpv2` `RenderContext`, OpenGL init via `src/mpv_embed/gl_platform.rs`: Linux uses EGL `eglGetProcAddress` + `libGL` for `GL_FRAMEBUFFER_BINDING`; macOS resolves GL after GTK’s `GLArea` realizes using `dlsym(RTLD_DEFAULT, …)` (same `RenderParam::FlipY` path as Linux).
 - mpv defaults are kept (`video-timing-offset` ≈ 0.05); `report_swap` is intentionally not used.
-- Audio output: `ao=pulse` (PipeWire’s Pulse compat works on typical GNOME systems).
+- Audio output: `ao=pulse` on Linux (PipeWire’s Pulse compat works on typical GNOME systems); `ao=coreaudio` on macOS.
 - Wakeup callback installed via `mpv_set_wakeup_callback`; consumer calls `wait_event(0)` until empty.
 - Seek-slider redraws driven by `time-pos` are rate-limited to ~10 Hz; while the bottom bar is hidden by autohide and the recent grid is not visible, `time-pos` events skip seek-slider and time-label writes (invisible chrome must not be invalidated).
 - Observer setup seeds Play / sibling-nav / seek range from `mpv.get_property` immediately on first install so warm-preload finishes do not leave stale UI.

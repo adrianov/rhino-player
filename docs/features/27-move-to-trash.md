@@ -47,6 +47,6 @@ Feature: Move current file to trash
 ```
 
 ## Notes
-- Implementation calls `gio::File::trash` with no cancellable. On success: `media_probe::capture_list_remove_undo`, then `media_probe::remove_continue_entry`, then push a Trash entry on the session undo stack when `trash_xdg::find_trash_files_stored_path` resolves the `files/…` copy.
+- Implementation calls `gio::File::trash` with no cancellable. On success: `media_probe::capture_list_remove_undo`, then `media_probe::remove_continue_entry`, then push a Trash entry on the session undo stack when `trash_xdg::find_trash_files_stored_path` resolves the copy (XDG `Trash/files/…`, or macOS `~/.Trash` / `<volume>/.Trashes/<uid>` using size + basename after trash).
 - The browse transition matches **Close Video** but does not clear the session undo stack, so the snackbar can offer untrash.
 - The trash control on continue cards lives in [21-recent-videos-launch](21-recent-videos-launch.md).

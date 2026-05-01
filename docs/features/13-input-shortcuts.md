@@ -96,6 +96,21 @@ Feature: Keyboard and pointer input
     Given a file with duration is loaded and the grid is hidden
     When the user right-clicks on the video surface
     Then mpv pause toggles like Space
+
+  Scenario: Dedicated play and pause media controls match Space
+    Given a file with duration is loaded or the first continue card is warm-preloaded
+    When the user activates the host play or pause media control with the main window focused
+    Then pause toggles or the warm card reveals like Space
+
+  Scenario: Dedicated stop media control pauses
+    Given a file with duration is loaded and the continue grid is hidden
+    When the user activates the host stop media control with the main window focused
+    Then playback pauses
+
+  Scenario: Dedicated previous and next media controls load siblings
+    Given a file with duration is loaded and the continue grid is hidden
+    When the user activates the host previous-track or next-track media control with the main window focused
+    Then the previous or next sibling in folder order loads like Ctrl with arrow
 ```
 
 ## Notes
@@ -105,3 +120,4 @@ Feature: Keyboard and pointer input
 - Tab focuses chrome temporarily.
 - Arrow Left / Right (and keypad arrows) step **playback position** five seconds when the seek bar is enabled and the continue grid is hidden; implementation shares the transport seek path ([04-transport-and-progress](04-transport-and-progress.md)).
 - Ctrl+Left / Ctrl+Right load the previous / next sibling file like the bottom bar ([07-sibling-folder-queue](07-sibling-folder-queue.md)).
+- Hardware **play**, **pause**, **stop**, **previous**, and **next** keys (GDK `AudioPlay`, `AudioPause`, `AudioStop`, `AudioPrev`, `AudioNext`) are handled in the same capture-phase controller **when the main window is focused**; behaviour matches Space and Ctrl+arrows as above. True background / unfocused routing is OS-specific (on macOS that may require separate Now Playing integration).

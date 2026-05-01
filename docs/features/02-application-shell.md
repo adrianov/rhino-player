@@ -60,6 +60,7 @@ Feature: Application shell
 
 ## Notes
 - Global accelerators: `app.open` (Ctrl+O), `app.close-video` (Ctrl+W), `app.about` (F1), `app.quit` (q, Ctrl+Q).
+- User-facing name: `glib::set_application_name` is set to the same string as the initial window title (**Rhino Player**); `glib::set_prgname` remains the application id for `.desktop` / shell matching.
+- **macOS:** `gtk_application_set_menubar` uses the **same** `GMenu` instance as the header hamburger (`Open`, `Close`, `Fullscreen`, … `Preferences`, `About`, `Quit`), after actions are registered and the Preferences submenu is rebuilt.
 - Main-menu labels use Title Case for desktop-menu readability.
-- `glib::set_prgname` matches the app id so the process name aligns with the `.desktop` basename.
 - Packaged metadata: `data/applications`, `data/metainfo`, `data/icons` (Freedesktop layout).

@@ -26,6 +26,11 @@ When the toggle is on but prerequisites (MVTools, vapoursynth-capable mpv build)
 @status:done @priority:p1 @layer:mpv @area:smooth-60
 Feature: Optional ~60 fps motion via VapourSynth
 
+  Scenario: No stored preference keeps Smooth Video off
+    Given the persistent store has no entry for the smooth-motion preference
+    When the application starts
+    Then the smooth-motion preference is off
+
   Scenario: Toggle applies vf only at ~1.0× with MVTools resolved
     Given video_smooth_60 is true and libmvtools.so resolves successfully
     When media is loaded and mpv speed is approximately 1.0×
@@ -115,5 +120,5 @@ Feature: Optional ~60 fps motion via VapourSynth
 - mpv's `vapoursynth` vf often forwards `video_in.fps_num=0 / fps_den=0` even for plain CFR mp4s (29.97 / 23.976 / 30). Before `vf add`, Rhino reads mpv's `container-fps` and exports `RHINO_SOURCE_FPS` (decimal); the bundled script falls back to it via `Fraction(...).limit_denominator(1001)` so 29.970 → 30000/1001, 23.976 → 24000/1001, 30.0 → 30/1. Without this recovery, the previous hardcoded `24000/1001` fallback retagged real-29.97 as 23.976 and stretched the clip by 25 % ("many frames + slowed down" drift). When mpv has no `container-fps` either (true VFR), the env is cleared, the script logs `source fps unknown` to stderr, and falls through to passthrough — smoothing is skipped, A/V stays in sync.
 - `libmvtools.so` resolution order: `RHINO_MVTOOLS_LIB` env, then cached `video_mvtools_lib` if still a file, then a bounded search (common distro paths, pipx / vsrepo under `~/.local`). On success the absolute path is saved to `video_mvtools_lib` and printed to stderr (e.g. `libmvtools -> …`).
 - Subtitles (libass) are rendered outside the VapourSynth graph; A/B test by watching motion (pans), or briefly turn subs off.
-- Default when DB has no relevant keys: Smooth 60 on with the bundled FlowFPS script. 1080p remains CPU-bound.
+- Default when the persistent store has no `video_smooth_60` row: **off** (bundled FlowFPS script is used only after the user turns the option on). 1080p remains CPU-bound when enabled.
 - See [25-smooth-playback](25-smooth-playback.md) (removed mpv display-resample path), [VapourSynth](https://www.vapoursynth.com/), [MVTools](https://github.com/dubhater/vapoursynth-mvtools), [RIFE](https://github.com/HolyWu/vs-rife).
