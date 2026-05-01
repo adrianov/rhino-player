@@ -1,6 +1,9 @@
 struct FinalActionCtx {
     app: adw::Application,
     win: adw::ApplicationWindow,
+    fs_restore: Rc<RefCell<Option<(i32, i32)>>>,
+    last_unmax: Rc<RefCell<(i32, i32)>>,
+    skip_max_to_fs: Rc<Cell<bool>>,
     root: adw::ToolbarView,
     gl: gtk::GLArea,
     recent: gtk::ScrolledWindow,
@@ -23,6 +26,9 @@ fn wire_final_actions(ctx: FinalActionCtx) {
     let FinalActionCtx {
         app,
         win,
+        fs_restore,
+        last_unmax,
+        skip_max_to_fs,
         root,
         gl,
         recent,
@@ -178,6 +184,18 @@ fn wire_final_actions(ctx: FinalActionCtx) {
     }
     app.add_action(&exit_after);
 
+    let toggle_fullscreen_a = gio::SimpleAction::new("toggle-fullscreen", None);
+    {
+        let w = win.clone();
+        let fr = Rc::clone(&fs_restore);
+        let lu = Rc::clone(&last_unmax);
+        let sk = Rc::clone(&skip_max_to_fs);
+        toggle_fullscreen_a.connect_activate(move |_, _| {
+            toggle_fullscreen(&w, fr.as_ref(), lu.as_ref(), sk.as_ref());
+        });
+    }
+    app.add_action(&toggle_fullscreen_a);
+
     register_video_app_actions(
         &app,
         &win,
@@ -193,6 +211,7 @@ fn wire_final_actions(ctx: FinalActionCtx) {
     app.set_accels_for_action("app.move-to-trash", &["Delete", "KP_Delete"]);
     app.set_accels_for_action("app.about", &["F1"]);
     app.set_accels_for_action("app.quit", &["<Primary>q", "q"]);
+    app.set_accels_for_action("app.toggle-fullscreen", &["F11"]);
 
     {
         let p = player.clone();

@@ -13,6 +13,7 @@ fn build_app_menus() -> (gio::Menu, gio::Menu) {
     let menu = gio::Menu::new();
     menu.append(Some("Open Video…"), Some("app.open"));
     menu.append(Some("Close Video"), Some("app.close-video"));
+    menu.append(Some("Fullscreen"), Some("app.toggle-fullscreen"));
     menu.append(
         Some("Exit After Current Video"),
         Some("app.exit-after-current"),

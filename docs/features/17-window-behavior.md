@@ -44,11 +44,16 @@ Feature: Window, fullscreen, and presentation
     Then the window resizes toward the documented landscape aspect (target width 960 px, max height 900 px, with clamping)
     And portrait, square, or unknown sizes leave window dimensions unchanged
 
-  Scenario: Fullscreen via shortcuts or double-click
+  Scenario: Fullscreen via shortcuts, double-click, or main menu
     Given the main window is windowed and not maximized
-    When the user activates fullscreen from keyboard shortcuts or double-clicks the video surface
+    When the user activates fullscreen from keyboard shortcuts, double-clicks the video surface, or chooses fullscreen from the main menu
     Then the current windowed width and height are saved
     And the window enters fullscreen via the maximize-then-fullscreen path
+
+  Scenario: Main menu exits fullscreen
+    Given the window is fullscreen
+    When the user chooses fullscreen from the main menu
+    Then the window leaves fullscreen
 
   Scenario: Exiting fullscreen restores last windowed size
     Given the window is fullscreen with a saved windowed size
@@ -92,6 +97,7 @@ Feature: Window, fullscreen, and presentation
 ```
 
 ## Notes
+- Main menu **Fullscreen** invokes `app.toggle-fullscreen` (same maximize-then-fullscreen path as other toggles); **F11** is bound as a shortcut. Enter / **f** also toggle fullscreen from the window key controller (see input wiring).
 - Fullscreen-only header clock: `GtkLabel` packed on `HeaderBar` before speed / sound / subtitle / main menu; reads **`org.gnome.desktop.interface`** (`clock-format` **12h** / **24h**, `clock-show-seconds`) when that schema exists so the string matches the desktop shell clock (no forced `%X` / seconds / AM–PM). Fallback **`%H:%M`** when settings are unavailable; visible updates use `glib::timeout_add_seconds_local(1, …)` while fullscreen because no toolkit signal fires per wall-clock second.
 - Inhibit implementation polls every ~500 ms to sync with pause / load / grid state; uninhibit always runs before quit.
 - Autohide default 2–3 s; menus or popovers being open keeps chrome visible.
