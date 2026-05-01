@@ -22,12 +22,11 @@ fn sync_smooth_vf_on_pause_transition(ctx: &Rc<TransportCtx>, paused: bool) {
             return;
         }
         if paused {
-            b.smooth_vf_not_before.set(None);
             if !ctx.recent_visible.get() {
                 let _ = video_pref::unload_smooth_on_pause(&b.mpv);
             }
         } else {
-            schedule_smooth_vf_attach_after_delay(
+            smooth_vf_attach_if_playing(
                 Rc::clone(&ctx.player),
                 ctx.eof.gl.clone(),
                 ctx.eof.reapply_60.clone(),

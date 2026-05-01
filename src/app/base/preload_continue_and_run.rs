@@ -15,7 +15,7 @@ fn preload_first_continue(
     let _ = b.mpv.set_property("pause", true);
     *last_path.borrow_mut() = std::fs::canonicalize(&path).ok();
     Some(
-        video_pref::apply_mpv_fast_start_after_load(b, &mut video.borrow_mut()).smooth_auto_off,
+        video_pref::apply_mpv_video(b, &mut video.borrow_mut(), None).smooth_auto_off,
     )
 }
 

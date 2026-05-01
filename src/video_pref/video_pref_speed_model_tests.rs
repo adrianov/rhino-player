@@ -12,7 +12,7 @@ mod model_tests {
     }
 
     /// When the graph **should** include `vapoursynth` (pref on + ~1.0×) but the string does not, an
-    /// [apply_mpv_video] (or [super::reapply_60_if_still_missing] after the post-load timer) fixes it.
+    /// [apply_mpv_video] (or [super::reapply_60_if_still_missing]) fixes it.
     fn graph_lacks_script_while_wanted(
         smooth_pref: bool,
         playback_speed: f64,

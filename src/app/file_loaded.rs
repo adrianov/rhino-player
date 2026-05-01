@@ -87,7 +87,7 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
                 });
                 glib::ControlFlow::Break
             });
-            // 60p: post-load timer attaches vf; this 320 ms hook aligns speed env without racing it.
+            // 60p: load idle attaches vf; this 320 ms hook aligns speed env without racing it.
         }
     })
 }

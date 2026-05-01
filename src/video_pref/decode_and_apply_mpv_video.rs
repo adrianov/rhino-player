@@ -1,10 +1,4 @@
-use std::time::Instant;
-
 use crate::mpv_embed::MpvBundle;
-
-/// Wall-clock wait after playback starts before attaching the Smooth 60 `vf` (see
-/// [apply_mpv_fast_start_after_load] + [crate::app::schedule_smooth_vf_attach_after_delay]).
-pub const SMOOTH_VF_ATTACH_DELAY_MS: u64 = 500;
 
 fn post_smooth_60_state(mpv: &Mpv, v: &VideoPrefs, want_60: bool, disabled_60: bool, vlog: bool) {
     if want_60 && !v.smooth_60 {
@@ -57,35 +51,8 @@ fn log_vf_diagnostics(mpv: &Mpv, vlog: bool) {
     }
 }
 
-fn smooth_vf_delay_active(b: &MpvBundle) -> bool {
-    b.smooth_vf_not_before
-        .get()
-        .is_some_and(|t| Instant::now() < t)
-}
-
-/// After [loadfile] with Smooth 60 at ~1.0×: **no** VapourSynth `vf` yet, **`hwdec=auto`** so the first
-/// frames come up quickly, then [crate::app::schedule_smooth_vf_attach_after_delay] attaches the script
-/// after [SMOOTH_VF_ATTACH_DELAY_MS] if still playing. Other cases delegate to [apply_mpv_video].
-pub fn apply_mpv_fast_start_after_load(b: &MpvBundle, v: &mut VideoPrefs) -> MpvVideoApply {
-    let mpv = &b.mpv;
-    let use_mvtools_now = v.smooth_60 && mvtools_vf_eligible(mpv, None);
-    if !use_mvtools_now || !mpv_has_open_media(mpv) {
-        return apply_mpv_video(b, v, None);
-    }
-    let vlog = video_log();
-    if vf_string_has_vapoursynth(mpv) {
-        clear_vf(mpv, vlog);
-    }
-    set_auto_decode(mpv, vlog);
-    if video_log() {
-        eprintln!("[rhino] video: after load — decode without Smooth `vf`; attach if still playing after {} ms", SMOOTH_VF_ATTACH_DELAY_MS);
-    }
-    log_vf_diagnostics(mpv, vlog);
-    MpvVideoApply::default()
-}
-
 /// If Smooth 60 is on, **speed** is ~1.0×, and `vapoursynth` is still not in the `vf` list, run
-/// [apply_mpv_video] once (e.g. after the post-load attach timer).
+/// [apply_mpv_video] once (covers a rare missed attach).
 pub fn reapply_60_if_still_missing(b: &MpvBundle, v: &mut VideoPrefs) -> MpvVideoApply {
     let mpv = &b.mpv;
     if mpv.get_property::<bool>("pause").unwrap_or(true) {
@@ -127,7 +94,7 @@ pub fn unload_smooth_on_pause(mpv: &Mpv) -> bool {
     true
 }
 pub fn apply_mpv_video_init(mpv: &Mpv, v: &mut VideoPrefs) -> MpvVideoApply {
-    apply_mpv_video_impl(mpv, v, None, None)
+    apply_mpv_video_impl(mpv, v, None)
 }
 
 /// Normal playback is intentionally a no-op: leave mpv's timing, decode, and filter defaults alone.
@@ -147,18 +114,10 @@ fn log_apply(v: &VideoPrefs) {
 }
 
 pub fn apply_mpv_video(b: &MpvBundle, v: &mut VideoPrefs, speed_hint: Option<f64>) -> MpvVideoApply {
-    apply_mpv_video_impl(&b.mpv, v, speed_hint, Some(&b.smooth_vf_not_before))
+    apply_mpv_video_impl(&b.mpv, v, speed_hint)
 }
 
-fn apply_mpv_video_impl(
-    mpv: &Mpv,
-    v: &mut VideoPrefs,
-    speed_hint: Option<f64>,
-    clear_smooth_delay: Option<&std::cell::Cell<Option<Instant>>>,
-) -> MpvVideoApply {
-    if let Some(c) = clear_smooth_delay {
-        c.set(None);
-    }
+fn apply_mpv_video_impl(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> MpvVideoApply {
     let vlog = video_log();
     log_apply(v);
     let paused = mpv.get_property::<bool>("pause").unwrap_or(true);

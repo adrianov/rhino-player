@@ -56,9 +56,6 @@ pub struct MpvBundle {
     /// Resume time (seconds) for the next `FileLoaded`. Set by [load_file_path] from `db::resume_pos`,
     /// applied + cleared by [apply_pending_resume] after the file is loaded.
     pending_resume: std::cell::Cell<Option<f64>>,
-    /// While set and in the future, [video_pref::resync_smooth_if_speed_mismatch] skips attaching the
-    /// Smooth 60 `vf` so mpv can decode without VapourSynth for the first ~500 ms of playback.
-    pub smooth_vf_not_before: std::cell::Cell<Option<std::time::Instant>>,
 }
 
 impl MpvBundle {
@@ -134,7 +131,6 @@ impl MpvBundle {
                 render,
                 gl_ptr,
                 pending_resume: std::cell::Cell::new(None),
-                smooth_vf_not_before: std::cell::Cell::new(None),
             },
             auto_off,
         ))
@@ -238,7 +234,6 @@ impl MpvBundle {
         } else {
             media_probe::record_playback_for_current(&self.mpv);
         }
-        self.smooth_vf_not_before.set(None);
         let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let s = canonical.to_str().ok_or("media path is not valid UTF-8")?;
         self.pending_resume.set(db::resume_pos(&canonical));

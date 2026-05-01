@@ -183,9 +183,6 @@ pub fn resync_smooth_if_speed_mismatch(b: &crate::mpv_embed::MpvBundle, v: &mut 
     if !needs_playback_speed_env_resync(mpv) && want_mvtools == has {
         return MpvVideoApply::default();
     }
-    if want_mvtools && !has && smooth_vf_delay_active(b) {
-        return MpvVideoApply::default();
-    }
     apply_mpv_video(b, v, None)
 }
 
