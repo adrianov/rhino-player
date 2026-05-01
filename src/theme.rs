@@ -38,6 +38,11 @@ pub fn apply() {
         scale.rp-seek { margin: 0 4px; }
         scale.rp-vol { margin: 0; }
         scale.rp-vol > trough { min-height: 4px; }
+        /* Smaller thumb than default libadwaita touch slab so trough clicks succeed for short seeks. */
+        scale.rp-seek slider {
+            min-width: 16px;
+            min-height: 16px;
+        }
         scale.rp-seek > trough {
             background-color: #3d3d3d;
             min-height: 6px;
