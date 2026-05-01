@@ -1,9 +1,25 @@
 fn video_file_filter() -> gtk::FileFilter {
     let f = gtk::FileFilter::new();
     f.set_name(Some("Video Files"));
-    f.add_mime_type("video/*");
-    for s in video_ext::SUFFIX {
-        f.add_suffix(s);
+    #[cfg(not(target_os = "macos"))]
+    {
+        f.add_mime_type("video/*");
+        for s in video_ext::SUFFIX {
+            f.add_suffix(s);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // Native macOS panel: `video/*` often resolves to no UTTypes, so everything stays visible.
+        // Glob patterns + suffixes map reliably to allowed file types.
+        for s in video_ext::SUFFIX {
+            f.add_suffix(s);
+            f.add_pattern(&format!("*.{s}"));
+            let up = s.to_uppercase();
+            if up.as_str() != *s {
+                f.add_pattern(&format!("*.{up}"));
+            }
+        }
     }
     f
 }
@@ -12,6 +28,11 @@ fn vpy_file_filter() -> gtk::FileFilter {
     let f = gtk::FileFilter::new();
     f.set_name(Some("VapourSynth Scripts"));
     f.add_suffix("vpy");
+    #[cfg(target_os = "macos")]
+    {
+        f.add_pattern("*.vpy");
+        f.add_pattern("*.VPY");
+    }
     f
 }
 
