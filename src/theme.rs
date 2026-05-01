@@ -1,10 +1,7 @@
 /// Extra styling on top of libadwaita: opaque content area, custom seek / time look, pointer on controls.
 /// Dark style comes from [adw::StyleManager::set_color_scheme] in `app.rs` — do not set
 /// `gtk-application-prefer-dark-theme` (unsupported with libadwaita).
-pub fn apply() {
-    let p = gtk::CssProvider::new();
-    p.load_from_string(
-        r#"
+const APP_CSS: &str = r#"
         window.rp-win {
             background-color: #242424;
             color: #eeeeec;
@@ -19,7 +16,7 @@ pub fn apply() {
             color: #c0bfbc;
             font-family: monospace, monospace;
             font-feature-settings: "tnum";
-            margin-inline-end: 10px;
+            margin-right: 10px;
             font-size: 0.95em;
         }
         .rp-stack {
@@ -31,7 +28,7 @@ pub fn apply() {
             border-top: 1px solid #3d3d3d;
             padding: 8px 14px 12px 14px;
         }
-        /* LTR: space before elapsed time; GTK CSS has no margin-end in all releases */
+        /* LTR clock spacing; avoid margin-inline-end (not in all GTK CSS parsers). */
         .rp-bottom .rpb-prev { margin-right: 2px; }
         .rp-bottom .rpb-play { margin-left: 2px; margin-right: 2px; }
         .rp-bottom .rpb-next { margin-right: 6px; }
@@ -214,9 +211,12 @@ pub fn apply() {
             border-radius: 9999px;
             background-color: #62a0ea;
         }
+    "#;
 
-        /* Hand on interactive controls; not-allowed when disabled. Skip entry, textview, drawing
-           (video): they do not use these node names. */
+/// GTK ≥ 4.12 adds `cursor` to the CSS dialect on typical Linux builds. Some stacks (macOS / Homebrew
+/// in particular) still report a new `gtk::minor_version()` yet reject `cursor` in
+/// [CssProvider::load_from_string] with “No property named cursor”, which breaks parsing of our sheet.
+const CURSOR_CSS: &str = r#"
         button:not(:disabled), menubutton:not(:disabled), modelbutton, togglebutton:not(:disabled),
         switch, checkbutton, radiobutton, link, scale:not(:disabled), spinbutton > button,
         listview > row, listbox > row {
@@ -225,8 +225,23 @@ pub fn apply() {
         button:disabled, menubutton:disabled, scale:disabled, togglebutton:disabled {
             cursor: not-allowed;
         }
-    "#,
-    );
+    "#;
+
+fn append_cursor_css(css: &mut String) {
+    if cfg!(target_os = "macos") {
+        return;
+    }
+    if gtk::minor_version() >= 12 {
+        css.push_str(CURSOR_CSS);
+    }
+}
+
+pub fn apply() {
+    let mut css = String::with_capacity(APP_CSS.len() + CURSOR_CSS.len() + 8);
+    css.push_str(APP_CSS);
+    append_cursor_css(&mut css);
+    let p = gtk::CssProvider::new();
+    p.load_from_string(&css);
     if let Some(d) = gtk::gdk::Display::default() {
         gtk::style_context_add_provider_for_display(
             &d,

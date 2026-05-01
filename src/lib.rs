@@ -6,6 +6,7 @@ mod app;
 mod audio_tracks;
 mod continue_undo;
 mod db;
+mod glib_log_filter;
 mod history;
 mod icons;
 mod idle_inhibit;
