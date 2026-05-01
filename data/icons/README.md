@@ -1,5 +1,8 @@
 # Icons (Freedesktop / GNOME)
 
+- `hicolor/scalable/actions/speedometer-symbolic.svg` — bundled symbolic for the header **playback speed** control (`speedometer-symbolic`); some platforms (e.g. macOS + Homebrew GTK) ship an icon theme without this name, so it is included here. `src/icons.rs` prepends this tree so GTK resolves it.
+- `hicolor/scalable/actions/media-view-subtitles-symbolic.svg` — bundled symbolic for the header **subtitles** menu (`media-view-subtitles-symbolic`); same reason: Homebrew GTK on macOS only ships an empty `hicolor` theme.
+
 ## Layout
 
 - `hicolor/<NxN>/apps/ch.rhino.RhinoPlayer.png` — [icon theme] assets; name matches [GApplication id] `ch.rhino.RhinoPlayer` and the `Icon=` key in the [`.desktop`] file. Standard sizes: **16, 22, 24, 32, 48, 64, 128, 256, 512, 1024**.

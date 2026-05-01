@@ -6,8 +6,9 @@ use std::path::PathBuf;
 
 use crate::app::APP_ID;
 
-/// Adds `CARGO_MANIFEST_DIR/data/icons` to the process icon search path so the app id icon
-/// resolves from the build tree (e.g. `cargo run`) without a system install.
+/// Inserts `CARGO_MANIFEST_DIR/data/icons` at the **front** of the icon search path so bundled
+/// **`hicolor`** entries (e.g. `speedometer-symbolic` for playback speed) win when the platform theme
+/// is incomplete (typical on macOS + Homebrew GTK).
 pub fn register_hicolor_from_manifest() {
     let dir: PathBuf = [env!("CARGO_MANIFEST_DIR"), "data", "icons"]
         .iter()
@@ -19,6 +20,11 @@ pub fn register_hicolor_from_manifest() {
         return;
     };
     let theme = gtk::IconTheme::for_display(&display);
-    theme.add_search_path(&dir);
+    let mut paths = theme.search_path();
+    if !paths.iter().any(|p| p == &dir) {
+        paths.insert(0, dir);
+    }
+    let pref: Vec<&std::path::Path> = paths.iter().map(std::path::PathBuf::as_path).collect();
+    theme.set_search_path(&pref);
     gtk::Window::set_default_icon_name(APP_ID);
 }

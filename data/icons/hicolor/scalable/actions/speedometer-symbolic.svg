@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SPDX-License-Identifier: GPL-3.0-or-later
+  Copyright (C) 2026 Peter Adrianov
+  Playback speed (icon name speedometer-symbolic): semicircle dial with a needle
+  pointing upper-right and a pivot dot — minimal so it stays crisp at 16px;
+  themes may override.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+  <path d="M 2 11 A 6 6 0 0 1 14 11"
+        fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M 8 11 L 11.6 6"
+        stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+  <circle cx="8" cy="11" r="1.3"/>
+</svg>
