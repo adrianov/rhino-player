@@ -115,9 +115,6 @@ fn start_playback(
     delayed_warm: bool,
 ) {
     if delayed_warm {
-        if let Some(b) = player.borrow().as_ref() {
-            resync_warm_continue(&b.mpv);
-        }
         let recent = recent_layer.as_ref().clone();
         let win2 = win.clone();
         let gl2 = gl.clone();

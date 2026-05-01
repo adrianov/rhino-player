@@ -17,7 +17,7 @@ mpv_props: [path, time-pos, duration, eof-reached]
 ## Description
 On empty launch (no CLI paths, no other "open this first" path takes over the first paint), the main content shows a row of up to **five** continue cards in most-recently-opened order. Each card has a thumbnail (cover style), the filename (no ellipsis), a thin progress bar with numeric percent, and trash + remove controls on hover.
 
-Clicking a card loads that file and unpauses, even if watch-later had stored a paused session. The first card may be warm-preloaded paused behind the grid; activating it (click or Space) hides the grid and reveals playback after a short reveal delay so the seek transition stays hidden. Returning to the grid keeps the current file paused for warm reuse; if the grid becomes empty, playback stops.
+Clicking a card loads that file and unpauses, even if watch-later had stored a paused session. The first card may be warm-preloaded paused behind the grid; activating it (click or Space) hides the grid and reveals playback after a short reveal delay. Returning to the grid keeps the current file paused for warm reuse; if the grid becomes empty, playback stops.
 
 History is durable, deduplicated by canonical path, capped at 20 entries (showing five), and prunes missing files on `history::load`. Thumbnails are JPEG BLOBs in the SQLite `media` table, refreshed in the background by a `vo=image` libmpv decode near the stored continue position. Remove and Move-to-trash share a session **LIFO undo stack** with a 10 s snackbar.
 
@@ -53,8 +53,7 @@ Feature: Recent videos grid on empty launch
   Scenario: Warm preload reveal on Space
     Given the recent grid is visible and the first card is warm-preloaded paused
     When the user presses Space
-    Then a hidden current-position keyframe resync runs while the grid is still visible
-    And after WARM_REVEAL_DELAY_MS the grid hides, chrome reveals, the window presents, and pause clears
+    Then after WARM_REVEAL_DELAY_MS the grid hides, chrome reveals, the window presents, and pause clears
 
   Scenario: Card layout uses full filename and percent
     Given a card is rendered for an existing file

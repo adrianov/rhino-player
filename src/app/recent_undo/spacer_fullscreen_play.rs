@@ -57,7 +57,6 @@ fn toggle_play_pause(ctx: &PlayToggleCtx) -> bool {
             ctx.win.set_title(Some(title_for_open_path(&path).as_str()));
         }
         sync_window_aspect_from_mpv(&b.mpv, ctx.win_aspect.as_ref());
-        resync_warm_continue(&b.mpv);
         ctx.gl.queue_render();
         drop(g);
         schedule_warm_reveal(ctx.clone());
