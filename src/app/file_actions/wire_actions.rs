@@ -61,12 +61,13 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
                 p
             };
             let want = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+            let size_hint = std::fs::metadata(&path).ok().map(|m| m.len());
             let snap = capture_list_remove_undo(&path);
             if let Err(e) = gio::File::for_path(&path).trash(gio::Cancellable::NONE) {
                 eprintln!("[rhino] move to trash: {e}");
                 return;
             }
-            let in_trash = trash_xdg::find_trash_files_stored_path(&want);
+            let in_trash = trash_xdg::find_trash_files_stored_path(&want, size_hint);
             if in_trash.is_none() {
                 eprintln!("[rhino] trash: could not locate trashed file for undo");
             }
