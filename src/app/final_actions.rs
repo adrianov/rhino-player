@@ -11,6 +11,8 @@ struct FinalActionCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
     sub_pref: Rc<RefCell<db::SubPrefs>>,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
+    /// Same model as the header hamburger; used for the macOS global menu bar.
+    main_menu: gio::Menu,
     pref_menu: gio::Menu,
     seek_bar_on: Rc<Cell<bool>>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
@@ -36,6 +38,7 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         player,
         sub_pref,
         video_pref,
+        main_menu,
         pref_menu,
         seek_bar_on,
         last_path,
@@ -205,6 +208,11 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         &pref_menu,
         Rc::clone(&seek_bar_on),
     );
+
+    #[cfg(target_os = "macos")]
+    app.set_menubar(Some(&main_menu));
+    #[cfg(not(target_os = "macos"))]
+    drop(main_menu);
 
     app.set_accels_for_action("app.open", &["<Primary>o"]);
     app.set_accels_for_action("app.close-video", &["<Primary>w"]);

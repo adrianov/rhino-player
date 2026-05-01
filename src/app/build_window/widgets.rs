@@ -31,6 +31,8 @@ struct WindowWidgets {
     sub_color_btn: gtk::ColorDialogButton,
     vol_pop: gtk::Popover,
     sub_pop: gtk::Popover,
+    /// Top-level hamburger / macOS menu bar model (same `gio::Menu` for both).
+    main_menu: gio::Menu,
     pref_menu: gio::Menu,
     recent_scrl: gtk::ScrolledWindow,
     flow_recent: gtk::Box,
@@ -100,7 +102,7 @@ fn build_widgets(
     let SpeedMenuResult { speed_mbtn, speed_list, speed_sync } =
         build_speed_menu(player, &gl_area, video_pref, app);
 
-    let menu_btn = build_menu_button(menu);
+    let menu_btn = build_menu_button(&menu);
 
     let fs_clock = gtk::Label::new(None);
     fs_clock.add_css_class("rp-fs-clock");
@@ -153,17 +155,17 @@ fn build_widgets(
         audio_tracks_box, audio_tracks_block, audio_tracks_section,
         sub_tracks_box, sub_tracks_block, sub_tracks_section,
         sub_scale_adj, sub_color_btn,
-        vol_pop, sub_pop, pref_menu,
+        vol_pop, sub_pop, main_menu: menu, pref_menu,
         recent_scrl, flow_recent, recent_spacers, undo_bar,
         fs_clock,
     }
 }
 
-fn build_menu_button(menu: gio::Menu) -> gtk::MenuButton {
+fn build_menu_button(menu: &gio::Menu) -> gtk::MenuButton {
     let mb = gtk::MenuButton::new();
     mb.set_icon_name("open-menu-symbolic");
     mb.set_tooltip_text(Some("Main menu"));
-    mb.set_menu_model(Some(&menu));
+    mb.set_menu_model(Some(menu));
     let mb2 = mb.clone();
     mb.connect_notify_local(Some("popover"), move |b, _| {
         if let Some(p) = b.popover() { header_popover_non_modal(&p); }

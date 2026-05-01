@@ -6,7 +6,7 @@ use glib::prelude::{ObjectExt, ToVariant};
 use gtk::gio;
 use gtk::glib;
 use gtk::prelude::{
-    ActionableExt, EventControllerExt, GtkWindowExt, WidgetExt,
+    ActionableExt, ApplicationExt, EventControllerExt, GtkWindowExt, WidgetExt,
 };
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};

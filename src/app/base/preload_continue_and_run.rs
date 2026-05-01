@@ -20,6 +20,8 @@ fn preload_first_continue(
 }
 
 pub fn run() -> i32 {
+    crate::glib_log_filter::install();
+
     unsafe {
         libc::setlocale(libc::LC_NUMERIC, b"C\0".as_ptr().cast());
     }
@@ -37,6 +39,7 @@ pub fn run() -> i32 {
         .build();
 
     app.connect_startup(|app| {
+        glib::set_application_name(APP_WIN_TITLE);
         icons::register_hicolor_from_manifest();
         adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
         db::init();
