@@ -1,3 +1,17 @@
+/// When focus is in a widget that needs unmodified key events (typing, caret moves), let GTK handle
+/// keys after our [`gtk::PropagationPhase::Capture`] pass — except [`gtk::gdk::Key::Escape`],
+/// which is handled above this check in [`w_in_key_controller`].
+fn root_focus_wants_raw_keys(win: &adw::ApplicationWindow) -> bool {
+    let Some(fw) = gtk::prelude::RootExt::focus(win) else {
+        return false;
+    };
+    fw.downcast_ref::<gtk::TextView>().is_some()
+        || fw.downcast_ref::<gtk::Entry>().is_some()
+        || fw.downcast_ref::<gtk::SearchEntry>().is_some()
+        || fw.downcast_ref::<gtk::SpinButton>().is_some()
+        || fw.downcast_ref::<gtk::PasswordEntry>().is_some()
+}
+
 fn w_in_key_controller(ctx: &WindowInputCtx) {
     let p = ctx.player.clone();
     let win_key = ctx.win.clone();
@@ -32,6 +46,10 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
     let seof_nav = ctx.sibling_seof.clone();
     let on_loaded_nav = ctx.on_file_loaded.clone();
     let k = gtk::EventControllerKey::new();
+    // Capture phase: run before the focused widget (e.g. bottom-bar buttons, scales) so Space /
+    // Enter / arrows trigger playback shortcuts instead of GTK's button activation / focus
+    // navigation defaults.
+    k.set_propagation_phase(gtk::PropagationPhase::Capture);
     k.connect_key_pressed(move |_c, key, _code, m| {
         if key == gtk::gdk::Key::Escape {
             if win_key.is_fullscreen() {
@@ -47,6 +65,9 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
             }
             browse_back(true);
             return glib::Propagation::Stop;
+        }
+        if root_focus_wants_raw_keys(&win_key) {
+            return glib::Propagation::Proceed;
         }
         if key == gtk::gdk::Key::Return
             || key == gtk::gdk::Key::KP_Enter
