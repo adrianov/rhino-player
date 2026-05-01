@@ -9,6 +9,7 @@ pub fn connect(
     player: Rc<RefCell<Option<MpvBundle>>>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     enabled: Rc<Cell<bool>>,
+    chapters: Rc<RefCell<Vec<(f64, String)>>>,
     ctx: SeekPreviewCtx,
 ) -> Rc<SeekPreviewState> {
     let SeekPreviewCtx { ovl, bottom } = ctx;
@@ -20,13 +21,21 @@ pub fn connect(
     gl.set_focus_on_click(false);
     gl.set_size_request(180, 101);
 
+    let chapter_lbl = gtk::Label::new(None::<&str>);
+    chapter_lbl.add_css_class("rp-seek-thumb-chapter");
+    chapter_lbl.set_xalign(0.5);
+    chapter_lbl.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    chapter_lbl.set_max_width_chars(28);
+    chapter_lbl.set_visible(false);
+
     let time_lbl = gtk::Label::new(None::<&str>);
     time_lbl.add_css_class("rp-seek-thumb-time");
     time_lbl.add_css_class("numeric");
     time_lbl.set_xalign(0.5);
 
-    let body = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    let body = gtk::Box::new(gtk::Orientation::Vertical, 2);
     body.append(&gl);
+    body.append(&chapter_lbl);
     body.append(&time_lbl);
 
     let container = gtk::Frame::new(None::<&str>);
@@ -60,6 +69,7 @@ pub fn connect(
     let st = Rc::new(SeekPreviewState {
         container,
         gl,
+        chapter_lbl,
         time_lbl,
         preview,
         pump: Rc::new(RefCell::new(None)),
@@ -70,6 +80,7 @@ pub fn connect(
         seek_adj: seek_adj.clone(),
         player,
         last_path,
+        chapters,
         hover_t: Rc::new(Cell::new(0.0)),
         last_xy: Rc::new(RefCell::new(None)),
         deb: Rc::new(RefCell::new(None)),
@@ -99,6 +110,11 @@ pub fn connect(
                 * dur;
             st.hover_t.set(t);
             st.time_lbl.set_text(&format_time(t));
+            let ch = st.chapters.borrow();
+            let name = ch.iter().rfind(|(ct, _)| *ct <= t).map(|(_, n)| n.as_str()).unwrap_or("");
+            st.chapter_lbl.set_text(name);
+            st.chapter_lbl.set_visible(!name.is_empty());
+            drop(ch);
 
             if !st.enabled.get() {
                 return;

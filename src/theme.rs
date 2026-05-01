@@ -91,6 +91,11 @@ pub fn apply() {
         frame.rp-seek-thumb-frame glarea {
             border-radius: 5px;
         }
+        label.rp-seek-thumb-chapter {
+            color: #e0dfd8;
+            font-size: 0.80em;
+            padding: 0 4px;
+        }
         label.rp-seek-thumb-time {
             color: #c0bfbc;
             font-size: 0.82em;

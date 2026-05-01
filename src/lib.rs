@@ -18,6 +18,7 @@ mod recent_view;
 pub mod sched;
 mod seek_bar_preview;
 mod sibling_advance;
+mod chapter_list;
 mod sub_prefs;
 mod sub_tracks;
 mod theme;

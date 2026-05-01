@@ -26,6 +26,16 @@ fn has_open_path(mpv: &Mpv) -> bool {
     matches!(mpv.get_property::<String>("path"), Ok(s) if !s.trim().is_empty())
 }
 
+fn sync_seek_chapters(ctx: &Rc<TransportCtx>) {
+    let mut list = Vec::new();
+    if let Ok(g) = ctx.player.try_borrow() {
+        if let Some(b) = g.as_ref() {
+            list = crate::chapter_list::mpv_chapter_list(&b.mpv);
+        }
+    }
+    *ctx.seek_chapters.borrow_mut() = list;
+}
+
 fn sync_smooth_vf_on_pause_transition(ctx: &Rc<TransportCtx>, paused: bool) {
     // Smooth 60: keep vapoursynth `vf` across pause/unpause so FlowFPS is not torn down and rebuilt
     // on every tap of Space. Seeks while paused still strip via [main_player_seek_keyframes] /
@@ -66,6 +76,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             sync_duration_label(w, d);
             sync_speed_button(w, d);
             refresh_play_button(ctx);
+            sync_seek_chapters(ctx);
         }
         TransportEv::Volume(v) => sync_volume(w, v),
         TransportEv::Mute(m) => sync_mute(w, m),
@@ -86,17 +97,20 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             transport_tick(ctx);
             schedule_transport_resync_on_idle(ctx);
             schedule_smooth_60_resync_idle(ctx);
+            sync_seek_chapters(ctx);
         }
         TransportEv::VideoReconfig => {
             sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);
             refresh_sibling_nav(ctx);
             transport_tick(ctx);
+            sync_seek_chapters(ctx);
         }
         TransportEv::PathChanged => {
             ctx.eof.sibling_seof.done.set(false);
             refresh_sibling_nav(ctx);
             transport_tick(ctx);
             schedule_smooth_60_resync_idle(ctx);
+            sync_seek_chapters(ctx);
         }
     }
 }

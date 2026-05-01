@@ -95,6 +95,7 @@ struct TransportCtx {
     /// 1 Hz timer source id (kept so it can be replaced if observers re-install).
     tick: Rc<RefCell<Option<glib::SourceId>>>,
     cache: Rc<RefCell<TransportCache>>,
+    seek_chapters: Rc<RefCell<Vec<(f64, String)>>>,
 }
 
 /// All wiring inputs for [wire_transport_events]. Grouped to keep the call site narrow and
@@ -119,6 +120,7 @@ struct TransportSetup {
     reapply_60: VideoReapply60,
     bar_show: Rc<Cell<bool>>,
     widgets: TransportWidgets,
+    seek_chapters: Rc<RefCell<Vec<(f64, String)>>>,
 }
 
 fn wire_transport_events(s: TransportSetup) {
@@ -147,6 +149,7 @@ fn wire_transport_events(s: TransportSetup) {
         smooth_60_resync_idle_pending: Rc::new(Cell::new(false)),
         tick: Rc::new(RefCell::new(None)),
         cache: Rc::new(RefCell::new(TransportCache::default())),
+        seek_chapters: s.seek_chapters.clone(),
     });
 
     let ctx_drain = Rc::clone(&ctx);

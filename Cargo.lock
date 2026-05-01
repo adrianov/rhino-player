@@ -649,6 +649,7 @@ dependencies = [
  "libc",
  "libloading",
  "libmpv2",
+ "libmpv2-sys",
  "rusqlite",
  "serde",
  "serde_json",

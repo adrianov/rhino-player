@@ -9,6 +9,7 @@ pub struct SeekPreviewState {
     /// [`GdkSurface`] so there is no compositor surface creation on show/hide.
     pub container: gtk::Frame,
     pub gl: gtk::GLArea,
+    pub chapter_lbl: gtk::Label,
     pub time_lbl: gtk::Label,
     pub preview: Rc<RefCell<Option<MpvPreviewGl>>>,
     pub pump: Rc<RefCell<Option<glib::SourceId>>>,
@@ -19,6 +20,7 @@ pub struct SeekPreviewState {
     pub seek_adj: gtk::Adjustment,
     pub player: Rc<RefCell<Option<MpvBundle>>>,
     pub last_path: Rc<RefCell<Option<PathBuf>>>,
+    pub chapters: Rc<RefCell<Vec<(f64, String)>>>,
     pub hover_t: Rc<Cell<f64>>,
     pub last_xy: Rc<RefCell<Option<(f64, f64)>>>,
     pub deb: Rc<RefCell<Option<glib::SourceId>>>,

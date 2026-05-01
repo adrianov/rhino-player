@@ -17,6 +17,8 @@ fn build_window(
     let reapply_60 = VideoReapply60 { vp: Rc::clone(&video_pref), app: app.clone() };
     let w = build_widgets(app, player, &video_pref, &sub_pref);
 
+    let seek_chapters = Rc::new(RefCell::new(Vec::<(f64, String)>::new()));
+
     let bar_show = Rc::new(Cell::new(true));
     let nav_t = Rc::new(RefCell::new(None::<glib::SourceId>));
     let cur_t = Rc::new(RefCell::new(None::<glib::SourceId>));
@@ -53,7 +55,8 @@ fn build_window(
     let (seek_sync, seek_grabbed) = (Rc::new(Cell::new(false)), Rc::new(Cell::new(false)));
     let seek_preview = seek_bar_preview::connect(
         &w.seek, &w.seek_adj, Rc::clone(player), Rc::clone(&last_path),
-        Rc::clone(&seek_bar_on), seek_bar_preview::SeekPreviewCtx { ovl: w.outer_ovl.clone(), bottom: w.bottom.clone() },
+        Rc::clone(&seek_bar_on), Rc::clone(&seek_chapters),
+        seek_bar_preview::SeekPreviewCtx { ovl: w.outer_ovl.clone(), bottom: w.bottom.clone() },
     );
     // Container lives on the same GdkSurface — no compositor round-trip on show/hide.
     w.outer_ovl.add_overlay(&seek_preview.container);
@@ -270,6 +273,7 @@ fn build_window(
         win_aspect: win_aspect.clone(), idle_inhib: Rc::clone(&idle_inhib),
         on_video_chrome: on_video_chrome.clone(), on_file_loaded: Rc::clone(&on_file_loaded),
         reapply_60: reapply_60.clone(), bar_show: bar_show.clone(),
+        seek_chapters: Rc::clone(&seek_chapters),
         widgets: TransportWidgets {
             play_pause: w.play_pause.clone(), seek: w.seek.clone(), seek_adj: w.seek_adj.clone(),
             seek_sync: seek_sync.clone(), seek_grabbed: seek_grabbed.clone(),
@@ -281,7 +285,13 @@ fn build_window(
     });
 
     wire_final_actions(FinalActionCtx {
-        app: app.clone(), win: w.win.clone(), root: w.root.clone(), gl: w.gl_area.clone(),
+        app: app.clone(),
+        win: w.win.clone(),
+        fs_restore: Rc::clone(&fs_restore),
+        last_unmax: Rc::clone(&last_unmax),
+        skip_max_to_fs: Rc::clone(&skip_max_to_fs),
+        root: w.root.clone(),
+        gl: w.gl_area.clone(),
         recent: w.recent_scrl.clone(), bottom: w.bottom.clone(), player: player.clone(),
         sub_pref: sub_pref.clone(), video_pref: Rc::clone(&video_pref),
         pref_menu: w.pref_menu.clone(), seek_bar_on: Rc::clone(&seek_bar_on),

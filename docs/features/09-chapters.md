@@ -1,11 +1,10 @@
 # Chapters: marks, menu, seek bar hover
 
 ---
-status: planned
+status: wip
 priority: p2
-layers: [ui, mpv]
+layers: [ui, playback]
 related: [04, 18]
-mpv_props: [chapter, chapter-list]
 ---
 
 ## Use cases
@@ -14,36 +13,30 @@ mpv_props: [chapter, chapter-list]
 - Jump from a list or directly from the seek bar.
 
 ## Description
-When `chapter-list` is non-empty, the seek bar shows marks at chapter starts, the main menu lists chapters as actions, and a popover near the pointer shows time and chapter title on hover. Selecting a chapter sets mpv’s `chapter` property.
+When the playback engine exposes chapter metadata for the open title, the seek bar draws a vertical mark at each chapter start and shows the chapter name in the seek bar tooltip when the pointer is close to that position. A main-menu chapter list remains planned.
 
 ## Behavior
 
 ```gherkin
-@status:planned @priority:p2 @layer:mpv @area:chapters
-Feature: Chapter navigation
+@status:wip @priority:p2 @layer:playback @area:chapters
+Feature: Chapters: marks, menu, seek bar hover
 
   Scenario: Chapter marks render at chapter starts
-    Given mpv exposes a non-empty chapter-list
+    Given the playback engine exposes a non-empty chapter list for the current title
     When the seek bar is shown
-    Then a mark appears at every chapter start time, sorted by time
+    Then a mark appears at every chapter start time in ascending order
 
-  Scenario: Empty chapter-list hides chapter UI
-    Given chapter-list is empty or unavailable
-    When the user inspects the seek bar and main menu
-    Then no chapter marks render and the chapter menu is hidden
+  Scenario: Empty chapter list hides chapter marks
+    Given the chapter metadata lists no chapters for the current title
+    When the seek bar is shown
+    Then no chapter marks render on the seek bar
 
-  Scenario: Selecting a chapter seeks to its start
+  Scenario: Seek bar tooltip shows chapter name near a mark
     Given chapters exist for the current file
-    When the user activates a chapter entry in the menu
-    Then playback jumps to that chapter’s start time
-    And the mpv chapter property reflects the selected index
-
-  Scenario: Hover popover shows chapter title and time
-    Given the pointer hovers a position inside a chapter on the seek bar
-    When the popover is visible
-    Then the popover shows the formatted hover time and the chapter title
+    When the pointer hovers the seek bar close to a chapter start
+    Then the seek bar shows a tooltip with that chapter name
 ```
 
 ## Notes
-- Escape chapter title text for markup; position the popover relative to the scale widget.
-- May share its hover popover with [18-thumbnail-preview](18-thumbnail-preview.md).
+- **Shipped:** `chapter-list` via libmpv `MPV_FORMAT_NODE`: array of maps with `time` (double) and `title` (string). Parsed in `chapter_list::mpv_chapter_list`; UI refreshed from transport **`FileLoaded`**, **`PathChanged`**, **`Duration`**, **`VideoReconfig`**. Marks: **`GtkDrawingArea`** overlay on **`GtkOverlay`** wrapping **`Gtk.Scale`** (`rp-seek-chapters`), **`GtkDrawingAreaExtManual::set_draw_func`** for Cairo ticks; **`EventControllerMotion`** on the scale updates **`gtk::Scale::set_tooltip_text`** near each chapter time (`seek_chapter_ui.rs`). **`libmpv2-sys`** is pulled for `mpv_node` FFI alongside **`libmpv2`**.
+- **Planned:** main-menu chapter actions (`mpv` **`chapter`** property / numbered seeks); richer hover may align with [18-thumbnail-preview](18-thumbnail-preview.md).

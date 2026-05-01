@@ -26,7 +26,7 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 06 | [Open files: file picker, folder, CLI, single-instance](features/06-open-and-cli.md) | wip |
 | 07 | [Sibling folder queue (folder playback)](features/07-sibling-folder-queue.md) | done |
 | 08 | [Tracks: audio, video, subtitles](features/08-tracks.md) | wip |
-| 09 | [Chapters: marks, menu, seek bar hover](features/09-chapters.md) | planned |
+| 09 | [Chapters: marks, menu, seek bar hover](features/09-chapters.md) | wip |
 | 10 | [Video options: aspect, crop, zoom, filters](features/10-video-options.md) | planned |
 | 11 | [Drag and drop](features/11-drag-and-drop.md) | planned |
 | 12 | [URL and network streams (yt-dlp / protocols)](features/12-url-and-streams.md) | planned |

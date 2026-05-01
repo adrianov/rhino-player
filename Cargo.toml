@@ -17,6 +17,7 @@ gdk-pixbuf = { version = "0.20" } # JPEG → GdkTexture (not gdk::Texture::from_
 adw = { version = "0.7", package = "libadwaita", features = ["v1_5"] }
 glib = { version = "0.20", features = ["v2_80"] }                 # main loop, clones, timers
 libmpv2 = { version = "5.0.3" }                                    # libmpv
+libmpv2-sys = "4.0.1"                                              # mpv_node chapter-list (pairs with libmpv2)
 libc = "0.2"                                                       # setlocale for libmpv
 libloading = "0.8"                                                # libEGL, libGL
 rusqlite = { version = "0.32", features = ["bundled"] }           # app data (one sqlite file)
