@@ -194,24 +194,14 @@ const K_VIDEO_SMOOTH_60: &str = "video_smooth_60";
 const K_VIDEO_VS: &str = "video_vs_path";
 const K_VIDEO_MVTOOLS_LIB: &str = "video_mvtools_lib";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct VideoPrefs {
     /// When set: add mpv `vf=vapoursynth` with [vs_path] or bundled `.vpy` (no `display-resample`).
+    /// Default **off** until the user opts in; bundled script applies when `video_vs_path` is empty once enabled.
     pub smooth_60: bool,
     /// Absolute path to a `.vpy` for mpv’s `vapoursynth` filter, or empty for bundled script.
     pub vs_path: String,
     /// Cached absolute path to `libmvtools.so` after a successful find; skipped on next call if still a file.
     pub mvtools_lib: String,
-}
-
-impl Default for VideoPrefs {
-    fn default() -> Self {
-        Self {
-            // Bundled `rhino_60_mvtools.vpy` when `video_vs_path` is empty; see paths.rs
-            smooth_60: true,
-            vs_path: String::new(),
-            mvtools_lib: String::new(),
-        }
-    }
 }
 
