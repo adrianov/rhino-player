@@ -75,6 +75,14 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             refresh_sibling_nav(ctx);
             transport_tick(ctx);
             schedule_transport_resync_on_idle(ctx);
+            // Smooth 60: `schedule_reapply_60` uses an idle that can run *before* this `FileLoaded`
+            // drain (it is registered earlier in `try_load`). If `path` was still empty there,
+            // VapourSynth deferred attach and never retried — bind (re)attach to `FileLoaded`.
+            smooth_vf_attach_if_playing(
+                Rc::clone(&ctx.player),
+                ctx.eof.gl.clone(),
+                ctx.eof.reapply_60.clone(),
+            );
         }
         TransportEv::VideoReconfig => {
             sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);
