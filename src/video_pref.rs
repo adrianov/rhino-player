@@ -12,12 +12,11 @@
 //! Python), [apply_mpv_video] sets `smooth_60` to `false`, saves settings, and returns `true` so the UI
 //! can sync the **Smooth Video (~60 FPS at 1.0×)** menu.
 //!
-//! **Hardware decode** (`hwdec=auto`) often **bypasses** the CPU VapourSynth path, so once the
-//! Smooth filter is active the graph uses **`hwdec=no`**. After [loadfile] with Smooth on at ~1.0×,
-//! the first idle clears `vf` and leaves **auto** decode until a **~500 ms** timer fires; if still playing,
-//! [apply_mpv_video] switches to software decode and adds `vf` — first frames can use hardware decode when the
-//! stack allows. Outside Smooth, mpv decode defaults are unchanged until [apply_mpv_video] adjusts them.
-//! Restore **`hwdec=auto`** only when removing an active VapourSynth graph (Smooth off or error).
+//! When attaching Smooth `vf` with media open, Rhino leaves **`hwdec`** / **`vd-lavc-dr`** unchanged
+//! (usually **`hwdec=auto`** after load); that works on typical stacks without forcing software decode.
+//! After [loadfile] with Smooth on at ~1.0×, the first idle clears `vf` and leaves **auto** decode until a
+//! **~500 ms** timer fires; if still playing, [apply_mpv_video] adds `vf` without touching decode options.
+//! Clearing the graph (**Smooth off** or **vf** error) restores **`hwdec=auto`** / **`vd-lavc-dr=auto`**.
 //! Successful `libmvtools.so` resolution is stored in SQLite (`video_mvtools_lib`); the next session
 //! reuses that path if the file still exists, avoiding a full search.
 //!

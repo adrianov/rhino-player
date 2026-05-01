@@ -21,19 +21,6 @@ fn post_smooth_60_state(mpv: &Mpv, v: &VideoPrefs, want_60: bool, disabled_60: b
     log_vf_diagnostics(mpv, vlog);
 }
 
-fn set_smooth_decode(mpv: &Mpv, vlog: bool) {
-    if let Err(e) = mpv.set_property("hwdec", "no") {
-        eprintln!("[rhino] video: set hwdec no failed: {e:?}");
-    } else {
-        eprintln!("[rhino] video: hwdec=no (vapoursynth vf: software decode so the filter path runs; hwdec=auto often skips it — see docs/features/26-sixty-fps-motion.md)");
-    }
-    if let Err(e) = mpv.set_property("vd-lavc-dr", "no") {
-        eprintln!("[rhino] video: set vd-lavc-dr no failed: {e:?}");
-    } else if vlog {
-        eprintln!("[rhino] video: vd-lavc-dr=no (with smooth 60 at 1.0×)");
-    }
-}
-
 fn set_auto_decode(mpv: &Mpv, vlog: bool) {
     if let Err(e) = mpv.set_property("hwdec", "auto") {
         eprintln!("[rhino] video: set hwdec auto failed: {e:?}");
@@ -194,7 +181,7 @@ fn apply_mpv_video_impl(
         };
     }
 
-    set_smooth_decode(mpv, vlog);
+    // Leave hwdec / vd-lavc-dr unchanged when attaching VS (default hwdec=auto is fine on typical stacks).
     clear_vf(mpv, vlog);
     let disabled_60 = add_smooth_60(mpv, v, speed_hint);
     post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
