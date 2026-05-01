@@ -90,6 +90,10 @@ fn build_widgets(
     gl_area.set_auto_render(false);
     gl_area.set_has_stencil_buffer(false);
     gl_area.set_has_depth_buffer(false);
+    // GTK 4.18+ tracks pointer "active" state per widget; focus + claimed grabs on the GL surface
+    // could imbalance press/release accounting (stderr: Broken accounting of active state).
+    gl_area.set_can_focus(false);
+    gl_area.set_focus_on_click(false);
 
     let SpeedMenuResult { speed_mbtn, speed_list, speed_sync } =
         build_speed_menu(player, &gl_area, video_pref, app);

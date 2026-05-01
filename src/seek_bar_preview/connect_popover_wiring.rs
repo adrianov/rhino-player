@@ -17,6 +17,8 @@ pub fn connect(
     gl.set_auto_render(false);
     gl.set_has_stencil_buffer(false);
     gl.set_has_depth_buffer(false);
+    gl.set_can_focus(false);
+    gl.set_focus_on_click(false);
     gl.set_size_request(180, 101);
 
     let time_lbl = gtk::Label::new(None::<&str>);
