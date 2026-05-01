@@ -14,11 +14,10 @@ fn wire_recent_spacer_fullscreen(
         let lu2 = last_unmax.clone();
         let sk2 = skip_max_to_fs.clone();
         let rec2 = recent.clone();
-        d2.connect_pressed(move |gest, n_press, _, _| {
+        d2.connect_pressed(move |_, n_press, _, _| {
             if n_press != 2 || !rec2.is_visible() {
                 return;
             }
-            let _ = gest.set_state(gtk::EventSequenceState::Claimed);
             toggle_fullscreen(&w2, &fr2, &lu2, &sk2);
         });
         sp.add_controller(d2);
@@ -66,9 +65,11 @@ fn toggle_play_pause(ctx: &PlayToggleCtx) -> bool {
     }
     let paused = b.mpv.get_property::<bool>("pause").unwrap_or(false);
     if paused {
+        // While paused, `apply_mpv_video` will not attach the `vf` (it requires `pause=no`).
+        // Unpause routes through `sync_smooth_vf_on_pause_transition` (delayed attach when playing).
         let off = {
             let mut pref = ctx.video_pref.borrow_mut();
-            video_pref::resync_smooth_if_speed_mismatch(&b.mpv, &mut pref)
+            video_pref::resync_smooth_if_speed_mismatch(b, &mut pref).smooth_auto_off
         };
         if off {
             sync_smooth_60_to_off(&ctx.app);
@@ -128,8 +129,7 @@ fn wire_play_toggles(play_pause: &gtk::Button, ctx: PlayToggleCtx) {
     let gl = ctx.gl.clone();
     {
         let press_ctx = ctx;
-        rpp.connect_pressed(move |gest, n_press, _, _| {
-            let _ = gest.set_state(gtk::EventSequenceState::Claimed);
+        rpp.connect_pressed(move |_, n_press, _, _| {
             if n_press == 1 {
                 toggle_play_pause(&press_ctx);
             }

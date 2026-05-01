@@ -43,7 +43,7 @@ fn build_window(
     let aspect_resize_wired = Rc::new(Cell::new(false));
     let idle_inhib = Rc::new(RefCell::new(None::<u32>));
 
-    w.root.add_top_bar(&w.header);
+    // Top/bottom bars are attached when [wire_window_input] runs (`input/shell.rs`), not here.
     header_menubtns_switch([
         w.speed_mbtn.clone(), w.sub_menu.clone(), w.vol_menu.clone(), w.menu_btn.clone(),
     ]);
@@ -89,9 +89,8 @@ fn build_window(
         w.win.clone(), fs_restore.clone(), last_unmax.clone(),
         skip_max_to_fs.clone(), w.recent_scrl.clone(),
     );
-    dbl.connect_pressed(move |gest, n_press, _, _| {
+    dbl.connect_pressed(move |_, n_press, _, _| {
         if n_press != 2 || rec_dbl.is_visible() { return; }
-        let _ = gest.set_state(gtk::EventSequenceState::Claimed);
         toggle_fullscreen(&win_fs, &fr, &lu, &skip_dbl);
     });
     w.gl_area.add_controller(dbl);
@@ -173,6 +172,13 @@ fn build_window(
     let on_remove = recent_wiring.on_remove;
     let on_trash = recent_wiring.on_trash;
 
+    let recent_visible = Rc::new(Cell::new(w.recent_scrl.is_visible()));
+    {
+        let rv = Rc::clone(&recent_visible);
+        w.recent_scrl
+            .connect_notify_local(Some("visible"), move |r, _| rv.set(r.is_visible()));
+    }
+
     let on_browse_back = make_browse_back(
         BackToBrowseCtx {
             player: player.clone(), on_open: on_open.clone(),
@@ -183,6 +189,7 @@ fn build_window(
             undo_shell: undo_shell.clone(), undo_label: undo_label.clone(),
             undo_btn: undo_btn.clone(), undo_timer: undo_timer.clone(),
             undo_remove_stack: undo_remove_stack.clone(),
+            recent_visible: Rc::clone(&recent_visible),
         },
         w.win.clone(), w.gl_area.clone(), w.recent_scrl.clone(), w.flow_recent.clone(),
     );
@@ -240,9 +247,10 @@ fn build_window(
     );
 
     wire_transport_events(TransportSetup {
-        app: app.clone(), player: player.clone(), video_pref: Rc::clone(&video_pref),
+        app: app.clone(), player: player.clone(),
         sub_pref: sub_pref.clone(),
         win: w.win.clone(), gl: w.gl_area.clone(), recent: w.recent_scrl.clone(),
+        recent_visible,
         last_path: last_path.clone(), sibling_seof: sibling_seof.clone(),
         sibling_nav: w.sibling_nav.clone(), exit_after_current: exit_after_current.clone(),
         win_aspect: win_aspect.clone(), idle_inhib: Rc::clone(&idle_inhib),
@@ -270,40 +278,4 @@ fn build_window(
     });
 }
 
-fn wire_popover_shows(
-    player: &Rc<RefCell<Option<MpvBundle>>>,
-    w: &WindowWidgets,
-    sub_pref: &Rc<RefCell<db::SubPrefs>>,
-) {
-    let (p, bx, blk, gla, sec) = (
-        player.clone(), w.audio_tracks_box.clone(),
-        Rc::clone(&w.audio_tracks_block), w.gl_area.clone(), w.audio_tracks_section.clone(),
-    );
-    w.vol_pop.connect_show(move |_| {
-        let show = audio_tracks::rebuild_popover(&p, &bx, &blk, &gla);
-        sec.set_visible(show);
-    });
-    let sp_pick = sub_pref.clone();
-    let sp_off = sub_pref.clone();
-    let on_sub_pick: Rc<dyn Fn(&str)> = Rc::new(move |label: &str| {
-        let mut s = sp_pick.borrow_mut();
-        s.last_sub_label = label.to_string();
-        s.sub_off = false;
-        db::save_sub(&sp_pick.borrow());
-    });
-    let on_sub_off: Rc<dyn Fn()> = Rc::new(move || {
-        sp_off.borrow_mut().sub_off = true;
-        db::save_sub(&sp_off.borrow());
-    });
-    let (p2, bx2, blk2, gla2, sec2) = (
-        player.clone(), w.sub_tracks_box.clone(),
-        Rc::clone(&w.sub_tracks_block), w.gl_area.clone(), w.sub_tracks_section.clone(),
-    );
-    w.sub_pop.connect_show(move |_| {
-        let show = sub_tracks::rebuild_popover(
-            &p2, &bx2, &blk2, &gla2,
-            Some(Rc::clone(&on_sub_pick)), Some(Rc::clone(&on_sub_off)),
-        );
-        sec2.set_visible(show);
-    });
-}
+include!("build_window/popover_shows.rs");

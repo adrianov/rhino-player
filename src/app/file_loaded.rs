@@ -87,8 +87,7 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
                 });
                 glib::ControlFlow::Break
             });
-            // 60p: [try_load] chains a second idle to [reapply_60_if_still_missing]. This 320ms hook
-            // catches list snap and [vf] vs [mvtools_vf_eligible] in one pass.
+            // 60p: post-load timer attaches vf; this 320 ms hook aligns speed env without racing it.
         }
     })
 }
@@ -181,13 +180,17 @@ fn on_320ms_tick(c: On320Ctx) {
         sub_prefs::apply_mpv(&b.mpv, &pr);
         let show = c.recent.is_visible() || c.bar_show.get();
         sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, c.bottom.height(), c.gl.height());
-        audio_tracks::restore_saved_audio(&b.mpv);
-        audio_tracks::ensure_playable_audio(&b.mpv);
+        // Audio track restore runs synchronously on the FileLoaded transport event (see
+        // dispatch_sync_ui.rs) so the saved `aid` is in place *before* unpause. Repeating it
+        // here would re-open the audio path mid-playback and reintroduce the A/V drift.
         sub_tracks::autopick_sub_track(&b.mpv, &pr);
         let listed = playback_speed::sync_list(&b.mpv, &c.speed_sync_flag, &c.speed_list);
         let mut g = c.video_pref.borrow_mut();
-        if g.smooth_60 && resync_smooth_speed(&b.mpv, &mut g, listed) {
-            sync_smooth_60_to_off(&c.app);
+        if g.smooth_60 {
+            let r = resync_smooth_speed(b, &mut g, listed);
+            if r.smooth_auto_off {
+                sync_smooth_60_to_off(&c.app);
+            }
         }
     }
     if let Some(a) = c.close_action.borrow().as_ref() {
@@ -198,13 +201,16 @@ fn on_320ms_tick(c: On320Ctx) {
     }
 }
 
-/// Returns `true` if smooth-60 was turned off (needs UI sync).
-fn resync_smooth_speed(mpv: &Mpv, vp: &mut db::VideoPrefs, listed: Option<f64>) -> bool {
+fn resync_smooth_speed(
+    b: &MpvBundle,
+    vp: &mut db::VideoPrefs,
+    listed: Option<f64>,
+) -> video_pref::MpvVideoApply {
     if let Some(s) = listed {
-        video_pref::refresh_smooth_for_playback_speed(mpv, vp, Some(s))
-    } else if video_pref::needs_playback_speed_env_resync(mpv) {
-        video_pref::refresh_smooth_for_playback_speed(mpv, vp, None)
+        video_pref::refresh_smooth_for_playback_speed(b, vp, Some(s))
+    } else if video_pref::needs_playback_speed_env_resync(&b.mpv) {
+        video_pref::refresh_smooth_for_playback_speed(b, vp, None)
     } else {
-        video_pref::resync_smooth_if_speed_mismatch(mpv, vp)
+        video_pref::resync_smooth_if_speed_mismatch(b, vp)
     }
 }

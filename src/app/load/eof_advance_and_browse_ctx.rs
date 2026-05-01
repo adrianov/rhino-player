@@ -219,5 +219,8 @@ struct BackToBrowseCtx {
     undo_timer: Rc<RefCell<Option<glib::source::SourceId>>>,
     /// Stack of removed/trashed entries, newest at the end; [Undo] pops from the end.
     undo_remove_stack: Rc<RefCell<Vec<ContinueBarUndo>>>,
+    /// Mirrors [gtk::ScrolledWindow::is_visible] for the continue grid; refreshed before pausing
+    /// on browse-back so transport can skip unloading the motion filter without racing `notify::visible`.
+    recent_visible: Rc<Cell<bool>>,
 }
 

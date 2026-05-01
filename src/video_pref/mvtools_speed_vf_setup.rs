@@ -1,15 +1,18 @@
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use libmpv2::Mpv;
 
 use crate::db;
 use crate::db::VideoPrefs;
 use crate::paths;
-use crate::paths::RHINO_PLAYBACK_SPEED_VAR;
+use crate::paths::{
+    RHINO_PLAYBACK_SPEED_VAR, RHINO_SOURCE_FPS_VAR, RHINO_VPY_LOG_EPOCH_VAR,
+};
 use crate::playback_speed::MAX_FIXED_SPEED;
 
 /// [apply_mpv_video] result (replaces a bare `bool` for "smooth was auto-off" on older call sites).
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MpvVideoApply {
     /// Prefs had **Smooth 60** turned off (missing script, `vf` rejected, etc.).
     pub smooth_auto_off: bool,
@@ -77,6 +80,8 @@ const PLAYBACK_1X_EPS: f64 = 0.001;
 /// VapourSynth / mvtools needs a deeper queue than ordinary decode to avoid jitter from CPU spikes.
 const VS_BUFFERED_FRAMES: i32 = 24;
 
+static VPY_LOG_EPOCH: AtomicU64 = AtomicU64::new(0);
+
 /// Same string [mpv] and the VapourSynth script use for `RHINO_PLAYBACK_SPEED`.
 fn normalized_env_speed(s: f64) -> f64 {
     if !s.is_finite() {
@@ -104,11 +109,39 @@ pub fn set_playback_speed_env_from_mpv(mpv: &Mpv) {
     set_playback_speed_env(s);
 }
 
+/// Publish [paths::RHINO_SOURCE_FPS_VAR] so the bundled `.vpy` can recover a real source cadence
+/// when mpv's vapoursynth filter passes `fps_num=0 / fps_den=0` to the script (it does this for
+/// many otherwise-CFR mp4s — phone captures, screen recordings, web exports). Reads `container-fps`
+/// (mpv's container-reported rate); on miss tries `estimated-vf-fps` as a last-ditch sample, then
+/// clears the env so the script's safe passthrough kicks in instead of a stale value from a
+/// previous file.
+fn set_source_fps_env_from_mpv(mpv: &Mpv) {
+    let cfps = mpv
+        .get_property::<f64>("container-fps")
+        .ok()
+        .filter(|v| v.is_finite() && *v > 0.0);
+    let est = || {
+        mpv.get_property::<f64>("estimated-vf-fps")
+            .ok()
+            .filter(|v| v.is_finite() && *v > 0.0)
+    };
+    match cfps.or_else(est) {
+        Some(fps) => {
+            std::env::set_var(RHINO_SOURCE_FPS_VAR, format!("{fps:.6}"));
+            eprintln!("[rhino] video: source fps -> {fps:.6} ({RHINO_SOURCE_FPS_VAR})");
+        }
+        None => {
+            std::env::remove_var(RHINO_SOURCE_FPS_VAR);
+            eprintln!("[rhino] video: source fps unknown (mpv has no `container-fps`) — script will passthrough");
+        }
+    }
+}
+
 /// Bundled mvtools / FlowFPS is only used at **1.0×** (no speed-up). If [mpv] `speed` is not ~1, the
 /// [vf] is omitted; **Smooth 60** pref may stay on for when the user returns to 1.0×.
 /// [speed_hint] is used when [Some] (e.g. header row) so we do not read [get_property] before it matches
 /// the value just sent with [set_property] — that race skipped re-adding the [vf] when going 1.5/2.0 → 1.0.
-fn mvtools_vf_eligible(mpv: &Mpv, speed_hint: Option<f64>) -> bool {
+pub(crate) fn mvtools_vf_eligible(mpv: &Mpv, speed_hint: Option<f64>) -> bool {
     let s = match speed_hint {
         Some(x) if x.is_finite() => normalized_env_speed(x),
         _ => match mpv.get_property::<f64>("speed") {
@@ -139,38 +172,42 @@ pub fn needs_playback_speed_env_resync(mpv: &Mpv) -> bool {
 
 /// If **Smooth 60** is on and media is open, runs [apply_mpv_video] when the decode/`vf` state should
 /// change: env/`speed` mismatch, or the graph does not match [mvtools_vf_eligible] (want **vapoursynth**
-/// only at ~1.0×; strip when sped up). Returns [MpvVideoApply::smooth_auto_off].
-pub fn resync_smooth_if_speed_mismatch(mpv: &Mpv, v: &mut VideoPrefs) -> bool {
+/// only at ~1.0×; strip when sped up). Returns the same shape as [apply_mpv_video].
+pub fn resync_smooth_if_speed_mismatch(b: &crate::mpv_embed::MpvBundle, v: &mut VideoPrefs) -> MpvVideoApply {
+    let mpv = &b.mpv;
     if !v.smooth_60 || !mpv_has_open_media(mpv) {
-        return false;
+        return MpvVideoApply::default();
     }
     let want_mvtools = mvtools_vf_eligible(mpv, None);
-    let has = vf_string_has_vapoursynth(mpv);
+    let has = vf_chain_has_vapoursynth(mpv);
     if !needs_playback_speed_env_resync(mpv) && want_mvtools == has {
-        return false;
+        return MpvVideoApply::default();
     }
-    apply_mpv_video(mpv, v, None).smooth_auto_off
+    if want_mvtools && !has && smooth_vf_delay_active(b) {
+        return MpvVideoApply::default();
+    }
+    apply_mpv_video(b, v, None)
 }
 
 /// After [libmpv2::Mpv] `speed` changes: re-run [apply_mpv_video] so `vf` / decode match
 /// (mvtools only at ~1.0×; see [mvtools_vf_eligible]).
 /// Pass [speed_hint] with the `speed` you just set in mpv to avoid a **get_property** race; use `None` to
 /// read the current [mpv] value.
-/// Returns `true` if **Smooth 60** was auto-disabled in prefs.
 pub fn refresh_smooth_for_playback_speed(
-    mpv: &Mpv,
+    b: &crate::mpv_embed::MpvBundle,
     v: &mut VideoPrefs,
     speed_hint: Option<f64>,
-) -> bool {
+) -> MpvVideoApply {
+    let mpv = &b.mpv;
     if !v.smooth_60 || !mpv_has_open_media(mpv) {
-        return false;
+        return MpvVideoApply::default();
     }
     eprintln!("[rhino] video: video pipeline resync for playback speed");
     match speed_hint {
         Some(s) => set_playback_speed_env(s),
         None => set_playback_speed_env_from_mpv(mpv),
     }
-    apply_mpv_video(mpv, v, speed_hint).smooth_auto_off
+    apply_mpv_video(b, v, speed_hint)
 }
 
 fn resolve_vs_script_path(v: &VideoPrefs) -> Option<String> {
@@ -194,7 +231,8 @@ fn turn_off_smooth_60_in_prefs(v: &mut VideoPrefs) {
 /// After `vf` is cleared, add ~60 fps filter when [VideoPrefs::smooth_60]. Returns `true` if we
 /// **disabled** the option in prefs (VapourSynth path missing and no bundle, or `vf` add failed).
 /// True when a media file is open (filters must attach after [loadfile] so `video_in` exists).
-fn mpv_has_open_media(mpv: &Mpv) -> bool {
+/// True when a media file is open (filters must attach after [loadfile] so `video_in` exists).
+pub(crate) fn mpv_has_open_media(mpv: &Mpv) -> bool {
     // `path` is the main/selected file; empty before the first `loadfile` or while idle.
     matches!(mpv.get_property::<String>("path"), Ok(s) if !s.trim().is_empty())
 }
@@ -218,6 +256,9 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
         Some(s) => set_playback_speed_env(s),
         None => set_playback_speed_env_from_mpv(mpv),
     }
+    set_source_fps_env_from_mpv(mpv);
+    let epoch = VPY_LOG_EPOCH.fetch_add(1, Ordering::Relaxed);
+    std::env::set_var(RHINO_VPY_LOG_EPOCH_VAR, format!("{epoch}"));
     if !apply_mvtools_env(v) {
         turn_off_smooth_60_in_prefs(v);
         return true;

@@ -1,21 +1,39 @@
+/// Run `f` with the active mpv bundle if it is borrowable and present. Skips silently
+/// otherwise (the player is `None` before GL realize, or already mutably borrowed by
+/// another transport handler — both cases are normal in this dispatch path).
+fn with_bundle(player: &Rc<RefCell<Option<MpvBundle>>>, f: impl FnOnce(&MpvBundle)) {
+    if let Ok(g) = player.try_borrow() {
+        if let Some(b) = g.as_ref() {
+            f(b);
+        }
+    }
+}
+
+fn has_open_path(mpv: &Mpv) -> bool {
+    matches!(mpv.get_property::<String>("path"), Ok(s) if !s.trim().is_empty())
+}
+
 fn sync_smooth_vf_on_pause_transition(ctx: &Rc<TransportCtx>, paused: bool) {
-    // Smooth 60 `.vpy` stays off while paused and reapplies after playback resumes (`pause=no`).
-    let g = match ctx.player.try_borrow() {
-        Ok(g) => g,
-        Err(_) => return,
-    };
-    let Some(b) = g.as_ref() else {
-        return;
-    };
-    if !matches!(b.mpv.get_property::<String>("path"), Ok(ref s) if !s.trim().is_empty()) {
-        return;
-    }
-    if paused {
-        let _ = video_pref::unload_smooth_on_pause(&b.mpv);
-    } else {
-        let mut vp = ctx.video_pref.borrow_mut();
-        let _ = video_pref::apply_mpv_video(&b.mpv, &mut vp, None);
-    }
+    // Smooth 60: pause during normal playback unloads the `vf` still (still frame). Returning to
+    // the continue list pauses with that grid visible — keep the graph so the same warm reopen
+    // does not rebuild VapourSynth.
+    with_bundle(&ctx.player, |b| {
+        if !has_open_path(&b.mpv) {
+            return;
+        }
+        if paused {
+            b.smooth_vf_not_before.set(None);
+            if !ctx.recent_visible.get() {
+                let _ = video_pref::unload_smooth_on_pause(&b.mpv);
+            }
+        } else {
+            schedule_smooth_vf_attach_after_delay(
+                Rc::clone(&ctx.player),
+                ctx.eof.gl.clone(),
+                ctx.eof.reapply_60.clone(),
+            );
+        }
+    });
     ctx.eof.gl.queue_render();
 }
 
@@ -44,13 +62,15 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
         TransportEv::Mute(m) => sync_mute(w, m),
         TransportEv::VolumeMax(vmax) => sync_volume_max(w, vmax),
         TransportEv::FileLoaded => {
-            // New file: apply the SQLite-driven resume (if any), reset the one-shot EOF guard,
-            // and let `transport_tick` pick up state.
-            if let Ok(g) = ctx.player.try_borrow() {
-                if let Some(b) = g.as_ref() {
-                    b.apply_pending_resume();
-                }
-            }
+            // New file: apply the SQLite-driven resume, restore the saved audio track *before*
+            // any unpause so mpv does not play the default `aid` for a fraction of a second and
+            // then switch (audio path re-open caused lip-sync drift on continue-grid → reopen).
+            // Reset the one-shot EOF guard and let `transport_tick` pick up state.
+            with_bundle(&ctx.player, |b| {
+                b.apply_pending_resume();
+                audio_tracks::restore_saved_audio(&b.mpv);
+                audio_tracks::ensure_playable_audio(&b.mpv);
+            });
             ctx.eof.sibling_seof.done.set(false);
             sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);
             refresh_sibling_nav(ctx);
@@ -81,13 +101,9 @@ fn sync_window_aspect_from_player(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     win_aspect: &Rc<Cell<Option<f64>>>,
 ) {
-    let g = match player.try_borrow() {
-        Ok(g) => g,
-        Err(_) => return,
-    };
-    if let Some(b) = g.as_ref() {
+    with_bundle(player, |b| {
         sync_window_aspect_from_mpv(&b.mpv, win_aspect.as_ref());
-    }
+    });
 }
 
 fn run_sibling_eof(ctx: &Rc<TransportCtx>) {

@@ -80,7 +80,6 @@ struct TransportEofCtx {
 
 struct TransportCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
-    video_pref: Rc<RefCell<db::VideoPrefs>>,
     widgets: TransportWidgets,
     eof: TransportEofCtx,
     /// Bottom-bar visibility flag; transient seek-slider redraws are skipped while it is `false`
@@ -101,11 +100,12 @@ struct TransportCtx {
 struct TransportSetup {
     app: adw::Application,
     player: Rc<RefCell<Option<MpvBundle>>>,
-    video_pref: Rc<RefCell<db::VideoPrefs>>,
     sub_pref: Rc<RefCell<db::SubPrefs>>,
     win: adw::ApplicationWindow,
     gl: gtk::GLArea,
     recent: gtk::ScrolledWindow,
+    /// Shared with [BackToBrowseCtx]; refreshed before pausing when returning to the continue list.
+    recent_visible: Rc<Cell<bool>>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     sibling_seof: Rc<SiblingEofState>,
     sibling_nav: SiblingNavUi,
@@ -120,15 +120,8 @@ struct TransportSetup {
 }
 
 fn wire_transport_events(s: TransportSetup) {
-    let recent_visible = Rc::new(Cell::new(s.recent.is_visible()));
-    {
-        let rv = Rc::clone(&recent_visible);
-        s.recent
-            .connect_notify_local(Some("visible"), move |w, _| rv.set(w.is_visible()));
-    }
     let ctx = Rc::new(TransportCtx {
         player: s.player.clone(),
-        video_pref: s.video_pref.clone(),
         widgets: s.widgets,
         eof: TransportEofCtx {
             app: s.app,
@@ -146,7 +139,7 @@ fn wire_transport_events(s: TransportSetup) {
             reapply_60: s.reapply_60,
         },
         bar_show: s.bar_show,
-        recent_visible,
+        recent_visible: s.recent_visible,
         sibling_nav: s.sibling_nav,
         idle_resync_pending: Rc::new(Cell::new(false)),
         tick: Rc::new(RefCell::new(None)),

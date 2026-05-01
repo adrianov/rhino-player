@@ -33,6 +33,7 @@ fn back_to_browse(
         .set_title(Some(APP_WIN_TITLE));
     gl.queue_render();
     // Cut audio right away; `stop` stays in idlers so a last-frame screenshot can run first.
+    c.recent_visible.set(recent.is_visible());
     if let Some(b) = c.player.borrow().as_ref() {
         let _ = b.mpv.set_property("pause", true);
     }

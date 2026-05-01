@@ -95,12 +95,11 @@ fn register_video_app_actions(
                 db::save_video(&g);
             }
             if let Some(plr) = pl.borrow().as_ref() {
-                let off = {
+                let r = {
                     let mut g = p.borrow_mut();
-                    video_pref::apply_mpv_video(&plr.mpv, &mut g, None)
-                }
-                .smooth_auto_off;
-                if off {
+                    video_pref::apply_mpv_video(plr, &mut g, None)
+                };
+                if r.smooth_auto_off {
                     sync_smooth_60_to_off(&app_s);
                     show_smooth_setup_dialog(&app_s);
                 }
@@ -159,12 +158,11 @@ fn register_video_app_actions(
                 db::save_video(&g);
             }
             if let Some(plr) = pl.borrow().as_ref() {
-                let off = {
+                let r = {
                     let mut g = p.borrow_mut();
-                    video_pref::apply_mpv_video(&plr.mpv, &mut g, None)
-                }
-                .smooth_auto_off;
-                if off {
+                    video_pref::apply_mpv_video(plr, &mut g, None)
+                };
+                if r.smooth_auto_off {
                     sync_smooth_60_to_off(&app_c);
                     show_smooth_setup_dialog(&app_c);
                 }
@@ -241,8 +239,8 @@ fn apply_vs_path_chosen(
     app: &adw::Application,
 ) {
     if let Some(plr) = pl.borrow().as_ref() {
-        let off = video_pref::apply_mpv_video(&plr.mpv, &mut p.borrow_mut(), None).smooth_auto_off;
-        if off {
+        let r = video_pref::apply_mpv_video(plr, &mut p.borrow_mut(), None);
+        if r.smooth_auto_off {
             sync_smooth_60_to_off(app);
             show_smooth_setup_dialog(app);
         } else if let Some(sa) = smooth_60_action(app) {

@@ -179,8 +179,10 @@ fn schedule_preload_reapply_60(
             if !vp.smooth_60 {
                 return;
             }
-            let off = video_pref::apply_mpv_video(&b.mpv, &mut vp, None).smooth_auto_off
-                || video_pref::reapply_60_if_still_missing(&b.mpv, &mut vp);
+            // Preload path: grid visible and paused — `apply_mpv_video` will not attach `vf` until
+            // `pause=no`; play from a card goes through `sync_smooth_vf_on_pause_transition`.
+            let off = video_pref::apply_mpv_video(b, &mut vp, None).smooth_auto_off
+                || video_pref::reapply_60_if_still_missing(b, &mut vp).smooth_auto_off;
             if off {
                 sync_smooth_60_to_off(&app);
             }

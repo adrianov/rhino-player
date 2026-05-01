@@ -15,7 +15,7 @@ use std::ptr;
 use crate::db;
 use crate::db::VideoPrefs;
 use crate::media_probe;
-use crate::video_pref::apply_mpv_video;
+use crate::video_pref::apply_mpv_video_init;
 
 type EglGetProcAddress = unsafe extern "C" fn(*const c_char) -> *mut c_void;
 type GlGetIntegerv = unsafe extern "C" fn(u32, *mut i32);
@@ -56,6 +56,9 @@ pub struct MpvBundle {
     /// Resume time (seconds) for the next `FileLoaded`. Set by [load_file_path] from `db::resume_pos`,
     /// applied + cleared by [apply_pending_resume] after the file is loaded.
     pending_resume: std::cell::Cell<Option<f64>>,
+    /// While set and in the future, [video_pref::resync_smooth_if_speed_mismatch] skips attaching the
+    /// Smooth 60 `vf` so mpv can decode without VapourSynth for the first ~500 ms of playback.
+    pub smooth_vf_not_before: std::cell::Cell<Option<std::time::Instant>>,
 }
 
 impl MpvBundle {
@@ -91,7 +94,7 @@ impl MpvBundle {
         })
         .map_err(|e| format!("{e:?}"))?;
 
-        let auto_off = apply_mpv_video(&mpv, video, None).smooth_auto_off;
+        let auto_off = apply_mpv_video_init(&mpv, video).smooth_auto_off;
         // Thumbnails: prefer JPEG (fast); PNG path uses minimum compression.
         let _ = mpv.set_property("screenshot-format", "jpeg");
         let _ = mpv.set_property("screenshot-jpeg-quality", 90i64);
@@ -131,6 +134,7 @@ impl MpvBundle {
                 render,
                 gl_ptr,
                 pending_resume: std::cell::Cell::new(None),
+                smooth_vf_not_before: std::cell::Cell::new(None),
             },
             auto_off,
         ))
@@ -234,6 +238,7 @@ impl MpvBundle {
         } else {
             media_probe::record_playback_for_current(&self.mpv);
         }
+        self.smooth_vf_not_before.set(None);
         let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let s = canonical.to_str().ok_or("media path is not valid UTF-8")?;
         self.pending_resume.set(db::resume_pos(&canonical));

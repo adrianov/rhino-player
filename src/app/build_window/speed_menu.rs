@@ -67,7 +67,8 @@ fn build_speed_menu(
             let ap2 = ap.clone();
             let _ = glib::idle_add_local_once(move || {
                 let Some(ref pl) = *bref.borrow() else { return };
-                if video_pref::refresh_smooth_for_playback_speed(&pl.mpv, &mut vp2.borrow_mut(), Some(v)) {
+                let r = video_pref::refresh_smooth_for_playback_speed(pl, &mut vp2.borrow_mut(), Some(v));
+                if r.smooth_auto_off {
                     sync_smooth_60_to_off(&ap2);
                 }
             });
