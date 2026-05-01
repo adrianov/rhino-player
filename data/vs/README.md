@@ -6,6 +6,18 @@ Many systems use **hardware decode** (`hwdec=auto` → VAAPI / NVDEC / etc.). Th
 
 **Note:** On-screen **subtitles** are drawn *after* the video frame, not *through* the `.vpy` script, so a scrolling sub test can mislead; check **image** motion (pans) instead.
 
+## When `video_in` reports `fps_num=0 / fps_den=0`
+
+Plenty of 29.97 / 30 / 23.976 fps mp4s — phone captures, screen recordings, web exports — reach the script with **`video_in.fps_num=0`** and **`video_in.fps_den=0`** even though the container is CFR. mpv's vapoursynth video filter does not always forward the container's rate. Without a real cadence, `FlowFPS` cannot compute output count without a guess (the previous hard-coded fallback was `24000/1001`, which silently retagged a real-29.97 source as 23.976 and stretched it by **25 %** — the "many extra frames + slowed down" drift).
+
+Rhino works around this by reading mpv's **`container-fps`** *before* attaching the filter and exporting it as **`RHINO_SOURCE_FPS`** (decimal, e.g. `29.970030`). The bundled script falls back to that env when `video_in` is `0/0`, rationalizes it with `Fraction(...).limit_denominator(1001)` (so 29.970 → 30000/1001, 23.976 → 24000/1001, 30.0 → 30/1), and runs FlowFPS as usual. The stderr log line records the **origin** so you can see which path the script took:
+
+```
+[rhino_60_mvtools] source fps_num=30000 fps_den=1001 (origin=RHINO_SOURCE_FPS) speed=1 (1.000)
+```
+
+For genuinely VFR sources mpv has no `container-fps` either, so `RHINO_SOURCE_FPS` is unset, the script logs `source fps unknown (likely VFR; no RHINO_SOURCE_FPS)` and falls back to **passthrough** — smoothing is disabled for that file but A/V stays in sync. Re-encode to **CFR** (e.g. `ffmpeg -i in.mp4 -c:v libx264 -fps_mode cfr -r 30000/1001 out.mp4`) to get smoothing back. Running `mpv` from a shell *without* Rhino can also set `export RHINO_SOURCE_FPS=29.970030` (or whichever you know the source to be) to enable smoothing manually.
+
 ## Why `vf add vapoursynth` fails (`Raw(-12)`)
 
 Rhino uses the **system** `libmpv` (see `ldd` on the binary). The error is **not** the `.vpy` file first: many Linux distros ship **mpv** / **libmpv2** built **without** the `vapoursynth` **video** filter, so that filter name never appears in `mpv -vf help` and the client API cannot add it.
