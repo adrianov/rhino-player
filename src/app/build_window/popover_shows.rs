@@ -17,7 +17,7 @@ fn wire_popover_shows(
         let mut s = sp_pick.borrow_mut();
         s.last_sub_label = label.to_string();
         s.sub_off = false;
-        db::save_sub(&sp_pick.borrow());
+        db::save_sub(&s);
     });
     let on_sub_off: Rc<dyn Fn()> = Rc::new(move || {
         sp_off.borrow_mut().sub_off = true;
