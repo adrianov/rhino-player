@@ -17,7 +17,6 @@ struct SiblingNavCtx {
     win_aspect: Rc<Cell<Option<f64>>>,
     sibling_seof: Rc<SiblingEofState>,
     on_file_loaded: Rc<dyn Fn()>,
-    reapply_60: VideoReapply60,
 }
 
 fn wire_sibling_nav_buttons(ctx: SiblingNavCtx) {
@@ -47,7 +46,6 @@ fn make_sibling_nav_click(
     let wa = Rc::clone(&ctx.win_aspect);
     let seof = Rc::clone(&ctx.sibling_seof);
     let ol = Rc::clone(&ctx.on_file_loaded);
-    let r60 = ctx.reapply_60.clone();
     move |_| {
         let cur = lp.borrow().clone();
         let Some(cur) = cur.filter(|c| c.is_file()) else {
@@ -67,7 +65,6 @@ fn make_sibling_nav_click(
             Some(Rc::clone(&ovid)),
             Rc::clone(&wa),
             Some(Rc::clone(&ol)),
-            Some(r60.clone()),
             true,
             false,
         );

@@ -16,7 +16,6 @@ struct LoadOpts {
     win_aspect: Rc<Cell<Option<f64>>>,
     /// Fuzzy subtitle auto-pick + hook after a successful `loadfile`.
     on_loaded: Option<Rc<dyn Fn()>>,
-    reapply_60: Option<VideoReapply60>,
     /// Before `loadfile`, set mpv speed to **1.0** if it was changed (sibling EOF advance).
     reset_speed_to_normal: bool,
 }
@@ -29,7 +28,6 @@ impl LoadOpts {
         on_start: Option<Rc<dyn Fn()>>,
         win_aspect: Rc<Cell<Option<f64>>>,
         on_loaded: Option<Rc<dyn Fn()>>,
-        reapply_60: Option<VideoReapply60>,
         play_on_start: bool,
         reset_speed_to_normal: bool,
     ) -> Self {
@@ -40,7 +38,6 @@ impl LoadOpts {
             on_start,
             win_aspect,
             on_loaded,
-            reapply_60,
             reset_speed_to_normal,
         }
     }

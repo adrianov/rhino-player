@@ -62,8 +62,8 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
         area.make_current();
         // Preload fills the bundle with the first history item; optional `argv[1]` / portal open
         // runs `try_load` right after GL init and replaces that file — follow-up preload idles must
-        // NOT run alongside `schedule_reapply_60`, or multiple `vf` teardown/rebuild bursts can freeze
-        // the GPU / main loop.
+        // NOT duplicate transport Smooth 60 resync (`FileLoaded` / `path`), or multiple `vf`
+        // teardown/rebuild bursts can freeze the GPU / main loop.
         let skip_preload_followups = file_boot_rz.borrow().is_some();
         let init = {
             let mut v = vp_realize.borrow_mut();
@@ -127,7 +127,6 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
                             Some(Rc::clone(&on_vid_rz)),
                             wa_st.clone(),
                             Some(Rc::clone(&ol_rz)),
-                            Some(reapply_rz.clone()),
                             false,
                             false,
                         ),

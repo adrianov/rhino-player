@@ -13,7 +13,6 @@ struct FinalActionCtx {
     last_path: Rc<RefCell<Option<PathBuf>>>,
     on_video_chrome: Rc<dyn Fn()>,
     on_file_loaded: Rc<dyn Fn()>,
-    reapply_60: VideoReapply60,
     win_aspect: Rc<Cell<Option<f64>>>,
     bar_show: Rc<Cell<bool>>,
     idle_inhib: Rc<RefCell<Option<u32>>>,
@@ -36,7 +35,6 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         last_path,
         on_video_chrome,
         on_file_loaded,
-        reapply_60,
         win_aspect,
         bar_show,
         idle_inhib,
@@ -59,8 +57,6 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         wa_dlg,
         #[strong]
         on_file_loaded,
-        #[strong]
-        reapply_60,
         move |_, _| {
             let Some(w) = app.active_window() else {
                 return;
@@ -82,7 +78,6 @@ fn wire_final_actions(ctx: FinalActionCtx) {
             let ovc2 = ovc_open.clone();
             let wa2 = Rc::clone(&wa_dlg);
             let oload = Rc::clone(&on_file_loaded);
-            let re_o = reapply_60.clone();
             dialog.open(Some(&w), None::<&gio::Cancellable>, move |res| {
                 let Ok(file) = res else {
                     return;
@@ -105,7 +100,6 @@ fn wire_final_actions(ctx: FinalActionCtx) {
                         Some(ovc2),
                         wa2.clone(),
                         Some(oload),
-                        Some(re_o.clone()),
                         true,
                         false,
                     ),

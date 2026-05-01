@@ -16,7 +16,6 @@ fn maybe_advance_sibling_on_eof(
     on_start: &Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
     on_loaded: Option<Rc<dyn Fn()>>,
-    reapply: &VideoReapply60,
 ) {
     let g = match player.try_borrow() {
         Ok(b) => b,
@@ -49,7 +48,6 @@ fn maybe_advance_sibling_on_eof(
             Some(Rc::clone(on_start)),
             Rc::clone(&win_aspect),
             on_loaded.as_ref().map(Rc::clone),
-            Some(reapply.clone()),
             true,
             true,
         );

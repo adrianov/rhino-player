@@ -1,5 +1,3 @@
-/// [video_pref::apply_mpv_video] after [loadfile] so the VapourSynth filter attaches when [path] is valid.
-///
 /// Load a file, hide the recent grid overlay, show video; [LoadOpts::record] appends to recent history.
 /// [play_on_start]: clear `pause` so playback runs after the SQLite resume `start=` is applied.
 /// **false** for CLI open-on-launch to respect saved state.
@@ -20,9 +18,6 @@ fn try_load(
         o.play_on_start
     );
     let warm_hit = load_file_into_player(path, player, recent_layer, o)?;
-    if !warm_hit {
-        schedule_reapply_60(player, gl, o);
-    }
     *o.last_path.borrow_mut() = std::fs::canonicalize(path).ok();
     if o.record {
         history::record(path);

@@ -1,3 +1,25 @@
+/// Full Smooth 60 / VapourSynth rebuild whenever mpv reports new media (`FileLoaded`, `path`).
+/// Always runs [video_pref::apply_mpv_video] (unlike [smooth_vf_attach_if_playing]) so the `.vpy`
+/// graph matches the current clip after Open, drag-drop, sibling EOF advance, and **Previous** / **Next**.
+fn smooth_60_full_resync_after_media_change(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    gl: &gtk::GLArea,
+    r: &VideoReapply60,
+) {
+    let mut turn_off = false;
+    if let Some(b) = player.borrow().as_ref() {
+        let mut vp = r.vp.borrow_mut();
+        let a = video_pref::apply_mpv_video(b, &mut vp, None);
+        let r2 = video_pref::reapply_60_if_still_missing(b, &mut vp);
+        turn_off = a.smooth_auto_off || r2.smooth_auto_off;
+    }
+    if turn_off {
+        sync_smooth_60_to_off(&r.app);
+        show_smooth_setup_dialog(&r.app);
+    }
+    gl.queue_render();
+}
+
 /// Attaches Smooth 60 `vf` when enabled, media is open, playback is **not** paused, speed is ~1.0×,
 /// and `vapoursynth` is not already present (e.g. after `loadfile` idle or unpause).
 fn smooth_vf_attach_if_playing(player: Rc<RefCell<Option<MpvBundle>>>, gl: gtk::GLArea, r: VideoReapply60) {
@@ -41,26 +63,4 @@ fn smooth_vf_attach_if_playing(player: Rc<RefCell<Option<MpvBundle>>>, gl: gtk::
         show_smooth_setup_dialog(&r.app);
     }
     gl.queue_render();
-}
-
-/// One GLib idle after `loadfile`: full Smooth apply via [video_pref::apply_mpv_video] when appropriate.
-fn schedule_reapply_60(player: &Rc<RefCell<Option<MpvBundle>>>, gl: &gtk::GLArea, o: &LoadOpts) {
-    let Some(r) = o.reapply_60.as_ref() else { return };
-    let p = Rc::clone(player);
-    let r0 = r.clone();
-    let gl0 = gl.clone();
-    let _ = glib::idle_add_local_once(move || {
-        let mut turn_off = false;
-        if let Some(b) = p.borrow().as_ref() {
-            let mut vp = r0.vp.borrow_mut();
-            let a = video_pref::apply_mpv_video(b, &mut vp, None);
-            let r2 = video_pref::reapply_60_if_still_missing(b, &mut vp);
-            turn_off = a.smooth_auto_off || r2.smooth_auto_off;
-        }
-        if turn_off {
-            sync_smooth_60_to_off(&r0.app);
-            show_smooth_setup_dialog(&r0.app);
-        }
-        gl0.queue_render();
-    });
 }

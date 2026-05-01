@@ -8,7 +8,6 @@ struct OpenHandlerCtx {
     on_start: Rc<dyn Fn()>,
     on_loaded: Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
-    reapply_60: VideoReapply60,
     sub_menu: gtk::MenuButton,
 }
 
@@ -26,7 +25,6 @@ fn make_on_open_handler(ctx: OpenHandlerCtx) -> RcPathFn {
                 Some(Rc::clone(&ctx.on_start)),
                 ctx.win_aspect.clone(),
                 Some(Rc::clone(&ctx.on_loaded)),
-                Some(ctx.reapply_60.clone()),
                 true,
                 false,
             ),

@@ -146,7 +146,7 @@ fn build_window(
         player: player.clone(), win: w.win.clone(), gl: w.gl_area.clone(),
         recent: w.recent_scrl.clone(), last_path: last_path.clone(),
         on_start: on_video_chrome.clone(), on_loaded: Rc::clone(&on_file_loaded),
-        win_aspect: Rc::clone(&win_aspect), reapply_60: reapply_60.clone(),
+        win_aspect: Rc::clone(&win_aspect),
         sub_menu: w.sub_menu.clone(),
     });
     *on_open_slot.borrow_mut() = Some(on_open.clone());
@@ -157,7 +157,6 @@ fn build_window(
         recent: w.recent_scrl.clone(), last_path: last_path.clone(),
         on_video_chrome: on_video_chrome.clone(), win_aspect: win_aspect.clone(),
         sibling_seof: sibling_seof.clone(), on_file_loaded: Rc::clone(&on_file_loaded),
-        reapply_60: reapply_60.clone(),
     });
 
     let recent_wiring = wire_recent_undo(RecentUndoCtx {
@@ -274,7 +273,7 @@ fn build_window(
         sub_pref: sub_pref.clone(), video_pref: Rc::clone(&video_pref),
         pref_menu: w.pref_menu.clone(), seek_bar_on: Rc::clone(&seek_bar_on),
         last_path: last_path.clone(), on_video_chrome: on_video_chrome.clone(),
-        on_file_loaded: Rc::clone(&on_file_loaded), reapply_60: reapply_60.clone(),
+        on_file_loaded: Rc::clone(&on_file_loaded),
         win_aspect: Rc::clone(&win_aspect), bar_show: bar_show.clone(),
         idle_inhib: Rc::clone(&idle_inhib), exit_after_current: exit_after_current.clone(),
     });

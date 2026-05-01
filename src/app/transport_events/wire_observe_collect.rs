@@ -90,6 +90,8 @@ struct TransportCtx {
     sibling_nav: SiblingNavUi,
     /// Coalesce [glib::idle_add_local_once] resyncs on `FileLoaded` / `path` churn.
     idle_resync_pending: Rc<Cell<bool>>,
+    /// One idle per burst for Smooth 60 `vf` rebuild (`FileLoaded` + `path` often arrive together).
+    smooth_60_resync_idle_pending: Rc<Cell<bool>>,
     /// 1 Hz timer source id (kept so it can be replaced if observers re-install).
     tick: Rc<RefCell<Option<glib::SourceId>>>,
     cache: Rc<RefCell<TransportCache>>,
@@ -142,6 +144,7 @@ fn wire_transport_events(s: TransportSetup) {
         recent_visible: s.recent_visible,
         sibling_nav: s.sibling_nav,
         idle_resync_pending: Rc::new(Cell::new(false)),
+        smooth_60_resync_idle_pending: Rc::new(Cell::new(false)),
         tick: Rc::new(RefCell::new(None)),
         cache: Rc::new(RefCell::new(TransportCache::default())),
     });
