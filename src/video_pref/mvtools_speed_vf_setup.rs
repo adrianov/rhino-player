@@ -228,7 +228,6 @@ fn turn_off_smooth_60_in_prefs(v: &mut VideoPrefs) {
 /// After `vf` is cleared, add ~60 fps filter when [VideoPrefs::smooth_60]. Returns `true` if we
 /// **disabled** the option in prefs (VapourSynth path missing and no bundle, or `vf` add failed).
 /// True when a media file is open (filters must attach after [loadfile] so `video_in` exists).
-/// True when a media file is open (filters must attach after [loadfile] so `video_in` exists).
 pub(crate) fn mpv_has_open_media(mpv: &Mpv) -> bool {
     // `path` is the main/selected file; empty before the first `loadfile` or while idle.
     matches!(mpv.get_property::<String>("path"), Ok(s) if !s.trim().is_empty())

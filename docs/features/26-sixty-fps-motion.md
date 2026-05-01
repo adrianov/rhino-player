@@ -49,18 +49,17 @@ Feature: Optional ~60 fps motion via VapourSynth
     Then a row shows the script basename next to a checkbox vs-custom
     And unchecking that row clears video_vs_path and reverts to the bundled .vpy
 
-  Scenario: Pause during video hides temporal smoothing until playback resumes
+  Scenario: Pause hides temporal smoothing until playback resumes
     Given Smooth Video is enabled for approximately 1.0× playback
-    And the continue list is not in front
-    When playback is paused from that viewing state
+    When playback is paused
     Then the temporal-smoothing filter graph is unloaded
     And when playback resumes while still enabled the temporal-smoothing graph becomes active again
 
-  Scenario: Continue list keeps smoothing for the warm title
+  Scenario: Pause on the continue list still unloads smoothing so paused seeks show a frame
     Given Smooth Video is enabled for approximately 1.0× playback
     When the viewer returns to the continue list while the same title stays open
-    Then the temporal-smoothing filter graph is not torn down for that pause
-    And choosing that title again without replacing the file does not run a full filter rebuild from scratch
+    Then the temporal-smoothing filter graph is unloaded for that pause
+    And when playback resumes while still enabled the temporal-smoothing graph becomes active again
 
   Scenario: Speed change resyncs RHINO_PLAYBACK_SPEED before vf rebuild
     Given the user selects a speed row from the header list
@@ -111,7 +110,7 @@ Feature: Optional ~60 fps motion via VapourSynth
 - Menu wiring: stateful `smooth-60` action (Preferences → Smooth Video (~60 FPS at 1.0×)); `vs-custom` row appears when `video_vs_path` is non-empty; **Choose VapourSynth Script…** sets the path and saves only after MVTools is resolved.
 - mpv defaults are otherwise untouched when Smooth is off (no forced `video-sync`, `interpolation`, or `hwdec`); GTK frame clock and libmpv presentation paths still drive vsync.
 - The vf line is `vapoursynth:file=…:buffered-frames=24:concurrent-frames=auto`. Deeper queues give MVTools more headroom at the cost of memory and seek latency.
-- Pause (`pause=yes`): unload the `vf` graph and restore **auto** decode for a normal still frame **unless** the continue grid is visible (back from video with a warm title — keep the graph). Playback (`pause=no`): when Smooth applies and **`vapoursynth` is not already in `vf`**, re-run full filter application (see loadfile Notes). Implemented from libmpv `pause` property observation plus the grid-visible flag from GTK, not per-seek juggling.
+- Pause (`pause=yes`): always unload the `vf` graph and restore **auto** decode for a normal still frame (including when the continue list is visible — leaving smoothing applied during pause breaks seeks, often to a blank surface). Each **main-player** seek (bottom bar, arrow keys) runs **`vf clr`** again immediately before **`seek`** whenever vapoursynth was still present, then **`smooth_vf_attach_if_playing`** after the seek **only** when **not** paused (restore FlowFPS during playback scrubbing). **`apply_pending_resume`** also clears vapoursynth before its **`seek`** so resume positioning does not run through a stale graph. Playback (`pause=no`): **`smooth_vf_attach_if_playing`** re-runs filter application when Smooth applies and **`vapoursynth` is missing**. On **`Pause(false)`** it uses **`apply_mpv_video_after_transport_unpause`** / **`reapply_60_after_transport_unpause`**, which assume **`pause=no`** inside **`apply_mpv_video_impl`** — **`get_property("pause")`** can still lag **`observe_property`** after unpause, leaving **`use_mvtools`** false so Smooth never reattached after pause/seek. **`trust_not_paused`** only skips pause reads in the outer attach gates; seek-driven reattach uses live **`pause`**. Implemented from libmpv `pause` observation plus seek hooks.
 - After loadfile, one GLib **idle** runs [apply_mpv_video] so **`vf`** / **`RHINO_PLAYBACK_SPEED`** / **`RHINO_SOURCE_FPS`** align once `path` and playback state are ready; no deliberate playback deferral before attaching Smooth **`vf`**. The separate ~**320 ms** file-loaded hook only aligns UI speed / subtitles — not Smooth timing.
 - The bundled script tags source with `AssumeFPS` once at 1.0×, then `FlowFPS(60/1)` (no second `AssumeFPS(×1)`). At 1.5× / 2.0× it retimes with `AssumeFPS(× speed)` first, then `FlowFPS`.
 - mpv's `vapoursynth` vf often forwards `video_in.fps_num=0 / fps_den=0` even for plain CFR mp4s (29.97 / 23.976 / 30). Before `vf add`, Rhino reads mpv's `container-fps` and exports `RHINO_SOURCE_FPS` (decimal); the bundled script falls back to it via `Fraction(...).limit_denominator(1001)` so 29.970 → 30000/1001, 23.976 → 24000/1001, 30.0 → 30/1. Without this recovery, the previous hardcoded `24000/1001` fallback retagged real-29.97 as 23.976 and stretched the clip by 25 % ("many frames + slowed down" drift). When mpv has no `container-fps` either (true VFR), the env is cleared, the script logs `source fps unknown` to stderr, and falls through to passthrough — smoothing is skipped, A/V stays in sync.

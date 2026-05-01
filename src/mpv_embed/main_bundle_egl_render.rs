@@ -250,6 +250,7 @@ impl MpvBundle {
         let Some(t) = self.pending_resume.replace(None) else {
             return;
         };
+        let _ = crate::video_pref::unload_smooth_on_pause(&self.mpv);
         let s = format!("{t:.4}");
         let _ = self.mpv.command("seek", &[s.as_str(), "absolute+exact"]);
     }

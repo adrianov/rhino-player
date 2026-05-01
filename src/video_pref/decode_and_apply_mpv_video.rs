@@ -54,8 +54,22 @@ fn log_vf_diagnostics(mpv: &Mpv, vlog: bool) {
 /// If Smooth 60 is on, **speed** is ~1.0×, and `vapoursynth` is still not in the `vf` list, run
 /// [apply_mpv_video] once (covers a rare missed attach).
 pub fn reapply_60_if_still_missing(b: &MpvBundle, v: &mut VideoPrefs) -> MpvVideoApply {
+    reapply_60_if_still_missing_impl(b, v, false)
+}
+
+/// Like [reapply_60_if_still_missing] but skips the mpv **`pause`** gate — use after transport
+/// **`Pause(false)`** when **`get_property("pause")`** may still read **paused**.
+pub fn reapply_60_after_transport_unpause(b: &MpvBundle, v: &mut VideoPrefs) -> MpvVideoApply {
+    reapply_60_if_still_missing_impl(b, v, true)
+}
+
+fn reapply_60_if_still_missing_impl(
+    b: &MpvBundle,
+    v: &mut VideoPrefs,
+    trust_playing_from_transport: bool,
+) -> MpvVideoApply {
     let mpv = &b.mpv;
-    if mpv.get_property::<bool>("pause").unwrap_or(true) {
+    if !trust_playing_from_transport && mpv.get_property::<bool>("pause").unwrap_or(true) {
         return MpvVideoApply::default();
     }
     if !v.smooth_60 || !mpv_has_open_media(mpv) {
@@ -68,7 +82,11 @@ pub fn reapply_60_if_still_missing(b: &MpvBundle, v: &mut VideoPrefs) -> MpvVide
         return MpvVideoApply::default();
     }
     eprintln!("[rhino] video: reapply_60_if_still_missing → apply_mpv_video");
-    apply_mpv_video(b, v, None)
+    if trust_playing_from_transport {
+        apply_mpv_video_after_transport_unpause(b, v, None)
+    } else {
+        apply_mpv_video(b, v, None)
+    }
 }
 
 pub(crate) fn vf_chain_has_vapoursynth(mpv: &Mpv) -> bool {
@@ -94,7 +112,7 @@ pub fn unload_smooth_on_pause(mpv: &Mpv) -> bool {
     true
 }
 pub fn apply_mpv_video_init(mpv: &Mpv, v: &mut VideoPrefs) -> MpvVideoApply {
-    apply_mpv_video_impl(mpv, v, None)
+    apply_mpv_video_impl(mpv, v, None, None)
 }
 
 /// Normal playback is intentionally a no-op: leave mpv's timing, decode, and filter defaults alone.
@@ -114,18 +132,40 @@ fn log_apply(v: &VideoPrefs) {
 }
 
 pub fn apply_mpv_video(b: &MpvBundle, v: &mut VideoPrefs, speed_hint: Option<f64>) -> MpvVideoApply {
-    apply_mpv_video_impl(&b.mpv, v, speed_hint)
+    apply_mpv_video_impl(&b.mpv, v, speed_hint, None)
 }
 
-fn apply_mpv_video_impl(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> MpvVideoApply {
+/// Runs [apply_mpv_video_impl] with **`pause=no`** assumed for MVTools eligibility — mpv's **`pause`**
+/// property can lag **`observe_property(`pause`)`** right after unpause, so the normal path would skip
+/// attaching Smooth even though playback has resumed.
+pub fn apply_mpv_video_after_transport_unpause(
+    b: &MpvBundle,
+    v: &mut VideoPrefs,
+    speed_hint: Option<f64>,
+) -> MpvVideoApply {
+    apply_mpv_video_impl(&b.mpv, v, speed_hint, Some(false))
+}
+
+fn apply_mpv_video_impl(
+    mpv: &Mpv,
+    v: &mut VideoPrefs,
+    speed_hint: Option<f64>,
+    pause_override: Option<bool>,
+) -> MpvVideoApply {
     let vlog = video_log();
     log_apply(v);
-    let paused = mpv.get_property::<bool>("pause").unwrap_or(true);
+    let paused =
+        pause_override.unwrap_or_else(|| mpv.get_property::<bool>("pause").unwrap_or(true));
     let use_mvtools = v.smooth_60 && mvtools_vf_eligible(mpv, speed_hint) && !paused;
     let want_60 = v.smooth_60;
     let had_vapoursynth = vf_string_has_vapoursynth(mpv);
     if !use_mvtools {
         if had_vapoursynth {
+            if paused && want_60 {
+                eprintln!(
+                    "[rhino] video: Smooth — vapoursynth vf cleared while paused (still frame); reapplies on unpause"
+                );
+            }
             clear_vf(mpv, vlog);
             set_auto_decode(mpv, vlog);
         }
@@ -138,6 +178,16 @@ fn apply_mpv_video_impl(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) 
         return MpvVideoApply {
             smooth_auto_off: disabled_60,
         };
+    }
+
+    if had_vapoursynth && smooth_vf_matches_loaded_prefs(mpv, v) {
+        match speed_hint {
+            Some(s) => set_playback_speed_env(s),
+            None => set_playback_speed_env_from_mpv(mpv),
+        }
+        set_source_fps_env_from_mpv(mpv);
+        post_smooth_60_state(mpv, v, want_60, false, vlog);
+        return MpvVideoApply::default();
     }
 
     // Leave hwdec / vd-lavc-dr unchanged when attaching VS (default hwdec=auto is fine on typical stacks).

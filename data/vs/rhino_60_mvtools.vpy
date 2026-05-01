@@ -23,12 +23,13 @@ _MV_OVERLAP = 16
 _MV_GLOBAL_HINT = {"global": True}
 
 # mpv may run this script multiple times per single `vf` attach; Rhino sets `RHINO_VPY_LOG_EPOCH`
-# so we stderr-log once per attach. Without it (e.g. plain `mpv`), log every evaluation as before.
+# for within-interpreter dedupe only (same epoch twice in one Python process → one stderr line).
+# mpv may use a fresh interpreter after seek — the banner can repeat there; no temp files.
 _logged_stderr_epoch = None
 
 
 def _stderr_banner_once_per_rhino_attach(msg: str) -> bool:
-    """Return True the first time (per Rhino vf attach) we should print `msg` to stderr."""
+    """Return True the first time (this interpreter, per Rhino vf epoch) we print `msg` to stderr."""
     global _logged_stderr_epoch
     epoch = (os.environ.get("RHINO_VPY_LOG_EPOCH") or "").strip()
     if epoch:
@@ -37,7 +38,6 @@ def _stderr_banner_once_per_rhino_attach(msg: str) -> bool:
         _logged_stderr_epoch = epoch
     print(msg, file=sys.stderr, flush=True)
     return True
-
 
 def _mvtools_paths():
     p = (os.environ.get("RHINO_MVTOOLS_LIB") or "").strip()

@@ -16,7 +16,10 @@
 //! When attaching Smooth `vf` with media open, Rhino leaves **`hwdec`** / **`vd-lavc-dr`** unchanged
 //! (usually **`hwdec=auto`**); that works on typical stacks without forcing software decode.
 //! After mpv loads a file with Smooth on at ~1.0×, the transport layer schedules [apply_mpv_video]
-//! when **`FileLoaded`** or **`path`** fires (transport coalesced idle). Clearing the graph
+//! when **`FileLoaded`** or **`path`** fires (transport coalesced idle). If the active **`vf`** chain
+//! already matches the resolved script and buffer settings, Rhino refreshes env vars only and skips
+//! **`vf clr`**/**`vf add`** (no effect on seek-only scrubbing, which never schedules this path).
+//! Clearing the graph
 //! (**Smooth off** or **vf** error) restores **`hwdec=auto`** / **`vd-lavc-dr=auto`**.
 //! Successful `libmvtools.so` resolution is stored in SQLite (`video_mvtools_lib`); the next session
 //! reuses that path if the file still exists, avoiding a full search.
@@ -25,5 +28,6 @@
 //! call [apply_mpv_video] directly. Transport `pause=no` re-attaches the `vf` after Smooth unloaded it for a paused still frame.
 
 include!("video_pref/mvtools_speed_vf_setup.rs");
+include!("video_pref/smooth_vf_match.rs");
 include!("video_pref/decode_and_apply_mpv_video.rs");
 include!("video_pref/video_pref_speed_model_tests.rs");

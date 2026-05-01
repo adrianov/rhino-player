@@ -57,7 +57,8 @@ pub const RHINO_PLAYBACK_SPEED_VAR: &str = "RHINO_PLAYBACK_SPEED";
 pub const RHINO_SOURCE_FPS_VAR: &str = "RHINO_SOURCE_FPS";
 
 /// Bumped in-process before each `vf add vapoursynth` so the bundled `.vpy` can stderr-log **once**
-/// per attach — mpv may evaluate the script several times for one filter (graph / concurrency).
+/// per interpreter for that attach when `RHINO_VPY_LOG_EPOCH` is set (mpv may still re-run the script in a
+/// new interpreter after seek).
 pub const RHINO_VPY_LOG_EPOCH_VAR: &str = "RHINO_VPY_LOG_EPOCH";
 
 /// [RHINO_MVTOOLS_LIB_VAR] if set to an existing file; otherwise `None`.
