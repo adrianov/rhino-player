@@ -54,7 +54,7 @@ Feature: Optional ~60 fps motion via VapourSynth
     And the continue list is not in front
     When playback is paused from that viewing state
     Then the temporal-smoothing filter graph is unloaded
-    And when playback resumes while still enabled a short wait passes before that graph is active again
+    And when playback resumes while still enabled the temporal-smoothing graph becomes active again
 
   Scenario: Continue list keeps smoothing for the warm title
     Given Smooth Video is enabled for approximately 1.0× playback
@@ -99,12 +99,6 @@ Feature: Optional ~60 fps motion via VapourSynth
     Then it uses the cached path without searching disk
     And RHINO_MVTOOLS_LIB takes precedence when set in the environment
 
-  Scenario: First picture appears before temporal smoothing attaches
-    Given video_smooth_60 is true with MVTools resolving and playback is approximately 1.0×
-    When the user loads a local title while Smooth Video remains enabled
-    Then a visible picture appears before the temporal upscaling stage runs
-    And the temporal upscaling stage runs shortly afterward
-
   Scenario: Disable clears vf and restores hwdec / vd-lavc-dr
     Given a vapoursynth graph is active
     When the user disables Smooth Video or speed leaves ~1.0×
@@ -117,8 +111,8 @@ Feature: Optional ~60 fps motion via VapourSynth
 - Menu wiring: stateful `smooth-60` action (Preferences → Smooth Video (~60 FPS at 1.0×)); `vs-custom` row appears when `video_vs_path` is non-empty; **Choose VapourSynth Script…** sets the path and saves only after MVTools is resolved.
 - mpv defaults are otherwise untouched when Smooth is off (no forced `video-sync`, `interpolation`, or `hwdec`); GTK frame clock and libmpv presentation paths still drive vsync.
 - The vf line is `vapoursynth:file=…:buffered-frames=24:concurrent-frames=auto`. Deeper queues give MVTools more headroom at the cost of memory and seek latency.
-- Pause (`pause=yes`): unload the `vf` graph and restore **auto** decode for a normal still frame **unless** the continue grid is visible (back from video with a warm title — keep the graph). Playback (`pause=no`): when Smooth applies and **`vapoursynth` is not already in `vf`**, schedule full filter application after a short playing delay (see loadfile Notes). Implemented from libmpv `pause` property observation plus the grid-visible flag from GTK, not per-seek juggling.
-- After loadfile, GLib idle clears any `vf`, keeps **`hwdec=auto`** / **`vd-lavc-dr=auto`** for the first frames, and arms a ~**500 ms** GTK timer: if still playing on the same file, full [apply_mpv_video] runs ([reapply_60_if_still_missing] afterward)—still **without** forcing **`hwdec=no`** when the VS graph attaches. While that window is active, the 320 ms file-loaded hook skips premature attach.
+- Pause (`pause=yes`): unload the `vf` graph and restore **auto** decode for a normal still frame **unless** the continue grid is visible (back from video with a warm title — keep the graph). Playback (`pause=no`): when Smooth applies and **`vapoursynth` is not already in `vf`**, re-run full filter application (see loadfile Notes). Implemented from libmpv `pause` property observation plus the grid-visible flag from GTK, not per-seek juggling.
+- After loadfile, one GLib **idle** runs [apply_mpv_video] so **`vf`** / **`RHINO_PLAYBACK_SPEED`** / **`RHINO_SOURCE_FPS`** align once `path` and playback state are ready; no deliberate playback deferral before attaching Smooth **`vf`**. The separate ~**320 ms** file-loaded hook only aligns UI speed / subtitles — not Smooth timing.
 - The bundled script tags source with `AssumeFPS` once at 1.0×, then `FlowFPS(60/1)` (no second `AssumeFPS(×1)`). At 1.5× / 2.0× it retimes with `AssumeFPS(× speed)` first, then `FlowFPS`.
 - mpv's `vapoursynth` vf often forwards `video_in.fps_num=0 / fps_den=0` even for plain CFR mp4s (29.97 / 23.976 / 30). Before `vf add`, Rhino reads mpv's `container-fps` and exports `RHINO_SOURCE_FPS` (decimal); the bundled script falls back to it via `Fraction(...).limit_denominator(1001)` so 29.970 → 30000/1001, 23.976 → 24000/1001, 30.0 → 30/1. Without this recovery, the previous hardcoded `24000/1001` fallback retagged real-29.97 as 23.976 and stretched the clip by 25 % ("many frames + slowed down" drift). When mpv has no `container-fps` either (true VFR), the env is cleared, the script logs `source fps unknown` to stderr, and falls through to passthrough — smoothing is skipped, A/V stays in sync.
 - `libmvtools.so` resolution order: `RHINO_MVTOOLS_LIB` env, then cached `video_mvtools_lib` if still a file, then a bounded search (common distro paths, pipx / vsrepo under `~/.local`). On success the absolute path is saved to `video_mvtools_lib` and printed to stderr (e.g. `libmvtools -> …`).

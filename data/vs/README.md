@@ -2,7 +2,7 @@
 
 ## If 60p looks the same as 24p (VapourSynth “does nothing”)
 
-First confirm **mpv** has the **`vapoursynth`** [vf] and **MVTools** loads (`RHINO_VIDEO_LOG=1` on stderr). **Rhino** does **not** override **`hwdec`** or **`vd-lavc-dr`** when Smooth Video attaches—**`hwdec=auto`** is left as-is on typical setups and the script often runs fine through hardware decode. Some **GPU / driver** stacks can still route decoded frames around CPU filters; if motion clearly stays at native cadence, try **`hwdec=no`** (and optionally **`vd-lavc-dr=no`**) in mpv config as a diagnostic. The **vf** is re-applied from [try_load] (idle + delayed), not only on GL init, so a filter is not installed before [path] exists. Smooth **1080p** stays **CPU**-heavy; weak hardware may not hold real-time.
+First confirm **mpv** has the **`vapoursynth`** [vf] and **MVTools** loads (`RHINO_VIDEO_LOG=1` on stderr). **Rhino** does **not** override **`hwdec`** or **`vd-lavc-dr`** when Smooth Video attaches—**`hwdec=auto`** is left as-is on typical setups and the script often runs fine through hardware decode. Some **GPU / driver** stacks can still route decoded frames around CPU filters; if motion clearly stays at native cadence, try **`hwdec=no`** (and optionally **`vd-lavc-dr=no`**) in mpv config as a diagnostic. The **vf** is re-applied from [try_load] (one GLib idle after **loadfile**), not only on GL init, so a filter is not installed before [path] exists. Smooth **1080p** stays **CPU**-heavy; weak hardware may not hold real-time.
 
 **Note:** On-screen **subtitles** are drawn *after* the video frame, not *through* the `.vpy` script, so a scrolling sub test can mislead; check **image** motion (pans) instead.
 
