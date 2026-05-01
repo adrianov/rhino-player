@@ -12,6 +12,37 @@ fn root_focus_wants_raw_keys(win: &adw::ApplicationWindow) -> bool {
         || fw.downcast_ref::<gtk::PasswordEntry>().is_some()
 }
 
+/// GDK **Audio\*** keys: hardware play/pause/stop and prev/next (macOS media keys, many keyboards).
+fn propagation_for_media_keys(
+    key: gtk::gdk::Key,
+    play_key: &PlayToggleCtx,
+    nav: &SiblingNavTryRefs<'_>,
+) -> Option<glib::Propagation> {
+    if key == gtk::gdk::Key::AudioPlay || key == gtk::gdk::Key::AudioPause {
+        let _ = toggle_play_pause(play_key);
+        return Some(glib::Propagation::Stop);
+    }
+    if key == gtk::gdk::Key::AudioStop {
+        let g = nav.player.borrow();
+        if let Some(b) = g.as_ref() {
+            if b.mpv.get_property::<f64>("duration").unwrap_or(0.0) > 0.0 {
+                let _ = b.mpv.set_property("pause", true);
+                flip_play_icon(&play_key.play_pause, true);
+            }
+        }
+        return Some(glib::Propagation::Stop);
+    }
+    if key == gtk::gdk::Key::AudioPrev {
+        try_load_sibling_pick(sibling_advance::prev_before_current, "previous", nav);
+        return Some(glib::Propagation::Stop);
+    }
+    if key == gtk::gdk::Key::AudioNext {
+        try_load_sibling_pick(sibling_advance::next_after_eof, "next", nav);
+        return Some(glib::Propagation::Stop);
+    }
+    None
+}
+
 fn w_in_key_controller(ctx: &WindowInputCtx) {
     let p = ctx.player.clone();
     let win_key = ctx.win.clone();
@@ -66,6 +97,20 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
             browse_back(true);
             return glib::Propagation::Stop;
         }
+        let nav = SiblingNavTryRefs {
+            player: &p,
+            win: &win_key,
+            gl: &gl_seek,
+            recent: &recent_esc,
+            last_path: &last_path_nav,
+            on_video_chrome: &on_vid_nav,
+            win_aspect: &win_aspect_nav,
+            sibling_seof: &seof_nav,
+            on_file_loaded: &on_loaded_nav,
+        };
+        if let Some(r) = propagation_for_media_keys(key, &play_key, &nav) {
+            return r;
+        }
         if root_focus_wants_raw_keys(&win_key) {
             return glib::Propagation::Proceed;
         }
@@ -106,39 +151,11 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
         }
         if m.contains(gtk::gdk::ModifierType::CONTROL_MASK) {
             if key == gtk::gdk::Key::Left || key == gtk::gdk::Key::KP_Left {
-                try_load_sibling_pick(
-                    sibling_advance::prev_before_current,
-                    "previous",
-                    &SiblingNavTryRefs {
-                        player: &p,
-                        win: &win_key,
-                        gl: &gl_seek,
-                        recent: &recent_esc,
-                        last_path: &last_path_nav,
-                        on_video_chrome: &on_vid_nav,
-                        win_aspect: &win_aspect_nav,
-                        sibling_seof: &seof_nav,
-                        on_file_loaded: &on_loaded_nav,
-                    },
-                );
+                try_load_sibling_pick(sibling_advance::prev_before_current, "previous", &nav);
                 return glib::Propagation::Stop;
             }
             if key == gtk::gdk::Key::Right || key == gtk::gdk::Key::KP_Right {
-                try_load_sibling_pick(
-                    sibling_advance::next_after_eof,
-                    "next",
-                    &SiblingNavTryRefs {
-                        player: &p,
-                        win: &win_key,
-                        gl: &gl_seek,
-                        recent: &recent_esc,
-                        last_path: &last_path_nav,
-                        on_video_chrome: &on_vid_nav,
-                        win_aspect: &win_aspect_nav,
-                        sibling_seof: &seof_nav,
-                        on_file_loaded: &on_loaded_nav,
-                    },
-                );
+                try_load_sibling_pick(sibling_advance::next_after_eof, "next", &nav);
                 return glib::Propagation::Stop;
             }
         }
