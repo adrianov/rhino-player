@@ -119,11 +119,12 @@ fn sync_trash_action(
     a.set_enabled(ok);
 }
 
-/// Saves DB resume and stops playback from an idle, then drops [`MpvBundle`] on the next
-/// [`gtk::GLArea::connect_render`] callback after [`gtk::GLArea::queue_render`] (never drops mpv here).
+/// Saves DB resume and stops playback from an idle, then runs [`MpvBundle::teardown_gl_paint`] on the
+/// next [`gtk::GLArea::render`] after [`gtk::GLArea::queue_render`], then an idle that **binds that
+/// `GLArea`’s GL context** before [`MpvBundle::dispose_for_quit`] (frees render context + `mpv_terminate_destroy`).
 ///
-/// On macOS GTK, [`mpv_render_context_free`] must run under a valid GL binding after a swap-reporting
-/// paint; dropping [`MpvBundle`] without that paint aborts in `mpv_destroy`.
+/// Teardown must not nest inside GTK snapshot repaint; `mpv_destroy` from the Rust wrapper’s `Drop`
+/// path aborts on macOS when `vo=libmpv` is still active.
 fn schedule_quit_persist(
     app: &adw::Application,
     win: &adw::ApplicationWindow,
@@ -146,11 +147,17 @@ fn schedule_quit_persist(
             save_mpv_state(&b.mpv, &sp);
             b.commit_quit();
         }
-        // Ensure the GLArea gets at least one mapped realize pass (`queue_render` is a no-op when unmapped).
-        w.present();
-        gl.realize();
+        // Map once if needed (`queue_render` no-ops until realized). Calling `present`/`realize`
+        // redundantly on macOS can disturb CvDisplayLink while tearing down during quit-from-pause.
+        if !w.is_visible() {
+            w.present();
+        }
+        if !gl.is_realized() {
+            gl.realize();
+        }
         td.set(true);
         gl.queue_render();
+        #[cfg(not(target_os = "macos"))]
         gl.queue_draw();
         glib::ControlFlow::Break
     });

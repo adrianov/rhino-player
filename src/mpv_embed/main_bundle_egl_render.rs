@@ -230,6 +230,28 @@ impl MpvBundle {
         }
     }
 
+    /// End embedded playback for process quit without going through [`libmpv2::Mpv`]'s `Drop`, which
+    /// invokes `mpv_destroy` and aborted with GTK `vo=libmpv` on macOS (`mp_clients_destroy`).
+    ///
+    /// Run [`teardown_gl_paint`] with `gl_area` current earlier in the teardown chain; `dispose_for_quit`
+    /// calls [`gtk::prelude::GLAreaExt::make_current`] again before freeing the render context and calling
+    /// `mpv_terminate_destroy`.
+    pub fn dispose_for_quit(self, gl_area: &gtk::GLArea) {
+        gl_area.make_current();
+        let Self {
+            _gl,
+            mut mpv,
+            render,
+            ..
+        } = self;
+        mpv.set_wakeup_callback(|| {});
+        drop(render);
+        unsafe {
+            libmpv2_sys::mpv_terminate_destroy(mpv.ctx.as_ptr());
+        }
+        std::mem::forget(mpv);
+    }
+
     /// Save outgoing resume to SQLite, then `loadfile` the new path. The new file's resume position
     /// (if any in SQLite) is stashed in [pending_resume]; [apply_pending_resume] consumes it after
     /// `FileLoaded`. We do **not** pass `start=` as a loadfile option — older mpv (≤ 0.35) treats
