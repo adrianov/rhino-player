@@ -28,6 +28,11 @@ fn digit_speed_multiplier(key: gtk::gdk::Key) -> Option<u8> {
     }
 }
 
+/// Digit 3 maps to 1.5×; digits 1, 2, and 4–8 map to N×.
+fn digit_speed_value(n: u8) -> f64 {
+    if n == 3 { 1.5 } else { f64::from(n) }
+}
+
 fn schedule_digit_speed_resync(c: DigitSpeedShortcutCtx, v: f64) {
     let DigitSpeedShortcutCtx { player, video_pref, app, speed_sync, speed_list, .. } = c;
     let bref = player.clone();
@@ -54,7 +59,7 @@ fn try_digit_speed_shortcut(
     if m.intersects(DIGIT_SPEED_BLOCK) {
         return Some(glib::Propagation::Proceed);
     }
-    let v = f64::from(n);
+    let v = digit_speed_value(n);
     let g = c.player.borrow();
     let Some(b) = g.as_ref() else {
         return Some(glib::Propagation::Proceed);

@@ -84,7 +84,7 @@ Feature: Keyboard and pointer input
   Scenario: Digit one through eight sets playback rate
     Given the main window is focused and a session is ready to control playback
     When the user presses a single digit between one and eight on the main keyboard or matching keypad keys
-    Then playback rate matches that numeric multiple of normal speed
+    Then playback rate matches the fixed-rate shortcut mapped to that digit
     And the speed control highlight matches the chosen rate on the canonical step list
 
   Scenario: Quit on q or Ctrl+Q
@@ -127,4 +127,4 @@ Feature: Keyboard and pointer input
 - Arrow Left / Right (and keypad arrows) step **playback position** five seconds when the seek bar is enabled and the continue grid is hidden; implementation shares the transport seek path ([04-transport-and-progress](04-transport-and-progress.md)).
 - Ctrl+Left / Ctrl+Right load the previous / next sibling file like the bottom bar ([07-sibling-folder-queue](07-sibling-folder-queue.md)).
 - Hardware **play**, **pause**, **stop**, **previous**, and **next** keys (GDK `AudioPlay`, `AudioPause`, `AudioStop`, `AudioPrev`, `AudioNext`) are handled in the same capture-phase controller **when the main window is focused**; behaviour matches Space and Ctrl+arrows as above. True background / unfocused routing is OS-specific (on macOS that may require separate Now Playing integration).
-- Digit **1**–**8** (and keypad **KP_1**–**KP_8**), **without** Ctrl / Alt / Meta / Super (see `DIGIT_SPEED_BLOCK` in `input/digit_speed_keys.rs`), set playback speed to **N**× (`input/digit_speed_keys.rs` → `playback_speed`, same idle resync path as header list in **28-playback-speed**). Keys are ignored when media is unavailable (capture handler exits before mutating mpv).
+- Digit **1**–**8** (and keypad **KP_1**–**KP_8**), **without** Ctrl / Alt / Meta / Super (see `DIGIT_SPEED_BLOCK` in `input/digit_speed_keys.rs`): **3** → **1.5×**, other digits → **N**× (`input/digit_speed_keys.rs` → `playback_speed`, same idle resync path as header list in **28-playback-speed**). Keys are ignored when media is unavailable (capture handler exits before mutating mpv).

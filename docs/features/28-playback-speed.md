@@ -13,7 +13,7 @@ mpv_props: [speed, duration]
 - Return to 1.0× for normal motion.
 
 ## Description
-A header `MenuButton` (icon `speedometer-symbolic`) opens a popover with a `ListBox` of fixed-rate rows (**1.0×**, **1.5×**, **2.0×**, integers **3.0×** through **8.0×**), matching playback-rate shortcuts on keyboard digits **1**–**8** (**13-input-shortcuts**). Selecting a row sets mpv `speed` to that exact value, syncs the list, and closes the popover. There is no free-form slider in v1.
+A header `MenuButton` (icon `speedometer-symbolic`) opens a popover with a `ListBox` of fixed-rate rows (**1.0×**, **1.5×**, **2.0×**, integers **3.0×** through **8.0×**). Keyboard digits **1**–**8** jump to fixed rates (**13-input-shortcuts**): **3** selects **1.5×**; **1**, **2**, and **4**–**8** select that many times normal speed. Selecting a row sets mpv `speed` to that exact value, syncs the list, and closes the popover. There is no free-form slider in v1.
 
 Speed applies to the current mpv session; mpv generally keeps `speed` across `loadfile` in the same process, except automatic advance to the next file in folder order resets to **1.0×** before the new file loads. The UI re-syncs from `speed` after each load and snaps to the nearest canonical step when mpv reports a value outside the fixed set.
 
@@ -32,7 +32,7 @@ Feature: Fixed-step playback speed
   Scenario: Digit keys match fixed list rates
     Given media with measurable duration is loaded
     When the user chooses playback rate using keyboard shortcut digits one through eight
-    Then playback speed equals that numeric multiple of normal within 0.01
+    Then playback speed matches the fixed-rate shortcut for that digit within 0.01
     And the header list highlight matches the same canonical step
 
   Scenario: Snap to nearest canonical step on drift
@@ -61,6 +61,7 @@ Feature: Fixed-step playback speed
 
 ## Notes
 - Fastest row **8.0×** matches mpv default audio pitch preservation: auto `scaletempo2` uses `max-speed=8.0` upstream, so higher `speed` values do not apply reliably with default options.
+- Digit **3** sets **1.5×**; digits **1**, **2**, **4**–**8** set **N**× (**13-input-shortcuts**).
 - Read `speed` after each load; if not within 0.01 of one canonical step, set mpv to the nearest.
 - Header LTR cluster: speed sits left of subtitles, volume, and the hamburger menu.
 - v1 has no SQLite persistence; mpv keeps speed across `loadfile` in one run except sibling-folder auto-advance (see [07-sibling-folder-queue](07-sibling-folder-queue.md)).
