@@ -105,6 +105,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             refresh_sibling_nav(ctx);
             transport_tick(ctx);
             sync_seek_chapters(ctx);
+            schedule_smooth_60_resync_idle(ctx);
         }
         TransportEv::PathChanged => {
             ctx.eof.sibling_seof.done.set(false);

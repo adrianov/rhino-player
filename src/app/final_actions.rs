@@ -27,6 +27,8 @@ struct FinalActionCtx {
     hdr_csd_baseline: Rc<Cell<Option<(bool, bool)>>>,
 }
 
+include!("final_actions_smooth_resize.rs");
+
 fn wire_final_actions(ctx: FinalActionCtx) {
     let FinalActionCtx {
         app,
@@ -224,23 +226,13 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         bottom: &bottom,
         player: &player,
     });
-    {
-        let pz = player.clone();
-        let bz = bar_show.clone();
-        let rz = recent.clone();
-        let botz = bottom.clone();
-        let glz = gl.clone();
-        let on_sz = Rc::new(move || {
-            if let Some(b) = pz.borrow().as_ref() {
-                let show = if rz.is_visible() { true } else { bz.get() };
-                sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, botz.height(), glz.height());
-            }
-        });
-        let a = Rc::clone(&on_sz);
-        let b = on_sz;
-        gl.connect_notify_local(Some("height"), move |_, _| a());
-        bottom.connect_notify_local(Some("height"), move |_, _| b());
-    }
+    wire_smooth_resize_and_subtitle_pos(
+        &gl,
+        &bottom,
+        &player,
+        &bar_show,
+        &recent,
+    );
 
     {
         let idle_t = Rc::clone(&idle_inhib);
