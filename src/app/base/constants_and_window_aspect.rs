@@ -76,6 +76,7 @@ struct ChromeBarHide {
     sub: gtk::MenuButton,
     speed: gtk::MenuButton,
     main: gtk::MenuButton,
+    win: adw::ApplicationWindow,
     root: adw::ToolbarView,
     header: adw::HeaderBar,
     gl: gtk::GLArea,

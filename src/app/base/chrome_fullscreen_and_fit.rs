@@ -78,6 +78,8 @@ fn apply_chrome<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>) {
     }
 }
 
+include!("chrome_pointer_after_bars.rs");
+
 fn replace_timeout(s: Rc<RefCell<Option<glib::SourceId>>>, f: impl Fn() + 'static) {
     if let Some(id) = s.borrow_mut().take() {
         id.remove();
@@ -120,6 +122,7 @@ fn schedule_bars_autohide(ctx: Rc<ChromeBarHide>) {
                     player: &ctx2.player,
                 });
                 ctx2.squelch.set(Some(Instant::now() + LAYOUT_SQUELCH));
+                hide_cursor_after_bars_hide(&ctx2.win, &ctx2.gl, &ctx2.recent, &ctx2.player);
             }
         }
     });

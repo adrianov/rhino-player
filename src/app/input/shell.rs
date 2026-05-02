@@ -121,6 +121,7 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
 
     {
         let gl_fs = gl_area.clone();
+        let recent_fs = ctx.shell.recent.clone();
         let bottom_fs = ctx.shell.bottom.clone();
         let p_fs = ctx.player.clone();
         let b = ctx.bar_show.clone();
@@ -140,18 +141,24 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
             lcap.set(None);
             lgl.set(None);
             if w.is_fullscreen() {
-                skip_fs.set(false);
-                if !w.is_maximized() {
+                // `skip_max_to_fs` is true while exiting fullscreen so `maximized_notify` does not
+                // call `w.fullscreen()` again (stack overflow). Only skip the paired `maximize` in
+                // that window — still run chrome / clock so a true→false→true notify sequence does
+                // not leave stale UI if the platform emits one during an AppKit transition.
+                if !skip_fs.get() && !w.is_maximized() {
                     *fr.borrow_mut() = Some(win_normal_size(w));
                     w.maximize();
                 }
                 b.set(false);
                 show_fs_wall_clock_fullscreen(&fs_clock, &fs_tick_slot, w);
                 tch_fs(w);
+                hide_cursor_after_bars_hide(w, &gl_fs, &recent_fs, &p_fs);
             } else {
+                skip_fs.set(true);
                 b.set(true);
                 stop_fs_clock_tick(&fs_tick_slot);
                 fs_clock.set_visible(false);
+                show_chrome_pointer(w, &gl_fs);
                 // Defer unmaximize + set_default_size: calling unmaximize synchronously from this
                 // handler can leave `is_fullscreen()` true for one more notify cycle, which hits
                 // `maximized_notify`'s "!maximized && fullscreen" path → unfullscreen again and

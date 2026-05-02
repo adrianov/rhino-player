@@ -1,3 +1,6 @@
+#[cfg(target_os = "macos")]
+include!("motion_macos_unfocused.rs");
+
 fn w_in_win_motion(ctx: &WindowInputCtx) {
     let cap = gtk::EventControllerMotion::new();
     cap.set_propagation_phase(gtk::PropagationPhase::Capture);
@@ -13,7 +16,10 @@ fn w_in_win_motion(ctx: &WindowInputCtx) {
         let lcap = ctx.last_cap_xy.clone();
         let ch_hide = Rc::clone(&ctx.ch_hide);
         let sq = ctx.motion_squelch.clone();
+        let win_c = ctx.shell.win.clone();
         cap.connect_motion(glib::clone!(
+            #[strong]
+            win_c,
             #[strong]
             root_c,
             #[strong]
@@ -51,6 +57,7 @@ fn w_in_win_motion(ctx: &WindowInputCtx) {
                     }
                 }
                 lcap.set(Some((x, y)));
+                show_chrome_pointer(&win_c, &gl_c);
 
                 if !b.get() {
                     b.set(true);
@@ -74,6 +81,8 @@ fn w_in_win_motion(ctx: &WindowInputCtx) {
 
 fn w_in_gl_motion(ctx: &WindowInputCtx) {
     let gl_c = ctx.shell.gl.clone();
+    let win_m = ctx.shell.win.clone();
+    let p_m = ctx.player.clone();
     let cur = ctx.cur_t.clone();
     let ptr = ctx.ptr_in_gl.clone();
     let sq = ctx.motion_squelch.clone();
@@ -82,6 +91,10 @@ fn w_in_gl_motion(ctx: &WindowInputCtx) {
     m.connect_motion(glib::clone!(
         #[strong]
         gl_c,
+        #[strong]
+        win_m,
+        #[strong]
+        p_m,
         #[strong]
         cur,
         #[strong]
@@ -103,14 +116,15 @@ fn w_in_gl_motion(ctx: &WindowInputCtx) {
                 }
             }
             lgl.set(Some((x, y)));
-            show_pointer(&gl_c);
+            show_chrome_pointer(&win_m, &gl_c);
             replace_timeout(cur.clone(), {
                 let gl2 = gl_c.clone();
+                let win2 = win_m.clone();
+                let player2 = p_m.clone();
                 let ptr2 = ptr.clone();
                 move || {
                     if ptr2.get() {
-                        gl2.add_css_class("rp-cursor-hidden");
-                        gl2.set_cursor_from_name(Some("none"));
+                        apply_theater_cursor_hide(&win2, &gl2, &player2);
                     }
                 }
             });
@@ -119,6 +133,10 @@ fn w_in_gl_motion(ctx: &WindowInputCtx) {
     m.connect_enter(glib::clone!(
         #[strong]
         gl_c,
+        #[strong]
+        win_m,
+        #[strong]
+        p_m,
         #[strong]
         cur,
         #[strong]
@@ -132,14 +150,15 @@ fn w_in_gl_motion(ctx: &WindowInputCtx) {
                     return;
                 }
             }
-            show_pointer(&gl_c);
+            show_chrome_pointer(&win_m, &gl_c);
             replace_timeout(cur.clone(), {
                 let gl2 = gl_c.clone();
+                let win2 = win_m.clone();
+                let player2 = p_m.clone();
                 let ptr2 = ptr.clone();
                 move || {
                     if ptr2.get() {
-                        gl2.add_css_class("rp-cursor-hidden");
-                        gl2.set_cursor_from_name(Some("none"));
+                        apply_theater_cursor_hide(&win2, &gl2, &player2);
                     }
                 }
             });
@@ -148,6 +167,8 @@ fn w_in_gl_motion(ctx: &WindowInputCtx) {
     m.connect_leave(glib::clone!(
         #[strong]
         gl_c,
+        #[strong]
+        win_m,
         #[strong]
         cur,
         #[strong]
@@ -160,8 +181,10 @@ fn w_in_gl_motion(ctx: &WindowInputCtx) {
             if let Some(id) = cur.borrow_mut().take() {
                 id.remove();
             }
-            show_pointer(&gl_c);
+            show_chrome_pointer(&win_m, &gl_c);
         }
     ));
     ctx.shell.gl.add_controller(m);
+    #[cfg(target_os = "macos")]
+    wire_macos_gl_cursor_while_unfocused(ctx);
 }

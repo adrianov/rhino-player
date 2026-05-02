@@ -36,7 +36,7 @@ mpris-server = "0.10"
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
 objc2 = { version = "0.6.4", features = ["std"] }
-objc2-app-kit = { version = "0.3.2", features = ["NSEvent", "NSWindow", "NSView", "NSResponder", "NSColor", "block2"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSEvent", "NSWindow", "NSView", "NSResponder", "NSColor", "NSCursor", "block2"] }
 objc2-foundation = { version = "0.3.2", features = ["NSGeometry", "NSValue", "NSString", "NSLock", "NSThread", "NSFileManager", "NSError", "NSURL"] }
 objc2-quartz-core = { version = "0.3.2", features = ["objc2-core-foundation", "objc2-core-video", "objc2-open-gl", "CALayer", "CAOpenGLLayer", "CATransaction"] }
 objc2-open-gl = { version = "0.3.2", features = ["std"] }

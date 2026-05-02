@@ -126,7 +126,8 @@ fn build_window(
 
     let ch_hide = Rc::new(ChromeBarHide {
         nav: nav_t.clone(), vol: w.vol_menu.clone(), sub: w.sub_menu.clone(),
-        speed: w.speed_mbtn.clone(), main: w.menu_btn.clone(), root: w.root.clone(),
+        speed: w.speed_mbtn.clone(), main: w.menu_btn.clone(), win: w.win.clone(),
+        root: w.root.clone(),
         header: w.header.clone(), gl: w.gl_area.clone(), bar_show: bar_show.clone(),
         recent: w.recent_scrl.clone(),
         bottom: w.bottom.clone(), player: player.clone(), squelch: motion_squelch.clone(),
@@ -135,7 +136,7 @@ fn build_window(
     });
 
     let on_video_chrome: Rc<dyn Fn()> = {
-        let (csp, root, gl, b, recent, bot, p, hdr, chh) = (
+        let (csp, root, gl, b, recent, bot, p, hdr, chh, win_ov) = (
             Rc::clone(&hdr_csd_baseline),
             w.root.clone(),
             w.gl_area.clone(),
@@ -145,6 +146,7 @@ fn build_window(
             player.clone(),
             w.header.clone(),
             Rc::clone(&ch_hide),
+            w.win.clone(),
         );
         Rc::new(move || {
             b.set(true);
@@ -159,6 +161,7 @@ fn build_window(
                 player: &p,
             });
             schedule_bars_autohide(Rc::clone(&chh));
+            show_chrome_pointer(&win_ov, &gl);
         })
     };
     wire_menu_chrome(Rc::clone(&ch_hide), &w.vol_menu, &w.sub_menu, &w.speed_mbtn, &w.menu_btn);
@@ -177,6 +180,7 @@ fn build_window(
     let browse_chrome = rc_on_browse_chrome(BrowseChromeRefs {
         hdr_csd: Rc::clone(&hdr_csd_baseline),
         nav_t: nav_t.clone(),
+        win: w.win.clone(),
         root: w.root.clone(),
         gl: w.gl_area.clone(),
         bar_show: bar_show.clone(),

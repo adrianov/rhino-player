@@ -1,6 +1,7 @@
 struct BrowseChromeRefs {
     hdr_csd: Rc<Cell<Option<(bool, bool)>>>,
     nav_t: Rc<RefCell<Option<glib::SourceId>>>,
+    win: adw::ApplicationWindow,
     root: adw::ToolbarView,
     gl: gtk::GLArea,
     bar_show: Rc<Cell<bool>>,
@@ -15,6 +16,7 @@ fn rc_on_browse_chrome(parts: BrowseChromeRefs) -> Rc<dyn Fn()> {
     let BrowseChromeRefs {
         hdr_csd,
         nav_t,
+        win,
         root,
         gl,
         bar_show,
@@ -38,5 +40,6 @@ fn rc_on_browse_chrome(parts: BrowseChromeRefs) -> Rc<dyn Fn()> {
             bottom: &bottom,
             player: &player,
         });
+        show_chrome_pointer(&win, &gl);
     })
 }

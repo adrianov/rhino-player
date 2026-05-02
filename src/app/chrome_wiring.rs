@@ -27,6 +27,7 @@ fn wire_menu_chrome(
                 bottom: &ch.bottom,
                 player: &ch.player,
             });
+            show_chrome_pointer(&ch.win, &ch.gl);
         } else {
             schedule_bars_autohide(Rc::clone(&ch));
         }

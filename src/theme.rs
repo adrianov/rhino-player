@@ -156,6 +156,9 @@ const CURSOR_CSS: &str = r#"
         button:disabled, menubutton:disabled, scale:disabled, togglebutton:disabled {
             cursor: not-allowed;
         }
+        glarea.rp-cursor-hidden {
+            cursor: none;
+        }
     "#;
 
 fn append_cursor_css(css: &mut String) {
