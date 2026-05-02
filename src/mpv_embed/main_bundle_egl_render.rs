@@ -122,19 +122,33 @@ impl MpvBundle {
         ))
     }
 
-    pub fn draw(&self, area: &gtk::GLArea) {
+    fn draw_impl(&self, area: &gtk::GLArea) -> bool {
         if area.upcast_ref::<glib::Object>().as_ptr() as usize != self.gl_ptr {
-            return;
+            return false;
         }
         let scale = area.scale_factor();
         let w = area.width() * scale;
         let h = area.height() * scale;
         if w <= 0 || h <= 0 {
-            return;
+            return false;
         }
         let mut fbo: i32 = 0;
         unsafe { (self._gl.gl_get_integerv)(GL_FRAMEBUFFER_BINDING, &mut fbo) };
-        let _ = self.render.render::<EglState>(fbo, w, h, true);
+        self.render.render::<EglState>(fbo, w, h, true).is_ok()
+    }
+
+    pub fn draw(&self, area: &gtk::GLArea) {
+        let _ = self.draw_impl(area);
+    }
+
+    /// Final paint before dropping [`MpvBundle`]: render, swap report on success, then render-context update.
+    /// Call only with GTK GL current on `area` (e.g. inside `GLArea::render`). Needed so libmpv can tear
+    /// down the VO before `mpv_render_context_free`; skipping this triggers aborts on macOS GTK.
+    pub fn teardown_gl_paint(&self, area: &gtk::GLArea) {
+        if self.draw_impl(area) {
+            self.render.report_swap();
+        }
+        let _ = self.render.update();
     }
 
     /// End playback; call after the SQLite snapshot. Safe to skip before process exit.

@@ -22,6 +22,7 @@ struct FinalActionCtx {
     bar_show: Rc<Cell<bool>>,
     idle_inhib: Rc<RefCell<Option<u32>>>,
     exit_after_current: Rc<Cell<bool>>,
+    mpv_teardown_after_draw: Rc<Cell<bool>>,
 }
 
 fn wire_final_actions(ctx: FinalActionCtx) {
@@ -48,6 +49,7 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         bar_show,
         idle_inhib,
         exit_after_current,
+        mpv_teardown_after_draw,
     } = ctx;
 
     let open = gio::SimpleAction::new("open", None);
@@ -144,31 +146,15 @@ fn wire_final_actions(ctx: FinalActionCtx) {
     ));
     app.add_action(&about);
 
-    let app_q = app.clone();
-    let quit = gio::SimpleAction::new("quit", None);
-    let p_quit = player.clone();
-    let win_q = win.clone();
-    let gl_q = gl.clone();
-    let sp_quit = sub_pref.clone();
-    let idle_q = Rc::clone(&idle_inhib);
-    quit.connect_activate(glib::clone!(
-        #[strong]
-        app_q,
-        #[strong]
-        p_quit,
-        #[strong]
-        win_q,
-        #[strong]
-        gl_q,
-        #[strong]
-        sp_quit,
-        #[strong]
-        idle_q,
-        move |_, _| {
-            schedule_quit_persist(&app_q, &win_q, &gl_q, &p_quit, &sp_quit, &idle_q);
-        }
-    ));
-    app.add_action(&quit);
+    wire_quit_close(
+        &app,
+        &win,
+        &gl,
+        &player,
+        &sub_pref,
+        &idle_inhib,
+        &mpv_teardown_after_draw,
+    );
 
     let exit_after = gio::SimpleAction::new_stateful(
         "exit-after-current",
@@ -224,32 +210,6 @@ fn wire_final_actions(ctx: FinalActionCtx) {
     app.set_accels_for_action("app.quit", &["<Primary>q", "q"]);
     app.set_accels_for_action("app.toggle-fullscreen", &["F11"]);
 
-    {
-        let p = player.clone();
-        let w = win.clone();
-        let gl_close = gl.clone();
-        let sp_close = sub_pref.clone();
-        let iclose = Rc::clone(&idle_inhib);
-        win.connect_close_request(glib::clone!(
-            #[strong]
-            app_q,
-            #[strong]
-            p,
-            #[strong]
-            w,
-            #[strong]
-            gl_close,
-            #[strong]
-            sp_close,
-            #[strong]
-            iclose,
-            move |_win| {
-                schedule_quit_persist(&app_q, &w, &gl_close, &p, &sp_close, &iclose);
-                glib::Propagation::Stop
-            }
-        ));
-    }
-
     apply_chrome(&root, &gl, &bar_show, &recent, &bottom, &player);
     {
         let pz = player.clone();
@@ -300,3 +260,5 @@ fn wire_final_actions(ctx: FinalActionCtx) {
 
     win.present();
 }
+
+include!("final_actions_quit_close.rs");

@@ -44,6 +44,7 @@ fn build_window(
     let aspect_resize_end_deb = Rc::new(RefCell::new(None::<glib::SourceId>));
     let aspect_resize_wired = Rc::new(Cell::new(false));
     let idle_inhib = Rc::new(RefCell::new(None::<u32>));
+    let mpv_teardown_after_draw = Rc::new(Cell::new(false));
 
     // Top/bottom bars are attached when [wire_window_input] runs (`input/shell.rs`), not here.
     header_menubtns_switch([
@@ -240,6 +241,7 @@ fn build_window(
         pending_recent_backfill: pending_recent_backfill.clone(),
         close_video: video_file_actions.close_video,
         move_to_trash: video_file_actions.move_to_trash,
+        mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
     });
 
     wire_seek_control(&w.seek, SeekControlDeps {
@@ -271,6 +273,7 @@ fn build_window(
         last_path: last_path.clone(), sibling_seof: sibling_seof.clone(),
         sibling_nav: w.sibling_nav.clone(), exit_after_current: exit_after_current.clone(),
         win_aspect: win_aspect.clone(), idle_inhib: Rc::clone(&idle_inhib),
+        mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
         on_video_chrome: on_video_chrome.clone(), on_file_loaded: Rc::clone(&on_file_loaded),
         reapply_60: reapply_60.clone(), bar_show: bar_show.clone(),
         seek_chapters: Rc::clone(&seek_chapters),
@@ -300,6 +303,7 @@ fn build_window(
         on_file_loaded: Rc::clone(&on_file_loaded),
         win_aspect: Rc::clone(&win_aspect), bar_show: bar_show.clone(),
         idle_inhib: Rc::clone(&idle_inhib), exit_after_current: exit_after_current.clone(),
+        mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
     });
 }
 

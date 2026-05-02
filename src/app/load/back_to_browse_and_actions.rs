@@ -119,12 +119,11 @@ fn sync_trash_action(
     a.set_enabled(ok);
 }
 
-/// Saves DB resume, stops playback, frees libmpv’s render context with the main [`gtk::GLArea`]
-/// GL context current, then hides and quits.
+/// Saves DB resume and stops playback from an idle, then drops [`MpvBundle`] on the next
+/// [`gtk::GLArea::connect_render`] callback after [`gtk::GLArea::queue_render`] (never drops mpv here).
 ///
-/// `vo=libmpv` needs [`gtk::GLArea::make_current`] during `mpv_render_context_free()`. Hiding the
-/// window *before* that idle runs can unrealize the GL surface (seen on macOS), skip `make_current`,
-/// and hit mpv’s fatal “render_context not freed” check in core teardown.
+/// On macOS GTK, [`mpv_render_context_free`] must run under a valid GL binding after a swap-reporting
+/// paint; dropping [`MpvBundle`] without that paint aborts in `mpv_destroy`.
 fn schedule_quit_persist(
     app: &adw::Application,
     win: &adw::ApplicationWindow,
@@ -132,6 +131,7 @@ fn schedule_quit_persist(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     sub: &Rc<RefCell<db::SubPrefs>>,
     idle_inhib: &Rc<RefCell<Option<u32>>>,
+    teardown_after_draw: &Rc<Cell<bool>>,
 ) {
     let p = player.clone();
     let a = app.clone();
@@ -139,18 +139,19 @@ fn schedule_quit_persist(
     let sp = Rc::clone(sub);
     let ic = Rc::clone(idle_inhib);
     let gl = gl.clone();
+    let td = Rc::clone(teardown_after_draw);
     let _ = glib::idle_add_local(move || {
         idle_inhibit::clear(&a, &ic);
         if let Some(b) = p.borrow().as_ref() {
             save_mpv_state(&b.mpv, &sp);
             b.commit_quit();
         }
-        if gl.is_realized() {
-            gl.make_current();
-        }
-        drop(p.borrow_mut().take());
-        w.set_visible(false);
-        a.quit();
+        // Ensure the GLArea gets at least one mapped realize pass (`queue_render` is a no-op when unmapped).
+        w.present();
+        gl.realize();
+        td.set(true);
+        gl.queue_render();
+        gl.queue_draw();
         glib::ControlFlow::Break
     });
 }

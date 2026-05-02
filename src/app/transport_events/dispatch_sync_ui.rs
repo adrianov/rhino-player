@@ -144,6 +144,7 @@ fn run_sibling_eof(ctx: &Rc<TransportCtx>) {
         &e.app,
         &e.sub_pref,
         &e.idle_inhib,
+        &e.mpv_teardown_after_draw,
         &e.on_video_chrome,
         Rc::clone(&e.win_aspect),
         Some(Rc::clone(&e.on_file_loaded)),

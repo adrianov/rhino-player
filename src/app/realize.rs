@@ -17,6 +17,8 @@ struct MpvRealizeCtx {
     pending_recent_backfill: Rc<RefCell<Option<RecentBackfillJob>>>,
     close_video: gio::SimpleAction,
     move_to_trash: gio::SimpleAction,
+    /// When set by [schedule_quit_persist], the next `GLArea::render` drains mpv with a valid GL binding (macOS).
+    mpv_teardown_after_draw: Rc<Cell<bool>>,
 }
 
 /// Creates the libmpv render bundle when `GLArea` realizes, then wires drawing.
@@ -40,6 +42,7 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
         pending_recent_backfill,
         close_video,
         move_to_trash,
+        mpv_teardown_after_draw,
     } = ctx;
 
     let p_realize = player.clone();
@@ -140,8 +143,22 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
     });
 
     let p_draw = player.clone();
+    let td = mpv_teardown_after_draw;
+    let win_rd = win.clone();
+    let app_rd = app.clone();
     gl.connect_render(move |area, _ctx| {
         area.make_current();
+        if td.replace(false) {
+            if let Some(b) = p_draw.borrow_mut().take() {
+                b.teardown_gl_paint(area);
+            }
+            win_rd.set_visible(false);
+            let app_q = app_rd.clone();
+            glib::idle_add_local_once(move || {
+                app_q.quit();
+            });
+            return glib::Propagation::Stop;
+        }
         if let Some(b) = p_draw.borrow().as_ref() {
             b.draw(area);
         }
