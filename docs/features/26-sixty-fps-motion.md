@@ -102,6 +102,13 @@ Feature: Optional ~60 fps motion via VapourSynth
     Then it uses the cached path without searching disk
     And an explicit override in the environment takes precedence when set
 
+  Scenario: Tall output uses a lighter temporal-smoothing preset
+    Given the smooth-motion preference is on
+    And the decoded picture height is greater than typical high-definition height
+    When the temporal-smoothing filter graph runs at approximately 1.0×
+    Then the graph uses lighter analysis settings than for shorter outputs
+    And playback stays closer to real time on modest CPUs
+
   Scenario: Disable clears vf and restores hwdec / vd-lavc-dr
     Given a vapoursynth graph is active
     When the user disables Smooth Video or speed leaves ~1.0×
@@ -113,7 +120,7 @@ Feature: Optional ~60 fps motion via VapourSynth
 - Settings: `video_smooth_60` 0/1, `video_vs_path` UTF-8 path (empty for bundled), `video_mvtools_lib` cached absolute path. Persisted with other video prefs (see [14-preferences](14-preferences.md)).
 - Menu wiring: stateful `smooth-60` action (Preferences → Smooth Video (~60 FPS at 1.0×)); `vs-custom` row appears when `video_vs_path` is non-empty; **Choose VapourSynth Script…** sets the path and saves only after MVTools is resolved.
 - mpv defaults are otherwise untouched when Smooth is off (no forced `video-sync`, `interpolation`, or `hwdec`); GTK frame clock and libmpv presentation paths still drive vsync.
-- The vf line is `vapoursynth:file=…:buffered-frames=24:concurrent-frames=auto`. Deeper queues give MVTools more headroom at the cost of memory and seek latency.
+- The vf line is `vapoursynth:file=…:buffered-frames=N:concurrent-frames=auto` where **N** steps down with output cost height (max of mpv **`height`**, **`dheight`**, and last main **GLArea** draw height in px): 24 → 20 → 14 → 8 above 1080 / 1440 / 2160. Distinct **N** forces a **`vf`** rebuild when the tier changes. Before **`vf add`**, Rhino sets **`RHINO_MV_BLKSIZE`**, **`RHINO_MV_OVERLAP`**, **`RHINO_MV_CHROMA`** so **`mv.Super` / `mv.Analyse`** use smaller blocks, less overlap, and optional chroma-off at very tall frames — lighter CPU than the former fixed **`buffered-frames=24`** + 32×16 analyse everywhere.
 - Pause (`pause=yes`) alone keeps the `vf` graph loaded so pause/unpause does not rebuild MVTools. Each **main-player** seek (bottom bar, arrow keys, preview commit) runs **`vf clr`** immediately before **`seek`** whenever vapoursynth was still present; **`smooth_vf_attach_if_playing`** after the seek **only** when **not** paused (during playback scrubbing FlowFPS comes back at once). While **paused**, the graph stays cleared after that seek until **`Pause(false)`** reapplies it. **`apply_pending_resume`** also clears vapoursynth before its **`seek`** so resume positioning does not run through a stale graph. Playback (`pause=no`): **`smooth_vf_attach_if_playing`** re-runs filter application when Smooth applies and **`vapoursynth` is missing**. On **`Pause(false)`** it uses **`apply_mpv_video_after_transport_unpause`** / **`reapply_60_after_transport_unpause`**, which assume **`pause=no`** inside **`apply_mpv_video_impl`** — **`get_property("pause")`** can still lag **`observe_property`** after unpause, leaving **`use_mvtools`** false so Smooth never reattached after pause/seek. **`trust_not_paused`** only skips pause reads in the outer attach gates; seek-driven reattach uses live **`pause`**. Implemented from libmpv `pause` observation plus seek hooks.
 - After loadfile, one GLib **idle** runs [apply_mpv_video] so **`vf`** / **`RHINO_PLAYBACK_SPEED`** / **`RHINO_SOURCE_FPS`** align once `path` and playback state are ready; no deliberate playback deferral before attaching Smooth **`vf`**. The separate ~**320 ms** file-loaded hook only aligns UI speed / subtitles — not Smooth timing.
 - The bundled script tags source with `AssumeFPS` once at 1.0×, then `FlowFPS(60/1)` (no second `AssumeFPS(×1)`). At 1.5× / 2.0× it retimes with `AssumeFPS(× speed)` first, then `FlowFPS`.
