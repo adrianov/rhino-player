@@ -15,9 +15,9 @@ fn build_speed_menu(
     let speed_list = gtk::ListBox::new();
     speed_list.set_activate_on_single_click(true);
     speed_list.add_css_class("rich-list");
-    for s in &["1.0×", "1.5×", "2.0×", "8.0×"] {
+    for s in &playback_speed::SPEEDS {
         let row = gtk::ListBoxRow::new();
-        let lab = gtk::Label::new(Some(*s));
+        let lab = gtk::Label::new(Some(&format!("{s:.1}×")));
         lab.set_halign(gtk::Align::Start);
         lab.set_margin_start(10);
         lab.set_margin_end(10);

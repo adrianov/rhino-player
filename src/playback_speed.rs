@@ -6,8 +6,18 @@ use libmpv2::Mpv;
 /// Fastest fixed step: matches mpv `scaletempo2` default `max-speed` when `--audio-pitch-correction` is on.
 pub const MAX_FIXED_SPEED: f64 = 8.0;
 
-/// Supported `speed` values (order matches the header `ListBox` row index).
-pub const SPEEDS: [f64; 4] = [1.0, 1.5, 2.0, MAX_FIXED_SPEED];
+/// Supported `speed` values (popover row order matches this array).
+pub const SPEEDS: [f64; 9] = [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    4.0,
+    5.0,
+    6.0,
+    7.0,
+    MAX_FIXED_SPEED,
+];
 
 const EPS: f64 = 0.01;
 
@@ -34,7 +44,7 @@ pub fn nearest(mpv_speed: f64) -> (u32, f64) {
     (i as u32, v)
 }
 
-/// Value for list row [index] (0..=3).
+/// Value for list row [`index`] in `0..SPEEDS.len()`.
 pub fn value_at(i: u32) -> f64 {
     SPEEDS.get(i as usize).copied().unwrap_or(1.0)
 }
@@ -72,9 +82,11 @@ mod tests {
         assert_eq!(nearest(1.0), (0, 1.0));
         assert_eq!(nearest(1.5), (1, 1.5));
         assert_eq!(nearest(2.0), (2, 2.0));
-        assert_eq!(nearest(8.0), (3, 8.0));
+        assert_eq!(nearest(8.0), (8, 8.0));
         assert_eq!(nearest(1.45), (1, 1.5));
         assert_eq!(nearest(1.25), (0, 1.0));
-        assert_eq!(nearest(7.0), (3, 8.0));
+        assert_eq!(nearest(7.0), (7, 7.0));
+        assert_eq!(nearest(7.49), (7, 7.0));
+        assert_eq!(nearest(7.51), (8, 8.0));
     }
 }

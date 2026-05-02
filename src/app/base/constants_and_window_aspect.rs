@@ -9,11 +9,42 @@ const LICENSE_NOTICE: &str = concat!(
     include_str!("../../../LICENSE")
 );
 
+/// [gio::Menu] row with optional Adwaita-style symbolic icon ([ThemedIcon]),
+/// mirrored to **`verb-icon`** so GTK/OS menu layers can show the same graphic.
+fn menu_append_action_icon(
+    menu: &gio::Menu,
+    label: Option<&str>,
+    detailed_action: Option<&str>,
+    icon: Option<&str>,
+) {
+    let item = gio::MenuItem::new(label, detailed_action);
+    if let Some(name) = icon {
+        let themed = gio::ThemedIcon::new(name);
+        item.set_icon(&themed);
+        if let Some(v) = themed.serialize() {
+            item.set_attribute_value("verb-icon", Some(&v));
+        }
+    }
+    menu.append_item(&item);
+}
+
 fn title_for_open_path(path: &Path) -> String {
     match path.file_name().and_then(|n| n.to_str()) {
         Some(name) => format!("{name} — {APP_WIN_TITLE}"),
         None => format!("{} — {APP_WIN_TITLE}", path.display()),
     }
+}
+
+/// Keeps [`gtk::ApplicationWindow::title`] and an optional GTK header-bar label aligned (macOS title
+/// widget); pass `mirror` [`None`] on Linux where the shell shows the window title natively.
+fn sync_app_window_title(
+    win: &adw::ApplicationWindow,
+    mirror: Option<&gtk::Label>,
+    title: Option<&str>,
+) {
+    win.set_title(title);
+    let Some(l) = mirror else { return };
+    l.set_label(title.filter(|t| !t.is_empty()).unwrap_or(APP_WIN_TITLE));
 }
 const IDLE_3S: Duration = Duration::from_secs(3);
 /// After chrome hides, GTK often emits spurious pointer motion/enter; ignore for this long.
@@ -49,7 +80,7 @@ struct ChromeBarHide {
     header: adw::HeaderBar,
     gl: gtk::GLArea,
     bar_show: Rc<Cell<bool>>,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
     bottom: gtk::Box,
     player: Rc<RefCell<Option<MpvBundle>>>,
     squelch: Rc<Cell<Option<Instant>>>,
@@ -168,7 +199,7 @@ fn snap_size_after_user_resize(ww: i32, hh: i32, ratio: f64) -> Option<(i32, i32
 /// One [set_default_size] to match the video [win_aspect] after user resize (see [ASPECT_RESIZE_END_DEBOUNCE]).
 fn apply_window_video_aspect(
     win: &adw::ApplicationWindow,
-    recent: &gtk::ScrolledWindow,
+    recent: &gtk::Box,
     win_aspect: &Cell<Option<f64>>,
 ) {
     if win.is_fullscreen() || win.is_maximized() {
@@ -220,7 +251,7 @@ fn apply_window_video_aspect(
 fn schedule_window_aspect_on_resize_end(
     deb: Rc<RefCell<Option<glib::SourceId>>>,
     win: &adw::ApplicationWindow,
-    recent: &gtk::ScrolledWindow,
+    recent: &gtk::Box,
     win_aspect: &Rc<Cell<Option<f64>>>,
 ) {
     if let Some(id) = deb.borrow_mut().take() {

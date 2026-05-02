@@ -4,7 +4,7 @@
 status: done
 priority: p1
 layers: [input, ui, mpv]
-related: [02, 07, 17, 21, 22, 27]
+related: [02, 07, 17, 21, 22, 27, 28]
 actions: [app.quit, app.open, app.close-video, app.move-to-trash, app.exit-after-current]
 ---
 
@@ -81,6 +81,12 @@ Feature: Keyboard and pointer input
     When the user presses m
     Then mute toggles like the popover toggle in 22-audio-volume-mute
 
+  Scenario: Digit one through eight sets playback rate
+    Given the main window is focused and a session is ready to control playback
+    When the user presses a single digit between one and eight on the main keyboard or matching keypad keys
+    Then playback rate matches that numeric multiple of normal speed
+    And the speed control highlight matches the chosen rate on the canonical step list
+
   Scenario: Quit on q or Ctrl+Q
     Given the main window is open
     When the user presses q or Ctrl+Q
@@ -115,9 +121,10 @@ Feature: Keyboard and pointer input
 
 ## Notes
 - Default bindings load from a memory `input.conf`; an optional user `input.conf` under `~/.config/rhino/` is reserved for later (TBD).
-- Empty-area double-click on the recent grid spacers also toggles fullscreen (see [21-recent-videos-launch](21-recent-videos-launch.md)).
+- Empty-area double-click on the recent grid spacers also toggles fullscreen (see [21-recent-videos-launch](21-recent-videos-launch.md)). Double-click primary on the top toolbar exits fullscreen anytime, or enters fullscreen during playback while the overlay is hidden (same rules as GL double-click).
 - **f** / **F** toggles fullscreen like Enter or KP_Enter.
 - Tab focuses chrome temporarily.
 - Arrow Left / Right (and keypad arrows) step **playback position** five seconds when the seek bar is enabled and the continue grid is hidden; implementation shares the transport seek path ([04-transport-and-progress](04-transport-and-progress.md)).
 - Ctrl+Left / Ctrl+Right load the previous / next sibling file like the bottom bar ([07-sibling-folder-queue](07-sibling-folder-queue.md)).
 - Hardware **play**, **pause**, **stop**, **previous**, and **next** keys (GDK `AudioPlay`, `AudioPause`, `AudioStop`, `AudioPrev`, `AudioNext`) are handled in the same capture-phase controller **when the main window is focused**; behaviour matches Space and Ctrl+arrows as above. True background / unfocused routing is OS-specific (on macOS that may require separate Now Playing integration).
+- Digit **1**–**8** (and keypad **KP_1**–**KP_8**), **without** Ctrl / Alt / Meta / Super (see `DIGIT_SPEED_BLOCK` in `input/digit_speed_keys.rs`), set playback speed to **N**× (`input/digit_speed_keys.rs` → `playback_speed`, same idle resync path as header list in **28-playback-speed**). Keys are ignored when media is unavailable (capture handler exits before mutating mpv).

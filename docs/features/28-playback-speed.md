@@ -4,7 +4,7 @@
 status: done
 priority: p1
 layers: [ui, mpv]
-related: [04, 07, 10, 26]
+related: [04, 07, 10, 13, 26]
 mpv_props: [speed, duration]
 ---
 
@@ -13,7 +13,7 @@ mpv_props: [speed, duration]
 - Return to 1.0× for normal motion.
 
 ## Description
-A header `MenuButton` (icon `speedometer-symbolic`) opens a popover with a `ListBox` of four rows: **1.0×**, **1.5×**, **2.0×**, and **8.0×** (fast skip through dull segments). Selecting a row sets mpv `speed` to that exact value, syncs the list, and closes the popover. There is no free-form slider in v1.
+A header `MenuButton` (icon `speedometer-symbolic`) opens a popover with a `ListBox` of fixed-rate rows (**1.0×**, **1.5×**, **2.0×**, integers **3.0×** through **8.0×**), matching playback-rate shortcuts on keyboard digits **1**–**8** (**13-input-shortcuts**). Selecting a row sets mpv `speed` to that exact value, syncs the list, and closes the popover. There is no free-form slider in v1.
 
 Speed applies to the current mpv session; mpv generally keeps `speed` across `loadfile` in the same process, except automatic advance to the next file in folder order resets to **1.0×** before the new file loads. The UI re-syncs from `speed` after each load and snaps to the nearest canonical step when mpv reports a value outside the fixed set.
 
@@ -25,9 +25,15 @@ Feature: Fixed-step playback speed
 
   Scenario: Selecting a row sets canonical speed
     Given media with measurable duration is loaded
-    When the user selects 1.0×, 1.5×, 2.0×, or 8.0× from the header list
+    When the user selects any fixed rate from the header list
     Then mpv speed equals the chosen value within 0.01
     And the row highlight matches mpv speed via the re-entrancy guard
+
+  Scenario: Digit keys match fixed list rates
+    Given media with measurable duration is loaded
+    When the user chooses playback rate using keyboard shortcut digits one through eight
+    Then playback speed equals that numeric multiple of normal within 0.01
+    And the header list highlight matches the same canonical step
 
   Scenario: Snap to nearest canonical step on drift
     Given mpv reports a speed outside the canonical fixed steps beyond 0.01

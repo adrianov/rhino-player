@@ -1,6 +1,7 @@
 use adw::prelude::*;
 use gio::prelude::{
-    ActionExt as GioActionExt, ActionMapExt as GioActionMapExt, ApplicationExtManual, FileExt,
+    ActionExt as GioActionExt, ActionGroupExt as GioActionGroupExt,
+    ActionMapExt as GioActionMapExt, ApplicationExtManual, FileExt, IconExt as GioIconExt,
 };
 use glib::prelude::{ObjectExt, ToVariant};
 use gtk::gio;
