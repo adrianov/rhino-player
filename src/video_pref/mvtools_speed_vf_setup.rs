@@ -31,10 +31,11 @@ fn mvt_path_to_store(p: &Path) -> String {
         .unwrap_or_else(|_| p.to_string_lossy().into_owned())
 }
 
-/// Resolves `libmvtools.so`, sets `RHINO_MVTOOLS_LIB` (in-process mpv inherits the environment).
+/// Resolves the **MVTools** plugin file (`libmvtools.so` on Linux, `libmvtools.dylib` on macOS),
+/// sets `RHINO_MVTOOLS_LIB` (in-process mpv inherits the environment).
 /// Order: env [paths::mvtools_from_env], then **cached** [VideoPrefs::mvtools_lib] if still a file, else
 /// [paths::mvtools_lib_search]; on success, saves the full path in settings so the scan is not repeated
-/// while the file exists. Returns `false` when `libmvtools.so` cannot be resolved.
+/// while the file exists. Returns `false` when MVTools cannot be resolved.
 fn apply_mvtools_env(v: &mut VideoPrefs) -> bool {
     if let Some(p) = paths::mvtools_from_env() {
         let s = mvt_path_to_store(&p);
@@ -68,7 +69,8 @@ fn apply_mvtools_env(v: &mut VideoPrefs) -> bool {
         true
     } else {
         eprintln!(
-            "[rhino] video: libmvtools.so not found; set {} or install MVTools with vsrepo (see `data/vs/README.md`).",
+            "[rhino] video: libmvtools not found; set {} or install MVTools (Linux: vsrepo / \
+             distro package, macOS: `brew install mvtools`). See `data/vs/README.md`.",
             paths::RHINO_MVTOOLS_LIB_VAR
         );
         false

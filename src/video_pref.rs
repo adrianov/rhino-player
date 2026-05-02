@@ -21,7 +21,8 @@
 //! **`vf clr`**/**`vf add`** (no effect on seek-only scrubbing, which never schedules this path).
 //! Clearing the graph
 //! (**Smooth off** or **vf** error) restores **`hwdec=auto`** / **`vd-lavc-dr=auto`**.
-//! Successful `libmvtools.so` resolution is stored in SQLite (`video_mvtools_lib`); the next session
+//! Successful **MVTools** plugin resolution (`libmvtools.so` on Linux, `libmvtools.dylib` on
+//! macOS) is stored in SQLite (`video_mvtools_lib`); the next session
 //! reuses that path if the file still exists, avoiding a full search.
 //!
 //! [try_load] drains mpv so those transport events run; other hooks (speed, Preferences)

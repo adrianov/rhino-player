@@ -32,9 +32,9 @@ Feature: Optional ~60 fps motion via VapourSynth
     Then the smooth-motion preference is off
 
   Scenario: Toggle applies vf only at ~1.0× with MVTools resolved
-    Given video_smooth_60 is true and libmvtools.so resolves successfully
-    When media is loaded and mpv speed is approximately 1.0×
-    Then vf contains the vapoursynth filter line with buffered-frames=24 and concurrent-frames=auto
+    Given the smooth-motion preference is on and the MVTools plugin resolves successfully
+    When media is loaded and playback speed is approximately 1.0×
+    Then the temporal-smoothing filter graph runs against the resolved MVTools plugin
 
   Scenario: Faster speeds skip vf without clearing user intent
     Given video_smooth_60 remains true in preferences
@@ -96,11 +96,11 @@ Feature: Optional ~60 fps motion via VapourSynth
     Then smoothing is skipped for that file
     And audio and video stay in sync
 
-  Scenario: vf cache resolves libmvtools.so without rescanning
-    Given video_mvtools_lib points at an existing libmvtools.so
-    When the app installs the vapoursynth filter
+  Scenario: Cached MVTools plugin path skips a fresh search
+    Given the persistent store has a cached path to the MVTools plugin and the file still exists
+    When the app installs the temporal-smoothing filter graph
     Then it uses the cached path without searching disk
-    And RHINO_MVTOOLS_LIB takes precedence when set in the environment
+    And an explicit override in the environment takes precedence when set
 
   Scenario: Disable clears vf and restores hwdec / vd-lavc-dr
     Given a vapoursynth graph is active
@@ -118,7 +118,8 @@ Feature: Optional ~60 fps motion via VapourSynth
 - After loadfile, one GLib **idle** runs [apply_mpv_video] so **`vf`** / **`RHINO_PLAYBACK_SPEED`** / **`RHINO_SOURCE_FPS`** align once `path` and playback state are ready; no deliberate playback deferral before attaching Smooth **`vf`**. The separate ~**320 ms** file-loaded hook only aligns UI speed / subtitles — not Smooth timing.
 - The bundled script tags source with `AssumeFPS` once at 1.0×, then `FlowFPS(60/1)` (no second `AssumeFPS(×1)`). At 1.5× / 2.0× it retimes with `AssumeFPS(× speed)` first, then `FlowFPS`.
 - mpv's `vapoursynth` vf often forwards `video_in.fps_num=0 / fps_den=0` even for plain CFR mp4s (29.97 / 23.976 / 30). Before `vf add`, Rhino reads mpv's `container-fps` and exports `RHINO_SOURCE_FPS` (decimal); the bundled script falls back to it via `Fraction(...).limit_denominator(1001)` so 29.970 → 30000/1001, 23.976 → 24000/1001, 30.0 → 30/1. Without this recovery, the previous hardcoded `24000/1001` fallback retagged real-29.97 as 23.976 and stretched the clip by 25 % ("many frames + slowed down" drift). When mpv has no `container-fps` either (true VFR), the env is cleared, the script logs `source fps unknown` to stderr, and falls through to passthrough — smoothing is skipped, A/V stays in sync.
-- `libmvtools.so` resolution order: `RHINO_MVTOOLS_LIB` env, then cached `video_mvtools_lib` if still a file, then a bounded search (common distro paths, pipx / vsrepo under `~/.local`). On success the absolute path is saved to `video_mvtools_lib` and printed to stderr (e.g. `libmvtools -> …`).
+- MVTools plugin resolution order: `RHINO_MVTOOLS_LIB` env, then cached `video_mvtools_lib` if still a file, then a bounded search. On Linux that search covers common distro paths and pipx / vsrepo under `~/.local`; on macOS it covers the Homebrew prefixes (`/opt/homebrew/lib/libmvtools.dylib` on Apple Silicon, `/usr/local/lib/libmvtools.dylib` on Intel — `brew install mvtools`) and skips the Linux-only `~/.local` walk. On success the absolute path is saved to `video_mvtools_lib` and printed to stderr (e.g. `libmvtools -> …`).
+- macOS binding: the plugin file is `libmvtools.dylib` (Linux: `libmvtools.so`); `paths::MVTOOLS_FILE` and `DISTRO_MVTOOLS_PATHS` are gated with `cfg(target_os = "macos")`. The bundled `rhino_60_mvtools.vpy` mirrors the same Homebrew lookup at `LoadPlugin` time. Homebrew’s `mpv` formula (0.41+) lists VapourSynth as a build dependency, so the same `libmpv` Rhino links against can run the bundled script. `app/vs_setup_dialog` shows a macOS-specific instruction text (`brew install mpv mvtools`) at runtime via `cfg(target_os = "macos")`.
 - Subtitles (libass) are rendered outside the VapourSynth graph; A/B test by watching motion (pans), or briefly turn subs off.
 - Default when the persistent store has no `video_smooth_60` row: **off** (bundled FlowFPS script is used only after the user turns the option on). 1080p remains CPU-bound when enabled.
 - See [25-smooth-playback](25-smooth-playback.md) (removed mpv display-resample path), [VapourSynth](https://www.vapoursynth.com/), [MVTools](https://github.com/dubhater/vapoursynth-mvtools), [RIFE](https://github.com/HolyWu/vs-rife).

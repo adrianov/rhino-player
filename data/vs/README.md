@@ -27,10 +27,22 @@ Rhino uses the **system** `libmpv` (see `ldd` on the binary). The error is **not
 
 ## Bundled script (default 60 fps mode)
 
-When **Preferences → Smooth Video (~60 FPS at 1.0×)** is on, [mpv] **speed** is **~1.0×**, and the DB has **no** custom **Choose VapourSynth Script** path, the app uses **`rhino_60_mvtools.vpy`**: it tags source fps, applies **`AssumeFPS(× speed)`** only when **speed** is not **1.0** (at **1.0** it uses the same single tag + **FlowFPS** as the old preset, to avoid A/V offset), using **`RHINO_PLAYBACK_SPEED`** (from [mpv] `speed`, set by Rhino when the vf is added or after you change **playback speed** in the UI; default `1.0` if missing), then [MVTools] **FlowFPS** to **60/1** so interpolation tracks **(source fps × speed)** (fewer in-between frames at higher speeds, or mvtools skipped when that product is already ≥ ~60). **`core.num_threads`** = all CPUs in the process affinity, **`max_cache_size` = 4096** MB, `LoadPlugin` for `libmvtools.so`, `pel=1` `Super` + `Analyse` with **32px blocks**, **16px overlap**, global pan detection (`global=True`), the fast search (`search=0`) + `FlowFPS` with `mask=0`, `chroma=True` on `Super`. This keeps the original fast preset, overlaps adjacent blocks so block edges blend, and keeps the useful global-motion hint without the stronger true-motion / low-penalty bias that can look like vertical tearing. Rhino leaves normal playback on mpv timing defaults; the script, not mpv display-resample, creates the ~60 fps cadence. The app locates `libmvtools.so` (order: **`RHINO_MVTOOLS_LIB`**, then a path **cached in SQLite** (`video_mvtools_lib`) if that file still exists—**no full rescan**—else Debian-style paths, pipx/vsrepo under `~/.local`, then a bounded search of the rest of `~/.local`), sets **`RHINO_MVTOOLS_LIB`**, and prints **`libmvtools -> <path>`** to stderr. **Override** with `export RHINO_MVTOOLS_LIB=/path/to/libmvtools.so`. For CLI `mpv` without Rhino, you can set **`export RHINO_PLAYBACK_SPEED=1.0`** (or `1.5`, `2.0`, …) to match.
+When **Preferences → Smooth Video (~60 FPS at 1.0×)** is on, [mpv] **speed** is **~1.0×**, and the DB has **no** custom **Choose VapourSynth Script** path, the app uses **`rhino_60_mvtools.vpy`**: it tags source fps, applies **`AssumeFPS(× speed)`** only when **speed** is not **1.0** (at **1.0** it uses the same single tag + **FlowFPS** as the old preset, to avoid A/V offset), using **`RHINO_PLAYBACK_SPEED`** (from [mpv] `speed`, set by Rhino when the vf is added or after you change **playback speed** in the UI; default `1.0` if missing), then [MVTools] **FlowFPS** to **60/1** so interpolation tracks **(source fps × speed)** (fewer in-between frames at higher speeds, or mvtools skipped when that product is already ≥ ~60). **`core.num_threads`** = all CPUs in the process affinity, **`max_cache_size` = 4096** MB, `LoadPlugin` for `libmvtools.so` / `libmvtools.dylib` (Linux / macOS), `pel=1` `Super` + `Analyse` with **32px blocks**, **16px overlap**, global pan detection (`global=True`), the fast search (`search=0`) + `FlowFPS` with `mask=0`, `chroma=True` on `Super`. This keeps the original fast preset, overlaps adjacent blocks so block edges blend, and keeps the useful global-motion hint without the stronger true-motion / low-penalty bias that can look like vertical tearing. Rhino leaves normal playback on mpv timing defaults; the script, not mpv display-resample, creates the ~60 fps cadence. The app locates the MVTools plugin (order: **`RHINO_MVTOOLS_LIB`**, then a path **cached in SQLite** (`video_mvtools_lib`) if that file still exists—**no full rescan**—else: Linux uses Debian-style `vapoursynth/` paths, pipx/vsrepo under `~/.local`, then a bounded search of the rest of `~/.local`; macOS uses `/opt/homebrew/lib/libmvtools.dylib` and `/usr/local/lib/libmvtools.dylib`), sets **`RHINO_MVTOOLS_LIB`**, and prints **`libmvtools -> <path>`** to stderr. **Override** with `export RHINO_MVTOOLS_LIB=/path/to/libmvtools.so` (or `…/libmvtools.dylib` on macOS). For CLI `mpv` without Rhino, you can set **`export RHINO_PLAYBACK_SPEED=1.0`** (or `1.5`, `2.0`, …) to match.
 
 - **VapourSynth** + the **mvtools** plugin must be installed so `core.mv.*` works.
 - **mpv** (the same one linked as **libmpv** for this app) must include the `vapoursynth` [vf] (`mpv -vf help`).
+
+**macOS manual install**
+
+`brew install mpv mvtools` is the whole story:
+
+```bash
+brew install mpv mvtools
+mpv --vf=help 2>&1 | grep -E '^[[:space:]]*vapoursynth[[:space:]]'
+python3 -c "import vapoursynth as vs; vs.core.std.LoadPlugin('$(brew --prefix)/lib/libmvtools.dylib'); print(vs.core.mv)"
+```
+
+`brew install mvtools` pulls in `vapoursynth` as a dependency and installs `libmvtools.dylib` under `$(brew --prefix)/lib`; Homebrew’s `mpv` formula (0.41+) already lists VapourSynth as a build dependency so the same `libmpv` Rhino links against can run the bundled script. Both verification commands must print non-empty output. Apple Silicon Homebrew prefix is `/opt/homebrew`, Intel is `/usr/local`; Rhino searches both. To override, `export RHINO_MVTOOLS_LIB=/full/path/to/libmvtools.dylib`. If a future Homebrew `mpv` revision drops VapourSynth again, `brew reinstall mpv --build-from-source` or build it yourself with `meson setup build -Dvapoursynth=enabled`.
 
 **Debian / Ubuntu manual install**
 
@@ -110,7 +122,14 @@ export RHINO_MVTOOLS_LIB=/full/path/to/libmvtools.so
 mpv --vf=append=vapoursynth:file=\"$HOME/rhino-player/data/vs/rhino_60_mvtools.vpy\":buffered-frames=24 The.File.mkv
 ```
 
-(Adjust the `file=` path; escape colons in paths if you use the `file=/a:/b` style on Windows — on Linux, prefer `file=[/path with spaces/…]`.)
+On macOS the env points at the dylib instead:
+
+```bash
+export RHINO_MVTOOLS_LIB="$(brew --prefix)/lib/libmvtools.dylib"
+mpv --vf=append=vapoursynth:file=\"$HOME/rhino-player/data/vs/rhino_60_mvtools.vpy\":buffered-frames=24 The.File.mkv
+```
+
+(Adjust the `file=` path; escape colons in paths if you use the `file=/a:/b` style on Windows — on Linux / macOS, prefer `file=[/path with spaces/…]`.)
 
 ## Your own script
 

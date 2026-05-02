@@ -13,7 +13,8 @@ from fractions import Fraction
 
 import vapoursynth as vs
 
-_MVTOOLS_SO = "libmvtools.so"
+_IS_DARWIN = sys.platform == "darwin"
+_MVTOOLS_SO = "libmvtools.dylib" if _IS_DARWIN else "libmvtools.so"
 _LOCAL_MAX_DEPTH = 14
 _LOCAL_MAX_DIR_READS = 8000
 _TARGET_NUM = 60
@@ -43,6 +44,14 @@ def _mvtools_paths():
     p = (os.environ.get("RHINO_MVTOOLS_LIB") or "").strip()
     if p:
         yield os.path.expanduser(p)
+    if _IS_DARWIN:
+        # `brew install mvtools` drops libmvtools.dylib under $(brew --prefix)/lib.
+        for c in (
+            "/opt/homebrew/lib/libmvtools.dylib",
+            "/usr/local/lib/libmvtools.dylib",
+        ):
+            yield c
+        return
     for c in (
         "/usr/lib/x86_64-linux-gnu/vapoursynth/libmvtools.so",
         "/usr/lib/vapoursynth/libmvtools.so",
@@ -52,6 +61,9 @@ def _mvtools_paths():
 
 
 def _mvtools_in_pipx_venvs():
+    if _IS_DARWIN:
+        # vsrepo / pipx is the Linux install path; on macOS Homebrew already covers everything.
+        return None
     home = os.environ.get("HOME")
     if not home:
         return None
@@ -88,6 +100,8 @@ def _mvtools_in_pipx_venvs():
 
 
 def _find_mvtools_under_local():
+    if _IS_DARWIN:
+        return None
     home = os.environ.get("HOME")
     if not home:
         return None
@@ -196,9 +210,9 @@ core = vs.core
 _load_mvtools(core)
 if not hasattr(core, "mv"):
     raise RuntimeError(
-        "mvtools plugin not loaded (no `core.mv`). Install vapoursynth-mvtools or vsrepo, "
-        "or set RHINO_MVTOOLS_LIB to the full path of libmvtools.so. "
-        "From a shell:  export RHINO_MVTOOLS_LIB=/path/to/libmvtools.so"
+        "mvtools plugin not loaded (no `core.mv`). On Linux: install vapoursynth-mvtools or "
+        "vsrepo. On macOS: `brew install mvtools`. Or set RHINO_MVTOOLS_LIB to the full path of "
+        f"{_MVTOOLS_SO}, e.g. export RHINO_MVTOOLS_LIB=/opt/homebrew/lib/libmvtools.dylib"
     )
 core.num_threads = _vs_threads()
 core.max_cache_size = 4096

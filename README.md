@@ -63,7 +63,7 @@ source ./scripts/macos-dev-env.sh
 cargo build --release
 ```
 
-**Smooth Video (VapourSynth + MVTools)** is still aimed at Linux; core playback and the rest of the UI should work on macOS.
+**Smooth Video (VapourSynth + MVTools)** is supported on macOS via Homebrew — see the macOS section below. Core playback and the rest of the UI work on macOS too.
 
 ## Install (Linux)
 
@@ -98,11 +98,32 @@ After installing, launch Rhino Player from your app grid, from a file manager, o
 rhino-player /path/to/video.mkv
 ```
 
-## Smooth 60 FPS Setup (Linux)
+## Smooth 60 FPS Setup
 
-Rhino’s **Preferences → Smooth Video (~60 FPS at 1.0×)** uses mpv’s VapourSynth video filter plus MVTools. This is optional; normal playback works without it. The instructions below target Linux; on macOS, leave this preference off for now.
+Rhino’s **Preferences → Smooth Video (~60 FPS at 1.0×)** uses mpv’s VapourSynth video filter plus MVTools. This is optional; normal playback works without it.
 
-### Install Dependencies
+### macOS
+
+Homebrew packages everything Smooth 60 needs:
+
+```bash
+brew install mpv mvtools
+```
+
+`brew install mvtools` pulls VapourSynth in as a dependency and drops `libmvtools.dylib` under `$(brew --prefix)/lib`. Homebrew’s `mpv` formula (0.41+) already ships with the `vapoursynth` video filter, so the same `libmpv` Rhino links against can run the bundled script. Rhino searches both `/opt/homebrew/lib` (Apple Silicon) and `/usr/local/lib` (Intel) automatically; override with `export RHINO_MVTOOLS_LIB=/full/path/to/libmvtools.dylib` if you installed it elsewhere.
+
+Verify before turning the preference on:
+
+```bash
+mpv --vf=help 2>&1 | grep -E '^[[:space:]]*vapoursynth[[:space:]]'
+python3 -c "import vapoursynth as vs; vs.core.std.LoadPlugin('$(brew --prefix)/lib/libmvtools.dylib'); print(vs.core.mv)"
+```
+
+Both lines must print non-empty output. Then enable **Preferences → Smooth Video (~60 FPS at 1.0×)** in Rhino.
+
+### Linux
+
+#### Install Dependencies
 
 On Debian / Ubuntu-like systems:
 
@@ -121,7 +142,7 @@ vsrepo install mvtools
 
 Rhino searches the `pipx` / `vsrepo` plugin location automatically. Avoid `python3 -m pip install --user ...` on Debian / Ubuntu systems that report `externally-managed-environment`; use `vsrepo` instead.
 
-### Verify Support
+#### Verify Support
 
 ```bash
 mpv -vf help 2>&1 | grep -E '^[[:space:]]*vapoursynth[[:space:]]'
@@ -145,7 +166,7 @@ PY
 
 The first command must print a `vapoursynth` filter. The Python check verifies that VapourSynth imports and MVTools can be loaded, including the common `pipx install vsrepo` layout; it must print an MVTools object instead of failing.
 
-### If mpv Is Missing VapourSynth
+#### If mpv Is Missing VapourSynth
 
 If the first verification command prints nothing, your `mpv` / `libmpv` was built without VapourSynth. Build and install mpv/libmpv with VapourSynth enabled:
 
@@ -168,7 +189,7 @@ ldd /path/to/rhino-player | grep libmpv
 
 ### Use It
 
-Once the checks pass, start Rhino, open a video, and enable **Preferences → Smooth Video (~60 FPS at 1.0×)**. The built-in `data/vs/rhino_60_mvtools.vpy` script is used by default; choose a custom `.vpy` only if you want to replace it.
+Once the checks pass, start Rhino, open a video, and enable **Preferences → Smooth Video (~60 FPS at 1.0×)**. The built-in `data/vs/rhino_60_mvtools.vpy` script is used by default on every platform; choose a custom `.vpy` only if you want to replace it.
 
 Smooth 60 runs only around **1.0×** playback speed. At faster fixed steps Rhino skips the filter. Expect higher CPU use while it is active, and a brief warm-up while the filter graph starts.
 

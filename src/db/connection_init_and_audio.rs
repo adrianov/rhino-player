@@ -201,7 +201,8 @@ pub struct VideoPrefs {
     pub smooth_60: bool,
     /// Absolute path to a `.vpy` for mpv’s `vapoursynth` filter, or empty for bundled script.
     pub vs_path: String,
-    /// Cached absolute path to `libmvtools.so` after a successful find; skipped on next call if still a file.
+    /// Cached absolute path to the **MVTools** plugin file (`libmvtools.so` on Linux,
+    /// `libmvtools.dylib` on macOS) after a successful find; skipped on next call if still a file.
     pub mvtools_lib: String,
 }
 
