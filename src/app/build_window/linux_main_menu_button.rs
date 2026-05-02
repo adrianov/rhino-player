@@ -53,26 +53,26 @@ fn build_linux_main_menu_button(
     col.append(&wire_action("view-fullscreen-symbolic", "Fullscreen", "app.toggle-fullscreen"));
 
     let exit_syncing = Rc::new(Cell::new(false));
-    let exit_wrap = gtk::Box::builder()
+    let exit_row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
-        .spacing(12)
-        .margin_start(10)
+        .margin_start(12)
         .margin_end(12)
-        .margin_top(4)
-        .margin_bottom(4)
+        .margin_top(6)
+        .margin_bottom(6)
         .css_classes(["rp-main-menu-act"])
         .build();
-    let exit_ic = gtk::Image::from_icon_name("object-select-symbolic");
-    exit_ic.set_pixel_size(18);
-    exit_ic.set_valign(gtk::Align::Center);
-    let exit_chk = gtk::CheckButton::builder()
+    let exit_lab = gtk::Label::builder()
         .label("Exit After Current Video")
         .hexpand(true)
+        .xalign(0f32)
         .build();
-    exit_chk.set_margin_start(0);
-    exit_wrap.append(&exit_ic);
-    exit_wrap.append(&exit_chk);
-    col.append(&exit_wrap);
+    let exit_chk = gtk::CheckButton::builder()
+        .hexpand(true)
+        .valign(gtk::Align::Center)
+        .child(&exit_lab)
+        .build();
+    exit_row.append(&exit_chk);
+    col.append(&exit_row);
 
     let app_chk = app.clone();
     let ex_sync_flag = exit_syncing.clone();

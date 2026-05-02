@@ -131,7 +131,9 @@ fn schedule_bars_autohide(ctx: Rc<ChromeBarHide>) {
 /// Clicks to another header [gtk::MenuButton] are blocked while a **modal** popover is open.
 /// [gtk::Popover:modal] on GTK 4.14+ — set to false so the rest of the window (including
 /// the other header buttons) stays clickable; [gtk::Popover:autohide] still dismisses on outside press.
-fn header_popover_non_modal(pop: &gtk::Popover) {
+fn header_popover_non_modal(pop: &impl IsA<gtk::Popover>) {
+    use glib::prelude::Cast;
+    let pop = pop.upcast_ref::<gtk::Popover>();
     if pop.find_property("modal").is_none() {
         return;
     }
