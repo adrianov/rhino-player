@@ -89,6 +89,13 @@ fn build_widgets(
 
     let gl_area = gtk::GLArea::new();
     gl_area.add_css_class("rp-gl");
+    // macOS: the GLArea is just a sizing placeholder for the native CAOpenGLLayer
+    // (see `mpv_embed::macos_video_attach`). Mark it so the theme makes its background
+    // transparent — the GL render callback clears with alpha=0 so the video below
+    // shows through gdk-macos's compositing.
+    if cfg!(target_os = "macos") {
+        gl_area.add_css_class("rp-gl-native");
+    }
     gl_area.set_hexpand(true);
     gl_area.set_vexpand(true);
     gl_area.set_auto_render(false);

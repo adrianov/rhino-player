@@ -22,6 +22,105 @@ struct MpvRealizeCtx {
     mpv_teardown_after_draw: Rc<Cell<bool>>,
 }
 
+struct GlRealizeOkRefs {
+    p_realize: Rc<RefCell<Option<MpvBundle>>>,
+    vp_realize: Rc<RefCell<db::VideoPrefs>>,
+    app_realize: adw::Application,
+    sp_realize: Rc<RefCell<db::SubPrefs>>,
+    recent_rz: gtk::ScrolledWindow,
+    last_rz: Rc<RefCell<Option<PathBuf>>>,
+    reapply_rz: VideoReapply60,
+    pending_rz: Rc<RefCell<Option<RecentBackfillJob>>>,
+    close_video: gio::SimpleAction,
+    move_to_trash: gio::SimpleAction,
+    bottom_rz: gtk::Box,
+    bshow_rz: Rc<Cell<bool>>,
+    win_rz: adw::ApplicationWindow,
+    gl_rz: gtk::GLArea,
+    on_vid_rz: Rc<dyn Fn()>,
+    wa_st: Rc<Cell<Option<f64>>>,
+    ol_rz: Rc<dyn Fn()>,
+}
+
+fn gl_realize_bundle_ready(
+    area: &gtk::GLArea,
+    r: &GlRealizeOkRefs,
+    file_boot_rz: &Rc<RefCell<Option<PathBuf>>>,
+    skip_preload_followups: bool,
+    b: MpvBundle,
+    auto_off: bool,
+) {
+    if auto_off {
+        sync_smooth_60_to_off(&r.app_realize);
+    }
+    let (av, am) = db::load_audio();
+    let _ = b.mpv.set_property("volume", av);
+    let _ = b.mpv.set_property("mute", am);
+    {
+        let s = r.sp_realize.borrow();
+        sub_prefs::apply_mpv(&b.mpv, &s);
+    }
+    *r.p_realize.borrow_mut() = Some(b);
+    // macOS: when the recent grid (GTK overlay above the GLArea) becomes visible, hide
+    // the native CAOpenGLLayer so the grid is not covered by the always-on-top video.
+    if let Some(pl) = r.p_realize.borrow().as_ref() {
+        pl.watch_overlay(&r.recent_rz);
+    }
+    let preload_auto_off =
+        preload_first_continue(&r.p_realize, &r.vp_realize, &r.recent_rz, &r.last_rz);
+    if preload_auto_off == Some(true) {
+        sync_smooth_60_to_off(&r.app_realize);
+    }
+    if preload_auto_off.is_some() && !skip_preload_followups {
+        schedule_preload_pause(r.p_realize.clone(), r.recent_rz.clone());
+        schedule_preload_reapply_60(
+            r.p_realize.clone(),
+            r.reapply_rz.clone(),
+            r.recent_rz.clone(),
+            r.app_realize.clone(),
+        );
+    }
+    drain_recent_backfill(&r.pending_rz);
+    sync_close_video_action(&r.close_video, &r.p_realize, &r.recent_rz);
+    sync_trash_action(&r.move_to_trash, &r.p_realize, &r.recent_rz);
+    if let Some(pl) = r.p_realize.borrow().as_ref() {
+        let show = if r.recent_rz.is_visible() {
+            true
+        } else {
+            r.bshow_rz.get()
+        };
+        sub_prefs::apply_sub_pos_for_toolbar(
+            &pl.mpv,
+            show,
+            r.bottom_rz.height(),
+            area.height(),
+        );
+    }
+    if let Some(bundle) = r.p_realize.borrow_mut().as_mut() {
+        let _ = bundle.mpv.disable_deprecated_events();
+    }
+    trigger_transport_install();
+    if let Some(p) = file_boot_rz.replace(None) {
+        if let Err(e) = try_load(
+            &p,
+            &r.p_realize,
+            &r.win_rz,
+            &r.gl_rz,
+            &r.recent_rz,
+            &LoadOpts::replace_media(
+                r.last_rz.clone(),
+                Some(Rc::clone(&r.on_vid_rz)),
+                Rc::clone(&r.wa_st),
+                Some(Rc::clone(&r.ol_rz)),
+                false,
+                false,
+            ),
+        ) {
+            eprintln!("[rhino] try_load (startup): {e}");
+        }
+    }
+}
+
 /// Creates the libmpv render bundle when `GLArea` realizes, then wires drawing.
 fn wire_mpv_realize(ctx: MpvRealizeCtx) {
     let MpvRealizeCtx {
@@ -62,6 +161,25 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
     let wa_st = Rc::clone(&win_aspect);
     let reapply_rz = reapply_60.clone();
     let pending_rz = pending_recent_backfill.clone();
+    let ok_refs = GlRealizeOkRefs {
+        p_realize: p_realize.clone(),
+        vp_realize: Rc::clone(&vp_realize),
+        app_realize: app_realize.clone(),
+        sp_realize: sp_realize.clone(),
+        recent_rz: recent_rz.clone(),
+        last_rz: last_rz.clone(),
+        reapply_rz: reapply_rz.clone(),
+        pending_rz: pending_rz.clone(),
+        close_video: close_video.clone(),
+        move_to_trash: move_to_trash.clone(),
+        bottom_rz: bottom_rz.clone(),
+        bshow_rz: bshow_rz.clone(),
+        win_rz: win_rz.clone(),
+        gl_rz: gl_rz.clone(),
+        on_vid_rz: on_vid_rz.clone(),
+        wa_st: wa_st.clone(),
+        ol_rz: ol_rz.clone(),
+    };
     gl.connect_realize(move |area| {
         area.make_current();
         // Preload fills the bundle with the first history item; optional `argv[1]` / portal open
@@ -74,71 +192,14 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
             MpvBundle::new(area, &mut v)
         };
         match init {
-            Ok((b, auto_off)) => {
-                if auto_off {
-                    sync_smooth_60_to_off(&app_realize);
-                }
-                let (av, am) = db::load_audio();
-                let _ = b.mpv.set_property("volume", av);
-                let _ = b.mpv.set_property("mute", am);
-                {
-                    let s = sp_realize.borrow();
-                    sub_prefs::apply_mpv(&b.mpv, &s);
-                }
-                *p_realize.borrow_mut() = Some(b);
-                let preload_auto_off = preload_first_continue(&p_realize, &vp_realize, &recent_rz, &last_rz);
-                if preload_auto_off == Some(true) {
-                    sync_smooth_60_to_off(&app_realize);
-                }
-                if preload_auto_off.is_some() && !skip_preload_followups {
-                    schedule_preload_pause(p_realize.clone(), recent_rz.clone());
-                    schedule_preload_reapply_60(
-                        p_realize.clone(),
-                        reapply_rz.clone(),
-                        recent_rz.clone(),
-                        app_realize.clone(),
-                    );
-                }
-                drain_recent_backfill(&pending_rz);
-                sync_close_video_action(&close_video, &p_realize, &recent_rz);
-                sync_trash_action(&move_to_trash, &p_realize, &recent_rz);
-                if let Some(pl) = p_realize.borrow().as_ref() {
-                    let show = if recent_rz.is_visible() {
-                        true
-                    } else {
-                        bshow_rz.get()
-                    };
-                    sub_prefs::apply_sub_pos_for_toolbar(
-                        &pl.mpv,
-                        show,
-                        bottom_rz.height(),
-                        area.height(),
-                    );
-                }
-                if let Some(bundle) = p_realize.borrow_mut().as_mut() {
-                    let _ = bundle.mpv.disable_deprecated_events();
-                }
-                trigger_transport_install();
-                if let Some(p) = file_boot_rz.replace(None) {
-                    if let Err(e) = try_load(
-                        &p,
-                        &p_realize,
-                        &win_rz,
-                        &gl_rz,
-                        &recent_rz,
-                        &LoadOpts::replace_media(
-                            last_rz.clone(),
-                            Some(Rc::clone(&on_vid_rz)),
-                            wa_st.clone(),
-                            Some(Rc::clone(&ol_rz)),
-                            false,
-                            false,
-                        ),
-                    ) {
-                        eprintln!("[rhino] try_load (startup): {e}");
-                    }
-                }
-            }
+            Ok((b, auto_off)) => gl_realize_bundle_ready(
+                area,
+                &ok_refs,
+                &file_boot_rz,
+                skip_preload_followups,
+                b,
+                auto_off,
+            ),
             Err(e) => eprintln!("[rhino] OpenGL / mpv: {e}"),
         }
     });
@@ -171,6 +232,15 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
             });
             return glib::Propagation::Stop;
         }
+        // macOS: video lives in a native CAOpenGLLayer underneath gdk's GTK sublayer,
+        // so the GLArea itself must publish alpha=0 pixels for the video to show
+        // through. Clear with a fully transparent color and let the GTK chrome (which
+        // gdk renders into the same sublayer) stay opaque on top.
+        #[cfg(target_os = "macos")]
+        {
+            crate::mpv_embed::macos_video_bundle::clear_glarea_transparent();
+        }
+        #[cfg(not(target_os = "macos"))]
         if let Some(b) = p_draw.borrow().as_ref() {
             b.draw(area);
         }

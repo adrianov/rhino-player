@@ -23,6 +23,9 @@ const APP_CSS: &str = r#"
             background-color: #242424;
         }
         .rp-gl { background: #000000; min-height: 120px; }
+        /* macOS native render: GLArea publishes alpha=0 pixels (cleared in
+           connect_render) so the underlying CAOpenGLLayer (mpv video) shows through. */
+        .rp-gl.rp-gl-native { background: transparent; background-color: transparent; }
         .rp-bottom {
             background-color: #1e1e1e;
             border-top: 1px solid #3d3d3d;
@@ -213,6 +216,21 @@ const APP_CSS: &str = r#"
         }
     "#;
 
+/// macOS: when the GLArea (and its container chain) is transparent, the native video
+/// CAOpenGLLayer **below** gdk's GTK sublayer shows through. The chrome (header / bottom
+/// bar) keeps its own opaque backgrounds (`.rpb-header`, `.rp-bottom`) so they still
+/// overlay the video; the recent grid (`.rp-recent-scroll`) keeps its dark base so it
+/// covers the (now-transparent) video region when shown.
+const MACOS_TRANSPARENT_CONTENT_CSS: &str = r#"
+        window.rp-win,
+        .rp-stack,
+        .rp-page-stack,
+        .rp-gl.rp-gl-native {
+            background: transparent;
+            background-color: transparent;
+        }
+    "#;
+
 /// GTK ≥ 4.12 adds `cursor` to the CSS dialect on typical Linux builds. Some stacks (macOS / Homebrew
 /// in particular) still report a new `gtk::minor_version()` yet reject `cursor` in
 /// [CssProvider::load_from_string] with “No property named cursor”, which breaks parsing of our sheet.
@@ -239,6 +257,9 @@ fn append_cursor_css(css: &mut String) {
 pub fn apply() {
     let mut css = String::with_capacity(APP_CSS.len() + CURSOR_CSS.len() + 8);
     css.push_str(APP_CSS);
+    if cfg!(target_os = "macos") {
+        css.push_str(MACOS_TRANSPARENT_CONTENT_CSS);
+    }
     append_cursor_css(&mut css);
     let p = gtk::CssProvider::new();
     p.load_from_string(&css);
