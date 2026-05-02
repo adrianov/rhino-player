@@ -148,6 +148,7 @@ fn wire_final_actions(ctx: FinalActionCtx) {
     let quit = gio::SimpleAction::new("quit", None);
     let p_quit = player.clone();
     let win_q = win.clone();
+    let gl_q = gl.clone();
     let sp_quit = sub_pref.clone();
     let idle_q = Rc::clone(&idle_inhib);
     quit.connect_activate(glib::clone!(
@@ -158,11 +159,13 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         #[strong]
         win_q,
         #[strong]
+        gl_q,
+        #[strong]
         sp_quit,
         #[strong]
         idle_q,
         move |_, _| {
-            schedule_quit_persist(&app_q, &win_q, &p_quit, &sp_quit, &idle_q);
+            schedule_quit_persist(&app_q, &win_q, &gl_q, &p_quit, &sp_quit, &idle_q);
         }
     ));
     app.add_action(&quit);
@@ -224,6 +227,7 @@ fn wire_final_actions(ctx: FinalActionCtx) {
     {
         let p = player.clone();
         let w = win.clone();
+        let gl_close = gl.clone();
         let sp_close = sub_pref.clone();
         let iclose = Rc::clone(&idle_inhib);
         win.connect_close_request(glib::clone!(
@@ -234,11 +238,13 @@ fn wire_final_actions(ctx: FinalActionCtx) {
             #[strong]
             w,
             #[strong]
+            gl_close,
+            #[strong]
             sp_close,
             #[strong]
             iclose,
             move |_win| {
-                schedule_quit_persist(&app_q, &w, &p, &sp_close, &iclose);
+                schedule_quit_persist(&app_q, &w, &gl_close, &p, &sp_close, &iclose);
                 glib::Propagation::Stop
             }
         ));
