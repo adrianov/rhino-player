@@ -18,7 +18,9 @@
 //! After mpv loads a file with Smooth on at ~1.0×, the transport layer schedules [apply_mpv_video]
 //! when **`FileLoaded`** or **`path`** fires (transport coalesced idle). If the active **`vf`** chain
 //! already matches the resolved script and buffer settings, Rhino refreshes env vars only and skips
-//! **`vf clr`**/**`vf add`** (no effect on seek-only scrubbing, which never schedules this path).
+//! **`vf clr`**/**`vf add`** unless **[paths::RHINO_SOURCE_FPS_VAR]** changed — then it rebuilds so the
+//! `.vpy` sees the new cadence (env alone does not re-init VapourSynth). Seek-only scrubbing never
+//! schedules this path.
 //! Clearing the graph
 //! (**Smooth off** or **vf** error) restores **`hwdec=auto`** / **`vd-lavc-dr=auto`**.
 //! Successful **MVTools** plugin resolution (`libmvtools.so` on Linux, `libmvtools.dylib` on

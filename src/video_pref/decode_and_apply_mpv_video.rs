@@ -182,9 +182,25 @@ fn apply_mpv_video_impl(
             Some(s) => set_playback_speed_env(s),
             None => set_playback_speed_env_from_mpv(mpv),
         }
+        let fps_env_before = std::env::var(RHINO_SOURCE_FPS_VAR).ok();
         set_source_fps_env_from_mpv(mpv);
-        post_smooth_60_state(mpv, v, want_60, false, vlog);
-        return MpvVideoApply::default();
+        let fps_env_after = std::env::var(RHINO_SOURCE_FPS_VAR).ok();
+        // `RHINO_SOURCE_FPS` is read when the `.vpy` graph starts; refreshing env alone does not
+        // re-run the script after `vf add`. Rebuild when cadence becomes known or changes (e.g.
+        // `container-fps` lagged behind the first attach).
+        if fps_env_before == fps_env_after {
+            post_smooth_60_state(mpv, v, want_60, false, vlog);
+            return MpvVideoApply::default();
+        }
+        eprintln!(
+            "[rhino] video: rebuilding vapoursynth vf ({RHINO_SOURCE_FPS_VAR} changed)"
+        );
+        clear_vf(mpv, vlog);
+        let disabled_60 = add_smooth_60(mpv, v, speed_hint);
+        post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
+        return MpvVideoApply {
+            smooth_auto_off: disabled_60,
+        };
     }
 
     // Leave hwdec / vd-lavc-dr unchanged when attaching VS (default hwdec=auto is fine on typical stacks).
