@@ -7,6 +7,8 @@ mod macos_video_cgl;
 #[cfg(target_os = "macos")]
 mod macos_video_layer;
 #[cfg(target_os = "macos")]
+mod macos_video_layer_frame;
+#[cfg(target_os = "macos")]
 pub(crate) mod macos_video_attach;
 #[cfg(target_os = "macos")]
 mod macos_video_displaylink;

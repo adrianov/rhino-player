@@ -11,7 +11,12 @@ use gtk::prelude::{NativeExt, WidgetExt};
 use objc2::rc::Retained;
 use objc2_app_kit::{NSWindow, NSWindowButton};
 
-fn nswindow_from_widget<W: IsA<gtk::Widget>>(w: &W) -> Option<Retained<NSWindow>> {
+/// Resolve the underlying [`NSWindow`] for a realized GTK widget on macOS.
+///
+/// Returns `None` before the GtkWindow is realized (no surface yet) or on non-macOS
+/// surfaces. Shared with [`crate::mpv_embed::macos_video_attach`] so the gdk-macos
+/// → AppKit conversion lives in exactly one place.
+pub fn nswindow_for_widget<W: IsA<gtk::Widget>>(w: &W) -> Option<Retained<NSWindow>> {
     let surface = w.native()?.surface()?;
     let macos = surface.downcast::<MacosSurface>().ok()?;
     let ptr = macos.native() as *mut NSWindow;
@@ -29,7 +34,7 @@ fn nswindow_from_widget<W: IsA<gtk::Widget>>(w: &W) -> Option<Retained<NSWindow>
 /// fight breaks the very state we are trying to manage. Driving `setHidden:` directly is
 /// reversible and survives GTK layout passes.
 pub fn set_traffic_lights_visible<W: IsA<gtk::Widget>>(widget: &W, visible: bool) {
-    let Some(win) = nswindow_from_widget(widget) else {
+    let Some(win) = nswindow_for_widget(widget) else {
         return;
     };
     let hidden = !visible;

@@ -10,23 +10,23 @@
 
 use std::sync::Arc;
 
-use gdk4_macos::MacosSurface;
-use gdk4_macos::prelude::Cast;
 use glib::SignalHandlerId;
 use glib::object::{IsA, ObjectExt};
-use gtk::prelude::{NativeExt, WidgetExt, WidgetExtManual};
+use gtk::prelude::{Cast, WidgetExt};
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, msg_send};
-use objc2_app_kit::{NSView, NSWindow};
+use objc2_app_kit::NSView;
 
-use objc2_foundation::{NSPoint, NSRect, NSSize};
-use objc2_quartz_core::{CALayer, CATransaction};
+use crate::macos_window::nswindow_for_widget;
+
+use objc2_quartz_core::CALayer;
 
 use super::macos_video_cgl::{
     self, CGLContextObj, CGLPixelFormatObj, GlSymbolLoader, make_pixel_format_and_context,
 };
 use super::macos_video_displaylink::{DisplayLinkDriver, DriverStateHandle};
 use super::macos_video_layer::{DrawCallback, RhinoMpvGlLayer, as_calayer};
+use super::macos_video_layer_frame::{sync_layer_frame_now, wire_sizer_resync};
 
 /// Public handle returned from [`install`]. Drops everything in order on release.
 ///
@@ -117,132 +117,13 @@ impl Drop for NativeVideoSurface {
     }
 }
 
-/// Find the NSWindow that hosts `widget`. Returns `None` before the GtkWindow is realized.
-fn nswindow_for<W: IsA<gtk::Widget>>(widget: &W) -> Option<Retained<NSWindow>> {
-    let surface = widget.native()?.surface()?;
-    let macos = surface.downcast::<MacosSurface>().ok()?;
-    let ptr = macos.native() as *mut NSWindow;
-    if ptr.is_null() {
-        return None;
-    }
-    unsafe { Retained::retain(ptr) }
-}
-
-fn translate_to_window<W: IsA<gtk::Widget>>(widget: &W, win: &gtk::Window) -> Option<(f64, f64)> {
-    widget
-        .compute_point(win, &gtk::graphene::Point::new(0.0, 0.0))
-        .map(|p| (p.x() as f64, p.y() as f64))
-}
-
-/// Mirror the `sizer` widget's allocation + visibility onto the layer every frame. The
-/// tick callback short-circuits on no-op frames, plus an initial pass on `notify::root`
-/// and `connect_map` covers first attach + re-show after hide. We also re-sync on
-/// `notify::visible` so toggling the recent grid hides the video layer immediately.
-fn wire_sizer_resync(
-    sizer_widget: &gtk::Widget,
-    layer: Retained<RhinoMpvGlLayer>,
-    overlay: std::rc::Rc<std::cell::RefCell<Option<gtk::Widget>>>,
-) -> SignalHandlerId {
-    let l_root = layer.clone();
-    let s_root = sizer_widget.clone();
-    let ov_root = overlay.clone();
-    let id = sizer_widget.connect_local("notify::root", false, move |_| {
-        let ov = ov_root.borrow().clone();
-        sync_layer_frame_now(&l_root, &s_root, ov.as_ref());
-        None
-    });
-
-    let l_vis = layer.clone();
-    let ov_vis = overlay.clone();
-    sizer_widget.connect_local("notify::visible", false, move |args| {
-        if let Ok(w) = args[0].get::<gtk::Widget>() {
-            let ov = ov_vis.borrow().clone();
-            sync_layer_frame_now(&l_vis, &w, ov.as_ref());
-        }
-        None
-    });
-
-    let l_map = layer.clone();
-    let ov_map = overlay.clone();
-    sizer_widget.connect_map(move |w| {
-        let ov = ov_map.borrow().clone();
-        sync_layer_frame_now(&l_map, w, ov.as_ref());
-    });
-
-    let l_tick = layer;
-    let last = std::cell::Cell::new((0i32, 0i32, 0i32, false, false));
-    sizer_widget.add_tick_callback(move |w, _| {
-        let win_h = w.root().and_then(|r| r.downcast::<gtk::Window>().ok()).map(|win| win.height()).unwrap_or(0);
-        let ov = overlay.borrow().clone();
-        let ov_vis = ov.as_ref().is_some_and(|v| v.is_visible());
-        let key = (w.width(), w.height(), win_h, w.is_visible(), ov_vis);
-        if key != last.get() {
-            sync_layer_frame_now(&l_tick, w, ov.as_ref());
-            last.set(key);
-        }
-        glib::ControlFlow::Continue
-    });
-    id
-}
-
-fn sync_layer_frame_now<W: IsA<gtk::Widget>>(
-    layer: &RhinoMpvGlLayer,
-    sizer: &W,
-    overlay: Option<&gtk::Widget>,
-) {
-    let Some(window) = sizer.root().and_then(|r| r.downcast::<gtk::Window>().ok()) else {
-        return;
-    };
-    let Some((x, y)) = translate_to_window(sizer, &window) else {
-        return;
-    };
-    // Hide the layer when the recent grid (or any other watched overlay) is shown so
-    // GTK's overlay paints through; otherwise our high-zPosition layer covers it.
-    let overlay_shown = overlay.is_some_and(|w| w.is_visible());
-    let visible = sizer.is_visible() && sizer.is_mapped() && !overlay_shown;
-    let w = (sizer.width() as f64).max(1.0);
-    let h = (sizer.height() as f64).max(1.0);
-    // Use the NSWindow contentView's actual height (not GTK's `win.height()`) — they
-    // can differ by a fraction of a point on macOS, leaving a thin uncovered strip
-    // above the video where the chrome rounds against the layer.
-    let win_h = nswindow_content_height_for(sizer).unwrap_or_else(|| window.height() as f64);
-    // GTK = top-left origin; AppKit/CA = bottom-left. Flip Y.
-    let ns_y = win_h - y - h;
-    let frame = NSRect::new(NSPoint::new(x, ns_y), NSSize::new(w, h));
-    let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(w, h));
-    // Suppress the implicit 0.25 s CA animation that would otherwise interpolate every
-    // resize step from the GTK frame clock and look like a stutter against gdk's chrome.
-    CATransaction::begin();
-    CATransaction::setDisableActions(true);
-    unsafe {
-        let _: () = msg_send![layer, setFrame: frame];
-        let _: () = msg_send![layer, setBounds: bounds];
-        let _: () = msg_send![layer, setHidden: !visible];
-    }
-    CATransaction::commit();
-}
-
-/// Returns the height (in points) of the NSWindow's contentView for this widget.
-/// Reading directly from AppKit avoids the off-by-rounding mismatch with `gtk::Window::height()`.
-fn nswindow_content_height_for<W: IsA<gtk::Widget>>(sizer: &W) -> Option<f64> {
-    let win = nswindow_for(sizer)?;
-    unsafe {
-        let cv: *mut NSView = msg_send![&*win, contentView];
-        if cv.is_null() {
-            return None;
-        }
-        let frame: NSRect = msg_send![cv, frame];
-        Some(frame.size.height)
-    }
-}
-
 /// Create the native surface, attach as a subview of the NSWindow's `contentView`, and
 /// start mirroring `sizer`'s allocation onto the view's frame.
 ///
 /// Must be called on the main thread.
 pub fn install<W: IsA<gtk::Widget>>(sizer: &W) -> Result<NativeVideoSurface, String> {
     let _ = MainThreadMarker::new().ok_or("install must run on the main thread")?;
-    let window = nswindow_for(sizer).ok_or("NSWindow not realized for video sizer")?;
+    let window = nswindow_for_widget(sizer).ok_or("NSWindow not realized for video sizer")?;
     let (pix, ctx) = make_pixel_format_and_context()?;
     let gl_loader = Arc::new(GlSymbolLoader::open()?);
     let layer = RhinoMpvGlLayer::new(pix, ctx);
