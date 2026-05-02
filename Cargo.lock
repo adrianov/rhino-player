@@ -1305,6 +1305,7 @@ dependencies = [
  "mpris-server",
  "objc2",
  "objc2-app-kit",
+ "objc2-core-graphics",
  "objc2-core-video",
  "objc2-foundation",
  "objc2-open-gl",

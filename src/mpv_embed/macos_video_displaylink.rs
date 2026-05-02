@@ -24,7 +24,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use objc2::rc::Retained;
-use objc2_core_video::{CVDisplayLink, CVReturn, CVTimeStamp};
+use objc2_core_video::{
+    CVDisplayLink, CVDisplayLinkCreateWithActiveCGDisplays, CVReturn, CVTimeStamp,
+};
 
 use super::macos_video_layer::RhinoMpvGlLayer;
 
@@ -62,9 +64,8 @@ impl DisplayLinkDriver {
     pub fn install(layer: Retained<RhinoMpvGlLayer>) -> Result<(Self, Arc<DriverStateHandle>), String> {
         let state = DriverState::new(layer);
         let mut link_ptr: *mut CVDisplayLink = ptr::null_mut();
-        let err = unsafe {
-            CVDisplayLinkCreateWithActiveCGDisplays(&mut link_ptr)
-        };
+        let out = ptr::NonNull::new(&mut link_ptr).ok_or("displayLink out ptr nil")?;
+        let err = unsafe { CVDisplayLinkCreateWithActiveCGDisplays(out) };
         if err != 0 || link_ptr.is_null() {
             return Err(format!("CVDisplayLinkCreateWithActiveCGDisplays failed: {err}"));
         }
@@ -139,8 +140,3 @@ unsafe extern "C-unwind" fn display_link_callback(
     0
 }
 
-extern "C" {
-    fn CVDisplayLinkCreateWithActiveCGDisplays(
-        display_link_out: *mut *mut CVDisplayLink,
-    ) -> CVReturn;
-}

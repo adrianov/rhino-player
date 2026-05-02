@@ -40,7 +40,11 @@ objc2-app-kit = { version = "0.3.2", features = ["NSEvent", "NSWindow", "NSView"
 objc2-foundation = { version = "0.3.2", features = ["NSGeometry", "NSValue", "NSString", "NSLock", "NSThread"] }
 objc2-quartz-core = { version = "0.3.2", features = ["objc2-core-foundation", "objc2-core-video", "objc2-open-gl", "CALayer", "CAOpenGLLayer", "CATransaction"] }
 objc2-open-gl = { version = "0.3.2", features = ["std"] }
-objc2-core-video = { version = "0.3.2", default-features = false, features = ["std", "CVBase", "CVReturn", "CVDisplayLink"] }
+objc2-core-video = { version = "0.3.2", default-features = false, features = ["std", "CVBase", "CVReturn", "CVDisplayLink", "objc2-core-graphics"] }
+# Required only to unlock objc2-core-video's `CVDisplayLinkCreateWithActiveCGDisplays`
+# binding (the function header lives in CoreVideo but is feature-gated on
+# objc2-core-graphics in the crate). We do not call CG APIs ourselves.
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std"] }
 gdk4-macos = { version = "0.9", features = ["v4_8"] }
 
 # Clippy: see clippy.toml for thresholds. Module length is policed by
