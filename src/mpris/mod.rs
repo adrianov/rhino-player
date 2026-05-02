@@ -46,6 +46,9 @@ pub(crate) struct MprisStartArgs {
 }
 
 #[cfg(target_os = "linux")]
+mod linux_sync;
+
+#[cfg(target_os = "linux")]
 mod linux;
 
 #[cfg(target_os = "linux")]

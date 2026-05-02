@@ -10,7 +10,18 @@
     });
 
     #[cfg(target_os = "linux")]
-    {
-        include!("build_window/wire_mpris_linux.rs");
-    }
+    wire_mpris_linux_after_seek(
+        app,
+        w.win.clone(),
+        w.gl_area.clone(),
+        w.recent_scrl.clone(),
+        player,
+        &play_ctx,
+        &last_path,
+        &win_aspect,
+        &sibling_seof,
+        reapply_60.clone(),
+        &on_file_loaded,
+        &on_video_chrome,
+    );
 }

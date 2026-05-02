@@ -1,29 +1,19 @@
 //! Session-bus MPRIS2 service: `org.mpris.MediaPlayer2` + Player.
 //! Runs on the GLib main context together with GTK; control messages arrive on an async channel.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::path::Path;
-use std::rc::Rc;
 use std::sync::Mutex;
 
+use adw::prelude::{ApplicationExt, GtkWindowExt};
 use futures::future::join;
-use gtk::gio;
 use gtk::glib;
-use mpris_server::{
-    Metadata, PlaybackStatus, Player, Time, TrackId,
-};
+use mpris_server::{Player, Time};
 
 use crate::mpv_embed::MpvBundle;
 use crate::APP_ID;
+use super::linux_sync::{dispatch_mpris_ctl, MprisCtl};
 use super::{MprisShot, MprisStartArgs};
 
 static MPRIS_TX: Mutex<Option<async_channel::Sender<MprisCtl>>> = Mutex::new(None);
-
-enum MprisCtl {
-    Sync(MprisShot),
-    Seeked(Time),
-}
 
 fn bundle_duration_sec(b: &MpvBundle) -> f64 {
     let dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
@@ -46,7 +36,7 @@ fn bundle_time_pos_sec(b: &MpvBundle) -> f64 {
 fn seek_abs_and_emit_seeked(
     b: &MpvBundle,
     target_sec: f64,
-    seek_abs: &Rc<dyn Fn(&str)>,
+    seek_abs: &std::rc::Rc<dyn Fn(&str)>,
     tx: &async_channel::Sender<MprisCtl>,
 ) {
     let dur = bundle_duration_sec(b);
@@ -71,68 +61,14 @@ pub(crate) fn enqueue_snapshot(shot: MprisShot) {
     let _ = tx.try_send(MprisCtl::Sync(shot));
 }
 
-fn track_id_for_path(p: Option<&Path>) -> TrackId {
-    let mut h = DefaultHasher::new();
-    p.hash(&mut h);
-    let id = h.finish();
-    let s = format!("/ch/rhino/track{:x}", id);
-    TrackId::try_from(s.as_str()).unwrap_or(TrackId::NO_TRACK)
-}
-
-fn file_uri_for_path(p: &Path) -> Option<String> {
-    Some(gio::File::for_path(p).uri().to_string())
-}
-
 fn run_on_main(f: impl FnOnce() + 'static) {
+    let mut slot = Some(f);
     glib::idle_add_local(move || {
-        f();
+        if let Some(task) = slot.take() {
+            task();
+        }
         glib::ControlFlow::Break
     });
-}
-
-async fn apply_shot(p: &Player, s: &MprisShot) -> zbus::Result<()> {
-    if s.stopped {
-        p.set_playback_status(PlaybackStatus::Stopped).await?;
-        let _ = p.set_metadata(Metadata::new()).await;
-        p.set_position(Time::ZERO);
-        p.set_can_play(false).await?;
-        p.set_can_pause(false).await?;
-        p.set_can_seek(false).await?;
-        p.set_can_go_next(false).await?;
-        p.set_can_go_previous(false).await?;
-        return Ok(());
-    }
-
-    let status = if s.paused {
-        PlaybackStatus::Paused
-    } else {
-        PlaybackStatus::Playing
-    };
-    p.set_playback_status(status).await?;
-    p.set_can_play(true).await?;
-    p.set_can_pause(true).await?;
-    p.set_can_seek(s.dur_sec > f64::EPSILON).await?;
-    p.set_can_go_next(s.can_next).await?;
-    p.set_can_go_previous(s.can_prev).await?;
-
-    let tid = track_id_for_path(s.track_path.as_deref());
-    let len_us = (s.dur_sec * 1_000_000.0).round().max(0.0) as i64;
-    let mut meta = Metadata::builder()
-        .trackid(tid)
-        .length(Time::from_micros(len_us));
-    if let Some(ref t) = s.title {
-        meta = meta.title(t.clone());
-    }
-    if let Some(ref path) = s.track_path {
-        if let Some(url) = file_uri_for_path(path) {
-            meta = meta.url(url);
-        }
-    }
-    let _ = p.set_metadata(meta.build()).await?;
-
-    let pos_us = (s.pos_sec * 1_000_000.0).round() as i64;
-    p.set_position(Time::from_micros(pos_us.clamp(0, i64::MAX)));
-    Ok(())
 }
 
 pub(crate) fn start_linux(args: MprisStartArgs) {
@@ -275,18 +211,7 @@ pub(crate) fn start_linux(args: MprisStartArgs) {
         let run_task = player.run();
         let ctl_loop = async {
             while let Ok(msg) = rx.recv().await {
-                match msg {
-                    MprisCtl::Sync(shot) => {
-                        if let Err(e) = apply_shot(&player, &shot).await {
-                            eprintln!("[rhino] MPRIS sync: {e}");
-                        }
-                    }
-                    MprisCtl::Seeked(pos) => {
-                        if let Err(e) = player.seeked(pos).await {
-                            eprintln!("[rhino] MPRIS seeked: {e}");
-                        }
-                    }
-                }
+                dispatch_mpris_ctl(&player, msg).await;
             }
         };
 
