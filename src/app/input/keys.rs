@@ -16,7 +16,7 @@ fn root_focus_wants_raw_keys(win: &adw::ApplicationWindow) -> bool {
 fn propagation_for_media_keys(
     key: gtk::gdk::Key,
     play_key: &PlayToggleCtx,
-    nav: &SiblingNavTryRefs<'_>,
+    nav: &SiblingNavTryRefs,
 ) -> Option<glib::Propagation> {
     if key == gtk::gdk::Key::AudioPlay || key == gtk::gdk::Key::AudioPause {
         let _ = toggle_play_pause(play_key);
@@ -39,8 +39,8 @@ fn propagation_for_media_keys(
 
 fn w_in_key_controller(ctx: &WindowInputCtx) {
     let p = ctx.player.clone();
-    let win_key = ctx.win.clone();
-    let recent_esc = ctx.recent.clone();
+    let win_key = ctx.shell.win.clone();
+    let recent_esc = ctx.shell.recent.clone();
     let browse_back = ctx.on_browse_back.clone();
     let fr_key = ctx.fs_restore.clone();
     let lu_key = ctx.last_unmax.clone();
@@ -50,8 +50,8 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
         player: p.clone(),
         video_pref: Rc::clone(&ctx.video_pref),
         win: win_key.clone(),
-        video_handle: ctx.video_handle.clone(),
-        gl: ctx.gl.clone(),
+        video_handle: ctx.shell.video_handle.clone(),
+        gl: ctx.shell.gl.clone(),
         recent: recent_esc.clone(),
         last_path: ctx.last_path.clone(),
         on_video_chrome: ctx.on_video_chrome.clone(),
@@ -59,48 +59,57 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
         win_aspect: ctx.win_aspect.clone(),
         sub_menu: None,
         play_pause: ctx.play_pause.clone(),
+        hdr_title_mirror: ctx.hdr_title_mirror.clone(),
     };
     let seek_sc = ctx.seek.clone();
     let seek_sync_sc = ctx.seek_sync.clone();
     let time_left_sc = ctx.time_left.clone();
-    let gl_seek = ctx.gl.clone();
+    let gl_seek = ctx.shell.gl.clone();
     let reapply_seek = ctx.reapply_60.clone();
+    let smooth_seek_db = ctx.smooth_seek_debounce.clone();
+    let resume_seek_idle = ctx.resume_after_seek_idle.clone();
+    let play_seek_toggle = ctx.play_toggle.clone();
+    let digit_spd = DigitSpeedShortcutCtx {
+        player: p.clone(),
+        gl: ctx.shell.gl.clone(),
+        video_pref: Rc::clone(&ctx.video_pref),
+        app: ctx.app.clone(),
+        speed_sync: ctx.speed_sync.clone(),
+        speed_list: ctx.speed_list.clone(),
+    };
     let last_path_nav = ctx.last_path.clone();
     let on_vid_nav = ctx.on_video_chrome.clone();
     let win_aspect_nav = ctx.win_aspect.clone();
     let seof_nav = ctx.sibling_seof.clone();
     let on_loaded_nav = ctx.on_file_loaded.clone();
+    let hdr_mirror_nav = ctx.hdr_title_mirror.clone();
     let k = gtk::EventControllerKey::new();
     // Capture phase: run before the focused widget (e.g. bottom-bar buttons, scales) so Space /
     // Enter / arrows trigger playback shortcuts instead of GTK's button activation / focus
     // navigation defaults.
     k.set_propagation_phase(gtk::PropagationPhase::Capture);
     k.connect_key_pressed(move |_c, key, _code, m| {
-        if key == gtk::gdk::Key::Escape {
-            if win_key.is_fullscreen() {
-                skip_key.set(true);
-                unfullscreen_safe(&win_key);
-                return glib::Propagation::Stop;
-            }
-            if recent_esc.is_visible() {
-                return glib::Propagation::Stop;
-            }
-            if p.borrow().is_none() {
-                return glib::Propagation::Stop;
-            }
-            browse_back(true);
-            return glib::Propagation::Stop;
+        if let Some(r) = propagation_escape_key(
+            key,
+            &win_key,
+            &skip_key,
+            &recent_esc,
+            &p,
+            &browse_back,
+        ) {
+            return r;
         }
         let nav = SiblingNavTryRefs {
-            player: &p,
-            win: &win_key,
-            gl: &gl_seek,
-            recent: &recent_esc,
-            last_path: &last_path_nav,
-            on_video_chrome: &on_vid_nav,
-            win_aspect: &win_aspect_nav,
-            sibling_seof: &seof_nav,
-            on_file_loaded: &on_loaded_nav,
+            player: p.clone(),
+            win: win_key.clone(),
+            gl: gl_seek.clone(),
+            recent: recent_esc.clone(),
+            last_path: last_path_nav.clone(),
+            on_video_chrome: on_vid_nav.clone(),
+            win_aspect: win_aspect_nav.clone(),
+            sibling_seof: seof_nav.clone(),
+            on_file_loaded: on_loaded_nav.clone(),
+            hdr_title_mirror: hdr_mirror_nav.clone(),
         };
         if let Some(r) = propagation_for_media_keys(key, &play_key, &nav) {
             return r;
@@ -126,6 +135,9 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
                 return glib::Propagation::Proceed;
             }
             return glib::Propagation::Stop;
+        }
+        if let Some(r) = try_digit_speed_shortcut(key, m, &digit_spd) {
+            return r;
         }
         if key == gtk::gdk::Key::Up {
             let g = p.borrow();
@@ -153,35 +165,21 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
                 return glib::Propagation::Stop;
             }
         }
-        if key == gtk::gdk::Key::Left || key == gtk::gdk::Key::KP_Left {
-            if recent_esc.is_visible() || !seek_sc.is_sensitive() {
-                return glib::Propagation::Proceed;
-            }
-            seek_arrow_step(
-                &p,
-                &seek_sc,
-                &seek_sync_sc,
-                &time_left_sc,
-                &gl_seek,
-                &reapply_seek,
-                -5.0,
-            );
-            return glib::Propagation::Stop;
-        }
-        if key == gtk::gdk::Key::Right || key == gtk::gdk::Key::KP_Right {
-            if recent_esc.is_visible() || !seek_sc.is_sensitive() {
-                return glib::Propagation::Proceed;
-            }
-            seek_arrow_step(
-                &p,
-                &seek_sc,
-                &seek_sync_sc,
-                &time_left_sc,
-                &gl_seek,
-                &reapply_seek,
-                5.0,
-            );
-            return glib::Propagation::Stop;
+        let seek_deps = SeekArrowDeps {
+            player: &p,
+            seek: &seek_sc,
+            seek_sync: &seek_sync_sc,
+            time_left: &time_left_sc,
+            gl: &gl_seek,
+            reapply_60: &reapply_seek,
+            smooth_seek_debounce: &smooth_seek_db,
+            resume_after_seek_idle: &resume_seek_idle,
+            play_toggle: &play_seek_toggle,
+        };
+        if let Some(r) =
+            propagation_horizontal_seek(key, recent_esc.is_visible(), seek_sc.is_sensitive(), &seek_deps)
+        {
+            return r;
         }
         if key != gtk::gdk::Key::space {
             return glib::Propagation::Proceed;
@@ -191,5 +189,5 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
         }
         glib::Propagation::Stop
     });
-    ctx.win.add_controller(k);
+    ctx.shell.win.add_controller(k);
 }

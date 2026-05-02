@@ -5,7 +5,7 @@ fn wire_smooth_resize_and_subtitle_pos(
     bottom: &gtk::Box,
     player: &Rc<RefCell<Option<MpvBundle>>>,
     bar_show: &Rc<Cell<bool>>,
-    recent: &gtk::ScrolledWindow,
+    recent: &gtk::Box,
 ) {
     let pz = Rc::clone(player);
     let bz = Rc::clone(bar_show);

@@ -2,12 +2,12 @@ fn w_in_win_motion(ctx: &WindowInputCtx) {
     let cap = gtk::EventControllerMotion::new();
     cap.set_propagation_phase(gtk::PropagationPhase::Capture);
     {
-        let root_c = ctx.root.clone();
+        let root_c = ctx.shell.root.clone();
         let hdr_csd = Rc::clone(&ctx.hdr_csd_baseline);
-        let hdr_c = ctx.header.clone();
-        let gl_c = ctx.gl.clone();
-        let recent_c = ctx.recent.clone();
-        let bottom_c = ctx.bottom.clone();
+        let hdr_c = ctx.shell.header.clone();
+        let gl_c = ctx.shell.gl.clone();
+        let recent_c = ctx.shell.recent.clone();
+        let bottom_c = ctx.shell.bottom.clone();
         let p_c = ctx.player.clone();
         let b = ctx.bar_show.clone();
         let lcap = ctx.last_cap_xy.clone();
@@ -69,11 +69,11 @@ fn w_in_win_motion(ctx: &WindowInputCtx) {
             }
         ));
     }
-    ctx.win.add_controller(cap);
+    ctx.shell.win.add_controller(cap);
 }
 
 fn w_in_gl_motion(ctx: &WindowInputCtx) {
-    let gl_c = ctx.gl.clone();
+    let gl_c = ctx.shell.gl.clone();
     let cur = ctx.cur_t.clone();
     let ptr = ctx.ptr_in_gl.clone();
     let sq = ctx.motion_squelch.clone();
@@ -163,5 +163,5 @@ fn w_in_gl_motion(ctx: &WindowInputCtx) {
             show_pointer(&gl_c);
         }
     ));
-    ctx.gl.add_controller(m);
+    ctx.shell.gl.add_controller(m);
 }

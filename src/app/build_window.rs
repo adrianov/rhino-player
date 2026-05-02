@@ -1,4 +1,5 @@
 include!("build_window/app_menus.rs");
+include!("build_window/linux_main_menu_button.rs");
 include!("build_window/aspect_resize.rs");
 include!("build_window/header_popovers.rs");
 include!("build_window/sibling_nav_buttons.rs");
@@ -7,6 +8,8 @@ include!("build_window/speed_menu.rs");
 include!("build_window/volume_wiring.rs");
 include!("build_window/widgets.rs");
 include!("build_window/wire_drag_drop.rs");
+include!("build_window/header_fullscreen_toggle.rs");
+include!("build_window/browse_chrome_hover.rs");
 
 fn build_window(
     app: &adw::Application,
@@ -17,7 +20,10 @@ fn build_window(
     let sub_pref = Rc::new(RefCell::new(db::load_sub()));
     let video_pref = Rc::new(RefCell::new(db::load_video()));
     let reapply_60 = VideoReapply60 { vp: Rc::clone(&video_pref), app: app.clone() };
-    let w = build_widgets(app, player, &video_pref, &sub_pref);
+    let exit_after_current = Rc::new(Cell::new(false));
+    let w = build_widgets(
+        app, player, &video_pref, &sub_pref, Rc::clone(&exit_after_current),
+    );
 
     let seek_chapters = Rc::new(RefCell::new(Vec::<(f64, String)>::new()));
 
@@ -36,7 +42,6 @@ fn build_window(
         nav_can_prev: Cell::new(false),
         nav_can_next: Cell::new(false),
     });
-    let exit_after_current = Rc::new(Cell::new(false));
     let fs_restore = Rc::new(RefCell::new(None::<(i32, i32)>));
     // Stops `connect_maximized_notify` re-calling fullscreen in `maximized && !fullscreen` right after `unfullscreen`.
     let skip_max_to_fs = Rc::new(Cell::new(false));
@@ -48,13 +53,18 @@ fn build_window(
     let mpv_teardown_after_draw = Rc::new(Cell::new(false));
 
     // Top/bottom bars are attached when [wire_window_input] runs (`input/shell.rs`), not here.
-    header_menubtns_switch([
+    #[cfg(target_os = "macos")]
+    header_menubtns_switch(&[w.speed_mbtn.clone(), w.sub_menu.clone(), w.vol_menu.clone()]);
+    #[cfg(not(target_os = "macos"))]
+    header_menubtns_switch(&[
         w.speed_mbtn.clone(), w.sub_menu.clone(), w.vol_menu.clone(), w.menu_btn.clone(),
     ]);
 
     wire_popover_shows(player, &w, &sub_pref);
 
     let (seek_sync, seek_grabbed) = (Rc::new(Cell::new(false)), Rc::new(Cell::new(false)));
+    let smooth_seek_debounce = Rc::new(RefCell::new(None::<glib::SourceId>));
+    let resume_after_seek_idle = Rc::new(Cell::new(false));
     let seek_preview = seek_bar_preview::connect(
         &w.seek, &w.seek_adj, Rc::clone(player), Rc::clone(&last_path),
         Rc::clone(&seek_bar_on), Rc::clone(&seek_chapters),
@@ -85,25 +95,30 @@ fn build_window(
         sub_scale_adj: w.sub_scale_adj.clone(), sub_color_btn: w.sub_color_btn.clone(),
     });
 
-    // Double-tap fullscreen on the video (GLArea = hit target). Use **connect_pressed** and
-    // `n_press == 2` — on some stacks `connect_released` does not report `n_press == 2` reliably.
-    let dbl = gtk::GestureClick::new();
-    dbl.set_button(gtk::gdk::BUTTON_PRIMARY);
-    let (win_fs, fr, lu, skip_dbl, rec_dbl) = (
-        w.win.clone(), fs_restore.clone(), last_unmax.clone(),
-        skip_max_to_fs.clone(), w.recent_scrl.clone(),
+    wire_gl_double_click_fullscreen(
+        &w.gl_area,
+        &w.win,
+        &fs_restore,
+        &last_unmax,
+        &skip_max_to_fs,
+        &w.recent_scrl,
     );
-    dbl.connect_pressed(move |_, n_press, _, _| {
-        if n_press != 2 || rec_dbl.is_visible() { return; }
-        toggle_fullscreen(&win_fs, &fr, &lu, &skip_dbl);
-    });
-    w.gl_area.add_controller(dbl);
+
+    wire_header_fullscreen_toggle(
+        &w.header,
+        &w.win,
+        &fs_restore,
+        &last_unmax,
+        &skip_max_to_fs,
+        &w.recent_scrl,
+    );
 
     wire_recent_spacer_fullscreen(
         w.recent_spacers, &w.win, &fs_restore, &last_unmax, &skip_max_to_fs, &w.recent_scrl,
     );
 
-    let want_recent = file_boot.borrow().is_none() && !history::load().is_empty();
+    // Browse grid whenever no CLI/session file boots the window — includes empty history (+ Open card).
+    let want_recent = file_boot.borrow().is_none();
     w.recent_scrl.set_visible(want_recent);
 
     let hdr_csd_baseline = Rc::new(Cell::new(None));
@@ -156,41 +171,27 @@ fn build_window(
         on_file_loaded: Rc::clone(&on_file_loaded),
         win_aspect: win_aspect.clone(), sub_menu: Some(w.sub_menu.clone()),
         play_pause: w.play_pause.clone(),
+        hdr_title_mirror: w.hdr_title_mirror.clone(),
     };
     wire_play_toggles(&w.play_pause, play_ctx.clone());
-    let browse_chrome: Rc<dyn Fn()> = {
-        let (csp, root, gl, b, recent, bot, p, hdr, nav) = (
-            Rc::clone(&hdr_csd_baseline),
-            w.root.clone(),
-            w.gl_area.clone(),
-            bar_show.clone(),
-            w.recent_scrl.clone(),
-            w.bottom.clone(),
-            player.clone(),
-            w.header.clone(),
-            nav_t.clone(),
-        );
-        Rc::new(move || {
-            if let Some(id) = nav.borrow_mut().take() { id.remove(); }
-            b.set(true);
-            apply_chrome(ChromeApplyParts {
-                hdr_csd_baseline: &csp,
-                root: &root,
-                header: &hdr,
-                gl: &gl,
-                bar_show: &b,
-                recent: &recent,
-                bottom: &bot,
-                player: &p,
-            });
-        })
-    };
+    let browse_chrome = rc_on_browse_chrome(BrowseChromeRefs {
+        hdr_csd: Rc::clone(&hdr_csd_baseline),
+        nav_t: nav_t.clone(),
+        root: w.root.clone(),
+        gl: w.gl_area.clone(),
+        bar_show: bar_show.clone(),
+        recent: w.recent_scrl.clone(),
+        bottom: w.bottom.clone(),
+        player: player.clone(),
+        header: w.header.clone(),
+    });
     let on_open = make_on_open_handler(OpenHandlerCtx {
         player: player.clone(), win: w.win.clone(), gl: w.gl_area.clone(),
         recent: w.recent_scrl.clone(), last_path: last_path.clone(),
         on_start: on_video_chrome.clone(), on_loaded: Rc::clone(&on_file_loaded),
         win_aspect: Rc::clone(&win_aspect),
         sub_menu: w.sub_menu.clone(),
+        hdr_title_mirror: w.hdr_title_mirror.clone(),
     });
     *on_open_slot.borrow_mut() = Some(on_open.clone());
 
@@ -208,6 +209,7 @@ fn build_window(
         win_aspect: win_aspect.clone(),
         sibling_seof: sibling_seof.clone(),
         on_file_loaded: Rc::clone(&on_file_loaded),
+        hdr_title_mirror: w.hdr_title_mirror.clone(),
     });
 
     let recent_wiring = wire_recent_undo(RecentUndoCtx {
@@ -241,6 +243,8 @@ fn build_window(
             undo_btn: undo_btn.clone(), undo_timer: undo_timer.clone(),
             undo_remove_stack: undo_remove_stack.clone(),
             recent_visible: Rc::clone(&recent_visible),
+            browse_has_strip: want_recent,
+            hdr_title_mirror: w.hdr_title_mirror.clone(),
         },
         w.win.clone(), w.gl_area.clone(), w.recent_scrl.clone(), w.flow_recent.clone(),
     );
@@ -266,6 +270,7 @@ fn build_window(
         close_video: video_file_actions.close_video,
         move_to_trash: video_file_actions.move_to_trash,
         mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
+        hdr_title_mirror: w.hdr_title_mirror.clone(),
     });
 
     include!("build_window/post_seek_mpris.rs");

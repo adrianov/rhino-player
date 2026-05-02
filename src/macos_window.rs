@@ -8,8 +8,9 @@ use gdk4_macos::MacosSurface;
 use gdk4_macos::prelude::Cast;
 use glib::object::IsA;
 use gtk::prelude::{NativeExt, WidgetExt};
+use objc2::msg_send;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSWindow, NSWindowButton};
+use objc2_app_kit::{NSView, NSWindow, NSWindowButton};
 
 /// Resolve the underlying [`NSWindow`] for a realized GTK widget on macOS.
 ///
@@ -24,6 +25,30 @@ pub fn nswindow_for_widget<W: IsA<gtk::Widget>>(w: &W) -> Option<Retained<NSWind
         return None;
     }
     unsafe { Retained::retain(ptr) }
+}
+
+/// Invalidate the contentView's layer tree and force an immediate redraw.
+///
+/// AppKit snapshots the contentView's layer tree when the window leaves the active
+/// Space (focus moves to a different display or desktop) and replays the snapshot on
+/// the way back as a cross-fade. With our hybrid setup — native `CAOpenGLLayer` at
+/// index 0 of `contentView.layer.sublayers`, gdk-macos's GTK rendering above it — the
+/// cross-fade can leave gdk-macos's chrome sublayer with stale, stretched contents
+/// that show up as a horizontal band of header chrome through the middle of the
+/// video. `setNeedsDisplay:YES` + `displayIfNeeded` on the contentView drops the
+/// cached backing store and asks gdk-macos for a fresh draw on the spot.
+///
+/// No-op before the surface is realized.
+pub fn invalidate_window_layers<W: IsA<gtk::Widget>>(widget: &W) {
+    let Some(win) = nswindow_for_widget(widget) else {
+        return;
+    };
+    unsafe {
+        let cv: *mut NSView = msg_send![&*win, contentView];
+        let Some(content_view) = Retained::retain(cv) else { return };
+        let _: () = msg_send![&*content_view, setNeedsDisplay: true];
+        let _: () = msg_send![&*content_view, displayIfNeeded];
+    }
 }
 
 /// Hide or show the macOS traffic-light buttons on the NSWindow that hosts `widget`.

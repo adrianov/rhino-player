@@ -14,6 +14,8 @@ mod idle_inhibit;
 mod jpeg_texture;
 #[cfg(target_os = "macos")]
 mod macos_window;
+#[cfg(target_os = "macos")]
+mod trash_macos;
 mod media_probe;
 mod mpv_embed;
 mod paths;

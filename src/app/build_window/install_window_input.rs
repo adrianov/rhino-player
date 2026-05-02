@@ -1,14 +1,16 @@
 {
     let fs_clock_tick = Rc::new(RefCell::new(None::<glib::SourceId>));
     wire_window_input(WindowInputCtx {
-        win: w.win.clone(),
-        root: w.root.clone(),
-        header: w.header.clone(),
-        outer_ovl: w.outer_ovl.clone(),
-        video_handle: w.video_handle.clone(),
-        bottom: w.bottom.clone(),
-        gl: w.gl_area.clone(),
-        recent: w.recent_scrl.clone(),
+        shell: WindowInputShell {
+            win: w.win.clone(),
+            root: w.root.clone(),
+            header: w.header.clone(),
+            outer_ovl: w.outer_ovl.clone(),
+            video_handle: w.video_handle.clone(),
+            bottom: w.bottom.clone(),
+            gl: w.gl_area.clone(),
+            recent: w.recent_scrl.clone(),
+        },
         app: app.clone(),
         player: player.clone(),
         video_pref: Rc::clone(&video_pref),

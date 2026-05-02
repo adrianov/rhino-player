@@ -1,3 +1,5 @@
+include!("widgets_core.rs");
+
 /// All GTK widgets constructed for the main window, passed to the wiring phase.
 struct WindowWidgets {
     win: adw::ApplicationWindow,
@@ -53,37 +55,9 @@ fn build_widgets(
 ) -> WindowWidgets {
     #[cfg(target_os = "macos")]
     std::hint::black_box(exit_after_current.clone());
-    let win = adw::ApplicationWindow::builder()
-        .application(app)
-        .title(APP_WIN_TITLE)
-        .icon_name(APP_ID)
-        .default_width(WIN_INIT_W)
-        .default_height(WIN_INIT_H)
-        .css_classes(["rp-win"])
-        .build();
 
-    let play_pause = gtk::Button::from_icon_name("media-playback-start-symbolic");
-    play_pause.add_css_class("flat");
-    play_pause.add_css_class("rpb-play");
-    play_pause.set_tooltip_text(Some("Play (Space)"));
-    play_pause.set_sensitive(false);
-
-    let btn_prev = gtk::Button::from_icon_name("go-previous-symbolic");
-    btn_prev.add_css_class("flat");
-    btn_prev.add_css_class("rpb-prev");
-    btn_prev.set_sensitive(false);
-    let wrap_prev = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    wrap_prev.set_can_target(true);
-    wrap_prev.append(&btn_prev);
-
-    let btn_next = gtk::Button::from_icon_name("go-next-symbolic");
-    btn_next.add_css_class("flat");
-    btn_next.add_css_class("rpb-next");
-    btn_next.set_sensitive(false);
-    let wrap_next = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    wrap_next.set_can_target(true);
-    wrap_next.append(&btn_next);
-    let sibling_nav = SiblingNavUi::new(&btn_prev, &btn_next, &wrap_prev, &wrap_next);
+    let win = build_main_application_window(app);
+    let PlaybackChromeRow { play_pause, sibling_nav } = build_playback_chrome_row();
 
     let (discard_menu_placeholder, pref_menu, menubar_model) = build_app_menus();
     drop(discard_menu_placeholder);
@@ -93,25 +67,7 @@ fn build_widgets(
         sub_scale_adj, sub_color_btn, sub_pop, sub_menu,
     } = build_header_popovers(sub_pref);
 
-    let gl_area = gtk::GLArea::new();
-    gl_area.add_css_class("rp-gl");
-    // macOS: the GLArea is just a sizing placeholder for the native CAOpenGLLayer
-    // (see `mpv_embed::macos_video_attach`). Mark it so the theme makes its background
-    // transparent — the GL render callback clears with alpha=0 so the video below
-    // shows through gdk-macos's compositing.
-    if cfg!(target_os = "macos") {
-        gl_area.add_css_class("rp-gl-native");
-    }
-    gl_area.set_hexpand(true);
-    gl_area.set_vexpand(true);
-    gl_area.set_auto_render(false);
-    gl_area.set_has_stencil_buffer(false);
-    gl_area.set_has_depth_buffer(false);
-    // GTK 4.18+ tracks pointer "active" state per widget; focus + claimed grabs on the GL surface
-    // could imbalance press/release accounting (stderr: Broken accounting of active state).
-    gl_area.set_can_focus(false);
-    gl_area.set_focus_on_click(false);
-
+    let gl_area = build_gl_video_area();
     let SpeedMenuResult { speed_mbtn, speed_list, speed_sync } =
         build_speed_menu(player, &gl_area, video_pref, app);
 
@@ -126,50 +82,28 @@ fn build_widgets(
         }
     };
 
-    let fs_clock = gtk::Label::new(None);
-    fs_clock.add_css_class("rp-fs-clock");
-    fs_clock.set_valign(gtk::Align::Center);
-    fs_clock.set_tooltip_text(Some("Local time"));
-    fs_clock.set_visible(false);
+    let ToolbarHeaderShell {
+        root,
+        header,
+        fs_clock,
+        hdr_title_mirror,
+    } = build_toolbar_header_shell(&menu_btn, &vol_menu, &sub_menu, &speed_mbtn);
 
-    let root = adw::ToolbarView::new();
-    let header = adw::HeaderBar::new();
-    header.add_css_class("rpb-header");
-    #[cfg(not(target_os = "macos"))]
-    header.pack_end(&menu_btn);
-    header.pack_end(&vol_menu);
-    header.pack_end(&sub_menu);
-    header.pack_end(&speed_mbtn);
-    header.pack_end(&fs_clock);
+    let SeekTimeLabels {
+        seek_adj,
+        seek,
+        time_left,
+        time_right,
+    } = build_seek_and_time_row();
 
-    #[cfg(target_os = "macos")]
-    let hdr_title_mirror = {
-        let lab = Rc::new(gtk::Label::new(Some(APP_WIN_TITLE)));
-        lab.add_css_class("title");
-        lab.set_single_line_mode(true);
-        lab.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
-        header.set_title_widget(Some(lab.as_ref()));
-        Some(Rc::clone(&lab))
-    };
-    #[cfg(not(target_os = "macos"))]
-    let hdr_title_mirror: Option<Rc<gtk::Label>> = None;
-
-    let seek_adj = gtk::Adjustment::new(0.0, 0.0, 1.0, 0.2, 1.0, 0.0);
-    let seek = gtk::Scale::new(gtk::Orientation::Horizontal, Some(&seek_adj));
-    seek.set_hexpand(true);
-    seek.set_draw_value(false);
-    seek.set_sensitive(false);
-    seek.add_css_class("rp-seek");
-    seek.set_size_request(120, 0);
-
-    let time_left = gtk::Label::new(Some("0:00"));
-    time_left.add_css_class("rp-time");
-    time_left.set_xalign(0.0);
-    let time_right = gtk::Label::new(Some("0:00"));
-    time_right.set_css_classes(&["rp-time", "rp-time-dim"]);
-    time_right.set_xalign(1.0);
-
-    let bottom = build_bottom_bar(&wrap_prev, &play_pause, &wrap_next, &time_left, &seek, &time_right);
+    let bottom = build_bottom_bar(
+        &sibling_nav.prev_wrap,
+        &play_pause,
+        &sibling_nav.next_wrap,
+        &time_left,
+        &seek,
+        &time_right,
+    );
     let ovl = build_video_overlay(&gl_area);
     let video_handle = gtk::WindowHandle::new();
     video_handle.set_child(Some(&ovl));
@@ -227,10 +161,10 @@ fn build_bottom_bar(
     bottom
 }
 
-fn build_video_overlay(gl_area: &gtk::GLArea) -> gtk::Overlay {
+fn build_video_overlay(child: &gtk::GLArea) -> gtk::Overlay {
     let ovl = gtk::Overlay::new();
     ovl.add_css_class("rp-stack");
     ovl.add_css_class("rp-page-stack");
-    ovl.set_child(Some(gl_area));
+    ovl.set_child(Some(child));
     ovl
 }

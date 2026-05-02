@@ -18,6 +18,8 @@ struct LoadOpts {
     on_loaded: Option<Rc<dyn Fn()>>,
     /// Before `loadfile`, set mpv speed to **1.0** if it was changed (sibling EOF advance).
     reset_speed_to_normal: bool,
+    /// macOS: mirrors the window title in [`adw::HeaderBar::title_widget`]; [`None`] on Linux CSD paths.
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
 }
 
 impl LoadOpts {
@@ -30,6 +32,7 @@ impl LoadOpts {
         on_loaded: Option<Rc<dyn Fn()>>,
         play_on_start: bool,
         reset_speed_to_normal: bool,
+        hdr_title_mirror: Option<Rc<gtk::Label>>,
     ) -> Self {
         Self {
             record: true,
@@ -39,6 +42,7 @@ impl LoadOpts {
             win_aspect,
             on_loaded,
             reset_speed_to_normal,
+            hdr_title_mirror,
         }
     }
 }

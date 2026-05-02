@@ -1,15 +1,17 @@
-struct WindowInputCtx {
+/// Main window widgets referenced by capture-phase motion and shell layout.
+struct WindowInputShell {
     win: adw::ApplicationWindow,
     root: adw::ToolbarView,
     header: adw::HeaderBar,
-    /// Wraps `root` so overlay children appear above the ToolbarView bottom bar.
     outer_ovl: gtk::Overlay,
-    /// [gtk::WindowHandle] around the video overlay; install capture handlers here so they run
-    /// before the shell’s built-in secondary‑click window menu.
     video_handle: gtk::WindowHandle,
     bottom: gtk::Box,
     gl: gtk::GLArea,
     recent: gtk::Box,
+}
+
+struct WindowInputCtx {
+    shell: WindowInputShell,
     app: adw::Application,
     player: Rc<RefCell<Option<MpvBundle>>>,
     video_pref: Rc<RefCell<db::VideoPrefs>>,

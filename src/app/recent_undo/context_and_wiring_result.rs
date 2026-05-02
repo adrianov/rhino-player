@@ -10,7 +10,7 @@ struct RecentUndoWiring {
 
 struct RecentUndoCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
     flow: gtk::Box,
     undo_shell: gtk::Box,
     undo_label: gtk::Label,

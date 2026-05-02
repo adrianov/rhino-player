@@ -65,10 +65,6 @@ where
 /// When the recent grid is visible, always reveal bars. When playing, visibility follows `bar_show`
 /// (pointer motion clears [IDLE_3S]). Open header menus cancel auto-hide timer.
 fn apply_chrome<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>) {
-    // Chrome floats over the GLArea on every platform (immersive look). macOS: the
-    // native video CAOpenGLLayer is inserted at the BOTTOM of contentView's sublayers,
-    // so gdk-macos's chrome / popover sublayers stay above us — the bars draw over the
-    // video and the seek-preview popover stays on top of the video region.
     c.root.set_extend_content_to_top_edge(true);
     c.root.set_extend_content_to_bottom_edge(true);
     let show = c.recent.is_visible() || c.bar_show.get();

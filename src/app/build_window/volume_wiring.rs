@@ -5,7 +5,7 @@
 /// the GTK callback that just made the write.
 struct VolumeCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
     gl: gtk::GLArea,
     vol_menu: gtk::MenuButton,
     vol_adj: gtk::Adjustment,

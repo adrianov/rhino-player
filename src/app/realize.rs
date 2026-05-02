@@ -124,6 +124,8 @@ fn gl_realize_bundle_ready(
     }
 }
 
+include!("realize_gl_handlers.rs");
+
 /// Creates the libmpv render bundle when `GLArea` realizes, then wires drawing.
 fn wire_mpv_realize(ctx: MpvRealizeCtx) {
     let MpvRealizeCtx {
@@ -186,71 +188,40 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
         hdr_title_mirror: hdr_title_mirror.clone(),
     };
     gl.connect_realize(move |area| {
-        area.make_current();
-        // Preload fills the bundle with the first history item; optional `argv[1]` / portal open
-        // runs `try_load` right after GL init and replaces that file — follow-up preload idles must
-        // NOT duplicate transport Smooth 60 resync (`FileLoaded` / `path`), or multiple `vf`
-        // teardown/rebuild bursts can freeze the GPU / main loop.
-        let skip_preload_followups = file_boot_rz.borrow().is_some();
-        let init = {
-            let mut v = vp_realize.borrow_mut();
-            MpvBundle::new(area, &mut v)
-        };
-        match init {
-            Ok((b, auto_off)) => gl_realize_bundle_ready(
-                area,
-                &ok_refs,
-                &file_boot_rz,
-                skip_preload_followups,
-                b,
-                auto_off,
-            ),
-            Err(e) => eprintln!("[rhino] OpenGL / mpv: {e}"),
-        }
+        mpv_gl_realize_attach(area, &ok_refs, &file_boot_rz, &vp_realize);
     });
 
     let p_draw = player.clone();
     let td = mpv_teardown_after_draw;
     let gl_bundle_drop = gl.clone();
-    #[cfg(not(target_os = "macos"))]
-    let win_rd = win.clone();
     let app_rd = app.clone();
-    gl.connect_render(move |area, _ctx| {
-        area.make_current();
-        if td.replace(false) {
-            // Final paint runs here (`teardown_gl_paint`); an idle binds GL again then
-            // [`MpvBundle::dispose_for_quit`] (`mpv_terminate_destroy` — not `mpv_destroy`).
-            if let Some(b) = p_draw.borrow().as_ref() {
-                b.teardown_gl_paint(area);
-            }
-            #[cfg(not(target_os = "macos"))]
-            win_rd.set_visible(false);
-            let to_drop = p_draw.borrow_mut().take();
-            let app_q = app_rd.clone();
-            let gl_q = gl_bundle_drop.clone();
-            glib::idle_add_local_once(move || {
-                gl_q.make_current();
-                if let Some(b) = to_drop {
-                    b.dispose_for_quit(&gl_q);
-                }
-                app_q.quit();
-            });
-            return glib::Propagation::Stop;
+    #[cfg(not(target_os = "macos"))]
+    let win_for_hide = Some(win.clone());
+    #[cfg(target_os = "macos")]
+    let win_for_hide: Option<adw::ApplicationWindow> = None;
+
+    gl.connect_render(glib::clone!(
+        #[strong]
+        p_draw,
+        #[strong]
+        td,
+        #[strong]
+        gl_bundle_drop,
+        #[strong]
+        app_rd,
+        #[strong]
+        win_for_hide,
+        move |area, _ctx| {
+            mpv_gl_render_frame(
+                area,
+                &td,
+                &p_draw,
+                &app_rd,
+                &gl_bundle_drop,
+                win_for_hide.as_ref(),
+            )
         }
-        // macOS: video lives in a native CAOpenGLLayer underneath gdk's GTK sublayer,
-        // so the GLArea itself must publish alpha=0 pixels for the video to show
-        // through. Clear with a fully transparent color and let the GTK chrome (which
-        // gdk renders into the same sublayer) stay opaque on top.
-        #[cfg(target_os = "macos")]
-        if let Some(b) = p_draw.borrow().as_ref() {
-            b.clear_glarea_transparent();
-        }
-        #[cfg(not(target_os = "macos"))]
-        if let Some(b) = p_draw.borrow().as_ref() {
-            b.draw(area);
-        }
-        glib::Propagation::Stop
-    });
+    ));
 }
 
 fn schedule_preload_pause(
