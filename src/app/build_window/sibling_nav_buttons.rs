@@ -110,28 +110,6 @@ fn make_sibling_nav_click(
     pick: fn(&Path) -> Option<PathBuf>,
     label: &'static str,
 ) -> impl Fn(&gtk::Button) + 'static {
-    let p = ctx.player.clone();
-    let w = ctx.win.clone();
-    let gl = ctx.gl.clone();
-    let rec = ctx.recent.clone();
-    let lp = ctx.last_path.clone();
-    let ovid = Rc::clone(&ctx.on_video_chrome);
-    let wa = Rc::clone(&ctx.win_aspect);
-    let seof = Rc::clone(&ctx.sibling_seof);
-    let ol = Rc::clone(&ctx.on_file_loaded);
-    let hm = ctx.hdr_title_mirror.clone();
-    move |_| {
-        try_load_sibling_pick(pick, label, &SiblingNavTryRefs {
-            player: p.clone(),
-            win: w.clone(),
-            gl: gl.clone(),
-            recent: rec.clone(),
-            last_path: lp.clone(),
-            on_video_chrome: ovid.clone(),
-            win_aspect: wa.clone(),
-            sibling_seof: seof.clone(),
-            on_file_loaded: ol.clone(),
-            hdr_title_mirror: hm.clone(),
-        });
-    }
+    let r = ctx.try_refs();
+    move |_| try_load_sibling_pick(pick, label, &r)
 }
