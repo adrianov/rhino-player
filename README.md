@@ -4,7 +4,7 @@
   <img src="data/icons/source/ch.rhino.RhinoPlayer-master-1024.png" alt="Rhino Player icon" width="240">
 </p>
 
-Rhino Player is a Linux desktop video player for GNOME, Ubuntu, and similar systems. It combines mpv playback with a GTK 4 / libadwaita interface, focused on smooth watching, quick resume, and simple local-file workflows.
+Rhino Player is a desktop video player for Linux (GNOME, Ubuntu, and similar systems) and macOS. It combines mpv playback with a GTK 4 / libadwaita interface, focused on smooth watching, quick resume, and simple local-file workflows. Linux is the primary target; macOS support is experimental and built on top of Homebrew.
 
 ## Features
 
@@ -24,13 +24,19 @@ See the full feature index in [docs/README.md](docs/README.md).
 
 ## Build From Source
 
-Requirements:
+All platforms need Rust 1.74+ and `pkg-config`. Pass a file path to play it directly:
 
-- Rust 1.74+
-- GTK 4 development files (`libgtk-4-dev`)
-- libadwaita development files (`libadwaita-1-dev`)
-- libmpv development files (`libmpv-dev`)
-- `pkg-config`
+```bash
+./target/release/rhino-player /path/to/video.mkv
+```
+
+### Linux
+
+Install development headers for GTK 4, libadwaita, and libmpv (Debian / Ubuntu names shown):
+
+- `libgtk-4-dev`
+- `libadwaita-1-dev`
+- `libmpv-dev`
 - `build-essential`
 
 ```bash
@@ -59,13 +65,7 @@ cargo build --release
 
 **Smooth Video (VapourSynth + MVTools)** is still aimed at Linux; core playback and the rest of the UI should work on macOS.
 
-You can pass a file path:
-
-```bash
-./target/release/rhino-player /path/to/video.mkv
-```
-
-## Install
+## Install (Linux)
 
 For a normal local install from source, build the release binary and install it with the bundled Freedesktop assets:
 
@@ -98,9 +98,9 @@ After installing, launch Rhino Player from your app grid, from a file manager, o
 rhino-player /path/to/video.mkv
 ```
 
-## Smooth 60 FPS Setup
+## Smooth 60 FPS Setup (Linux)
 
-Rhino’s **Preferences → Smooth Video (~60 FPS at 1.0×)** uses mpv’s VapourSynth video filter plus MVTools. This is optional; normal playback works without it.
+Rhino’s **Preferences → Smooth Video (~60 FPS at 1.0×)** uses mpv’s VapourSynth video filter plus MVTools. This is optional; normal playback works without it. The instructions below target Linux; on macOS, leave this preference off for now.
 
 ### Install Dependencies
 
