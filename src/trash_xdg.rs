@@ -1,73 +1,34 @@
-//! Platform trash: **Freedesktop** [`$XDG_DATA_HOME/Trash`](https://specifications.freedesktop.org/trash-spec/trashspec-latest.html)
-//! on typical Linux; **Finder** layout on macOS (`~/.Trash`, per-volume `.Trashes/<uid>`).
-//! Used after [gio::File::trash] to find the moved file for session Undo.
+//! Platform trash helpers: session **Undo** restores via [untrash_to_target].
+//! - **Linux:** [gio::File::trash] plus Freedesktop `Trash/files` lookup ([find_trash_files_stored_path]).
+//! - **macOS:** Finder Trash via [`crate::trash_macos`] (`NSFileManager::trashItemAtURL`); [untrash_to_target]
+//!   restores with `rename` from `in_trash` when the path is under `.Trash`/`.Trashes`.
 
 use std::path::{Path, PathBuf};
 
+#[cfg(not(target_os = "macos"))]
 use gtk::gio;
+#[cfg(not(target_os = "macos"))]
 use gtk::gio::prelude::FileExt;
-
+#[cfg(not(target_os = "macos"))]
 use glib::GStr;
 
-#[cfg(target_os = "macos")]
-fn uid_dir() -> String {
-    unsafe { libc::getuid() }.to_string()
-}
-
-#[cfg(target_os = "macos")]
-fn macos_trash_root(original_before_trash: &Path) -> Option<PathBuf> {
-    let home = std::env::var_os("HOME").map(PathBuf::from)?;
-    let home_canon = std::fs::canonicalize(&home).unwrap_or(home);
-    if original_before_trash.starts_with(&home_canon) {
-        let t = home_canon.join(".Trash");
-        return t.is_dir().then_some(t);
+/// Moves [path] to the user's Trash (**Err** = move failed).
+///
+/// **Ok(Some(p))**: path inside Trash for Undo. **Ok(None)** (Linux only): trashed copy not found under
+/// Freedesktop `Trash/files`.
+pub fn trash_local_file_for_undo(path: &Path) -> Result<Option<PathBuf>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::trash_macos::move_to_trash_ns(path).map(Some)
     }
-    if let Ok(rest) = original_before_trash.strip_prefix("/Volumes") {
-        if let Some(c) = rest.components().next() {
-            let vol = Path::new("/Volumes").join(c.as_os_str());
-            let t = vol.join(".Trashes").join(uid_dir());
-            if t.is_dir() {
-                return Some(t);
-            }
-        }
+    #[cfg(not(target_os = "macos"))]
+    {
+        gio::File::for_path(path)
+            .trash(gio::Cancellable::NONE)
+            .map_err(|e| e.to_string())?;
+        let want = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        Ok(find_trash_files_stored_path(&want, None))
     }
-    let t = home_canon.join(".Trash");
-    t.is_dir().then_some(t)
-}
-
-#[cfg(target_os = "macos")]
-fn find_macos_trashed_item(
-    original_before_trash: &Path,
-    size_bytes: Option<u64>,
-) -> Option<PathBuf> {
-    let dir = macos_trash_root(original_before_trash)?;
-    let name = original_before_trash.file_name()?;
-    let mut best: Option<(PathBuf, std::time::SystemTime)> = None;
-    let entries = std::fs::read_dir(&dir).ok()?;
-    for e in entries.filter_map(std::io::Result::ok) {
-        let p = e.path();
-        if p.file_name() != Some(name) {
-            continue;
-        }
-        let md = e.metadata().ok()?;
-        if !md.is_file() {
-            continue;
-        }
-        if let Some(want) = size_bytes {
-            if md.len() != want {
-                continue;
-            }
-        }
-        let t = md
-            .modified()
-            .ok()
-            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-        let take = best.as_ref().map_or(true, |(_, tt)| t > *tt);
-        if take {
-            best = Some((p, t));
-        }
-    }
-    best.map(|x| x.0)
 }
 
 #[cfg(target_os = "macos")]
@@ -89,7 +50,8 @@ fn rename_cross_fs_ok(src: &Path, dst: &Path) -> std::io::Result<()> {
     }
 }
 
-/// `~/.local/share` (or `XDG_DATA_HOME`) with `…/Trash`.
+/// Freedesktop `Trash` dirs under `$XDG_DATA_HOME`/`~/.local/share`.
+#[cfg(not(target_os = "macos"))]
 fn trash_base() -> Option<PathBuf> {
     let d = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
@@ -107,6 +69,8 @@ fn trash_base() -> Option<PathBuf> {
     Some(b)
 }
 
+/// Parses a `Path=`/`file:` fragment from `.trashinfo` on Linux only.
+#[cfg(not(target_os = "macos"))]
 fn local_path_from_trashinfo_value(v: &str) -> Option<PathBuf> {
     let t = v.trim();
     if t.is_empty() {
@@ -124,6 +88,7 @@ fn local_path_from_trashinfo_value(v: &str) -> Option<PathBuf> {
 }
 
 /// Value after the first `Path=` in trashinfo.
+#[cfg(not(target_os = "macos"))]
 fn path_value_from_info(contents: &str) -> Option<String> {
     for line in contents.lines() {
         let t = line.trim();
@@ -138,20 +103,11 @@ fn path_value_from_info(contents: &str) -> Option<String> {
 }
 
 /// Resolves the trashed **file** path after [gio::File::trash] so Undo can call [untrash_to_target].
-///
-/// Pass `size_bytes` from [std::fs::metadata]::len **before** trash on macOS (disambiguates same
-/// basename). Linux XDG ignores `size_bytes`.
+#[cfg(not(target_os = "macos"))]
 pub fn find_trash_files_stored_path(
     original_before_trash: &Path,
-    size_bytes: Option<u64>,
+    _size_bytes: Option<u64>,
 ) -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    if let Some(p) = find_macos_trashed_item(original_before_trash, size_bytes) {
-        return Some(p);
-    }
-    #[cfg(not(target_os = "macos"))]
-    let _ = size_bytes;
-
     let base = trash_base()?;
     let files_dir = base.join("files");
     let info_dir = base.join("info");
@@ -195,30 +151,40 @@ pub fn untrash_to_target(in_trash: &Path, target: &Path) -> std::io::Result<()> 
     }
 
     #[cfg(target_os = "macos")]
-    if is_macos_trash_item(in_trash) {
-        return rename_cross_fs_ok(in_trash, target);
+    {
+        if is_macos_trash_item(in_trash) {
+            rename_cross_fs_ok(in_trash, target)
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "trash: path is not in macOS Trash",
+            ))
+        }
     }
 
-    let (files_dir, info_dir) = {
-        let b = trash_base()
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no XDG trash"))?;
-        (b.join("files"), b.join("info"))
-    };
-    if in_trash.parent() != Some(files_dir.as_path()) {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "trash: path is not in Trash/files",
-        ));
+    #[cfg(not(target_os = "macos"))]
+    {
+        let (files_dir, info_dir) = {
+            let b = trash_base()
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no XDG trash"))?;
+            (b.join("files"), b.join("info"))
+        };
+        if in_trash.parent() != Some(files_dir.as_path()) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "trash: path is not in Trash/files",
+            ));
+        }
+        let name = in_trash.file_name().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "trash: no file name")
+        })?;
+        let mut inf = name.to_string_lossy().into_owned();
+        inf.push_str(".trashinfo");
+        let info = info_dir.join(&inf);
+        rename_cross_fs_ok(in_trash, target)?;
+        if info.is_file() {
+            let _ = std::fs::remove_file(info);
+        }
+        Ok(())
     }
-    let name = in_trash.file_name().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::InvalidInput, "trash: no file name")
-    })?;
-    let mut inf = name.to_string_lossy().into_owned();
-    inf.push_str(".trashinfo");
-    let info = info_dir.join(&inf);
-    rename_cross_fs_ok(in_trash, target)?;
-    if info.is_file() {
-        let _ = std::fs::remove_file(info);
-    }
-    Ok(())
 }
