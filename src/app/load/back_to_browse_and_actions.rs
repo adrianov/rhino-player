@@ -119,12 +119,12 @@ fn sync_trash_action(
     a.set_enabled(ok);
 }
 
-/// Hides the window, then (after GTK can draw the hide) saves DB resume, stops, tears down libmpv
-/// while the main [`gtk::GLArea`] context is still current, and quits.
+/// Saves DB resume, stops playback, frees libmpv’s render context with the main [`gtk::GLArea`]
+/// GL context current, then hides and quits.
 ///
-/// `vo=libmpv` must free its render context **before** GTK destroys the GL surface. If we only call
-/// `Application::quit`, `MpvBundle` was dropped after unrealize and mpv could throw (e.g.
-/// `std::out_of_range` in native teardown).
+/// `vo=libmpv` needs [`gtk::GLArea::make_current`] during `mpv_render_context_free()`. Hiding the
+/// window *before* that idle runs can unrealize the GL surface (seen on macOS), skip `make_current`,
+/// and hit mpv’s fatal “render_context not freed” check in core teardown.
 fn schedule_quit_persist(
     app: &adw::Application,
     win: &adw::ApplicationWindow,
@@ -133,9 +133,9 @@ fn schedule_quit_persist(
     sub: &Rc<RefCell<db::SubPrefs>>,
     idle_inhib: &Rc<RefCell<Option<u32>>>,
 ) {
-    win.set_visible(false);
     let p = player.clone();
     let a = app.clone();
+    let w = win.clone();
     let sp = Rc::clone(sub);
     let ic = Rc::clone(idle_inhib);
     let gl = gl.clone();
@@ -149,6 +149,7 @@ fn schedule_quit_persist(
             gl.make_current();
         }
         drop(p.borrow_mut().take());
+        w.set_visible(false);
         a.quit();
         glib::ControlFlow::Break
     });
