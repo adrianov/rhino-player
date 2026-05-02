@@ -72,12 +72,14 @@ Feature: Window, fullscreen, and presentation
     Given a file is playing and the recent grid is hidden
     When pointer motion stops over the main window for 3 seconds
     Then the header and bottom toolbars hide
+    And the prominent window-management controls grouped with that top toolbar hide
     And any pointer motion reveals them immediately
 
   Scenario: Chrome stays visible on the recent grid
     Given the recent-videos overlay is showing
     When the user is idle
     Then the header and bottom toolbars remain visible
+    And the prominent window-management controls grouped with that top toolbar remain visible
 
   Scenario: Pointer hides on the video after 3s
     Given the pointer is on the GLArea
@@ -101,7 +103,7 @@ Feature: Window, fullscreen, and presentation
 - Fullscreen-only header clock: `GtkLabel` packed on `HeaderBar` before speed / sound / subtitle / main menu; reads **`org.gnome.desktop.interface`** (`clock-format` **12h** / **24h**, `clock-show-seconds`) when that schema exists so the string matches the desktop shell clock (no forced `%X` / seconds / AM–PM). Fallback **`%H:%M`** when settings are unavailable; visible updates use `glib::timeout_add_seconds_local(1, …)` while fullscreen because no toolkit signal fires per wall-clock second.
 - Inhibit implementation polls every ~500 ms to sync with pause / load / grid state; uninhibit always runs before quit.
 - Autohide default 2–3 s; menus or popovers being open keeps chrome visible.
-- ToolbarView extends to top and bottom edges so the GLArea fills the available area and chrome overlays the video.
+- ToolbarView extends to top and bottom edges so the GLArea fills the available area and chrome overlays the video. Client-side decorations: baseline for `shows-start-title-buttons` / `shows-end-title-buttons` is sampled after map (idle) while chrome first shows—not after a hide—or `apply_chrome` would capture `(false,false)` and restore would leave traffic lights off; invalid pairs are ignored in favor of a short `(true,true)` fallback until GTK reports a decorated side.
 - Acceptance for **Post-resize aspect lock**: after drag-resize the window’s outer size matches video display aspect within a small tolerance, consistently across sessions, without runaway resize loops or spurious updates from pointer motion. Attempted path: debounced "resize end" on `GdkSurface` / `GtkWindow` notify, `set_default_size`, `present()`, ratio tolerance, `RHINO_ASPECT_DEBUG=1` logging.
 - See [GTK4 toplevel / aspect notes](../references-gtk4-toplevel-aspect.md) for upstream context (the prior `compute-size` approach was abandoned due to feedback loops).
 - Header menu switching attempts: `Popover:modal=false`, capture-phase GestureClick, idle `MenuButton::set_active`. Manual testing still required a second click; revisit with a different model or a deeper GTK / GNOME review.
