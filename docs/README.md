@@ -28,11 +28,11 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 08 | [Tracks: audio, video, subtitles](features/08-tracks.md) | wip |
 | 09 | [Chapters: marks, menu, seek bar hover](features/09-chapters.md) | wip |
 | 10 | [Video options: aspect, crop, zoom, filters](features/10-video-options.md) | planned |
-| 11 | [Drag and drop](features/11-drag-and-drop.md) | planned |
+| 11 | [Drag and drop](features/11-drag-and-drop.md) | wip |
 | 12 | [URL and network streams (yt-dlp / protocols)](features/12-url-and-streams.md) | planned |
 | 13 | [Keyboard, mouse, and shortcuts](features/13-input-shortcuts.md) | done |
 | 14 | [Preferences and persistent settings](features/14-preferences.md) | wip |
-| 15 | [MPRIS2 (media keys, shell integration)](features/15-mpris.md) | planned |
+| 15 | [MPRIS2 (media keys, shell integration)](features/15-mpris.md) | done |
 | 17 | [Window: size, fullscreen, UI auto-hide, inhibit idle](features/17-window-behavior.md) | wip |
 | 18 | [Thumbnails: seek bar preview](features/18-thumbnail-preview.md) | done |
 | 20 | [Static release binary and dependencies](features/20-static-build.md) | planned |

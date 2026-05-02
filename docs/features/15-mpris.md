@@ -1,48 +1,60 @@
-# MPRIS2 (media keys, shell integration)
+# MPRIS2 shell integration
 
 ---
-status: planned
+status: done
 priority: p2
-layers: [platform, mpv]
-related: [02, 04, 22]
+layers: [playback, os-integration]
+related: [02, 04, 13, 07]
+scope: platform-specific
 ---
 
 ## Use cases
-- Media keys, notification area, and desktop widgets control playback.
-- Other apps can query "what is playing".
+
+- Pause, play, next, and previous from the desktop environment reach the focused player reliably.
+- The shell can show basic “now playing” state for the active item.
 
 ## Description
-The app exposes `org.mpris.MediaPlayer2` and `org.mpris.MediaPlayer2.Player` on the session bus and synchronises them with the active window’s mpv state. Properties update via `PropertiesChanged`; jumps emit `Seeked`. `Raise` presents the window; `Quit` quits the app.
+
+Linux builds register on the desktop session integration bus used by shells and peripherals for media controls, with properties kept in rough sync with playback. Other ports skip this path.
 
 ## Behavior
 
 ```gherkin
-@status:planned @priority:p2 @layer:platform @area:mpris
+@status:done @priority:p2 @layer:os-integration @area:mpris
 Feature: MPRIS2 shell integration
 
   Scenario: PlayPause toggles active playback
-    Given Rhino exposes org.mpris.MediaPlayer2.Player on the session bus
-    When a client invokes PlayPause
-    Then playback toggles to match mpv pause semantics
-    And PlaybackStatus reflects the new state
+    Given Linux transport has loaded playable media with a finite length
+    When a session client invokes the standard play-pause toggle for this application’s media session
+    Then pause state toggles for the loaded item
+    And the reported playing vs paused classification matches playback state shortly after
 
-  Scenario: Metadata tracks current media
-    Given media with identifiable metadata is playing
-    When a client reads PlaybackStatus, Metadata, and Position
-    Then returned values match the active window’s mpv-backed state within documented tolerance
+  Scenario: Dedicated play and pause
+    Given Linux transport has loaded playable media with a finite length
+    When a session client invokes dedicated play control
+    Then playback resumes if it was paused
+    When a session client invokes dedicated pause control or stop-style halt
+    Then playback is held at the current position without unloading the item
 
-  Scenario: Raise brings the window forward
-    Given the main window is in the background
-    When a client invokes Raise
-    Then the application presents its primary window per GNOME expectations
+  Scenario: Folder queue previous and next
+    Given sibling folder advances are available before and after the current local item
+    When a session client invokes previous-track or next-track control
+    Then the previous or next sibling item is loaded respectively
 
-  Scenario: Seeked emits on jumps
-    Given playback is active
-    When the user or a client causes a non-incremental position change
-    Then the Seeked signal fires with the new position
+  Scenario: Raise brings the primary window forward
+    Given the primary window exists
+    When a session client invokes raise for this application’s media session
+    Then the primary window is presented ahead of sibling windows where the toolkit allows
+
+  Scenario: Quit ends the shell session cleanly
+    When a session client requests application quit for this media session
+    Then the application shuts down via its normal lifecycle
 ```
 
 ## Notes
-- Bus name and object path follow MPRIS conventions; the identity string uses the Rhino app name.
-- `SetPosition` and `Seek` use microsecond contracts per spec.
-- Sync via mpv property events, not per-frame polling.
+
+- Implemented only for `cfg(target_os = "linux")` in `Cargo.toml` `[target.'cfg(target_os = "linux")'.dependencies]` (`mpris-server`, `async-channel`, `futures`). Module: `src/mpris/` (`linux.rs`: `Player`, `glib::spawn_future_local`, channel + `async` apply loop synchronized with mpv seek helpers).
+- Bus name suffix `RhinoPlayer_<pid>`; object path follows MPRIS defaults from the crate. Controls delegate to existing play/pause, sibling-folder load, `main_player_seek_keyframes`; transport (`dispatch_event` + `transport_tick`) publishes `enqueue_snapshot`.
+- Raise / Quit: `present` / `Application::quit` on GTK main idle.
+- Relative seek, absolute position set (`SetPosition`), and emitted `Seeked` after programmatic jumps from session clients share the GUI seek pathway (drops smooth-motion `vf` like the seek bar).
+- `desktop_entry` property uses the Rhino application id (`ch.rhino.RhinoPlayer`).
