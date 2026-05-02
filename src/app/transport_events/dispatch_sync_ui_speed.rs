@@ -7,9 +7,6 @@ fn sync_speed_header(
     if w.speed_menu.is_sensitive() != has_media {
         w.speed_menu.set_sensitive(has_media);
     }
-    if w.speed_readout.is_sensitive() != has_media {
-        w.speed_readout.set_sensitive(has_media);
-    }
     if !has_media {
         playback_speed::stamp_speed_readout(&w.speed_readout, 1.0);
         return;

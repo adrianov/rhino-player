@@ -71,13 +71,6 @@ fn build_widgets(
     let gl_area = build_gl_video_area();
     let SpeedMenuResult { speed_readout, speed_mbtn, speed_list, speed_sync } =
         build_speed_menu(player, &gl_area, video_pref, app);
-    let speed_pack = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    speed_pack.add_css_class("rp-speed-cluster");
-    speed_pack.set_valign(gtk::Align::Center);
-    speed_pack.set_hexpand(false);
-    speed_pack.set_vexpand(false);
-    speed_pack.append(&speed_mbtn);
-    speed_pack.append(&speed_readout);
 
     let menu_btn = {
         #[cfg(not(target_os = "macos"))]
@@ -95,7 +88,7 @@ fn build_widgets(
         header,
         fs_clock,
         hdr_title_mirror,
-    } = build_toolbar_header_shell(&menu_btn, &vol_menu, &sub_menu, &speed_pack);
+    } = build_toolbar_header_shell(&menu_btn, &vol_menu, &sub_menu, &speed_mbtn);
 
     let SeekTimeLabels {
         seek_adj,

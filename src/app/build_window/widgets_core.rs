@@ -107,7 +107,7 @@ fn build_toolbar_header_shell(
     menu_btn: &gtk::MenuButton,
     vol_menu: &gtk::MenuButton,
     sub_menu: &gtk::MenuButton,
-    speed_pack: &gtk::Box,
+    speed_mbtn: &gtk::MenuButton,
 ) -> ToolbarHeaderShell {
     let fs_clock = gtk::Label::new(None);
     fs_clock.add_css_class("rp-fs-clock");
@@ -122,7 +122,7 @@ fn build_toolbar_header_shell(
     header.pack_end(menu_btn);
     header.pack_end(vol_menu);
     header.pack_end(sub_menu);
-    header.pack_end(speed_pack);
+    header.pack_end(speed_mbtn);
     header.pack_end(&fs_clock);
 
     #[cfg(target_os = "macos")]

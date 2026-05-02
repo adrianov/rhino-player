@@ -13,7 +13,7 @@ mpv_props: [speed, duration]
 - Return to 1.0× for normal motion.
 
 ## Description
-A header `MenuButton` (icon `speedometer-symbolic`) opens a popover with a `ListBox` of fixed-rate rows (**1.0×**, **1.5×**, **2.0×**, integers **3.0×** through **8.0×**). A compact caption readout sits immediately under that icon within the same header slot—without shifting the icon out of alignment with neighbouring controls—while media is loaded. Keyboard digits **1**–**8** jump to fixed rates (**13-input-shortcuts**): **3** selects **1.5×**; **1**, **2**, and **4**–**8** select that many times normal speed. Selecting a row sets mpv `speed` to that exact value, syncs the list, and closes the popover. There is no free-form slider in v1.
+A header **`MenuButton`** lays out the speedometer icon and caption readout in one horizontal row inside it—the same effective toolbar row height as other header icon controls—with one clickable target that opens a `ListBox` of fixed-rate rows (**1.0×**, **1.5×**, **2.0×**, integers **3.0×** through **8.0×**) while media is loaded. Keyboard digits **1**–**8** jump to fixed rates (**13-input-shortcuts**): **3** selects **1.5×**; **1**, **2**, and **4**–**8** select that many times normal speed. Selecting a row sets mpv `speed` to that exact value, syncs the list, and closes the popover. There is no free-form slider in v1.
 
 Speed applies to the current mpv session; mpv generally keeps `speed` across `loadfile` in the same process, except automatic advance to the next file in folder order resets to **1.0×** before the new file loads. The UI re-syncs from `speed` after each load and snaps to the nearest canonical step when mpv reports a value outside the fixed set.
 
@@ -64,7 +64,7 @@ Feature: Fixed-step playback speed
 
 ## Notes
 - Fastest row **8.0×** matches mpv default audio pitch preservation: auto `scaletempo2` uses `max-speed=8.0` upstream, so higher `speed` values do not apply reliably with default options.
-- Compact header speed readout: **`rp-speed-readout`** stacked immediately under the speed `MenuButton` in **`rp-speed-cluster`** (`Vertical`/`spacing 0`; CSS **`margin-top: -8px`** on the caption). Icon stays centred in-cluster like a lone **`MenuButton`**. Disabled on the continue grid (`duration` unavailable); transport tick keeps it aligned with the canonical step (`dispatch_sync_ui` / `playback_speed`).
+- Speed header control: **`rp-speed-mbtn`** `MenuButton` child layout **`rp-speed-face`**: horizontal **`Image`** + **`rp-speed-readout`** (`spacing 4` in code, no extra CSS margins) so the header row matches other icon-only controls in windowed and fullscreen chrome. One hit target opens the popover; disabled when the seek bar slot is insensitive (continue grid).
 - Digit **3** sets **1.5×**; digits **1**, **2**, **4**–**8** set **N**× (**13-input-shortcuts**).
 - Read `speed` after each load; if not within 0.01 of one canonical step, set mpv to the nearest.
 - Header LTR cluster: speed sits left of subtitles, volume, and the hamburger menu.

@@ -1,4 +1,5 @@
-/// Builds the playback-speed popover + compact readout directly under the icon and wires handlers.
+/// Builds the playback-speed popover; icon + rate caption share one [`gtk::MenuButton`] hit target
+/// (horizontal row keeps header / fullscreen toolbar row height unchanged).
 /// Returns the list box (needed for file-loaded sync) + sync flag.
 struct SpeedMenuResult {
     speed_readout: gtk::Label,
@@ -35,19 +36,29 @@ fn build_speed_menu(
     speed_pop.set_child(Some(&speed_col));
     header_popover_non_modal(&speed_pop);
     let speed_mbtn = gtk::MenuButton::new();
-    speed_mbtn.set_icon_name("speedometer-symbolic");
-    speed_mbtn.set_tooltip_text(Some("Playback speed"));
     speed_mbtn.set_popover(Some(&speed_pop));
+    speed_mbtn.set_tooltip_text(Some("Playback speed"));
     speed_mbtn.set_sensitive(false);
     speed_mbtn.add_css_class("flat");
-    speed_mbtn.set_halign(gtk::Align::Center);
+    speed_mbtn.add_css_class("rp-speed-mbtn");
     speed_mbtn.set_hexpand(false);
+    speed_mbtn.set_valign(gtk::Align::Center);
+    speed_mbtn.set_always_show_arrow(false);
 
     let speed_readout = gtk::Label::new(Some(&playback_speed::format_step(1.0)));
     speed_readout.add_css_class("rp-speed-readout");
-    speed_readout.set_halign(gtk::Align::Center);
-    speed_readout.set_xalign(0.5);
-    speed_readout.set_sensitive(false);
+    speed_readout.set_valign(gtk::Align::Center);
+    speed_readout.set_xalign(0.0);
+
+    let speed_icon = gtk::Image::from_icon_name("speedometer-symbolic");
+    speed_icon.set_valign(gtk::Align::Center);
+
+    let speed_face = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    speed_face.add_css_class("rp-speed-face");
+    speed_face.set_valign(gtk::Align::Center);
+    speed_face.append(&speed_icon);
+    speed_face.append(&speed_readout);
+    speed_mbtn.set_child(Some(&speed_face));
 
     let speed_sync = Rc::new(Cell::new(false));
     {

@@ -27,7 +27,7 @@ pub fn format_step(v: f64) -> String {
     format!("{v:.1}×")
 }
 
-/// Updates the compact header label under the speed control (flush stack).
+/// Updates the caption [`gtk::Label`] inside the speed header [`gtk::MenuButton`].
 #[inline]
 pub fn stamp_speed_readout(l: &Label, canon: f64) {
     l.set_label(&format_step(canon));
