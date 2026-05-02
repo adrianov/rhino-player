@@ -51,6 +51,7 @@ struct TransportWidgets {
     time_left: gtk::Label,
     time_right: gtk::Label,
     speed_menu: gtk::MenuButton,
+    speed_readout: gtk::Label,
     vol_menu: gtk::MenuButton,
     vol_adj: gtk::Adjustment,
     vol_mute: gtk::ToggleButton,

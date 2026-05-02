@@ -45,6 +45,7 @@
         hdr_title_mirror: w.hdr_title_mirror.clone(),
         speed_sync: w.speed_sync.clone(),
         speed_list: w.speed_list.clone(),
+        speed_readout: w.speed_readout.clone(),
     });
 
     #[cfg(target_os = "macos")]

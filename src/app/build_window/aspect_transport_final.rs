@@ -20,7 +20,7 @@
             play_pause: w.play_pause.clone(), seek: w.seek.clone(), seek_adj: w.seek_adj.clone(),
             seek_sync: seek_sync.clone(), seek_grabbed: seek_grabbed.clone(),
             time_left: w.time_left.clone(), time_right: w.time_right.clone(),
-            speed_menu: w.speed_mbtn.clone(), vol_menu: w.vol_menu.clone(),
+            speed_menu: w.speed_mbtn.clone(), speed_readout: w.speed_readout.clone(), vol_menu: w.vol_menu.clone(),
             vol_adj: w.vol_adj.clone(), vol_mute: w.vol_mute_btn.clone(),
             vol_sync: vol_sync.clone(),
         },

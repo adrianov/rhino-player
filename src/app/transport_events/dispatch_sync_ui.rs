@@ -79,7 +79,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             ctx.cache.borrow_mut().duration = d;
             sync_seek_range(w, d);
             sync_duration_label(w, d);
-            sync_speed_button(w, d);
+            sync_speed_header(&ctx.player, w, d);
             refresh_play_button(ctx);
             sync_seek_chapters(ctx);
         }
@@ -177,6 +177,8 @@ fn refresh_play_button(ctx: &Rc<TransportCtx>) {
     sync_play_button(&ctx.widgets, dur, paused);
 }
 
+include!("dispatch_sync_ui_speed.rs");
+
 fn sync_play_button(w: &TransportWidgets, dur: f64, paused: bool) {
     let has_media = dur > 0.0;
     if w.play_pause.is_sensitive() != has_media {
@@ -193,13 +195,6 @@ fn sync_play_button(w: &TransportWidgets, dur: f64, paused: bool) {
         w.play_pause.set_icon_name(icon);
     }
     set_tooltip_if_changed(w.play_pause.upcast_ref::<gtk::Widget>(), tip);
-}
-
-fn sync_speed_button(w: &TransportWidgets, dur: f64) {
-    let has_media = dur > 0.0;
-    if w.speed_menu.is_sensitive() != has_media {
-        w.speed_menu.set_sensitive(has_media);
-    }
 }
 
 fn sync_seek_range(w: &TransportWidgets, dur: f64) {

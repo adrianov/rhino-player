@@ -1,6 +1,6 @@
 //! Header list + mpv `speed` in fixed steps. See `docs/features/28-playback-speed.md`.
 
-use gtk::ListBox;
+use gtk::{Label, ListBox};
 use libmpv2::Mpv;
 
 /// Fastest fixed step: matches mpv `scaletempo2` default `max-speed` when `--audio-pitch-correction` is on.
@@ -20,6 +20,18 @@ pub const SPEEDS: [f64; 9] = [
 ];
 
 const EPS: f64 = 0.01;
+
+/// Single-line × rate for rows and header readout (matches popover formatting).
+#[must_use]
+pub fn format_step(v: f64) -> String {
+    format!("{v:.1}×")
+}
+
+/// Updates the compact header label under the speed control (flush stack).
+#[inline]
+pub fn stamp_speed_readout(l: &Label, canon: f64) {
+    l.set_label(&format_step(canon));
+}
 
 /// Force **1.0×** when mpv speed differs (folder auto-advance after faster playback).
 pub fn force_normal(mpv: &Mpv) {
@@ -49,10 +61,16 @@ pub fn value_at(i: u32) -> f64 {
     SPEEDS.get(i as usize).copied().unwrap_or(1.0)
 }
 
-/// Snap the header [ListBox] to current **mpv** `speed`; [flag] blocks `row-activated` when updating.
+/// Snap the header [ListBox] and compact readout to current **mpv** `speed`; [flag] blocks
+/// `row-activated` when updating.
 /// Returns [Some] **canonical** speed if [mpv] `speed` was changed to a [SPEEDS] step (caller may resync
 /// VapourSynth env + [vf]); [None] if it was already on a step.
-pub fn sync_list(mpv: &Mpv, flag: &std::cell::Cell<bool>, list: &ListBox) -> Option<f64> {
+pub fn sync_list(
+    mpv: &Mpv,
+    flag: &std::cell::Cell<bool>,
+    list: &ListBox,
+    readout: &Label,
+) -> Option<f64> {
     let s = mpv.get_property::<f64>("speed").unwrap_or(1.0);
     let (i, canon) = nearest(s);
     let changed = if (s - canon).abs() > EPS {
@@ -61,6 +79,7 @@ pub fn sync_list(mpv: &Mpv, flag: &std::cell::Cell<bool>, list: &ListBox) -> Opt
     } else {
         false
     };
+    stamp_speed_readout(readout, canon);
     flag.set(true);
     if let Some(row) = list.row_at_index(i as i32) {
         list.select_row(Some(&row));

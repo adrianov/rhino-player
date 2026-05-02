@@ -1,6 +1,7 @@
-/// Builds the playback-speed popover + menu button and wires the selection handler.
-/// Returns the button, the list box (needed for file-loaded sync), and the sync flag.
+/// Builds the playback-speed popover + compact readout directly under the icon and wires handlers.
+/// Returns the list box (needed for file-loaded sync) + sync flag.
 struct SpeedMenuResult {
+    speed_readout: gtk::Label,
     speed_mbtn: gtk::MenuButton,
     speed_list: gtk::ListBox,
     speed_sync: Rc<Cell<bool>>,
@@ -17,7 +18,7 @@ fn build_speed_menu(
     speed_list.add_css_class("rich-list");
     for s in &playback_speed::SPEEDS {
         let row = gtk::ListBoxRow::new();
-        let lab = gtk::Label::new(Some(&format!("{s:.1}×")));
+        let lab = gtk::Label::new(Some(&playback_speed::format_step(*s)));
         lab.set_halign(gtk::Align::Start);
         lab.set_margin_start(10);
         lab.set_margin_end(10);
@@ -39,6 +40,14 @@ fn build_speed_menu(
     speed_mbtn.set_popover(Some(&speed_pop));
     speed_mbtn.set_sensitive(false);
     speed_mbtn.add_css_class("flat");
+    speed_mbtn.set_halign(gtk::Align::Center);
+    speed_mbtn.set_hexpand(false);
+
+    let speed_readout = gtk::Label::new(Some(&playback_speed::format_step(1.0)));
+    speed_readout.add_css_class("rp-speed-readout");
+    speed_readout.set_halign(gtk::Align::Center);
+    speed_readout.set_xalign(0.5);
+    speed_readout.set_sensitive(false);
 
     let speed_sync = Rc::new(Cell::new(false));
     {
@@ -46,6 +55,7 @@ fn build_speed_menu(
         let glr = gl.clone();
         let sy = speed_sync.clone();
         let smb = speed_mbtn.clone();
+        let spd_lbl = speed_readout.clone();
         let vp = Rc::clone(video_pref);
         let ap = app.clone();
         speed_list.connect_row_activated(move |list2, row| {
@@ -58,6 +68,7 @@ fn build_speed_menu(
             let v = playback_speed::value_at(i);
             if let Some(b) = p.borrow().as_ref() {
                 let _ = b.mpv.set_property("speed", v);
+                playback_speed::stamp_speed_readout(&spd_lbl, v);
                 glr.queue_render();
             }
             // Defer vf rebuild: libmpv can still report the old speed on the same GTK tick as
@@ -75,5 +86,10 @@ fn build_speed_menu(
             smb.set_active(false);
         });
     }
-    SpeedMenuResult { speed_mbtn, speed_list, speed_sync }
+    SpeedMenuResult {
+        speed_readout,
+        speed_mbtn,
+        speed_list,
+        speed_sync,
+    }
 }

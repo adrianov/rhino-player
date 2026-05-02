@@ -15,6 +15,7 @@ struct WindowWidgets {
     vol_menu: gtk::MenuButton,
     sub_menu: gtk::MenuButton,
     speed_mbtn: gtk::MenuButton,
+    speed_readout: gtk::Label,
     speed_list: gtk::ListBox,
     speed_sync: Rc<Cell<bool>>,
     seek: gtk::Scale,
@@ -68,8 +69,15 @@ fn build_widgets(
     } = build_header_popovers(sub_pref);
 
     let gl_area = build_gl_video_area();
-    let SpeedMenuResult { speed_mbtn, speed_list, speed_sync } =
+    let SpeedMenuResult { speed_readout, speed_mbtn, speed_list, speed_sync } =
         build_speed_menu(player, &gl_area, video_pref, app);
+    let speed_pack = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    speed_pack.add_css_class("rp-speed-cluster");
+    speed_pack.set_valign(gtk::Align::Center);
+    speed_pack.set_hexpand(false);
+    speed_pack.set_vexpand(false);
+    speed_pack.append(&speed_mbtn);
+    speed_pack.append(&speed_readout);
 
     let menu_btn = {
         #[cfg(not(target_os = "macos"))]
@@ -87,7 +95,7 @@ fn build_widgets(
         header,
         fs_clock,
         hdr_title_mirror,
-    } = build_toolbar_header_shell(&menu_btn, &vol_menu, &sub_menu, &speed_mbtn);
+    } = build_toolbar_header_shell(&menu_btn, &vol_menu, &sub_menu, &speed_pack);
 
     let SeekTimeLabels {
         seek_adj,
@@ -118,7 +126,7 @@ fn build_widgets(
 
     WindowWidgets {
         win, root, header, outer_ovl, video_handle, gl_area, bottom, play_pause, sibling_nav,
-        menu_btn, vol_menu, sub_menu, speed_mbtn, speed_list, speed_sync,
+        menu_btn, vol_menu, sub_menu, speed_mbtn, speed_readout, speed_list, speed_sync,
         seek, seek_adj, time_left, time_right,
         vol_adj, vol_mute_btn,
         audio_tracks_box, audio_tracks_block, audio_tracks_section,

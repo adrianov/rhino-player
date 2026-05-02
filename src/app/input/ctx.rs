@@ -47,6 +47,7 @@ struct WindowInputCtx {
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     speed_sync: Rc<Cell<bool>>,
     speed_list: gtk::ListBox,
+    speed_readout: gtk::Label,
 }
 
 fn wire_window_input(ctx: WindowInputCtx) {

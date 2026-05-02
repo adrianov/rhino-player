@@ -76,6 +76,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
         app: ctx.app.clone(),
         speed_sync: ctx.speed_sync.clone(),
         speed_list: ctx.speed_list.clone(),
+        speed_readout: ctx.speed_readout.clone(),
     };
     let last_path_nav = ctx.last_path.clone();
     let on_vid_nav = ctx.on_video_chrome.clone();

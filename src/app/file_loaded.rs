@@ -13,6 +13,7 @@ struct FileLoadedCtx {
     trash_action_cell: Rc<RefCell<Option<gio::SimpleAction>>>,
     speed_sync: Rc<Cell<bool>>,
     speed_list: gtk::ListBox,
+    speed_readout: gtk::Label,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
     app: adw::Application,
 }
@@ -33,6 +34,7 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
         trash_action_cell,
         speed_sync,
         speed_list,
+        speed_readout,
         video_pref,
         app,
     } = ctx;
@@ -51,6 +53,7 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
         let trash_a = Rc::clone(&trash_action_cell);
         let syf = speed_sync.clone();
         let sl = speed_list.clone();
+        let spd_r = speed_readout.clone();
         let vp_onload = Rc::clone(&video_pref);
         let app_onload = app.clone();
         move || {
@@ -67,6 +70,7 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
             let trash_a2 = Rc::clone(&trash_a);
             let syf320 = syf.clone();
             let sl320 = sl.clone();
+            let spd320 = spd_r.clone();
             let vp_320 = Rc::clone(&vp_onload);
             let app_320 = app_onload.clone();
             let _ = glib::timeout_add_local(Duration::from_millis(320), move || {
@@ -80,6 +84,7 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
                     sub_btn: sub320.clone(),
                     speed_sync_flag: syf320.clone(),
                     speed_list: sl320.clone(),
+                    speed_readout: spd320.clone(),
                     video_pref: vp_320.clone(),
                     app: app_320.clone(),
                     close_action: close_a2.clone(),
@@ -167,6 +172,7 @@ struct On320Ctx {
     sub_btn: gtk::MenuButton,
     speed_sync_flag: Rc<Cell<bool>>,
     speed_list: gtk::ListBox,
+    speed_readout: gtk::Label,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
     app: adw::Application,
     close_action: Rc<RefCell<Option<gio::SimpleAction>>>,
@@ -184,7 +190,7 @@ fn on_320ms_tick(c: On320Ctx) {
         // dispatch_sync_ui.rs) so the saved `aid` is in place *before* unpause. Repeating it
         // here would re-open the audio path mid-playback and reintroduce the A/V drift.
         sub_tracks::autopick_sub_track(&b.mpv, &pr);
-        let listed = playback_speed::sync_list(&b.mpv, &c.speed_sync_flag, &c.speed_list);
+        let listed = playback_speed::sync_list(&b.mpv, &c.speed_sync_flag, &c.speed_list, &c.speed_readout);
         let mut g = c.video_pref.borrow_mut();
         if g.smooth_60 {
             let r = resync_smooth_speed(b, &mut g, listed);

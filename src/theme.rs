@@ -19,6 +19,21 @@ const APP_CSS: &str = r#"
             margin-right: 10px;
             font-size: 0.95em;
         }
+        label.rp-speed-readout {
+            color: #9a9996;
+            font-feature-settings: "tnum";
+            font-size: 0.75em;
+            padding: 0;
+            margin: 0;
+            margin-top: -8px;
+            min-width: 0;
+            opacity: 0.92;
+        }
+        box.rp-speed-cluster {
+            padding: 0;
+            margin: 0;
+            border-spacing: 0;
+        }
         .rp-stack {
             background-color: #242424;
         }
