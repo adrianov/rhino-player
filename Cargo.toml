@@ -36,8 +36,12 @@ mpris-server = "0.10"
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
 objc2 = { version = "0.6.4", features = ["std"] }
-objc2-app-kit = { version = "0.3.2", features = ["NSEvent", "block2"] }
-objc2-foundation = "0.3.2"
+objc2-app-kit = { version = "0.3.2", features = ["NSEvent", "NSWindow", "NSView", "NSResponder", "NSColor", "block2"] }
+objc2-foundation = { version = "0.3.2", features = ["NSGeometry", "NSValue", "NSString", "NSLock", "NSThread"] }
+objc2-quartz-core = { version = "0.3.2", features = ["objc2-core-foundation", "objc2-core-video", "objc2-open-gl", "CALayer", "CAOpenGLLayer", "CATransaction"] }
+objc2-open-gl = { version = "0.3.2", features = ["std"] }
+objc2-core-video = { version = "0.3.2", default-features = false, features = ["std", "CVBase", "CVReturn", "CVDisplayLink"] }
+gdk4-macos = { version = "0.9", features = ["v4_8"] }
 
 # Clippy: see clippy.toml for thresholds. Module length is policed by
 # `.cursor/rules/refactor-touched-longest.mdc` and `clippy::too_many_lines`.
