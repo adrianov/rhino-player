@@ -47,7 +47,6 @@ fn mpris_shot_from_ctx(ctx: &TransportCtx) -> crate::mpris::MprisShot {
         paused,
         pos_sec: pos,
         dur_sec: dur,
-        path_open,
         stopped,
         title,
         track_path: path_res,

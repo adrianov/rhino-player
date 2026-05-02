@@ -22,7 +22,6 @@ pub(crate) struct MprisShot {
     pub(crate) paused: bool,
     pub(crate) pos_sec: f64,
     pub(crate) dur_sec: f64,
-    pub(crate) path_open: bool,
     pub(crate) stopped: bool,
     pub(crate) title: Option<String>,
     pub(crate) track_path: Option<PathBuf>,

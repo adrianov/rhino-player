@@ -1,21 +1,41 @@
 #[cfg(target_os = "linux")]
-fn wire_mpris_linux_after_seek(
-    app: &adw::Application,
+struct MprisLinuxWireCtx<'a> {
+    app: &'a adw::Application,
     win: adw::ApplicationWindow,
     gl_area: gtk::GLArea,
     recent_scrl: gtk::Box,
-    player: &Rc<RefCell<Option<MpvBundle>>>,
-    play_ctx: &PlayToggleCtx,
-    last_path: &Rc<RefCell<Option<PathBuf>>>,
-    win_aspect: &Rc<Cell<Option<f64>>>,
-    sibling_seof: &Rc<SiblingEofState>,
+    player: &'a Rc<RefCell<Option<MpvBundle>>>,
+    play_ctx: &'a PlayToggleCtx,
+    last_path: &'a Rc<RefCell<Option<PathBuf>>>,
+    win_aspect: &'a Rc<Cell<Option<f64>>>,
+    sibling_seof: &'a Rc<SiblingEofState>,
     reapply_60: VideoReapply60,
     smooth_seek_debounce: Rc<RefCell<Option<glib::SourceId>>>,
     resume_after_seek_idle: Rc<Cell<bool>>,
-    on_file_loaded: &Rc<dyn Fn()>,
-    on_video_chrome: &Rc<dyn Fn()>,
+    on_file_loaded: &'a Rc<dyn Fn()>,
+    on_video_chrome: &'a Rc<dyn Fn()>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
-) {
+}
+
+#[cfg(target_os = "linux")]
+fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
+    let MprisLinuxWireCtx {
+        app,
+        win,
+        gl_area,
+        recent_scrl,
+        player,
+        play_ctx,
+        last_path,
+        win_aspect,
+        sibling_seof,
+        reapply_60,
+        smooth_seek_debounce,
+        resume_after_seek_idle,
+        on_file_loaded,
+        on_video_chrome,
+        hdr_title_mirror,
+    } = ctx;
     let p_seek = player.clone();
     let gl_seek = gl_area.clone();
     let r_seek = reapply_60.clone();
