@@ -44,6 +44,54 @@ struct PlayToggleCtx {
     play_pause: gtk::Button,
 }
 
+/// Pause or unpause through mpv (bottom bar play control and Linux MPRIS). Returns [`false`] when no
+/// media is loaded, the welcome grid covers video, or the engine rejects the pause write.
+///
+/// Matches vapoursynth smooth unpause bookkeeping used by the spacer / play button wiring. Uses a
+/// single [`RefCell`] borrow for mpv reads and the pause write so state stays consistent on the GTK
+/// main thread (callbacks do not run concurrently).
+fn apply_mpv_pause(ctx: &PlayToggleCtx, want_pause: bool) -> bool {
+    if ctx.recent.is_visible() {
+        return false;
+    }
+    let g = ctx.player.borrow();
+    let Some(b) = g.as_ref() else {
+        return false;
+    };
+    let dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
+    if dur <= 0.0 {
+        return false;
+    }
+    let cur_pause = b.mpv.get_property::<bool>("pause").unwrap_or(false);
+    if cur_pause == want_pause {
+        return true;
+    }
+
+    let smooth_off = if !want_pause && cur_pause {
+        let mut pref = ctx.video_pref.borrow_mut();
+        video_pref::resync_smooth_if_speed_mismatch(b, &mut pref).smooth_auto_off
+    } else {
+        false
+    };
+
+    if smooth_off {
+        sync_smooth_60_to_off(&ctx.app);
+    }
+
+    if b.mpv.set_property("pause", want_pause).is_ok() {
+        flip_play_icon(&ctx.play_pause, want_pause);
+        ctx.gl.queue_render();
+        true
+    } else {
+        false
+    }
+}
+
+/// Stop-style pause (media keys **Stop** shell action + MPRIS `Stop`): hold position, show play icon.
+fn media_stop(play_key: &PlayToggleCtx) {
+    let _ = apply_mpv_pause(play_key, true);
+}
+
 fn toggle_play_pause(ctx: &PlayToggleCtx) -> bool {
     let g = ctx.player.borrow();
     let Some(b) = g.as_ref() else {
@@ -64,23 +112,8 @@ fn toggle_play_pause(ctx: &PlayToggleCtx) -> bool {
         return true;
     }
     let paused = b.mpv.get_property::<bool>("pause").unwrap_or(false);
-        if paused {
-            // While paused, `apply_mpv_video` keeps an existing vapoursynth `vf`; seeks strip it first.
-            // Unpause routes through `sync_smooth_vf_on_pause_transition` when `vf` is missing.
-        let off = {
-            let mut pref = ctx.video_pref.borrow_mut();
-            video_pref::resync_smooth_if_speed_mismatch(b, &mut pref).smooth_auto_off
-        };
-        if off {
-            sync_smooth_60_to_off(&ctx.app);
-        }
-    }
-    if b.mpv.set_property("pause", !paused).is_ok() {
-        flip_play_icon(&ctx.play_pause, !paused);
-        ctx.gl.queue_render();
-        return true;
-    }
-    false
+    drop(g);
+    apply_mpv_pause(ctx, !paused)
 }
 
 /// Optimistic icon swap so the click is felt immediately. The 1 Hz transport

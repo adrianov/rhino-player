@@ -51,6 +51,7 @@ fn try_load_sibling_pick(
 /// (`prev_before_current` vs. `next_after_eof`). Extracting one closure factory
 /// removes the duplicated `glib::clone!` block that previously inlined this
 /// logic inside `build_window`.
+#[derive(Clone)]
 struct SiblingNavCtx {
     btn_prev: gtk::Button,
     btn_next: gtk::Button,
@@ -63,6 +64,55 @@ struct SiblingNavCtx {
     win_aspect: Rc<Cell<Option<f64>>>,
     sibling_seof: Rc<SiblingEofState>,
     on_file_loaded: Rc<dyn Fn()>,
+}
+
+impl SiblingNavCtx {
+    fn try_refs(&self) -> SiblingNavTryRefs<'_> {
+        SiblingNavTryRefs {
+            player: &self.player,
+            win: &self.win,
+            gl: &self.gl,
+            recent: &self.recent,
+            last_path: &self.last_path,
+            on_video_chrome: &self.on_video_chrome,
+            win_aspect: &self.win_aspect,
+            sibling_seof: &self.sibling_seof,
+            on_file_loaded: &self.on_file_loaded,
+        }
+    }
+}
+
+/// Bundles widgets and refs needed to wire sibling-folder navigation (buttons + macOS media keys).
+struct SiblingNavShell {
+    btn_prev: gtk::Button,
+    btn_next: gtk::Button,
+    win: adw::ApplicationWindow,
+    gl: gtk::GLArea,
+    recent: gtk::ScrolledWindow,
+    player: Rc<RefCell<Option<MpvBundle>>>,
+    last_path: Rc<RefCell<Option<PathBuf>>>,
+    on_video_chrome: Rc<dyn Fn()>,
+    win_aspect: Rc<Cell<Option<f64>>>,
+    sibling_seof: Rc<SiblingEofState>,
+    on_file_loaded: Rc<dyn Fn()>,
+}
+
+fn wire_sibling_navigation(shell: SiblingNavShell) -> SiblingNavCtx {
+    let ctx = SiblingNavCtx {
+        btn_prev: shell.btn_prev,
+        btn_next: shell.btn_next,
+        player: shell.player,
+        win: shell.win,
+        gl: shell.gl,
+        recent: shell.recent,
+        last_path: shell.last_path,
+        on_video_chrome: shell.on_video_chrome,
+        win_aspect: shell.win_aspect,
+        sibling_seof: shell.sibling_seof,
+        on_file_loaded: shell.on_file_loaded,
+    };
+    wire_sibling_nav_buttons(ctx.clone());
+    ctx
 }
 
 fn wire_sibling_nav_buttons(ctx: SiblingNavCtx) {
