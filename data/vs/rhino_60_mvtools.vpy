@@ -4,13 +4,14 @@
 # Loads `libmvtools`: Rhino sets `RHINO_MVTOOLS_LIB` when it finds the .so, else paths below.
 #
 # libmpv provides global `video_in` (see mpv vf=vapoursynth). Requires: mvtools, VS R55+.
-# Source fps: `video_in.fps_*`, else CFR from frame `_Duration` / `_AbsoluteTime` props, else
-# `RHINO_SOURCE_FPS` (Rhino sets from mpv `container-fps`).
+# Source fps: ``RHINO_SOURCE_FPS`` when set (Rhino: mpv ``container-fps``), else ``video_in.fps_*``,
+# else CFR from frame props — vf-forwarded rationals can disagree with the container (~29.97 NTSC).
 # **mpv from a shell** does not set `RHINO_PLAYBACK_SPEED` (Rhino sets it from mpv `speed` when adding vf).
 import math
 import os
 import sys
 from collections import deque
+from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 
 import vapoursynth as vs
@@ -180,24 +181,25 @@ def _speed_frac_from_env() -> Fraction:
 
 
 def _src_fps_from_env() -> tuple[int, int] | None:
-    """Recover the source cadence from `RHINO_SOURCE_FPS` (Rhino sets it from mpv's `container-fps`).
+    """Recover cadence from ``RHINO_SOURCE_FPS`` (Rhino: mpv ``container-fps``).
 
-    Many otherwise-CFR mp4s reach this script with `video_in.fps_num=0 / fps_den=0` because mpv's
-    vapoursynth filter does not always forward the container's rate. Without a fallback the script
-    has to give up and passthrough, which kills smoothing for plain 29.97 / 23.976 / 30 clips.
-    `limit_denominator(1001)` snaps decimals back to NTSC-friendly rationals (29.970 -> 30000/1001,
-    23.976 -> 24000/1001, 30.0 -> 30/1) so FlowFPS still gets an exact ratio.
+    Parse as ``Decimal`` → ``Fraction`` so decimals like ``29.970030`` snap via ``limit_denominator(1001)``
+    to NTSC rationals (e.g. ``30000/1001``) without binary-float noise. Wrong rationals from vf forwarding
+    would skew FlowFPS output-vs-input frame quotients.
     """
     t = (os.environ.get("RHINO_SOURCE_FPS") or "").strip()
     if not t:
         return None
     try:
-        x = float(t)
-    except ValueError:
+        dec = Decimal(t)
+    except InvalidOperation:
         return None
+    if dec <= 0:
+        return None
+    x = float(dec)
     if not (0.1 < x < 1000.0):
         return None
-    f = Fraction(x).limit_denominator(1001)
+    f = Fraction(dec).limit_denominator(1001)
     return f.numerator, f.denominator
 
 
@@ -297,24 +299,18 @@ core.max_cache_size = 4096
 
 clip = video_in
 spd_frac = _speed_frac_from_env()
-src_num = clip.fps_num
-src_den = clip.fps_den
-# `video_in` reports the source rate as `0/0` for **VFR** clips (no single cadence) **and**
-# for many CFR mp4s where mpv's vapoursynth filter simply does not forward the container's
-# fps. Fallback order: **`RHINO_SOURCE_FPS` first** (Rhino sets from mpv `container-fps`) —
-# authoritative for real cadence — then **frame props** (`_Duration` / `_AbsoluteTime` CFR-stable)
-# for shell mpv with no env. Props **after** env because decoder timestamps often follow **display**
-# cadence (~59.94 Hz) while film is 23.976 — using props first incorrectly skips FlowFPS (already ≥60).
-# AssumeFPS-ing a true VFR clip to a guessed rate (the old fallback was hard-coded `24000/1001`)
-# silently rescales declared duration — frame-prop inference still requires matching durations on
-# frames 0 and 1.
+# Prefer ``RHINO_SOURCE_FPS`` when Rhino/mpv publishes it: vapoursynth bridge often leaves
+# ``fps_num/fps_den`` at **0/0** **or** forwards a coarse rational that disagrees with the container
+# (~29.97 NTSC must match ``30000/1001`` for FlowFPS frame quotient math).
 fps_origin = "video_in"
-if src_num <= 0 or src_den <= 0:
-    fb = _src_fps_from_env()
-    if fb is not None:
-        src_num, src_den = fb
-        fps_origin = "RHINO_SOURCE_FPS"
-    else:
+fb_env = _src_fps_from_env()
+if fb_env is not None:
+    src_num, src_den = fb_env
+    fps_origin = "RHINO_SOURCE_FPS"
+else:
+    src_num = clip.fps_num
+    src_den = clip.fps_den
+    if src_num <= 0 or src_den <= 0:
         fb = _src_fps_from_frame_props(clip)
         if fb is not None:
             src_num, src_den = fb
