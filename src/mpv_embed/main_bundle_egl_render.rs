@@ -6,9 +6,7 @@ pub use libmpv2::events::{Event, PropertyData};
 pub use libmpv2::Format;
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 use libmpv2::Mpv;
-use std::os::raw::c_void;
 use std::path::Path;
-use std::ptr;
 
 use crate::db;
 use crate::db::VideoPrefs;
@@ -16,56 +14,42 @@ use crate::media_probe;
 use crate::video_pref::apply_mpv_video_init;
 use gl_platform::GlDynLib;
 
-const GL_FRAMEBUFFER_BINDING: u32 = 0x8ca6;
+// EGL helper types (`EglState`, `egl_proc`, `GL_FRAMEBUFFER_BINDING`) live in
+// `mpv_embed/linux_egl_helpers.rs` and are included into the same module.
 
-#[derive(Copy, Clone)]
-struct EglState {
-    get: gl_platform::GlGetProcAddressFn,
-}
-
-fn egl_proc(s: &EglState, name: &str) -> *mut c_void {
-    let try_name = |n: &str| {
-        std::ffi::CString::new(n).ok().and_then(|c| {
-            let p = unsafe { (s.get)(c.as_ptr()) };
-            if p.is_null() {
-                None
-            } else {
-                Some(p)
-            }
-        })
-    };
-    try_name(name)
-        .or_else(|| try_name(&format!("{name}_OES")))
-        .or_else(|| try_name(&format!("{name}_ARB")))
-        .or_else(|| try_name(&format!("{name}_EXT")))
-        .unwrap_or(ptr::null_mut())
-}
-
-/// Owns loaded GL/EGL (Linux) or relies on GTK’s GL (macOS); see [`GlDynLib`].
+/// Owns loaded GL/EGL (Linux) or a native [`CAOpenGLLayer`] surface (macOS).
 pub struct MpvBundle {
-    _gl: GlDynLib,
     pub mpv: Mpv,
-    render: RenderContext,
-    gl_ptr: usize,
     /// Resume time (seconds) for the next `FileLoaded`. Set by [load_file_path] from `db::resume_pos`,
     /// applied + cleared by [apply_pending_resume] after the file is loaded.
     pending_resume: std::cell::Cell<Option<f64>>,
+
+    #[cfg(not(target_os = "macos"))]
+    _gl: GlDynLib,
+    #[cfg(not(target_os = "macos"))]
+    render: RenderContext,
+    #[cfg(not(target_os = "macos"))]
+    gl_ptr: usize,
     /// Last **GLArea** drawable height in physical pixels (`scale_factor × widget height`). Combined
     /// with mpv **`height`** / **`dheight`** for MVTools CPU tiering (`video_pref::smooth_motion_cost_height`).
+    #[cfg(not(target_os = "macos"))]
     last_draw_h: std::cell::Cell<i32>,
+
+    /// macOS native render surface — owns the NSView, CAOpenGLLayer, dispatch queue, and
+    /// the raw `mpv_render_context`. AppKit menu / popover tracking does not stall it.
+    #[cfg(target_os = "macos")]
+    macos: Option<crate::mpv_embed::macos_video_bundle::MacosRender>,
 }
 
 impl MpvBundle {
-    /// Call with a current GL context on `gl_area` (e.g. inside `GLArea::realize`).
+    /// Call with a current GL context on `gl_area` (Linux: inside `GLArea::realize`;
+    /// macOS: any time the GtkWindow is realized — the GLArea here is used as a sizing
+    /// placeholder, the render context binds to a native `CAOpenGLLayer` instead).
+    ///
     /// [VideoPrefs] (optional VapourSynth 60 fps `vf`) from SQLite; see [apply_mpv_video].
-    /// The `bool` is `true` when **Smooth Video (~60 FPS at 1.0×)** was auto-disabled (VapourSynth `vf` rejected); sync UI.
+    /// The `bool` is `true` when **Smooth Video (~60 FPS at 1.0×)** was auto-disabled.
     pub fn new(gl_area: &gtk::GLArea, video: &mut VideoPrefs) -> Result<(Self, bool), String> {
-        let gl_libs = GlDynLib::load()?;
-        let egl_state = EglState {
-            get: gl_libs.get_proc,
-        };
-
-        let mut mpv = Mpv::with_initializer(|init| {
+        let mpv = Mpv::with_initializer(|init| {
             init.set_option("vo", "libmpv")?;
             init.set_option("osc", "no")?;
             // 0 = auto: libavcodec can use multiple CPU threads for software decode
@@ -87,6 +71,14 @@ impl MpvBundle {
         let _ = mpv.set_property("screenshot-format", "jpeg");
         let _ = mpv.set_property("screenshot-jpeg-quality", 90i64);
         let _ = mpv.set_property("screenshot-png-compression", 0i64);
+
+        Self::finish_new(mpv, gl_area, auto_off)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn finish_new(mut mpv: Mpv, gl_area: &gtk::GLArea, auto_off: bool) -> Result<(Self, bool), String> {
+        let gl_libs = GlDynLib::load()?;
+        let egl_state = EglState { get: gl_libs.get_proc };
 
         let params: Vec<RenderParam<EglState>> = vec![
             RenderParam::ApiType(RenderParamApiType::OpenGl),
@@ -115,9 +107,9 @@ impl MpvBundle {
 
         Ok((
             Self {
-                _gl: gl_libs,
                 mpv,
                 render,
+                _gl: gl_libs,
                 gl_ptr,
                 pending_resume: std::cell::Cell::new(None),
                 last_draw_h: std::cell::Cell::new(0),
@@ -126,10 +118,34 @@ impl MpvBundle {
         ))
     }
 
+    #[cfg(target_os = "macos")]
+    fn finish_new(mut mpv: Mpv, gl_area: &gtk::GLArea, auto_off: bool) -> Result<(Self, bool), String> {
+        let macos = crate::mpv_embed::macos_video_bundle::MacosRender::install(&mut mpv, gl_area)?;
+        Ok((
+            Self {
+                mpv,
+                pending_resume: std::cell::Cell::new(None),
+                macos: Some(macos),
+            },
+            auto_off,
+        ))
+    }
+
+    #[cfg(not(target_os = "macos"))]
     pub(crate) fn smooth_draw_height_px(&self) -> i32 {
         self.last_draw_h.get()
     }
 
+    /// macOS: the native CAOpenGLLayer always presents at the layer's full backing size.
+    /// We track GLArea height in points × scale for the same purpose as Linux.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn smooth_draw_height_px(&self) -> i32 {
+        // mpv's `height` / `dheight` properties are still the truthful source for MVTools
+        // tiering on macOS; this falls back to 0 to keep the existing heuristics conservative.
+        0
+    }
+
+    #[cfg(not(target_os = "macos"))]
     fn draw_impl(&self, area: &gtk::GLArea) -> bool {
         if area.upcast_ref::<glib::Object>().as_ptr() as usize != self.gl_ptr {
             return false;
@@ -146,6 +162,11 @@ impl MpvBundle {
         self.render.render::<EglState>(fbo, w, h, true).is_ok()
     }
 
+    /// Linux: render through the GLArea on the GTK frame clock. macOS: not used — the
+    /// CAOpenGLLayer drives drawing from the displayLink, independent of GTK. The
+    /// macOS render callback clears the GLArea with alpha=0 instead (see
+    /// `macos_video_bundle::clear_glarea_transparent`).
+    #[cfg(not(target_os = "macos"))]
     pub fn draw(&self, area: &gtk::GLArea) {
         let _ = self.draw_impl(area);
     }
@@ -154,38 +175,15 @@ impl MpvBundle {
     /// Call only with GTK GL current on `area` (e.g. inside `GLArea::render`). Needed so libmpv can tear
     /// down the VO before `mpv_render_context_free`; skipping this triggers aborts on macOS GTK.
     pub fn teardown_gl_paint(&self, area: &gtk::GLArea) {
-        if self.draw_impl(area) {
-            self.render.report_swap();
-        }
-        let _ = self.render.update();
-    }
-
-    /// End playback; call after the SQLite snapshot. Safe to skip before process exit.
-    pub fn stop_playback(&self) {
-        let _ = self.mpv.command("stop", &[]);
-    }
-
-    /// Persist `duration` + `time-pos` (and clear them if at natural end) for the open local file.
-    /// Single source of truth for resume — replaces the old mpv `watch_later` sidecar dance.
-    pub fn save_playback_state(&self) {
-        if let Some(p) = media_probe::local_file_from_mpv(&self.mpv) {
-            if media_probe::is_natural_end(&self.mpv) {
-                media_probe::clear_resume_for_path(&p);
-                return;
+        #[cfg(not(target_os = "macos"))]
+        {
+            if self.draw_impl(area) {
+                self.render.report_swap();
             }
+            let _ = self.render.update();
         }
-        media_probe::record_playback_for_current(&self.mpv);
-    }
-
-    /// Save SQLite resume snapshot, then stop playback. Used at process quit.
-    pub fn commit_quit(&self) {
-        self.save_playback_state();
-        self.stop_playback();
-    }
-
-    /// Save SQLite resume snapshot before leaving the open file (e.g. **Back to Browse**).
-    pub fn snapshot_outgoing_before_leave(&self) {
-        self.save_playback_state();
+        #[cfg(target_os = "macos")]
+        let _ = area;
     }
 
     /// Subscribe to mpv property changes. Each tuple is `(reply_id, name, format)`.
@@ -219,6 +217,19 @@ impl MpvBundle {
         });
     }
 
+    /// macOS only: register a GTK widget whose visibility hides the native video layer.
+    /// Call once after [`MpvBundle::new`] with the recent grid (or any overlay that GTK
+    /// stacks on top of the GLArea) so closing the video reveals it.
+    #[cfg(target_os = "macos")]
+    pub fn watch_overlay<W: glib::object::IsA<gtk::Widget>>(&self, widget: &W) {
+        if let Some(m) = self.macos.as_ref() {
+            m.watch_overlay(widget);
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn watch_overlay<W: glib::object::IsA<gtk::Widget>>(&self, _widget: &W) {}
+
     /// Drain libmpv events until the queue is empty, dispatching each to `handler`.
     /// Call from the closure registered by [install_event_drain].
     pub fn drain_events(&mut self, mut handler: impl FnMut(Event<'_>)) {
@@ -233,9 +244,13 @@ impl MpvBundle {
     /// End embedded playback for process quit without going through [`libmpv2::Mpv`]'s `Drop`, which
     /// invokes `mpv_destroy` and aborted with GTK `vo=libmpv` on macOS (`mp_clients_destroy`).
     ///
-    /// Run [`teardown_gl_paint`] with `gl_area` current earlier in the teardown chain; `dispose_for_quit`
-    /// calls [`gtk::prelude::GLAreaExt::make_current`] again before freeing the render context and calling
-    /// `mpv_terminate_destroy`.
+    /// Linux: run [`teardown_gl_paint`] with `gl_area` current earlier in the teardown chain;
+    /// `dispose_for_quit` calls [`gtk::prelude::GLAreaExt::make_current`] again before freeing
+    /// the render context and calling `mpv_terminate_destroy`.
+    ///
+    /// macOS: GLArea is a sizing placeholder only; the native render surface is freed before
+    /// terminating mpv.
+    #[cfg(not(target_os = "macos"))]
     pub fn dispose_for_quit(self, gl_area: &gtk::GLArea) {
         gl_area.make_current();
         let Self {
@@ -252,37 +267,16 @@ impl MpvBundle {
         std::mem::forget(mpv);
     }
 
-    /// Save outgoing resume to SQLite, then `loadfile` the new path. The new file's resume position
-    /// (if any in SQLite) is stashed in [pending_resume]; [apply_pending_resume] consumes it after
-    /// `FileLoaded`. We do **not** pass `start=` as a loadfile option — older mpv (≤ 0.35) treats
-    /// the third positional argument as `<index>` and rejects the whole command.
-    /// When [clear_outgoing_resume] is true, the outgoing file reached the end: drop its DB resume.
-    pub fn load_file_path(&self, path: &Path, clear_outgoing_resume: bool) -> Result<(), String> {
-        if clear_outgoing_resume {
-            if let Some(p) = media_probe::local_file_from_mpv(&self.mpv) {
-                media_probe::clear_resume_for_path(&p);
-            }
-        } else {
-            media_probe::record_playback_for_current(&self.mpv);
+    #[cfg(target_os = "macos")]
+    pub fn dispose_for_quit(mut self, _gl_area: &gtk::GLArea) {
+        // Drop the native render surface first so its dispatch queue stops touching the
+        // mpv render context before we tear it down.
+        self.macos.take();
+        let Self { mut mpv, .. } = self;
+        mpv.set_wakeup_callback(|| {});
+        unsafe {
+            libmpv2_sys::mpv_terminate_destroy(mpv.ctx.as_ptr());
         }
-        let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        let s = canonical.to_str().ok_or("media path is not valid UTF-8")?;
-        self.pending_resume.set(db::resume_pos(&canonical));
-        self.mpv
-            .command("loadfile", &[s, "replace"])
-            .map_err(|e| format!("{e:?}"))
-    }
-
-    /// Apply the resume stashed by the most recent [load_file_path]. Idempotent and a no-op when
-    /// nothing is pending. Call once per `FileLoaded` from the transport-event drain.
-    /// Uses **`absolute+exact`** so the demuxer lands on the saved time (keyframe-only seeks can
-    /// sit at 0s briefly on load and fight the continue grid).
-    pub fn apply_pending_resume(&self) {
-        let Some(t) = self.pending_resume.replace(None) else {
-            return;
-        };
-        let _ = crate::video_pref::unload_smooth_on_pause(&self.mpv);
-        let s = format!("{t:.4}");
-        let _ = self.mpv.command("seek", &[s.as_str(), "absolute+exact"]);
+        std::mem::forget(mpv);
     }
 }
