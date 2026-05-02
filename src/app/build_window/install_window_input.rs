@@ -1,0 +1,44 @@
+{
+    let fs_clock_tick = Rc::new(RefCell::new(None::<glib::SourceId>));
+    wire_window_input(WindowInputCtx {
+        win: w.win.clone(),
+        root: w.root.clone(),
+        header: w.header.clone(),
+        outer_ovl: w.outer_ovl.clone(),
+        video_handle: w.video_handle.clone(),
+        bottom: w.bottom.clone(),
+        gl: w.gl_area.clone(),
+        recent: w.recent_scrl.clone(),
+        app: app.clone(),
+        player: player.clone(),
+        video_pref: Rc::clone(&video_pref),
+        bar_show: bar_show.clone(),
+        nav_t: nav_t.clone(),
+        cur_t: cur_t.clone(),
+        ptr_in_gl: ptr_in_gl.clone(),
+        motion_squelch: motion_squelch.clone(),
+        last_cap_xy: last_cap_xy.clone(),
+        last_gl_xy: last_gl_xy.clone(),
+        fs_restore: fs_restore.clone(),
+        skip_max_to_fs: skip_max_to_fs.clone(),
+        last_unmax: last_unmax.clone(),
+        ch_hide: Rc::clone(&ch_hide),
+        hdr_csd_baseline: Rc::clone(&hdr_csd_baseline),
+        on_browse_back: on_browse_back.clone(),
+        on_video_chrome: on_video_chrome.clone(),
+        on_file_loaded: Rc::clone(&on_file_loaded),
+        last_path: last_path.clone(),
+        win_aspect: win_aspect.clone(),
+        sibling_seof: sibling_seof.clone(),
+        play_pause: w.play_pause.clone(),
+        seek: w.seek.clone(),
+        seek_sync: seek_sync.clone(),
+        time_left: w.time_left.clone(),
+        fs_clock: w.fs_clock.clone(),
+        fs_clock_tick,
+        reapply_60: reapply_60.clone(),
+    });
+
+    #[cfg(target_os = "macos")]
+    wire_macos_media_keys(play_ctx.clone(), sibling_nav_ctx.clone());
+}

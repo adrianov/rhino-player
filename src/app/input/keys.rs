@@ -23,13 +23,7 @@ fn propagation_for_media_keys(
         return Some(glib::Propagation::Stop);
     }
     if key == gtk::gdk::Key::AudioStop {
-        let g = nav.player.borrow();
-        if let Some(b) = g.as_ref() {
-            if b.mpv.get_property::<f64>("duration").unwrap_or(0.0) > 0.0 {
-                let _ = b.mpv.set_property("pause", true);
-                flip_play_icon(&play_key.play_pause, true);
-            }
-        }
+        media_stop(play_key);
         return Some(glib::Propagation::Stop);
     }
     if key == gtk::gdk::Key::AudioPrev {
@@ -85,7 +79,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
         if key == gtk::gdk::Key::Escape {
             if win_key.is_fullscreen() {
                 skip_key.set(true);
-                win_key.unfullscreen();
+                unfullscreen_safe(&win_key);
                 return glib::Propagation::Stop;
             }
             if recent_esc.is_visible() {
