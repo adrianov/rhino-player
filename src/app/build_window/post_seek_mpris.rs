@@ -7,6 +7,9 @@
         time_left: w.time_left.clone(),
         preview_hover_t: seek_preview.hover_t.clone(),
         reapply_60: reapply_60.clone(),
+        smooth_seek_debounce: smooth_seek_debounce.clone(),
+        resume_after_seek_idle: resume_after_seek_idle.clone(),
+        play_toggle: play_ctx.clone(),
     });
 
     #[cfg(target_os = "linux")]
@@ -21,7 +24,10 @@
         &win_aspect,
         &sibling_seof,
         reapply_60.clone(),
+        smooth_seek_debounce.clone(),
+        resume_after_seek_idle.clone(),
         &on_file_loaded,
         &on_video_chrome,
+        w.hdr_title_mirror.clone(),
     );
 }
