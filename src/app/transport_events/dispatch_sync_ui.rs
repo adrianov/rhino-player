@@ -1,6 +1,10 @@
 /// Coalesces Smooth 60 `vf` rebuild: `FileLoaded` and `path` updates often arrive in one drain;
 /// prev/next, sibling EOF, and Open all reach mpv via `loadfile` → those events, plus **`container-fps`**
 /// once the demuxer exposes cadence (often after the first Smooth idle).
+/// **`VideoReconfig`** usually fires in a **later** drain after the decoder settles — scheduling again then
+/// re-runs [smooth_60_full_resync_after_media_change] because `smooth_60_resync_idle_pending` was cleared
+/// when the earlier idle ran (fixes stale cadence / A/V drift if we attached Smooth too early).
+/// A second schedule **within the same burst** before that idle runs is still skipped (`pending` guard).
 fn schedule_smooth_60_resync_idle(ctx: &Rc<TransportCtx>) {
     if ctx.smooth_60_resync_idle_pending.replace(true) {
         return;
@@ -105,6 +109,8 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             refresh_sibling_nav(ctx);
             transport_tick(ctx);
             sync_seek_chapters(ctx);
+            // Usually follows `FileLoaded` in a later drain — second idle reapplies Smooth once output
+            // stabilizes (cadence / vf timing); skipped when redundant with an unserviced pending idle.
             schedule_smooth_60_resync_idle(ctx);
         }
         TransportEv::PathChanged => {
