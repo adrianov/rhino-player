@@ -12,7 +12,8 @@ struct FinalActionCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
     sub_pref: Rc<RefCell<db::SubPrefs>>,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
-    /// macOS global menu bar model (File / View); discarded on Linux.
+    /// macOS global menu bar model (File / View).
+    #[cfg(target_os = "macos")]
     main_menu: gio::Menu,
     pref_menu: gio::Menu,
     seek_bar_on: Rc<Cell<bool>>,

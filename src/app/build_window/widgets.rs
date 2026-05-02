@@ -34,7 +34,7 @@ struct WindowWidgets {
     sub_color_btn: gtk::ColorDialogButton,
     vol_pop: gtk::Popover,
     sub_pop: gtk::Popover,
-    /// Unused empty model on Linux; macOS receives the hierarchical menubar menu.
+    #[cfg(target_os = "macos")]
     main_menu: gio::Menu,
     pref_menu: gio::Menu,
     recent_scrl: gtk::Box,
@@ -62,6 +62,8 @@ fn build_widgets(
 
     let (discard_menu_placeholder, pref_menu, menubar_model) = build_app_menus();
     drop(discard_menu_placeholder);
+    #[cfg(not(target_os = "macos"))]
+    drop(menubar_model);
     let HeaderPopovers {
         vol_adj, vol_mute_btn, audio_tracks_block, audio_tracks_box, audio_tracks_section,
         vol_pop, vol_menu, sub_tracks_block, sub_tracks_box, sub_tracks_section,
@@ -125,7 +127,10 @@ fn build_widgets(
         audio_tracks_box, audio_tracks_block, audio_tracks_section,
         sub_tracks_box, sub_tracks_block, sub_tracks_section,
         sub_scale_adj, sub_color_btn,
-        vol_pop, sub_pop, main_menu: menubar_model, pref_menu,
+        vol_pop, sub_pop,
+        #[cfg(target_os = "macos")]
+        main_menu: menubar_model,
+        pref_menu,
         recent_scrl, flow_recent, recent_spacers, undo_bar,
         fs_clock,
         hdr_title_mirror,

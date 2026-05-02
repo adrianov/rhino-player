@@ -37,7 +37,9 @@
         gl: w.gl_area.clone(),
         recent: w.recent_scrl.clone(), bottom: w.bottom.clone(), player: player.clone(),
         sub_pref: sub_pref.clone(), video_pref: Rc::clone(&video_pref),
-        main_menu: w.main_menu.clone(), pref_menu: w.pref_menu.clone(),
+        #[cfg(target_os = "macos")]
+        main_menu: w.main_menu.clone(),
+        pref_menu: w.pref_menu.clone(),
         seek_bar_on: Rc::clone(&seek_bar_on),
         last_path: last_path.clone(), on_video_chrome: on_video_chrome.clone(),
         on_file_loaded: Rc::clone(&on_file_loaded),
