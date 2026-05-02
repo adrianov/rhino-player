@@ -62,6 +62,15 @@ pub const RHINO_PLAYBACK_SPEED_VAR: &str = "RHINO_PLAYBACK_SPEED";
 /// content by 25 %.
 pub const RHINO_SOURCE_FPS_VAR: &str = "RHINO_SOURCE_FPS";
 
+/// MVTools **`Super` / `Analyse`** block size (`32` or `16`) before attaching the bundled `.vpy`.
+pub const RHINO_MV_BLKSIZE_VAR: &str = "RHINO_MV_BLKSIZE";
+
+/// MVTools block overlap; Rhino clamps to ≤ half of [RHINO_MV_BLKSIZE_VAR].
+pub const RHINO_MV_OVERLAP_VAR: &str = "RHINO_MV_OVERLAP";
+
+/// `1` / `0` — whether **`mv.Super`** uses chroma planes (off saves CPU at very tall frames).
+pub const RHINO_MV_CHROMA_VAR: &str = "RHINO_MV_CHROMA";
+
 /// Bumped in-process before each `vf add vapoursynth` so the bundled `.vpy` can stderr-log **once**
 /// per interpreter for that attach when `RHINO_VPY_LOG_EPOCH` is set (mpv may still re-run the script in a
 /// new interpreter after seek).

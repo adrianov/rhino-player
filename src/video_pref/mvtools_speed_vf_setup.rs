@@ -79,8 +79,6 @@ fn apply_mvtools_env(v: &mut VideoPrefs) -> bool {
 
 /// “≈1.0×” band: bundled mvtools [vf] eligibility and env comparison use this tolerance.
 const PLAYBACK_1X_EPS: f64 = 0.001;
-/// VapourSynth / mvtools needs a deeper queue than ordinary decode to avoid jitter from CPU spikes.
-const VS_BUFFERED_FRAMES: i32 = 24;
 
 static VPY_LOG_EPOCH: AtomicU64 = AtomicU64::new(0);
 
@@ -235,7 +233,7 @@ pub(crate) fn mpv_has_open_media(mpv: &Mpv) -> bool {
     matches!(mpv.get_property::<String>("path"), Ok(s) if !s.trim().is_empty())
 }
 
-fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool {
+fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>, cost_h: i32) -> bool {
     if !v.smooth_60 {
         return false;
     }
@@ -255,6 +253,13 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
         None => set_playback_speed_env_from_mpv(mpv),
     }
     set_source_fps_env_from_mpv(mpv);
+    publish_smooth_mvtools_env(cost_h);
+    if video_log() {
+        eprintln!(
+            "[rhino] video: (verbose) smooth-motion cost_h={cost_h}px buffered-frames={}",
+            smooth_vf_buffered_frames(cost_h)
+        );
+    }
     let epoch = VPY_LOG_EPOCH.fetch_add(1, Ordering::Relaxed);
     std::env::set_var(RHINO_VPY_LOG_EPOCH_VAR, format!("{epoch}"));
     if !apply_mvtools_env(v) {
@@ -269,8 +274,9 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
         return true;
     };
     eprintln!("[rhino] video: VapourSynth script = {p}");
+    let bf = smooth_vf_buffered_frames(cost_h);
     let spec = format!(
-        "vapoursynth:file={}:buffered-frames={VS_BUFFERED_FRAMES}:concurrent-frames=auto",
+        "vapoursynth:file={}:buffered-frames={bf}:concurrent-frames=auto",
         mpv_escape_path(&p),
     );
     if let Err(e) = mpv.command("vf", &["add", &spec]) {

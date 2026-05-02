@@ -50,6 +50,9 @@ pub struct MpvBundle {
     /// Resume time (seconds) for the next `FileLoaded`. Set by [load_file_path] from `db::resume_pos`,
     /// applied + cleared by [apply_pending_resume] after the file is loaded.
     pending_resume: std::cell::Cell<Option<f64>>,
+    /// Last **GLArea** drawable height in physical pixels (`scale_factor × widget height`). Combined
+    /// with mpv **`height`** / **`dheight`** for MVTools CPU tiering (`video_pref::smooth_motion_cost_height`).
+    last_draw_h: std::cell::Cell<i32>,
 }
 
 impl MpvBundle {
@@ -117,9 +120,14 @@ impl MpvBundle {
                 render,
                 gl_ptr,
                 pending_resume: std::cell::Cell::new(None),
+                last_draw_h: std::cell::Cell::new(0),
             },
             auto_off,
         ))
+    }
+
+    pub(crate) fn smooth_draw_height_px(&self) -> i32 {
+        self.last_draw_h.get()
     }
 
     fn draw_impl(&self, area: &gtk::GLArea) -> bool {
@@ -132,6 +140,7 @@ impl MpvBundle {
         if w <= 0 || h <= 0 {
             return false;
         }
+        self.last_draw_h.set(h);
         let mut fbo: i32 = 0;
         unsafe { (self._gl.gl_get_integerv)(GL_FRAMEBUFFER_BINDING, &mut fbo) };
         self.render.render::<EglState>(fbo, w, h, true).is_ok()

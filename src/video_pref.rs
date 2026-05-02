@@ -15,6 +15,8 @@
 //!
 //! When attaching Smooth `vf` with media open, Rhino leaves **`hwdec`** / **`vd-lavc-dr`** unchanged
 //! (usually **`hwdec=auto`**); that works on typical stacks without forcing software decode.
+//! Tall frames use a lighter MVTools preset (`RHINO_MV_*` env + smaller **`buffered-frames=`**) — see
+//! [smooth_motion_cost_height].
 //! After mpv loads a file with Smooth on at ~1.0×, the transport layer schedules [apply_mpv_video]
 //! when **`FileLoaded`** or **`path`** fires (transport coalesced idle). If the active **`vf`** chain
 //! already matches the resolved script and buffer settings, Rhino refreshes env vars only and skips
@@ -31,6 +33,7 @@
 //! call [apply_mpv_video] directly. Transport **`Pause(false)`** runs [smooth_vf_attach_if_playing]
 //! when **`vapoursynth`** is missing (e.g. after a seek while paused).
 
+include!("video_pref/smooth_motion_tier.rs");
 include!("video_pref/mvtools_speed_vf_setup.rs");
 include!("video_pref/smooth_vf_match.rs");
 include!("video_pref/decode_and_apply_mpv_video.rs");

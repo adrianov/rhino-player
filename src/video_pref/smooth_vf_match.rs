@@ -2,7 +2,7 @@
 /// (same script path and frame-queue settings). Used to skip redundant **`vf clr`**/**`vf add`** when
 /// transport fires duplicate idle callbacks after **FileLoaded** / **`path`** — **seek** never reaches
 /// [apply_mpv_video_impl].
-pub(crate) fn smooth_vf_matches_loaded_prefs(mpv: &Mpv, v: &VideoPrefs) -> bool {
+pub(crate) fn smooth_vf_matches_loaded_prefs(mpv: &Mpv, v: &VideoPrefs, cost_h: i32) -> bool {
     if !v.smooth_60 {
         return false;
     }
@@ -16,7 +16,7 @@ pub(crate) fn smooth_vf_matches_loaded_prefs(mpv: &Mpv, v: &VideoPrefs) -> bool 
     if !vfl.contains("vapoursynth") {
         return false;
     }
-    let bf = format!("buffered-frames={VS_BUFFERED_FRAMES}");
+    let bf = format!("buffered-frames={}", smooth_vf_buffered_frames(cost_h));
     if !vf.contains(&bf) || !vf.contains("concurrent-frames=auto") {
         return false;
     }

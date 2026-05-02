@@ -113,7 +113,8 @@ pub fn unload_smooth_on_pause(mpv: &Mpv) -> bool {
     true
 }
 pub fn apply_mpv_video_init(mpv: &Mpv, v: &mut VideoPrefs) -> MpvVideoApply {
-    apply_mpv_video_impl(mpv, v, None, None)
+    let cost_h = smooth_motion_cost_height(mpv, 0);
+    apply_mpv_video_impl(mpv, v, None, None, cost_h)
 }
 
 /// Normal playback is intentionally a no-op: leave mpv's timing, decode, and filter defaults alone.
@@ -133,7 +134,8 @@ fn log_apply(v: &VideoPrefs) {
 }
 
 pub fn apply_mpv_video(b: &MpvBundle, v: &mut VideoPrefs, speed_hint: Option<f64>) -> MpvVideoApply {
-    apply_mpv_video_impl(&b.mpv, v, speed_hint, None)
+    let cost_h = smooth_motion_cost_height(&b.mpv, b.smooth_draw_height_px());
+    apply_mpv_video_impl(&b.mpv, v, speed_hint, None, cost_h)
 }
 
 /// Runs [apply_mpv_video_impl] with **`pause=no`** assumed for MVTools eligibility — mpv's **`pause`**
@@ -144,7 +146,8 @@ pub fn apply_mpv_video_after_transport_unpause(
     v: &mut VideoPrefs,
     speed_hint: Option<f64>,
 ) -> MpvVideoApply {
-    apply_mpv_video_impl(&b.mpv, v, speed_hint, Some(false))
+    let cost_h = smooth_motion_cost_height(&b.mpv, b.smooth_draw_height_px());
+    apply_mpv_video_impl(&b.mpv, v, speed_hint, Some(false), cost_h)
 }
 
 fn apply_mpv_video_impl(
@@ -152,6 +155,7 @@ fn apply_mpv_video_impl(
     v: &mut VideoPrefs,
     speed_hint: Option<f64>,
     pause_override: Option<bool>,
+    smooth_cost_h: i32,
 ) -> MpvVideoApply {
     let vlog = video_log();
     log_apply(v);
@@ -170,14 +174,14 @@ fn apply_mpv_video_impl(
         return MpvVideoApply::default();
     }
     if !mpv_has_open_media(mpv) {
-        let disabled_60 = add_smooth_60(mpv, v, speed_hint);
+        let disabled_60 = add_smooth_60(mpv, v, speed_hint, smooth_cost_h);
         post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
         return MpvVideoApply {
             smooth_auto_off: disabled_60,
         };
     }
 
-    if had_vapoursynth && smooth_vf_matches_loaded_prefs(mpv, v) {
+    if had_vapoursynth && smooth_vf_matches_loaded_prefs(mpv, v, smooth_cost_h) {
         match speed_hint {
             Some(s) => set_playback_speed_env(s),
             None => set_playback_speed_env_from_mpv(mpv),
@@ -196,7 +200,7 @@ fn apply_mpv_video_impl(
             "[rhino] video: rebuilding vapoursynth vf ({RHINO_SOURCE_FPS_VAR} changed)"
         );
         clear_vf(mpv, vlog);
-        let disabled_60 = add_smooth_60(mpv, v, speed_hint);
+        let disabled_60 = add_smooth_60(mpv, v, speed_hint, smooth_cost_h);
         post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
         return MpvVideoApply {
             smooth_auto_off: disabled_60,
@@ -205,7 +209,7 @@ fn apply_mpv_video_impl(
 
     // Leave hwdec / vd-lavc-dr unchanged when attaching VS (default hwdec=auto is fine on typical stacks).
     clear_vf(mpv, vlog);
-    let disabled_60 = add_smooth_60(mpv, v, speed_hint);
+    let disabled_60 = add_smooth_60(mpv, v, speed_hint, smooth_cost_h);
     post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
     MpvVideoApply {
         smooth_auto_off: disabled_60,
