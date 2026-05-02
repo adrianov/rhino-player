@@ -201,7 +201,8 @@ fn append_cursor_css(css: &mut String) {
     if cfg!(target_os = "macos") {
         return;
     }
-    if gtk::minor_version() >= 12 {
+    // Match gtk4 crate `v4_14`: older runtimes' CSS parsers reject `cursor` and log theme errors.
+    if gtk::minor_version() >= 14 {
         css.push_str(CURSOR_CSS);
     }
 }
