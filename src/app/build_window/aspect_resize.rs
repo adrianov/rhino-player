@@ -2,7 +2,7 @@
 /// aspect-ratio–aware window resize scheduling.
 fn wire_aspect_resize_on_map(
     win: &adw::ApplicationWindow,
-    recent: &gtk::ScrolledWindow,
+    recent: &gtk::Box,
     win_aspect: &Rc<Cell<Option<f64>>>,
     deb: &Rc<RefCell<Option<glib::SourceId>>>,
     wired: &Rc<Cell<bool>>,

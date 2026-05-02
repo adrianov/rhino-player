@@ -1,6 +1,7 @@
 
 use adw::prelude::*;
 use gtk::glib;
+use gtk::glib::prelude::Cast;
 use gtk::prelude::EventControllerExt;
 use gtk::prelude::IsA;
 use std::cell::RefCell;
@@ -14,9 +15,9 @@ use std::time::Duration;
 
 use crate::media_probe::{self, card_data_list, CardData};
 
-const CARD_ASPECT: f64 = 5.0 / 3.0;
-const CARD_MIN_W: i32 = 220;
-const CARD_MAX_W: i32 = 620;
+pub(crate) const CARD_ASPECT: f64 = 16.0 / 9.0;
+pub(crate) const CARD_MIN_W: i32 = 220;
+pub(crate) const CARD_MAX_W: i32 = 620;
 const CARD_GAP: i32 = 16;
 
 /// Session undo: title, **Undo**, close (dismisses without restoring). Placed in [new_scroll] under the card row.
@@ -70,10 +71,10 @@ fn new_undo_bar() -> UndoBar {
     bar.add_css_class("rp-undo-toast");
 
     let shell = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    shell.set_halign(gtk::Align::Center);
+    shell.set_hexpand(true);
+    shell.set_halign(gtk::Align::Fill);
     shell.set_valign(gtk::Align::Start);
     shell.set_vexpand(false);
-    shell.set_hexpand(false);
     shell.set_visible(false);
     shell.set_margin_top(4);
     shell.set_margin_start(16);
@@ -89,17 +90,32 @@ fn new_undo_bar() -> UndoBar {
     }
 }
 
-/// Scrolled row of at most five continue cards, with the undo snackbar **under** the strip (in-layout, not under the window bottom toolbar).
+/// Scrolled row of at most five continue cards, with the undo snackbar **under** the strip but
+/// outside the horizontal scroller — the pill stays centered on the viewport when the strip scrolls.
 ///
 /// The four `[gtk::Box]` spacers (top, left, right, bottom around the **card** row) are the **empty** hit
 /// area for main-window double-click fullscreen: not the card strip or undo bar.
-pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, [gtk::Box; 4], UndoBar) {
+pub fn new_scroll() -> (gtk::Box, gtk::Box, [gtk::Box; 4], UndoBar) {
     let h = gtk::Box::new(gtk::Orientation::Horizontal, 16);
     h.set_halign(gtk::Align::Center);
     h.set_baseline_position(gtk::BaselinePosition::Top);
     h.set_vexpand(false);
     h.set_hexpand(false);
     h.add_css_class("rp-recent-row");
+
+    let card_scr = gtk::ScrolledWindow::builder()
+        .child(&h)
+        .vexpand(false)
+        .hexpand(true)
+        .halign(gtk::Align::Fill)
+        .valign(gtk::Align::Start)
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .vscrollbar_policy(gtk::PolicyType::Never)
+        .kinetic_scrolling(false)
+        .propagate_natural_width(true)
+        .propagate_natural_height(true)
+        .build();
+    card_scr.add_css_class("rp-recent-scroll");
 
     let sp_left = gtk::Box::new(gtk::Orientation::Vertical, 0);
     sp_left.set_hexpand(true);
@@ -113,7 +129,7 @@ pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, [gtk::Box; 4], UndoBar) {
     row.set_hexpand(true);
     row.set_vexpand(false);
     row.append(&sp_left);
-    row.append(&h);
+    row.append(&card_scr);
     row.append(&sp_right);
 
     let v = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -133,16 +149,7 @@ pub fn new_scroll() -> (gtk::ScrolledWindow, gtk::Box, [gtk::Box; 4], UndoBar) {
     v.append(&undo_bar.shell);
     v.append(&sp_bot);
 
-    let s = gtk::ScrolledWindow::new();
-    s.set_child(Some(&v));
-    s.set_vexpand(true);
-    s.set_hexpand(true);
-    s.set_halign(gtk::Align::Fill);
-    s.set_vscrollbar_policy(gtk::PolicyType::Never);
-    s.set_hscrollbar_policy(gtk::PolicyType::Automatic);
-    s.set_kinetic_scrolling(false);
-    s.add_css_class("rp-recent-scroll");
-    (s, h, [sp_top, sp_left, sp_right, sp_bot], undo_bar)
+    (v, h, [sp_top, sp_left, sp_right, sp_bot], undo_bar)
 }
 
 fn clear(f: &gtk::Box) {
@@ -162,13 +169,22 @@ fn card_width(strip_w: i32, count: usize) -> i32 {
     target.clamp(CARD_MIN_W, CARD_MAX_W)
 }
 
-/// The card row [gtk::Box] (`rp-recent-row`) sits inside a full-width parent; use that width for
-/// the 40% / multi-card math. Do **not** fall back to [card_row.width()]: before the first real
-/// allocation it can be a stale large value, so the first [sync_card_sizes] would clamp the card
-/// to [CARD_MAX_W] and the next sync (often on first hover when layout settles) would shrink it.
+/// Width used for [`card_width`] / [`sync_card_sizes`]: nearest ancestor
+/// [`gtk::ScrolledWindow`]'s width (viewport strip), not the scrolled child's width — so undo stays
+/// centered when the strip scrolls. Fallback: [`card_row`]'s parent width once layout exists.
 fn strip_width_for_cards(card_row: &gtk::Box) -> Option<i32> {
-    let w = card_row.parent()?.width();
-    (w > 0).then_some(w)
+    let mut w_opt = Some(card_row.parent()?);
+    while let Some(w) = w_opt.take() {
+        if let Some(sw) = w.downcast_ref::<gtk::ScrolledWindow>() {
+            let ww = sw.width();
+            if ww > 0 {
+                return Some(ww);
+            }
+        }
+        w_opt = w.parent();
+    }
+    let fb = card_row.parent()?.width();
+    (fb > 0).then_some(fb)
 }
 
 fn sync_card_sizes(card_row: &gtk::Box, cards: &[gtk::Overlay]) {
@@ -184,6 +200,12 @@ fn sync_card_sizes(card_row: &gtk::Box, cards: &[gtk::Overlay]) {
         card.set_size_request(w, h);
         card.set_width_request(w);
         card.set_height_request(h);
+        if let Some(pw) = card.parent() {
+            if let Some(clamp) = pw.downcast_ref::<adw::Clamp>() {
+                clamp.set_width_request(w);
+                clamp.set_height_request(h);
+            }
+        }
     }
 }
 

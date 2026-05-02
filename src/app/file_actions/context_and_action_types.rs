@@ -6,7 +6,7 @@ struct VideoFileActions {
 struct VideoFileActionCtx {
     app: adw::Application,
     player: Rc<RefCell<Option<MpvBundle>>>,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
     /// Single closure replacing repeated [BackToBrowseCtx] construction; arg = `clear_undo`.
     on_browse_back: Rc<dyn Fn(bool)>,
     undo_timer: Rc<RefCell<Option<glib::source::SourceId>>>,

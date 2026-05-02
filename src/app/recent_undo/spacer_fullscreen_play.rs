@@ -4,7 +4,7 @@ fn wire_recent_spacer_fullscreen(
     fs_restore: &Rc<RefCell<Option<(i32, i32)>>>,
     last_unmax: &Rc<RefCell<(i32, i32)>>,
     skip_max_to_fs: &Rc<Cell<bool>>,
-    recent: &gtk::ScrolledWindow,
+    recent: &gtk::Box,
 ) {
     for sp in sp_empty {
         let d2 = gtk::GestureClick::new();
@@ -32,12 +32,13 @@ struct PlayToggleCtx {
     win: adw::ApplicationWindow,
     video_handle: gtk::WindowHandle,
     gl: gtk::GLArea,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     on_video_chrome: Rc<dyn Fn()>,
     on_file_loaded: Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
     sub_menu: Option<gtk::MenuButton>,
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
     /// Bottom-bar play/pause button. The toggle handler updates its icon
     /// optimistically so the click feels instant; the 1 Hz transport tick
     /// reconciles with mpv's actual state right after.
@@ -103,7 +104,8 @@ fn toggle_play_pause(ctx: &PlayToggleCtx) -> bool {
     if ctx.recent.is_visible() {
         if let Some(path) = local_file_from_mpv(&b.mpv) {
             *ctx.last_path.borrow_mut() = std::fs::canonicalize(&path).ok();
-            ctx.win.set_title(Some(title_for_open_path(&path).as_str()));
+            let ttl = title_for_open_path(&path);
+            sync_app_window_title(&ctx.win, ctx.hdr_title_mirror.as_deref(), Some(ttl.as_str()));
         }
         sync_window_aspect_from_mpv(&b.mpv, ctx.win_aspect.as_ref());
         ctx.gl.queue_render();
