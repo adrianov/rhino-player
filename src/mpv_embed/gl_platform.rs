@@ -2,8 +2,10 @@
 
 #[cfg(target_os = "linux")]
 use libloading::Library;
+#[cfg(target_os = "macos")]
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
+#[cfg(target_os = "macos")]
 use std::ptr;
 
 pub type GlGetProcAddressFn = unsafe extern "C" fn(*const c_char) -> *mut c_void;
@@ -25,15 +27,15 @@ impl GlDynLib {
         {
             let _egl = unsafe { Library::new("libEGL.so.1") }.map_err(|e| e.to_string())?;
             let _gl = unsafe { Library::new("libGL.so.1") }.map_err(|e| e.to_string())?;
-            let egl_get: libloading::Symbol<GlGetProcAddressFn> =
-                unsafe { _egl.get(b"eglGetProcAddress\0") }.map_err(|e| e.to_string())?;
-            let gl_get: libloading::Symbol<GlGetIntegervFn> =
-                unsafe { _gl.get(b"glGetIntegerv\0") }.map_err(|e| e.to_string())?;
+            // Copy fn pointers out of [Symbol] before moving [Library] (Symbol borrows Library).
+            let get_proc = *unsafe { _egl.get(b"eglGetProcAddress\0") }.map_err(|e| e.to_string())?;
+            let gl_get_integerv =
+                *unsafe { _gl.get(b"glGetIntegerv\0") }.map_err(|e| e.to_string())?;
             Ok(Self {
                 _egl,
                 _gl,
-                get_proc: *egl_get,
-                gl_get_integerv: *gl_get,
+                get_proc,
+                gl_get_integerv,
             })
         }
         #[cfg(target_os = "macos")]
