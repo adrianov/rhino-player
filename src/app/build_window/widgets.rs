@@ -157,7 +157,7 @@ fn build_bottom_bar(
     close_btn.add_css_class("flat");
     close_btn.set_valign(gtk::Align::Center);
     close_btn.set_action_name(Some("app.close-video"));
-    close_btn.set_margin_start(4);
+    close_btn.set_margin_start(2);
     bottom.append(&close_btn);
     bottom
 }

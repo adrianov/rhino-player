@@ -11,13 +11,35 @@ const APP_CSS: &str = r#"
             color: #eeeeec;
             box-shadow: none;
             border: none;
+            min-height: 0;
+            padding: 0 4px;
+        }
+        toolbarview.rp-toolbar headerbar.rpb-header {
+            min-height: 0;
+            padding: 0 4px;
+        }
+        .rpb-header menubutton.flat > button {
+            min-height: 26px;
+            min-width: 26px;
+            padding: 2px;
+        }
+        menubutton.rp-speed-mbtn.flat > button {
+            min-height: 26px;
+            min-width: 0;
+            padding-left: 4px;
+            padding-right: 4px;
+        }
+        .rpb-header windowcontrols button.image-button {
+            min-height: 26px;
+            min-width: 26px;
+            padding: 1px;
         }
         label.rp-fs-clock {
             color: #c0bfbc;
             font-family: monospace, monospace;
             font-feature-settings: "tnum";
-            margin-right: 10px;
-            font-size: 0.95em;
+            margin-right: 6px;
+            font-size: 0.92em;
         }
         menubutton.rp-speed-mbtn.flat box.rp-speed-face {
             padding: 0;
@@ -43,12 +65,12 @@ const APP_CSS: &str = r#"
         .rp-bottom {
             background-color: #1e1e1e;
             border-top: 1px solid #3d3d3d;
-            padding: 8px 14px 12px 14px;
+            padding: 4px 10px 6px 10px;
         }
         /* LTR clock spacing; avoid margin-inline-end (not in all GTK CSS parsers). */
-        .rp-bottom .rpb-prev { margin-right: 2px; }
-        .rp-bottom .rpb-play { margin-left: 2px; margin-right: 2px; }
-        .rp-bottom .rpb-next { margin-right: 6px; }
+        .rp-bottom .rpb-prev { margin-right: 1px; }
+        .rp-bottom .rpb-play { margin-left: 1px; margin-right: 1px; }
+        .rp-bottom .rpb-next { margin-right: 4px; }
         .rp-time {
             color: #c0bfbc;
             font-family: monospace, monospace;
@@ -56,7 +78,7 @@ const APP_CSS: &str = r#"
             min-width: 3.2em;
         }
         .rp-time-dim { color: #9a9996; }
-        scale.rp-seek { margin: 0 4px; }
+        scale.rp-seek { margin: 0 2px; }
         scale.rp-vol { margin: 0; }
         scale.rp-vol > trough { min-height: 4px; }
         /* Smaller thumb than default libadwaita touch slab so trough clicks succeed for short seeks. */

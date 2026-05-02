@@ -116,6 +116,7 @@ fn build_toolbar_header_shell(
     fs_clock.set_visible(false);
 
     let root = adw::ToolbarView::new();
+    root.add_css_class("rp-toolbar");
     let header = adw::HeaderBar::new();
     header.add_css_class("rpb-header");
     #[cfg(not(target_os = "macos"))]
