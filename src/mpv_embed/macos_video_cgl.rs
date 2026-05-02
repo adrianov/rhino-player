@@ -10,6 +10,7 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 use std::ptr::NonNull;
+use std::sync::OnceLock;
 
 pub use objc2_open_gl::{CGLContextObj, CGLPixelFormatObj};
 use objc2_open_gl::{
@@ -25,6 +26,9 @@ extern "C" {
 }
 
 const RTLD_LAZY: c_int = 0x1;
+
+type GlClearColorFn = unsafe extern "C" fn(f32, f32, f32, f32);
+type GlClearFn = unsafe extern "C" fn(c_int);
 
 /// Build a CGL pixel format compatible with mpv's GPU renderer (3.2 Core preferred,
 /// legacy as a last resort), then create the matching context with vsync on and the
@@ -100,6 +104,8 @@ pub fn destroy(pix: CGLPixelFormatObj, ctx: CGLContextObj) {
 /// points without us linking to `libGL` (which doesn't exist on macOS).
 pub struct GlSymbolLoader {
     handle: *mut c_void,
+    /// One resolve per loader — avoids a process-global cache if another instance used a different dlopen.
+    clear_syms: OnceLock<Option<(GlClearColorFn, GlClearFn)>>,
 }
 
 unsafe impl Send for GlSymbolLoader {}
@@ -113,7 +119,27 @@ impl GlSymbolLoader {
         if handle.is_null() {
             return Err("dlopen OpenGL.framework failed".into());
         }
-        Ok(Self { handle })
+        Ok(Self {
+            handle,
+            clear_syms: OnceLock::new(),
+        })
+    }
+
+    /// `glClearColor` + `glClear` from this loader's OpenGL.framework handle (`None` if missing).
+    pub(crate) fn cached_clear_syms(&self) -> Option<(GlClearColorFn, GlClearFn)> {
+        *self.clear_syms.get_or_init(|| {
+            let cc = self.lookup("glClearColor");
+            let cl = self.lookup("glClear");
+            if cc.is_null() || cl.is_null() {
+                return None;
+            }
+            unsafe {
+                Some((
+                    std::mem::transmute::<*mut c_void, GlClearColorFn>(cc),
+                    std::mem::transmute::<*mut c_void, GlClearFn>(cl),
+                ))
+            }
+        })
     }
 
     pub fn lookup(&self, name: &str) -> *mut c_void {

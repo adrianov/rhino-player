@@ -19,7 +19,7 @@
 #![allow(deprecated)]
 
 use std::os::raw::c_void;
-use std::ptr;
+use std::ptr::{self, NonNull};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -64,8 +64,9 @@ impl DisplayLinkDriver {
     pub fn install(layer: Retained<RhinoMpvGlLayer>) -> Result<(Self, Arc<DriverStateHandle>), String> {
         let state = DriverState::new(layer);
         let mut link_ptr: *mut CVDisplayLink = ptr::null_mut();
-        let out = ptr::NonNull::new(&mut link_ptr).ok_or("displayLink out ptr nil")?;
-        let err = unsafe { CVDisplayLinkCreateWithActiveCGDisplays(out) };
+        let err = unsafe {
+            CVDisplayLinkCreateWithActiveCGDisplays(NonNull::from(&mut link_ptr))
+        };
         if err != 0 || link_ptr.is_null() {
             return Err(format!("CVDisplayLinkCreateWithActiveCGDisplays failed: {err}"));
         }

@@ -29,30 +29,6 @@ use super::macos_video_displaylink::DriverStateHandle;
 
 const GL_COLOR_BUFFER_BIT: c_int = 0x4000;
 
-type GlClearColorFn = unsafe extern "C" fn(f32, f32, f32, f32);
-type GlClearFn = unsafe extern "C" fn(c_int);
-
-/// Look up `glClearColor` + `glClear` from the dlopen handle inside `loader` and cache
-/// them in a process-global slot. Returns `None` if either symbol is missing (so we
-/// fail closed without crashing).
-fn cached_clear_syms(loader: &GlSymbolLoader) -> Option<(GlClearColorFn, GlClearFn)> {
-    use std::sync::OnceLock;
-    static SYMS: OnceLock<Option<(GlClearColorFn, GlClearFn)>> = OnceLock::new();
-    *SYMS.get_or_init(|| {
-        let cc = loader.lookup("glClearColor");
-        let cl = loader.lookup("glClear");
-        if cc.is_null() || cl.is_null() {
-            return None;
-        }
-        unsafe {
-            Some((
-                std::mem::transmute::<*mut c_void, GlClearColorFn>(cc),
-                std::mem::transmute::<*mut c_void, GlClearFn>(cl),
-            ))
-        }
-    })
-}
-
 /// macOS render plumbing tied to one [`Mpv`] instance. Drop order matters — see [`Drop`].
 pub struct MacosRender {
     /// CAOpenGLLayer + NSView + CVDisplayLink driver. Must outlive the render context
@@ -113,7 +89,7 @@ impl MacosRender {
     /// shows through. Reuses the same `OpenGL.framework` handle that the render context
     /// holds, so we never `dlopen` it twice.
     pub fn clear_glarea_transparent(&self) {
-        let Some((clear_color, clear)) = cached_clear_syms(&self.gl_loader) else {
+        let Some((clear_color, clear)) = self.gl_loader.cached_clear_syms() else {
             return;
         };
         unsafe {
