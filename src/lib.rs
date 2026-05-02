@@ -7,6 +7,7 @@ mod audio_tracks;
 mod continue_undo;
 mod db;
 mod glib_log_filter;
+mod mpris;
 mod history;
 mod icons;
 mod idle_inhibit;

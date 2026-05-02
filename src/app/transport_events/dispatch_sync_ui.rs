@@ -1,5 +1,6 @@
 /// Coalesces Smooth 60 `vf` rebuild: `FileLoaded` and `path` updates often arrive in one drain;
-/// prev/next, sibling EOF, and Open all reach mpv via `loadfile` → these transport events.
+/// prev/next, sibling EOF, and Open all reach mpv via `loadfile` → those events, plus **`container-fps`**
+/// once the demuxer exposes cadence (often after the first Smooth idle).
 fn schedule_smooth_60_resync_idle(ctx: &Rc<TransportCtx>) {
     if ctx.smooth_60_resync_idle_pending.replace(true) {
         return;
@@ -56,7 +57,7 @@ fn sync_smooth_vf_on_pause_transition(ctx: &Rc<TransportCtx>, paused: bool) {
     ctx.eof.gl.queue_render();
 }
 
-/// Dispatch property-change / FileLoaded / VideoReconfig / PathChanged events.
+/// Dispatch property-change / FileLoaded / VideoReconfig / PathChanged / `container-fps` events.
 /// Time-pos, core-idle, and EOF detection live in [transport_tick] (see deferred_resync.rs).
 fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
     let w = &ctx.widgets;
@@ -112,7 +113,11 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             schedule_smooth_60_resync_idle(ctx);
             sync_seek_chapters(ctx);
         }
+        TransportEv::ContainerFpsChanged => {
+            schedule_smooth_60_resync_idle(ctx);
+        }
     }
+    mpris_enqueue_snapshot(ctx);
 }
 
 /// Recomputes Prev/Next sensitivity + tooltips. Called on `path`/`FileLoaded`/`VideoReconfig`.

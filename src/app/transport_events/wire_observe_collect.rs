@@ -1,8 +1,9 @@
 // Transport / volume / mute / EOF wiring.
 //
 // Property observation is used for state that changes on user/UI action (pause, duration, volume,
-// mute, volume-max, path) so the UI updates immediately. Time-pos, core-idle, eof-reached, and
-// speed are sampled by [transport_tick] every second instead — libmpv property-change events for
+// mute, volume-max, path, **container-fps**) so the UI updates immediately. **`container-fps`**
+// triggers a deferred Smooth / VapourSynth resync when the cadence becomes known after `loadfile`.
+// Time-pos, core-idle, eof-reached, and speed are sampled by [transport_tick] every second instead — libmpv property-change events for
 // those are unreliable at high playback speed (see `docs/features/04-transport-and-progress.md`,
 // `events-over-polling.mdc`: this is a documented fallback when no reliable event exists).
 //
@@ -15,6 +16,7 @@ const PROP_VOLUME: u64 = 3;
 const PROP_MUTE: u64 = 4;
 const PROP_VOLUME_MAX: u64 = 5;
 const PROP_PATH: u64 = 6;
+const PROP_CONTAINER_FPS: u64 = 7;
 
 /// State + UI tick. 1 Hz is enough for the time labels and seek-bar thumb at any speed; sibling
 /// advance fires within a second of mpv reaching `core-idle` near the end.
@@ -34,6 +36,8 @@ enum TransportEv {
     VideoReconfig,
     /// `path` changed; consumers re-read mpv to fetch the up-to-date file path.
     PathChanged,
+    /// `container-fps` changed — refresh `RHINO_SOURCE_FPS` / `.vpy` graph after prev/next `loadfile`.
+    ContainerFpsChanged,
 }
 
 struct TransportWidgets {
