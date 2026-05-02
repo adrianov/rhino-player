@@ -23,6 +23,28 @@ _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_OVERLAP = 16
 _MV_GLOBAL_HINT = {"global": True}
 
+
+def _mv_blksize() -> int:
+    try:
+        b = int(os.environ.get("RHINO_MV_BLKSIZE", "32"))
+    except ValueError:
+        b = 32
+    return max(8, min(64, b))
+
+
+def _mv_overlap_for(blksize: int) -> int:
+    half = max(1, blksize // 2)
+    try:
+        raw = int(os.environ.get("RHINO_MV_OVERLAP", str(min(_MV_OVERLAP, half))))
+    except ValueError:
+        raw = min(_MV_OVERLAP, half)
+    return max(0, min(half, raw))
+
+
+def _mv_chroma() -> bool:
+    v = (os.environ.get("RHINO_MV_CHROMA", "1") or "1").strip().lower()
+    return v not in ("0", "false", "no", "off")
+
 # mpv may run this script multiple times per single `vf` attach; Rhino sets `RHINO_VPY_LOG_EPOCH`
 # for within-interpreter dedupe only (same epoch twice in one Python process → one stderr line).
 # mpv may use a fresh interpreter after seek — the banner can repeat there; no temp files.
@@ -267,19 +289,22 @@ else:
             sn, sd = _mul_src_fps_rational(src_num, src_den, spd_frac)
             work = core.std.AssumeFPS(clip, fpsnum=sn, fpsden=sd)
         # Keep the fast preset, blend block edges, let MVTools detect broad camera pans.
-        sup = core.mv.Super(work, pel=1, sharp=1, chroma=True)
+        _blk = _mv_blksize()
+        _ov = _mv_overlap_for(_blk)
+        _chroma = _mv_chroma()
+        sup = core.mv.Super(work, pel=1, sharp=1, chroma=_chroma)
         v_backward = core.mv.Analyse(
             sup,
-            blksize=32,
-            overlap=_MV_OVERLAP,
+            blksize=_blk,
+            overlap=_ov,
             search=0,
             isb=True,
             **_MV_GLOBAL_HINT,
         )
         v_forward = core.mv.Analyse(
             sup,
-            blksize=32,
-            overlap=_MV_OVERLAP,
+            blksize=_blk,
+            overlap=_ov,
             search=0,
             isb=False,
             **_MV_GLOBAL_HINT,
