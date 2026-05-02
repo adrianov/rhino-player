@@ -147,15 +147,29 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                 }
                 b.set(false);
                 show_fs_wall_clock_fullscreen(&fs_clock, &fs_tick_slot, w);
+                tch_fs(w);
             } else {
                 b.set(true);
                 stop_fs_clock_tick(&fs_tick_slot);
                 fs_clock.set_visible(false);
-                restore_windowed_size(&fr, w);
-                let s = skip_fs.clone();
-                let _ = glib::source::idle_add_local_once(move || { s.set(false); });
+                // Defer unmaximize + set_default_size: calling unmaximize synchronously from this
+                // handler can leave `is_fullscreen()` true for one more notify cycle, which hits
+                // `maximized_notify`'s "!maximized && fullscreen" path → unfullscreen again and
+                // recurse until stack overflow (e.g. double-click exit).
+                //
+                // Run chrome refresh in the same idle after restore: `apply_chrome` + `queue_draw`
+                // during the fullscreen→windowed transition can race gdk-macos display-link pause and
+                // trip `gdk_display_link_source_pause (source->paused == FALSE)` (Gdk-CRITICAL).
+                let fr_leave = Rc::clone(&fr);
+                let w_leave = w.clone();
+                let skip_leave = skip_fs.clone();
+                let tch_leave = Rc::clone(&tch_fs);
+                let _ = glib::source::idle_add_local_once(move || {
+                    restore_windowed_size(&fr_leave, &w_leave);
+                    skip_leave.set(false);
+                    tch_leave(&w_leave);
+                });
             }
-            tch_fs(w);
             if !w.is_fullscreen() {
                 let gl2 = gl_fs.clone();
                 let bot2 = bottom_fs.clone();
