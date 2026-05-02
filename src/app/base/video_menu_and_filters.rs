@@ -53,18 +53,25 @@ fn set_toolbar_reveal(root: &adw::ToolbarView, show: bool) -> bool {
 /// ([vs-custom]), [choose-vs].
 fn video_pref_submenu_rebuild(m: &gio::Menu, p: &db::VideoPrefs, app: &adw::Application) {
     m.remove_all();
-    m.append(Some(SMOOTH60_MENU_LABEL), Some("app.smooth-60"));
-    m.append(Some(SEEK_BAR_MENU_LABEL), Some("app.seek-bar-preview"));
+    menu_append_action_icon(m, Some(SMOOTH60_MENU_LABEL), Some("app.smooth-60"), Some("camera-video-symbolic"));
+    menu_append_action_icon(
+        m,
+        Some(SEEK_BAR_MENU_LABEL),
+        Some("app.seek-bar-preview"),
+        Some("sidebar-show-symbolic"),
+    );
     if !p.vs_path.trim().is_empty() {
         let name = std::path::Path::new(p.vs_path.trim())
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("script.vpy");
-        m.append(Some(name), Some("app.vs-custom"));
+        menu_append_action_icon(m, Some(name), Some("app.vs-custom"), Some("text-x-generic-symbolic"));
     }
-    m.append(
+    menu_append_action_icon(
+        m,
         Some("Choose VapourSynth Script (.vpy)…"),
         Some("app.choose-vs"),
+        Some("document-properties-symbolic"),
     );
     if let Some(a) = app
         .lookup_action("vs-custom")
