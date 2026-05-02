@@ -39,6 +39,7 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     if core_idle && dur > 0.0 && (dur - pos) <= TICK_EOF_TAIL_SEC {
         run_sibling_eof(ctx);
     }
+    mpris_enqueue_snapshot(ctx);
 }
 
 fn read_transport_state(
