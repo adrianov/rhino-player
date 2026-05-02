@@ -50,10 +50,6 @@ fn build_macos_menubar(pref_menu: &gio::Menu) -> gio::Menu {
     menu_append_action_icon(&file_extra, Some("Move to Trash"), Some("app.move-to-trash"), Some("user-trash-symbolic"));
     file.append_section(None::<&str>, &file_extra);
 
-    let file_about = gio::Menu::new();
-    menu_append_action_icon(&file_about, Some("About Rhino Player"), Some("app.about"), Some("help-about-symbolic"));
-    file.append_section(None::<&str>, &file_about);
-
     root.append_submenu(Some("File"), &file);
 
     let view = gio::Menu::new();
