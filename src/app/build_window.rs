@@ -195,7 +195,7 @@ fn build_window(
 
     wire_window_drop_targets(&w.win, player, &w.sub_menu, &on_open);
 
-    let sibling_nav_ctx = wire_sibling_navigation(SiblingNavShell {
+    let sibling_nav_ctx = wire_sibling_navigation(SiblingNavCtx {
         btn_prev: w.sibling_nav.prev_btn.clone(),
         btn_next: w.sibling_nav.next_btn.clone(),
         win: w.win.clone(),
