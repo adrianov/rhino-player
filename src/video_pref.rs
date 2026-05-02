@@ -15,8 +15,9 @@
 //!
 //! When attaching Smooth `vf` with media open, Rhino leaves **`hwdec`** / **`vd-lavc-dr`** unchanged
 //! (usually **`hwdec=auto`**); that works on typical stacks without forcing software decode.
-//! Tall frames use a lighter MVTools preset (`RHINO_MV_*` env + smaller **`buffered-frames=`**) — see
-//! [smooth_motion_cost_height].
+//! **`buffered-frames=`** in the mpv `vf vapoursynth:` string is a fixed queue depth; **`mv.Super` /
+//! `mv.Analyse`** block size / overlap / chroma are chosen inside the bundled `.vpy` from **`video_in`**
+//! frame size (see `data/vs/rhino_60_mvtools.vpy`).
 //! After mpv loads a file with Smooth on at ~1.0×, the transport layer schedules [apply_mpv_video]
 //! when **`FileLoaded`** or **`path`** fires (transport coalesced idle). If the active **`vf`** chain
 //! already matches the resolved script and buffer settings, Rhino refreshes env vars only and skips
@@ -34,7 +35,7 @@
 //! when **`vapoursynth`** is missing (e.g. after a seek while paused).
 
 include!("video_pref/smooth_motion_tier.rs");
+include!("video_pref/mvtools_video_log_env.rs");
 include!("video_pref/mvtools_speed_vf_setup.rs");
-include!("video_pref/smooth_vf_match.rs");
 include!("video_pref/decode_and_apply_mpv_video.rs");
 include!("video_pref/video_pref_speed_model_tests.rs");

@@ -4,6 +4,8 @@
 # Loads `libmvtools`: Rhino sets `RHINO_MVTOOLS_LIB` when it finds the .so, else paths below.
 #
 # libmpv provides global `video_in` (see mpv vf=vapoursynth). Requires: mvtools, VS R55+.
+# Source fps: `video_in.fps_*`, else CFR from frame `_Duration` / `_AbsoluteTime` props, else
+# `RHINO_SOURCE_FPS` (Rhino sets from mpv `container-fps`).
 # **mpv from a shell** does not set `RHINO_PLAYBACK_SPEED` (Rhino sets it from mpv `speed` when adding vf).
 import math
 import os
@@ -20,30 +22,23 @@ _LOCAL_MAX_DIR_READS = 8000
 _TARGET_NUM = 60
 _TARGET_DEN = 1
 _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
-_MV_OVERLAP = 16
 _MV_GLOBAL_HINT = {"global": True}
 
 
-def _mv_blksize() -> int:
-    try:
-        b = int(os.environ.get("RHINO_MV_BLKSIZE", "32"))
-    except ValueError:
-        b = 32
-    return max(8, min(64, b))
+def _mv_preset_from_extent(short_edge_px: int) -> tuple[int, int, bool]:
+    """Spatial MVTools tier from ``min(width, height)`` — breakpoints 1080 / 1440 / 2160 (short edge).
 
+    ``1920×1080`` and ``1080×1920`` both use the 1080 tier. Recomputed from ``video_in`` each run.
+    """
+    h = max(1, short_edge_px)
+    if h <= 1080:
+        return (32, 16, True)
+    if h <= 1440:
+        return (32, 8, True)
+    if h <= 2160:
+        return (16, 8, False)
+    return (16, 4, False)
 
-def _mv_overlap_for(blksize: int) -> int:
-    half = max(1, blksize // 2)
-    try:
-        raw = int(os.environ.get("RHINO_MV_OVERLAP", str(min(_MV_OVERLAP, half))))
-    except ValueError:
-        raw = min(_MV_OVERLAP, half)
-    return max(0, min(half, raw))
-
-
-def _mv_chroma() -> bool:
-    v = (os.environ.get("RHINO_MV_CHROMA", "1") or "1").strip().lower()
-    return v not in ("0", "false", "no", "off")
 
 # mpv may run this script multiple times per single `vf` attach; Rhino sets `RHINO_VPY_LOG_EPOCH`
 # for within-interpreter dedupe only (same epoch twice in one Python process → one stderr line).
@@ -206,6 +201,67 @@ def _src_fps_from_env() -> tuple[int, int] | None:
     return f.numerator, f.denominator
 
 
+def _int_frame_prop(props, *keys: str) -> int | None:
+    for k in keys:
+        try:
+            v = props[k]
+        except KeyError:
+            continue
+        try:
+            iv = int(v)
+            if iv > 0:
+                return iv
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _fps_rational_from_delta_ns(delta_ns: int) -> tuple[int, int] | None:
+    """delta_ns = nanoseconds between consecutive frames → fps = 1e9/delta as reduced rational."""
+    if delta_ns < 1000:
+        return None
+    num = 1_000_000_000
+    den = delta_ns
+    g = math.gcd(num, den)
+    num //= g
+    den //= g
+    fps_f = num / den if den else 0.0
+    if not (0.5 <= fps_f <= 120.0):
+        return None
+    return num, den
+
+
+def _src_fps_from_frame_props(clip: vs.VideoNode) -> tuple[int, int] | None:
+    """Infer CFR from decoder frame props when ``fps_num/fps_den`` are unset.
+
+    Some pipelines attach ``_Duration`` (nanoseconds per frame) or consecutive ``_AbsoluteTime``
+    values; both imply a constant frame interval. We require frames 0 and 1 to agree so we do not
+    guess VFR content. This covers **shell mpv** (no ``RHINO_SOURCE_FPS``) and cases where the host
+    has not yet published ``container-fps``.
+    """
+    if clip.num_frames < 2:
+        return None
+    try:
+        f0 = clip.get_frame(0)
+        f1 = clip.get_frame(1)
+        p0, p1 = f0.props, f1.props
+        d0 = _int_frame_prop(p0, "_Duration", "Duration", "_FrameDuration")
+        d1 = _int_frame_prop(p1, "_Duration", "Duration", "_FrameDuration")
+        if d0 is not None and d1 is not None and d0 == d1:
+            out = _fps_rational_from_delta_ns(d0)
+            if out is not None:
+                return out
+        t0 = _int_frame_prop(p0, "_AbsoluteTime", "AbsoluteTime")
+        t1 = _int_frame_prop(p1, "_AbsoluteTime", "AbsoluteTime")
+        if t0 is not None and t1 is not None:
+            dt = t1 - t0
+            if dt > 0:
+                return _fps_rational_from_delta_ns(dt)
+    except Exception:
+        return None
+    return None
+
+
 def _mul_src_fps_rational(num: int, den: int, speed_frac: Fraction) -> tuple[int, int]:
     a = Fraction(num, den) * speed_frac
     n, d = a.numerator, a.denominator
@@ -245,18 +301,24 @@ src_num = clip.fps_num
 src_den = clip.fps_den
 # `video_in` reports the source rate as `0/0` for **VFR** clips (no single cadence) **and**
 # for many CFR mp4s where mpv's vapoursynth filter simply does not forward the container's
-# fps. Rhino publishes `RHINO_SOURCE_FPS` from mpv's `container-fps` exactly to recover
-# smoothing in that second case — fall back to it when present, then **only** passthrough
-# when the cadence really is unknown. AssumeFPS-ing a true VFR clip to a guessed rate (the
-# old fallback was hard-coded `24000/1001`) silently rescales declared duration: an actual
-# 29.97 retagged as 23.976 then FlowFPS'd to 60 produces `2.5N` output frames = **25 %
-# longer than audio**, the "many frames + slowed down" drift the user reported.
+# fps. Fallback order: **`RHINO_SOURCE_FPS` first** (Rhino sets from mpv `container-fps`) —
+# authoritative for real cadence — then **frame props** (`_Duration` / `_AbsoluteTime` CFR-stable)
+# for shell mpv with no env. Props **after** env because decoder timestamps often follow **display**
+# cadence (~59.94 Hz) while film is 23.976 — using props first incorrectly skips FlowFPS (already ≥60).
+# AssumeFPS-ing a true VFR clip to a guessed rate (the old fallback was hard-coded `24000/1001`)
+# silently rescales declared duration — frame-prop inference still requires matching durations on
+# frames 0 and 1.
 fps_origin = "video_in"
 if src_num <= 0 or src_den <= 0:
     fb = _src_fps_from_env()
     if fb is not None:
         src_num, src_den = fb
         fps_origin = "RHINO_SOURCE_FPS"
+    else:
+        fb = _src_fps_from_frame_props(clip)
+        if fb is not None:
+            src_num, src_den = fb
+            fps_origin = "frame_props(CFR)"
 _banner = (
     f"[rhino_60_mvtools] source fps_num={src_num} fps_den={src_den} "
     f"(origin={fps_origin}) speed={spd_frac} ({float(spd_frac):.3f})"
@@ -264,8 +326,8 @@ _banner = (
 if src_num <= 0 or src_den <= 0 or _as_float(src_num, src_den) <= 0:
     if _stderr_banner_once_per_rhino_attach(_banner):
         print(
-            "[rhino_60_mvtools] source fps unknown (likely VFR; no RHINO_SOURCE_FPS) — "
-            "passthrough, smoothing skipped to avoid A/V drift",
+            "[rhino_60_mvtools] source fps unknown (no video_in fps, no CFR frame props, "
+            "no RHINO_SOURCE_FPS) — passthrough, smoothing skipped to avoid A/V drift",
             file=sys.stderr,
             flush=True,
         )
@@ -288,10 +350,14 @@ else:
         else:
             sn, sd = _mul_src_fps_rational(src_num, src_den, spd_frac)
             work = core.std.AssumeFPS(clip, fpsnum=sn, fpsden=sd)
-        # Keep the fast preset, blend block edges, let MVTools detect broad camera pans.
-        _blk = _mv_blksize()
-        _ov = _mv_overlap_for(_blk)
-        _chroma = _mv_chroma()
+        # MVTools block / overlap / chroma from **actual** frame pixels (short edge tiers).
+        _short = min(work.width, work.height)
+        _blk, _ov, _chroma = _mv_preset_from_extent(_short)
+        print(
+            f"[rhino_60_mvtools] mvtools preset (short-edge={_short}px): blksize={_blk} overlap={_ov} chroma={_chroma}",
+            file=sys.stderr,
+            flush=True,
+        )
         sup = core.mv.Super(work, pel=1, sharp=1, chroma=_chroma)
         v_backward = core.mv.Analyse(
             sup,
