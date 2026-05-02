@@ -3,12 +3,13 @@ struct OpenHandlerCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
     win: adw::ApplicationWindow,
     gl: gtk::GLArea,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     on_start: Rc<dyn Fn()>,
     on_loaded: Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
     sub_menu: gtk::MenuButton,
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
 }
 
 fn make_on_open_handler(ctx: OpenHandlerCtx) -> RcPathFn {
@@ -27,6 +28,7 @@ fn make_on_open_handler(ctx: OpenHandlerCtx) -> RcPathFn {
                 Some(Rc::clone(&ctx.on_loaded)),
                 true,
                 false,
+                ctx.hdr_title_mirror.clone(),
             ),
         );
         match loaded {

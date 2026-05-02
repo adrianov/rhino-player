@@ -77,6 +77,27 @@ const APP_CSS: &str = r#"
         .rp-popover-box list.rich-list {
             background: none;
         }
+        popover.menu.rp-main-menu-popover contents {
+            padding: 6px;
+        }
+        .rp-main-menu-box {
+            min-width: 240px;
+        }
+        button.rp-main-menu-act.flat {
+            border-radius: 6px;
+            padding: 4px 8px;
+            min-height: 40px;
+        }
+        button.rp-main-menu-act.flat:hover {
+            background-color: rgba(255, 255, 255, 0.07);
+        }
+        .rp-main-menu-act checkbutton {
+            margin: 0;
+        }
+        menubutton.rp-main-menu-act.flat:hover {
+            background-color: rgba(255, 255, 255, 0.07);
+            border-radius: 6px;
+        }
         /* Seek hover preview (see docs/features/18-thumbnail-preview.md) */
         frame.rp-seek-thumb-frame {
             padding: 3px;
@@ -103,118 +124,10 @@ const APP_CSS: &str = r#"
             font-feature-settings: "tnum";
             padding: 0 2px 1px 2px;
         }
-        .rp-page-stack, .rp-recent-scroll { background-color: #242424; }
-        .rp-recent-scroll {
-            min-height: 200px;
-        }
-        .rp-recent-row {
-            padding: 10px;
-        }
-        .rp-recent-card {
-            padding: 0;
-            background-color: rgba(18, 18, 20, 0.94);
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.10);
-            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.50);
-            min-width: 220px;
-            min-height: 132px;
-        }
-        .rp-recent-card:hover {
-            border-color: rgba(255, 255, 255, 0.22);
-        }
-        .rp-recent-bg { border-radius: 0; }
-        .rp-recent-bg-miss { background-color: #2d2d2d; }
-        .rp-recent-card-footer {
-            padding: 30px 12px 10px 12px;
-            background-color: transparent;
-            background-image: linear-gradient(
-                to top,
-                rgba(0, 0, 0, 0.76) 0%,
-                rgba(0, 0, 0, 0.54) 46%,
-                rgba(0, 0, 0, 0.00) 100%
-            );
-            border-radius: 0 0 12px 12px;
-        }
-        label.rp-recent-card-title {
-            color: #ffffff;
-            font-weight: 600;
-            font-size: 0.98em;
-            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-        }
-        .rp-recent-progress-row {
-            min-height: 18px;
-        }
-        label.rp-recent-percent {
-            min-width: 42px;
-            padding: 2px 7px;
-            border-radius: 9999px;
-            background-color: rgba(255, 255, 255, 0.12);
-            color: #f6f5f4;
-            font-size: 0.82em;
-            font-weight: 600;
-        }
-        .rp-stale { opacity: 0.6; }
-        .rp-recent-pict { color: #9a9996; }
-        button.rp-recent-dismiss {
-            min-width: 28px;
-            min-height: 28px;
-            padding: 0;
-            background-color: rgba(0, 0, 0, 0.5);
-        }
-        button.rp-recent-dismiss:hover { background-color: rgba(0, 0, 0, 0.68); }
-        /* Undo shell: zero paint so only the pill (.rp-undo-toast) is visible. */
-        .rp-undo-shell {
-            background: none;
-            background-color: transparent;
-            border: none;
-            box-shadow: none;
-            padding: 0;
-            outline: none;
-        }
-        /* Continue list: file-manager style snack (pill, blur) — only on the inner box */
-        .rp-undo-toast {
-            min-height: 40px;
-            padding: 6px 8px 6px 16px;
-            /* Darker + frosted vs .rp-recent-scroll so the pill reads on top, not a flat 24/24/24 */
-            background-color: rgba(18, 18, 20, 0.94);
-            border-radius: 9999px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(20px);
-            color: #f6f5f4;
-        }
-        .rp-undo-toast:backdrop { background-color: rgba(18, 18, 20, 0.96); }
-        .rp-undo-toast label.rp-undo-toast-text { color: #f6f5f4; }
-        .rp-undo-toast-undo,
-        .rp-undo-toast button.rp-undo-toast-undo {
-            color: #f6f5f4;
-            font-weight: 600;
-            min-height: 32px;
-            padding-left: 12px;
-            padding-right: 12px;
-            border-radius: 8px;
-            background-color: rgba(255, 255, 255, 0.1);
-        }
-        .rp-undo-toast-undo:hover { background-color: rgba(255, 255, 255, 0.16); }
-        button.rp-undo-toast-close {
-            min-width: 32px;
-            min-height: 32px;
-            padding: 0;
-            color: #f6f5f4;
-        }
-        button.rp-undo-toast-close:hover { background-color: rgba(255, 255, 255, 0.12); }
-        progressbar.rp-recent-bar { min-height: 5px; }
-        progressbar.rp-recent-bar trough {
-            min-height: 5px;
-            border-radius: 9999px;
-            background-color: rgba(255, 255, 255, 0.22);
-        }
-        progressbar.rp-recent-bar progress {
-            min-height: 5px;
-            border-radius: 9999px;
-            background-color: #62a0ea;
-        }
     "#;
+
+/// Continue strip: cards, Open tile, undo pill, progress styling ([`recent_view::fill_row`]).
+const RECENT_GRID_CSS: &str = include_str!("theme_continue_grid.css");
 
 /// macOS: when the GLArea (and its container chain) is transparent, the native video
 /// CAOpenGLLayer **below** gdk's GTK sublayer shows through. The chrome (header / bottom
@@ -255,8 +168,19 @@ fn append_cursor_css(css: &mut String) {
 }
 
 pub fn apply() {
-    let mut css = String::with_capacity(APP_CSS.len() + CURSOR_CSS.len() + 8);
+    let mut css = String::with_capacity(
+        APP_CSS.len()
+            + RECENT_GRID_CSS.len()
+            + CURSOR_CSS.len()
+            + if cfg!(target_os = "macos") {
+                MACOS_TRANSPARENT_CONTENT_CSS.len()
+            } else {
+                0
+            }
+            + 8,
+    );
     css.push_str(APP_CSS);
+    css.push_str(RECENT_GRID_CSS);
     if cfg!(target_os = "macos") {
         css.push_str(MACOS_TRANSPARENT_CONTENT_CSS);
     }

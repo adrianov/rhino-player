@@ -22,7 +22,8 @@ fn try_load(
     if o.record {
         history::record(path);
     }
-    win.set_title(Some(title_for_open_path(path).as_str()));
+    let ttl = title_for_open_path(path);
+    sync_app_window_title(win, o.hdr_title_mirror.as_deref(), Some(ttl.as_str()));
     reveal_ui_after_load(player, win, gl, recent_layer, o, warm_hit);
     if !warm_hit {
         transport_drain_after_loadfile();

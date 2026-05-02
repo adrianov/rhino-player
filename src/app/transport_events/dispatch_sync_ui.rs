@@ -160,6 +160,7 @@ fn run_sibling_eof(ctx: &Rc<TransportCtx>) {
         &e.on_video_chrome,
         Rc::clone(&e.win_aspect),
         Some(Rc::clone(&e.on_file_loaded)),
+        e.hdr_title_mirror.clone(),
     );
 }
 

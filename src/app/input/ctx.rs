@@ -9,7 +9,7 @@ struct WindowInputCtx {
     video_handle: gtk::WindowHandle,
     bottom: gtk::Box,
     gl: gtk::GLArea,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
     app: adw::Application,
     player: Rc<RefCell<Option<MpvBundle>>>,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
@@ -39,6 +39,12 @@ struct WindowInputCtx {
     fs_clock: gtk::Label,
     fs_clock_tick: Rc<RefCell<Option<glib::SourceId>>>,
     reapply_60: VideoReapply60,
+    smooth_seek_debounce: Rc<RefCell<Option<glib::SourceId>>>,
+    resume_after_seek_idle: Rc<Cell<bool>>,
+    play_toggle: PlayToggleCtx,
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
+    speed_sync: Rc<Cell<bool>>,
+    speed_list: gtk::ListBox,
 }
 
 fn wire_window_input(ctx: WindowInputCtx) {

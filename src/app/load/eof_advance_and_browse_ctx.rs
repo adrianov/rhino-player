@@ -6,7 +6,7 @@ fn maybe_advance_sibling_on_eof(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     win: &adw::ApplicationWindow,
     gl: &gtk::GLArea,
-    recent: &gtk::ScrolledWindow,
+    recent: &gtk::Box,
     last_path: &Rc<RefCell<Option<PathBuf>>>,
     seof: &SiblingEofState,
     exit_after_current: &Rc<Cell<bool>>,
@@ -17,6 +17,7 @@ fn maybe_advance_sibling_on_eof(
     on_start: &Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
     on_loaded: Option<Rc<dyn Fn()>>,
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
 ) {
     let g = match player.try_borrow() {
         Ok(b) => b,
@@ -51,6 +52,7 @@ fn maybe_advance_sibling_on_eof(
             on_loaded.as_ref().map(Rc::clone),
             true,
             true,
+            hdr_title_mirror,
         );
         if let Err(e) = try_load(&np, player, win, gl, recent, &o) {
             eprintln!("[rhino] sibling advance: {e}");
@@ -116,17 +118,13 @@ fn nudge_mpv_volume(mpv: &Mpv, delta: f64) {
 /// Rebuild the continue row from [history] after a remove or undo.
 fn reflow_continue_cards(
     row: &gtk::Box,
-    recent: &gtk::ScrolledWindow,
+    recent: &gtk::Box,
     on_open: RcPathFn,
     on_remove: RcPathFn,
     on_trash: RcPathFn,
     rbf: &Rc<RefCell<Option<Rc<RecentContext>>>>,
 ) {
     let r: Vec<PathBuf> = history::load().into_iter().take(5).collect();
-    if r.is_empty() {
-        recent.set_visible(false);
-        return;
-    }
     recent.set_visible(true);
     let v: Vec<CardData> = card_data_list(&r);
     recent_view::fill_row(row, v, on_open.clone(), on_remove.clone(), on_trash.clone());
@@ -210,7 +208,7 @@ struct BackToBrowseCtx {
     sibling_seof: Rc<SiblingEofState>,
     sibling_nav: SiblingNavUi,
     win_aspect: Rc<Cell<Option<f64>>>,
-    /// Show bars; cancel auto-hide. Call after [gtk::ScrolledWindow::set_visible] for the grid.
+    /// Show bars; cancel auto-hide. Call after [gtk::Widget::set_visible] for the browse overlay.
     on_browse: Rc<dyn Fn()>,
     undo_shell: gtk::Box,
     undo_label: gtk::Label,
@@ -218,8 +216,12 @@ struct BackToBrowseCtx {
     undo_timer: Rc<RefCell<Option<glib::source::SourceId>>>,
     /// Stack of removed/trashed entries, newest at the end; [Undo] pops from the end.
     undo_remove_stack: Rc<RefCell<Vec<ContinueBarUndo>>>,
-    /// Mirrors [gtk::ScrolledWindow::is_visible] for the continue grid; refreshed before pausing
+    /// Mirrors browse-overlay [gtk::Widget::is_visible]; refreshed before pausing
     /// on browse-back so transport can skip unloading the motion filter without racing `notify::visible`.
     recent_visible: Rc<Cell<bool>>,
+    /// First paint used the browse row (no boot file): keep the strip visible with the Open tile
+    /// even when history is empty (`false` for CLI/session boot paths).
+    browse_has_strip: bool,
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
 }
 

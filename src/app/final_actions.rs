@@ -7,12 +7,12 @@ struct FinalActionCtx {
     root: adw::ToolbarView,
     header: adw::HeaderBar,
     gl: gtk::GLArea,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
     bottom: gtk::Box,
     player: Rc<RefCell<Option<MpvBundle>>>,
     sub_pref: Rc<RefCell<db::SubPrefs>>,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
-    /// Same model as the header hamburger; used for the macOS global menu bar.
+    /// macOS global menu bar model (File / View); discarded on Linux.
     main_menu: gio::Menu,
     pref_menu: gio::Menu,
     seek_bar_on: Rc<Cell<bool>>,
@@ -25,6 +25,7 @@ struct FinalActionCtx {
     exit_after_current: Rc<Cell<bool>>,
     mpv_teardown_after_draw: Rc<Cell<bool>>,
     hdr_csd_baseline: Rc<Cell<Option<(bool, bool)>>>,
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
 }
 
 include!("final_actions_smooth_resize.rs");
@@ -56,6 +57,7 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         exit_after_current,
         mpv_teardown_after_draw,
         hdr_csd_baseline,
+        hdr_title_mirror,
     } = ctx;
 
     let open = gio::SimpleAction::new("open", None);
@@ -74,6 +76,8 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         wa_dlg,
         #[strong]
         on_file_loaded,
+        #[strong]
+        hdr_title_mirror,
         move |_, _| {
             let Some(w) = app.active_window() else {
                 return;
@@ -95,6 +99,7 @@ fn wire_final_actions(ctx: FinalActionCtx) {
             let ovc2 = ovc_open.clone();
             let wa2 = Rc::clone(&wa_dlg);
             let oload = Rc::clone(&on_file_loaded);
+            let mirror_pick = hdr_title_mirror.clone();
             dialog.open(Some(&w), None::<&gio::Cancellable>, move |res| {
                 let Ok(file) = res else {
                     return;
@@ -119,6 +124,7 @@ fn wire_final_actions(ctx: FinalActionCtx) {
                         Some(oload),
                         true,
                         false,
+                        mirror_pick.clone(),
                     ),
                 ) {
                     eprintln!("[rhino] open: try_load: {e}");
@@ -209,12 +215,24 @@ fn wire_final_actions(ctx: FinalActionCtx) {
     #[cfg(not(target_os = "macos"))]
     drop(main_menu);
 
-    app.set_accels_for_action("app.open", &["<Primary>o"]);
-    app.set_accels_for_action("app.close-video", &["<Primary>w"]);
-    app.set_accels_for_action("app.move-to-trash", &["Delete", "KP_Delete"]);
-    app.set_accels_for_action("app.about", &["F1"]);
-    app.set_accels_for_action("app.quit", &["<Primary>q", "q"]);
-    app.set_accels_for_action("app.toggle-fullscreen", &["F11"]);
+    #[cfg(target_os = "macos")]
+    {
+        // gdk-macos: Command (⌘) is [Meta]; Control keeps the separate hardware Ctrl for ⌃⌘F fullscreen.
+        app.set_accels_for_action("app.open", &["<Meta>o"]);
+        app.set_accels_for_action("app.close-video", &["<Meta>w"]);
+        app.set_accels_for_action("app.move-to-trash", &["Delete", "KP_Delete", "<Meta>BackSpace"]);
+        app.set_accels_for_action("app.quit", &["<Meta>q", "q"]);
+        app.set_accels_for_action("app.toggle-fullscreen", &["<Meta><Control>f"]);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        app.set_accels_for_action("app.open", &["<Primary>o"]);
+        app.set_accels_for_action("app.close-video", &["<Primary>w"]);
+        app.set_accels_for_action("app.move-to-trash", &["Delete", "KP_Delete"]);
+        app.set_accels_for_action("app.about", &["F1"]);
+        app.set_accels_for_action("app.quit", &["<Primary>q", "q"]);
+        app.set_accels_for_action("app.toggle-fullscreen", &["F11"]);
+    }
 
     apply_chrome(ChromeApplyParts {
         hdr_csd_baseline: &hdr_csd_baseline,

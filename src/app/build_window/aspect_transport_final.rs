@@ -14,6 +14,7 @@
         mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
         on_video_chrome: on_video_chrome.clone(), on_file_loaded: Rc::clone(&on_file_loaded),
         reapply_60: reapply_60.clone(), bar_show: bar_show.clone(),
+        hdr_title_mirror: w.hdr_title_mirror.clone(),
         seek_chapters: Rc::clone(&seek_chapters),
         widgets: TransportWidgets {
             play_pause: w.play_pause.clone(), seek: w.seek.clone(), seek_adj: w.seek_adj.clone(),
@@ -44,5 +45,6 @@
         idle_inhib: Rc::clone(&idle_inhib), exit_after_current: exit_after_current.clone(),
         mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
         hdr_csd_baseline: Rc::clone(&hdr_csd_baseline),
+        hdr_title_mirror: w.hdr_title_mirror.clone(),
     });
 }

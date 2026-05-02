@@ -71,7 +71,7 @@ struct TransportEofCtx {
     sub_pref: Rc<RefCell<db::SubPrefs>>,
     win: adw::ApplicationWindow,
     gl: gtk::GLArea,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     sibling_seof: Rc<SiblingEofState>,
     exit_after_current: Rc<Cell<bool>>,
@@ -81,6 +81,7 @@ struct TransportEofCtx {
     on_video_chrome: Rc<dyn Fn()>,
     on_file_loaded: Rc<dyn Fn()>,
     reapply_60: VideoReapply60,
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
 }
 
 struct TransportCtx {
@@ -111,7 +112,7 @@ struct TransportSetup {
     sub_pref: Rc<RefCell<db::SubPrefs>>,
     win: adw::ApplicationWindow,
     gl: gtk::GLArea,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
     /// Shared with [BackToBrowseCtx]; refreshed before pausing when returning to the continue list.
     recent_visible: Rc<Cell<bool>>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
@@ -124,6 +125,7 @@ struct TransportSetup {
     on_video_chrome: Rc<dyn Fn()>,
     on_file_loaded: Rc<dyn Fn()>,
     reapply_60: VideoReapply60,
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
     bar_show: Rc<Cell<bool>>,
     widgets: TransportWidgets,
     seek_chapters: Rc<RefCell<Vec<(f64, String)>>>,
@@ -148,6 +150,7 @@ fn wire_transport_events(s: TransportSetup) {
             on_video_chrome: s.on_video_chrome,
             on_file_loaded: s.on_file_loaded,
             reapply_60: s.reapply_60,
+            hdr_title_mirror: s.hdr_title_mirror.clone(),
         },
         bar_show: s.bar_show,
         recent_visible: s.recent_visible,

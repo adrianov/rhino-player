@@ -5,7 +5,7 @@ struct MpvRealizeCtx {
     app: adw::Application,
     win: adw::ApplicationWindow,
     gl: gtk::GLArea,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
     bar_show: Rc<Cell<bool>>,
     bottom: gtk::Box,
     last_path: Rc<RefCell<Option<PathBuf>>>,
@@ -20,6 +20,7 @@ struct MpvRealizeCtx {
     /// When set by [schedule_quit_persist], the next `GLArea::render` runs `teardown_gl_paint` then
     /// an idle calls [`MpvBundle::dispose_for_quit`] (`mpv_terminate_destroy`) and `quit`.
     mpv_teardown_after_draw: Rc<Cell<bool>>,
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
 }
 
 struct GlRealizeOkRefs {
@@ -27,7 +28,7 @@ struct GlRealizeOkRefs {
     vp_realize: Rc<RefCell<db::VideoPrefs>>,
     app_realize: adw::Application,
     sp_realize: Rc<RefCell<db::SubPrefs>>,
-    recent_rz: gtk::ScrolledWindow,
+    recent_rz: gtk::Box,
     last_rz: Rc<RefCell<Option<PathBuf>>>,
     reapply_rz: VideoReapply60,
     pending_rz: Rc<RefCell<Option<RecentBackfillJob>>>,
@@ -40,6 +41,7 @@ struct GlRealizeOkRefs {
     on_vid_rz: Rc<dyn Fn()>,
     wa_st: Rc<Cell<Option<f64>>>,
     ol_rz: Rc<dyn Fn()>,
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
 }
 
 fn gl_realize_bundle_ready(
@@ -114,6 +116,7 @@ fn gl_realize_bundle_ready(
                 Some(Rc::clone(&r.ol_rz)),
                 false,
                 false,
+                r.hdr_title_mirror.clone(),
             ),
         ) {
             eprintln!("[rhino] try_load (startup): {e}");
@@ -143,6 +146,7 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
         close_video,
         move_to_trash,
         mpv_teardown_after_draw,
+        hdr_title_mirror,
     } = ctx;
 
     let p_realize = player.clone();
@@ -179,6 +183,7 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
         on_vid_rz: on_vid_rz.clone(),
         wa_st: wa_st.clone(),
         ol_rz: ol_rz.clone(),
+        hdr_title_mirror: hdr_title_mirror.clone(),
     };
     gl.connect_realize(move |area| {
         area.make_current();
@@ -250,7 +255,7 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
 
 fn schedule_preload_pause(
     player: Rc<RefCell<Option<MpvBundle>>>,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
 ) {
     let _ = glib::timeout_add_local(Duration::from_millis(100), move || {
         if recent.is_visible() {
@@ -265,7 +270,7 @@ fn schedule_preload_pause(
 fn schedule_preload_reapply_60(
     player: Rc<RefCell<Option<MpvBundle>>>,
     reapply: VideoReapply60,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
     app: adw::Application,
 ) {
     let _ = glib::idle_add_local_once(move || {

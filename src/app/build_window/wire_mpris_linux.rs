@@ -3,21 +3,38 @@ fn wire_mpris_linux_after_seek(
     app: &adw::Application,
     win: adw::ApplicationWindow,
     gl_area: gtk::GLArea,
-    recent_scrl: gtk::ScrolledWindow,
+    recent_scrl: gtk::Box,
     player: &Rc<RefCell<Option<MpvBundle>>>,
     play_ctx: &PlayToggleCtx,
     last_path: &Rc<RefCell<Option<PathBuf>>>,
     win_aspect: &Rc<Cell<Option<f64>>>,
     sibling_seof: &Rc<SiblingEofState>,
     reapply_60: VideoReapply60,
+    smooth_seek_debounce: Rc<RefCell<Option<glib::SourceId>>>,
+    resume_after_seek_idle: Rc<Cell<bool>>,
     on_file_loaded: &Rc<dyn Fn()>,
     on_video_chrome: &Rc<dyn Fn()>,
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
 ) {
     let p_seek = player.clone();
     let gl_seek = gl_area.clone();
     let r_seek = reapply_60.clone();
+    let deb_seek = smooth_seek_debounce.clone();
+    let resume_seek = resume_after_seek_idle.clone();
+    let toggle_seek = play_ctx.clone();
     let seek_abs = crate::mpris::MpvSeekAbs(Rc::new(move |secs: &str| {
-        main_player_seek_keyframes(&p_seek, &gl_seek, &r_seek, secs);
+        main_player_seek_keyframes(
+            &SeekKeyframeParams {
+                player: &p_seek,
+                gl: &gl_seek,
+                reapply_60: &r_seek,
+                smooth_seek_debounce: &deb_seek,
+                resume_after_seek_idle: &resume_seek,
+                play_toggle: &toggle_seek,
+            },
+            SeekKeyframeKind::ScaleOrExternal,
+            secs,
+        );
     }));
     let do_prev = {
         let player = player.clone();
@@ -29,17 +46,19 @@ fn wire_mpris_linux_after_seek(
         let win_aspect = win_aspect.clone();
         let sibling_seof = sibling_seof.clone();
         let on_loaded = Rc::clone(on_file_loaded);
+        let hm = hdr_title_mirror.clone();
         move || {
             try_load_sibling_pick(sibling_advance::prev_before_current, "previous", &SiblingNavTryRefs {
-                player: &player,
-                win: &win,
-                gl: &gl,
-                recent: &rec,
-                last_path: &last_path,
-                on_video_chrome: &on_video_chrome,
-                win_aspect: &win_aspect,
-                sibling_seof: &sibling_seof,
-                on_file_loaded: &on_loaded,
+                player: player.clone(),
+                win: win.clone(),
+                gl: gl.clone(),
+                recent: rec.clone(),
+                last_path: last_path.clone(),
+                on_video_chrome: on_video_chrome.clone(),
+                win_aspect: win_aspect.clone(),
+                sibling_seof: sibling_seof.clone(),
+                on_file_loaded: on_loaded.clone(),
+                hdr_title_mirror: hm.clone(),
             });
         }
     };
@@ -53,17 +72,19 @@ fn wire_mpris_linux_after_seek(
         let win_aspect = win_aspect.clone();
         let sibling_seof = sibling_seof.clone();
         let on_loaded = Rc::clone(on_file_loaded);
+        let hm = hdr_title_mirror.clone();
         move || {
             try_load_sibling_pick(sibling_advance::next_after_eof, "next", &SiblingNavTryRefs {
-                player: &player,
-                win: &win,
-                gl: &gl,
-                recent: &rec,
-                last_path: &last_path,
-                on_video_chrome: &on_video_chrome,
-                win_aspect: &win_aspect,
-                sibling_seof: &sibling_seof,
-                on_file_loaded: &on_loaded,
+                player: player.clone(),
+                win: win.clone(),
+                gl: gl.clone(),
+                recent: rec.clone(),
+                last_path: last_path.clone(),
+                on_video_chrome: on_video_chrome.clone(),
+                win_aspect: win_aspect.clone(),
+                sibling_seof: sibling_seof.clone(),
+                on_file_loaded: on_loaded.clone(),
+                hdr_title_mirror: hm.clone(),
             });
         }
     };

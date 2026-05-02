@@ -31,15 +31,17 @@ struct WindowWidgets {
     sub_color_btn: gtk::ColorDialogButton,
     vol_pop: gtk::Popover,
     sub_pop: gtk::Popover,
-    /// Top-level hamburger / macOS menu bar model (same `gio::Menu` for both).
+    /// Unused empty model on Linux; macOS receives the hierarchical menubar menu.
     main_menu: gio::Menu,
     pref_menu: gio::Menu,
-    recent_scrl: gtk::ScrolledWindow,
+    recent_scrl: gtk::Box,
     flow_recent: gtk::Box,
     recent_spacers: [gtk::Box; 4],
     undo_bar: crate::recent_view::UndoBar,
     /// Local wall-clock readout; visible only in fullscreen (`docs/features/17-window-behavior.md`).
     fs_clock: gtk::Label,
+    /// macOS GTK: optional label in [`adw::HeaderBar::title_widget`] so double-click toggles fullscreen.
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
 }
 
 fn build_widgets(
@@ -47,7 +49,10 @@ fn build_widgets(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     video_pref: &Rc<RefCell<db::VideoPrefs>>,
     sub_pref: &Rc<RefCell<db::SubPrefs>>,
+    exit_after_current: Rc<Cell<bool>>,
 ) -> WindowWidgets {
+    #[cfg(target_os = "macos")]
+    std::hint::black_box(exit_after_current.clone());
     let win = adw::ApplicationWindow::builder()
         .application(app)
         .title(APP_WIN_TITLE)
@@ -80,7 +85,8 @@ fn build_widgets(
     wrap_next.append(&btn_next);
     let sibling_nav = SiblingNavUi::new(&btn_prev, &btn_next, &wrap_prev, &wrap_next);
 
-    let (menu, pref_menu) = build_app_menus();
+    let (discard_menu_placeholder, pref_menu, menubar_model) = build_app_menus();
+    drop(discard_menu_placeholder);
     let HeaderPopovers {
         vol_adj, vol_mute_btn, audio_tracks_block, audio_tracks_box, audio_tracks_section,
         vol_pop, vol_menu, sub_tracks_block, sub_tracks_box, sub_tracks_section,
@@ -109,7 +115,16 @@ fn build_widgets(
     let SpeedMenuResult { speed_mbtn, speed_list, speed_sync } =
         build_speed_menu(player, &gl_area, video_pref, app);
 
-    let menu_btn = build_menu_button(&menu);
+    let menu_btn = {
+        #[cfg(not(target_os = "macos"))]
+        {
+            build_linux_main_menu_button(app, &pref_menu, &exit_after_current)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            gtk::MenuButton::new()
+        }
+    };
 
     let fs_clock = gtk::Label::new(None);
     fs_clock.add_css_class("rp-fs-clock");
@@ -120,11 +135,24 @@ fn build_widgets(
     let root = adw::ToolbarView::new();
     let header = adw::HeaderBar::new();
     header.add_css_class("rpb-header");
+    #[cfg(not(target_os = "macos"))]
     header.pack_end(&menu_btn);
     header.pack_end(&vol_menu);
     header.pack_end(&sub_menu);
     header.pack_end(&speed_mbtn);
     header.pack_end(&fs_clock);
+
+    #[cfg(target_os = "macos")]
+    let hdr_title_mirror = {
+        let lab = Rc::new(gtk::Label::new(Some(APP_WIN_TITLE)));
+        lab.add_css_class("title");
+        lab.set_single_line_mode(true);
+        lab.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+        header.set_title_widget(Some(lab.as_ref()));
+        Some(Rc::clone(&lab))
+    };
+    #[cfg(not(target_os = "macos"))]
+    let hdr_title_mirror: Option<Rc<gtk::Label>> = None;
 
     let seek_adj = gtk::Adjustment::new(0.0, 0.0, 1.0, 0.2, 1.0, 0.0);
     let seek = gtk::Scale::new(gtk::Orientation::Horizontal, Some(&seek_adj));
@@ -162,28 +190,11 @@ fn build_widgets(
         audio_tracks_box, audio_tracks_block, audio_tracks_section,
         sub_tracks_box, sub_tracks_block, sub_tracks_section,
         sub_scale_adj, sub_color_btn,
-        vol_pop, sub_pop, main_menu: menu, pref_menu,
+        vol_pop, sub_pop, main_menu: menubar_model, pref_menu,
         recent_scrl, flow_recent, recent_spacers, undo_bar,
         fs_clock,
+        hdr_title_mirror,
     }
-}
-
-fn build_menu_button(menu: &gio::Menu) -> gtk::MenuButton {
-    let mb = gtk::MenuButton::new();
-    mb.set_icon_name("open-menu-symbolic");
-    mb.set_tooltip_text(Some("Main menu"));
-    mb.set_menu_model(Some(menu));
-    let mb2 = mb.clone();
-    mb.connect_notify_local(Some("popover"), move |b, _| {
-        if let Some(p) = b.popover() { header_popover_non_modal(&p); }
-    });
-    mb.connect_active_notify(move |b| {
-        if b.is_active() {
-            if let Some(p) = b.popover() { header_popover_non_modal(&p); }
-        }
-    });
-    if let Some(p) = mb2.popover() { header_popover_non_modal(&p); }
-    mb
 }
 
 fn build_bottom_bar(

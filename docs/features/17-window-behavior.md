@@ -55,6 +55,17 @@ Feature: Window, fullscreen, and presentation
     When the user chooses fullscreen from the main menu
     Then the window leaves fullscreen
 
+  Scenario: Double-click top toolbar exits fullscreen
+    Given the window is fullscreen
+    When the user double-clicks primary on the top toolbar
+    Then the window leaves fullscreen
+
+  Scenario: Double-click top toolbar enters fullscreen during playback
+    Given a media title is loaded and pause may be either state
+    And the recent grid is hidden and the window is not fullscreen
+    When the user double-clicks primary on the top toolbar
+    Then the window enters fullscreen via the maximize-then-fullscreen path
+
   Scenario: Exiting fullscreen restores last windowed size
     Given the window is fullscreen with a saved windowed size
     When the user exits fullscreen
@@ -99,7 +110,7 @@ Feature: Window, fullscreen, and presentation
 ```
 
 ## Notes
-- Main menu **Fullscreen** invokes `app.toggle-fullscreen` (same maximize-then-fullscreen path as other toggles); **F11** is bound as a shortcut. Enter / **f** also toggle fullscreen from the window key controller (see input wiring).
+- Header **double-click fullscreen:** primary **double-click** on `HeaderBar` calls the same fullscreen toggle as the video gesture; fullscreen **exit** ignores the browse-overlay guard so the toolbar is always a target to leave fullscreen; fullscreen **entry** skips while the overlay is visible (same as GL double-click).
 - Fullscreen-only header clock: `GtkLabel` packed on `HeaderBar` before speed / sound / subtitle / main menu; reads **`org.gnome.desktop.interface`** (`clock-format` **12h** / **24h**, `clock-show-seconds`) when that schema exists so the string matches the desktop shell clock (no forced `%X` / seconds / AM–PM). Fallback **`%H:%M`** when settings are unavailable; visible updates use `glib::timeout_add_seconds_local(1, …)` while fullscreen because no toolkit signal fires per wall-clock second.
 - Inhibit implementation polls every ~500 ms to sync with pause / load / grid state; uninhibit always runs before quit.
 - Autohide default 2–3 s; menus or popovers being open keeps chrome visible.

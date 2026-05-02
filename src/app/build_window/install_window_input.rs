@@ -37,6 +37,12 @@
         fs_clock: w.fs_clock.clone(),
         fs_clock_tick,
         reapply_60: reapply_60.clone(),
+        smooth_seek_debounce: smooth_seek_debounce.clone(),
+        resume_after_seek_idle: resume_after_seek_idle.clone(),
+        play_toggle: play_ctx.clone(),
+        hdr_title_mirror: w.hdr_title_mirror.clone(),
+        speed_sync: w.speed_sync.clone(),
+        speed_list: w.speed_list.clone(),
     });
 
     #[cfg(target_os = "macos")]

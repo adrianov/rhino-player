@@ -1,14 +1,15 @@
 /// Shared refs for [try_load_sibling_pick] (bottom-bar buttons + Ctrl+arrow shortcuts).
-struct SiblingNavTryRefs<'a> {
-    player: &'a Rc<RefCell<Option<MpvBundle>>>,
-    win: &'a adw::ApplicationWindow,
-    gl: &'a gtk::GLArea,
-    recent: &'a gtk::ScrolledWindow,
-    last_path: &'a Rc<RefCell<Option<PathBuf>>>,
-    on_video_chrome: &'a Rc<dyn Fn()>,
-    win_aspect: &'a Rc<Cell<Option<f64>>>,
-    sibling_seof: &'a Rc<SiblingEofState>,
-    on_file_loaded: &'a Rc<dyn Fn()>,
+struct SiblingNavTryRefs {
+    player: Rc<RefCell<Option<MpvBundle>>>,
+    win: adw::ApplicationWindow,
+    gl: gtk::GLArea,
+    recent: gtk::Box,
+    last_path: Rc<RefCell<Option<PathBuf>>>,
+    on_video_chrome: Rc<dyn Fn()>,
+    win_aspect: Rc<Cell<Option<f64>>>,
+    sibling_seof: Rc<SiblingEofState>,
+    on_file_loaded: Rc<dyn Fn()>,
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
 }
 
 /// Loads another local file using the same sibling-folder ordering as EOF advance (**Previous** /
@@ -16,7 +17,7 @@ struct SiblingNavTryRefs<'a> {
 fn try_load_sibling_pick(
     pick: fn(&Path) -> Option<PathBuf>,
     log_tag: &'static str,
-    r: &SiblingNavTryRefs<'_>,
+    r: &SiblingNavTryRefs,
 ) {
     let cur = r.last_path.borrow().clone();
     let Some(cur) = cur.filter(|c| c.is_file()) else {
@@ -32,14 +33,15 @@ fn try_load_sibling_pick(
     r.sibling_seof.done.set(false);
     drop(g);
     let o = LoadOpts::replace_media(
-        Rc::clone(r.last_path),
-        Some(Rc::clone(r.on_video_chrome)),
-        Rc::clone(r.win_aspect),
-        Some(Rc::clone(r.on_file_loaded)),
+        Rc::clone(&r.last_path),
+        Some(Rc::clone(&r.on_video_chrome)),
+        Rc::clone(&r.win_aspect),
+        Some(Rc::clone(&r.on_file_loaded)),
         true,
         false,
+        r.hdr_title_mirror.clone(),
     );
-    if let Err(e) = try_load(&np, r.player, r.win, r.gl, r.recent, &o) {
+    if let Err(e) = try_load(&np, &r.player, &r.win, &r.gl, &r.recent, &o) {
         eprintln!("[rhino] {log_tag}: {e}");
     }
 }
@@ -59,26 +61,28 @@ struct SiblingNavCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
     win: adw::ApplicationWindow,
     gl: gtk::GLArea,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     on_video_chrome: Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
     sibling_seof: Rc<SiblingEofState>,
     on_file_loaded: Rc<dyn Fn()>,
+    hdr_title_mirror: Option<Rc<gtk::Label>>,
 }
 
 impl SiblingNavCtx {
-    fn try_refs(&self) -> SiblingNavTryRefs<'_> {
+    fn try_refs(&self) -> SiblingNavTryRefs {
         SiblingNavTryRefs {
-            player: &self.player,
-            win: &self.win,
-            gl: &self.gl,
-            recent: &self.recent,
-            last_path: &self.last_path,
-            on_video_chrome: &self.on_video_chrome,
-            win_aspect: &self.win_aspect,
-            sibling_seof: &self.sibling_seof,
-            on_file_loaded: &self.on_file_loaded,
+            player: self.player.clone(),
+            win: self.win.clone(),
+            gl: self.gl.clone(),
+            recent: self.recent.clone(),
+            last_path: self.last_path.clone(),
+            on_video_chrome: self.on_video_chrome.clone(),
+            win_aspect: self.win_aspect.clone(),
+            sibling_seof: self.sibling_seof.clone(),
+            on_file_loaded: self.on_file_loaded.clone(),
+            hdr_title_mirror: self.hdr_title_mirror.clone(),
         }
     }
 }
@@ -115,17 +119,19 @@ fn make_sibling_nav_click(
     let wa = Rc::clone(&ctx.win_aspect);
     let seof = Rc::clone(&ctx.sibling_seof);
     let ol = Rc::clone(&ctx.on_file_loaded);
+    let hm = ctx.hdr_title_mirror.clone();
     move |_| {
         try_load_sibling_pick(pick, label, &SiblingNavTryRefs {
-            player: &p,
-            win: &w,
-            gl: &gl,
-            recent: &rec,
-            last_path: &lp,
-            on_video_chrome: &ovid,
-            win_aspect: &wa,
-            sibling_seof: &seof,
-            on_file_loaded: &ol,
+            player: p.clone(),
+            win: w.clone(),
+            gl: gl.clone(),
+            recent: rec.clone(),
+            last_path: lp.clone(),
+            on_video_chrome: ovid.clone(),
+            win_aspect: wa.clone(),
+            sibling_seof: seof.clone(),
+            on_file_loaded: ol.clone(),
+            hdr_title_mirror: hm.clone(),
         });
     }
 }

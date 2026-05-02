@@ -1,10 +1,11 @@
 /// Show the sheet immediately; save state and repaint cards after a frame while keeping the
-/// current file paused as a warm reopen target when the continue list is non-empty.
+/// current file paused as a warm reopen target when the continue strip is visible (history cards
+/// and/or the Open tile on empty-history launch).
 fn back_to_browse(
     c: &BackToBrowseCtx,
-    win: &impl IsA<gtk::Window>,
+    win: &adw::ApplicationWindow,
     gl: &gtk::GLArea,
-    recent: &gtk::ScrolledWindow,
+    recent: &gtk::Box,
     row: &gtk::Box,
     clear_undo: bool,
 ) {
@@ -23,14 +24,10 @@ fn back_to_browse(
     *c.last_path.borrow_mut() = warm_path.clone();
     c.sibling_nav.refresh(warm_path.as_deref(), &c.sibling_seof);
     let paths: Vec<PathBuf> = history::load().into_iter().take(5).collect();
-    if paths.is_empty() {
-        recent.set_visible(false);
-    } else {
-        recent.set_visible(true);
-    }
+    let show_strip = !paths.is_empty() || c.browse_has_strip;
+    recent.set_visible(show_strip);
     (c.on_browse)();
-    win.upcast_ref::<gtk::Window>()
-        .set_title(Some(APP_WIN_TITLE));
+    sync_app_window_title(win, c.hdr_title_mirror.as_deref(), Some(APP_WIN_TITLE));
     gl.queue_render();
     // Cut audio right away; `stop` stays in idlers so a last-frame screenshot can run first.
     c.recent_visible.set(recent.is_visible());
@@ -38,7 +35,7 @@ fn back_to_browse(
         let _ = b.mpv.set_property("pause", true);
     }
 
-    if paths.is_empty() {
+    if !show_strip {
         let p2 = c.player.clone();
         let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
             if let Some(b) = p2.borrow().as_ref() {
@@ -87,7 +84,7 @@ fn make_browse_back(
     ctx: BackToBrowseCtx,
     win: adw::ApplicationWindow,
     gl: gtk::GLArea,
-    recent: gtk::ScrolledWindow,
+    recent: gtk::Box,
     row: gtk::Box,
 ) -> Rc<dyn Fn(bool)> {
     Rc::new(move |clear_undo| {

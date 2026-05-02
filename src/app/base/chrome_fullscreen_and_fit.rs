@@ -1,12 +1,18 @@
 /// Leave fullscreen. On macOS, [`GtkWindowExt::unfullscreen`] must not run synchronously from gesture /
-/// key handlers: GDK nests AppKit fullscreen-exit transition inside GTK input delivery and AppKit can
-/// recurse indefinitely between titlebar and toolbar layout (`NSThemeFrame`).
+/// key handlers: GDK nests AppKit fullscreen-exit inside GTK delivery and AppKit can recurse between
+/// titlebar / toolbar layout (`NSThemeFrame`). `idle_add_local_once` is still too soon on macOS 26 —
+/// defer with a short wall-clock timeout so `unfullscreen` runs after the outer transition unwinds.
+#[cfg(target_os = "macos")]
+const MACOS_UNFULLSCREEN_DEFER: Duration = Duration::from_millis(100);
+
 fn unfullscreen_safe(win: &adw::ApplicationWindow) {
     #[cfg(target_os = "macos")]
     {
         let w = win.clone();
-        let _ = glib::idle_add_local_once(move || {
-            w.unfullscreen();
+        let _ = glib::timeout_add_local_once(MACOS_UNFULLSCREEN_DEFER, move || {
+            if w.is_fullscreen() {
+                w.unfullscreen();
+            }
         });
     }
     #[cfg(not(target_os = "macos"))]
@@ -142,7 +148,7 @@ fn ensure_active_idle(btn: gtk::MenuButton) {
     });
 }
 
-fn header_menubtns_switch(menus: [gtk::MenuButton; 4]) {
+fn header_menubtns_switch(menus: &[gtk::MenuButton]) {
     for (i, menu) in menus.iter().enumerate() {
         let g = gtk::GestureClick::new();
         g.set_button(gtk::gdk::BUTTON_PRIMARY);
