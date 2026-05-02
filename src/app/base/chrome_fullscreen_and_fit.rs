@@ -1,3 +1,20 @@
+/// Leave fullscreen. On macOS, [`GtkWindowExt::unfullscreen`] must not run synchronously from gesture /
+/// key handlers: GDK nests AppKit fullscreen-exit transition inside GTK input delivery and AppKit can
+/// recurse indefinitely between titlebar and toolbar layout (`NSThemeFrame`).
+fn unfullscreen_safe(win: &adw::ApplicationWindow) {
+    #[cfg(target_os = "macos")]
+    {
+        let w = win.clone();
+        let _ = glib::idle_add_local_once(move || {
+            w.unfullscreen();
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        win.unfullscreen();
+    }
+}
+
 fn toggle_fullscreen(
     win: &adw::ApplicationWindow,
     fs_restore: &RefCell<Option<(i32, i32)>>,
@@ -6,7 +23,7 @@ fn toggle_fullscreen(
 ) {
     if win.is_fullscreen() {
         skip_max_to_fs.set(true);
-        win.unfullscreen();
+        unfullscreen_safe(win);
         // unmaximize + set_default_size run in `connect_fullscreened_notify` (leave) if `fs_restore` was set
     } else if !win.is_maximized() {
         *fs_restore.borrow_mut() = Some(win_normal_size(win));
@@ -20,28 +37,38 @@ fn toggle_fullscreen(
     }
 }
 
-/// `AdwToolbarView` top and bottom bars float over the `GLArea` (windowed and fullscreen).
-/// When the recent grid is visible, always reveal bars. When playing, visibility follows
-/// `bar_show` (set true on pointer motion; cleared after [IDLE_3S] of no motion on the window).
-/// Open header [gtk::MenuButton]s (main menu, sound/volume popover) skip that hide: any open menu
-/// cancels the pending auto-hide, and a timer that would hide while a menu is open is rescheduled.
-fn apply_chrome(
-    root: &adw::ToolbarView,
-    gl: &gtk::GLArea,
-    bar_show: &Cell<bool>,
-    recent: &impl IsA<gtk::Widget>,
-    bottom: &gtk::Box,
-    player: &Rc<RefCell<Option<MpvBundle>>>,
-) {
-    root.set_extend_content_to_top_edge(true);
-    root.set_extend_content_to_bottom_edge(true);
-    let show = recent.is_visible() || bar_show.get();
-    if !set_toolbar_reveal(root, show) {
+include!("chrome_header_csd_controls.rs");
+
+/// Bundle of refs for [`apply_chrome`].
+struct ChromeApplyParts<'a, R>
+where
+    R: IsA<gtk::Widget>,
+{
+    hdr_csd_baseline: &'a Rc<Cell<Option<(bool, bool)>>>,
+    root: &'a adw::ToolbarView,
+    header: &'a adw::HeaderBar,
+    gl: &'a gtk::GLArea,
+    bar_show: &'a Rc<Cell<bool>>,
+    recent: &'a R,
+    bottom: &'a gtk::Box,
+    player: &'a Rc<RefCell<Option<MpvBundle>>>,
+}
+
+/// Updates `ToolbarView` bar reveals, client-side decoration title slots, subtitles vs chrome, GL paint.
+///
+/// When the recent grid is visible, always reveal bars. When playing, visibility follows `bar_show`
+/// (pointer motion clears [IDLE_3S]). Open header menus cancel auto-hide timer.
+fn apply_chrome<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>) {
+    c.root.set_extend_content_to_top_edge(true);
+    c.root.set_extend_content_to_bottom_edge(true);
+    let show = c.recent.is_visible() || c.bar_show.get();
+    sync_header_window_controls(c.header, c.hdr_csd_baseline, show);
+    if !set_toolbar_reveal(c.root, show) {
         return;
     }
-    gl.queue_render();
-    if let Some(b) = player.borrow().as_ref() {
-        sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, bottom.height(), gl.height());
+    c.gl.queue_render();
+    if let Some(b) = c.player.borrow().as_ref() {
+        sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, c.bottom.height(), c.gl.height());
     }
 }
 
@@ -76,14 +103,16 @@ fn schedule_bars_autohide(ctx: Rc<ChromeBarHide>) {
                 schedule_bars_autohide(Rc::clone(&ctx2));
             } else {
                 ctx2.bar_show.set(false);
-                apply_chrome(
-                    &ctx2.root,
-                    &ctx2.gl,
-                    &ctx2.bar_show,
-                    &ctx2.recent,
-                    &ctx2.bottom,
-                    &ctx2.player,
-                );
+                apply_chrome(ChromeApplyParts {
+                    hdr_csd_baseline: &ctx2.hdr_csd_baseline,
+                    root: &ctx2.root,
+                    header: &ctx2.header,
+                    gl: &ctx2.gl,
+                    bar_show: &ctx2.bar_show,
+                    recent: &ctx2.recent,
+                    bottom: &ctx2.bottom,
+                    player: &ctx2.player,
+                });
                 ctx2.squelch.set(Some(Instant::now() + LAYOUT_SQUELCH));
             }
         }

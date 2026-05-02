@@ -24,6 +24,7 @@ struct WindowInputCtx {
     skip_max_to_fs: Rc<Cell<bool>>,
     last_unmax: Rc<RefCell<(i32, i32)>>,
     ch_hide: Rc<ChromeBarHide>,
+    hdr_csd_baseline: Rc<Cell<Option<(bool, bool)>>>,
     /// Single closure replacing repeated [BackToBrowseCtx] construction; arg = `clear_undo`.
     on_browse_back: Rc<dyn Fn(bool)>,
     on_video_chrome: Rc<dyn Fn()>,

@@ -5,6 +5,7 @@ include!("build_window/sibling_nav_buttons.rs");
 include!("build_window/speed_menu.rs");
 include!("build_window/volume_wiring.rs");
 include!("build_window/widgets.rs");
+include!("build_window/wire_drag_drop.rs");
 
 fn build_window(
     app: &adw::Application,
@@ -36,8 +37,7 @@ fn build_window(
     });
     let exit_after_current = Rc::new(Cell::new(false));
     let fs_restore = Rc::new(RefCell::new(None::<(i32, i32)>));
-    // Stops `connect_maximized_notify` from re-calling `fullscreen` in the `maximized && !fullscreen`
-    // case right after `unfullscreen` (same event tick as leaving fullscreen).
+    // Stops `connect_maximized_notify` re-calling fullscreen in `maximized && !fullscreen` right after `unfullscreen`.
     let skip_max_to_fs = Rc::new(Cell::new(false));
     let last_unmax = Rc::new(RefCell::new((WIN_INIT_W, WIN_INIT_H)));
     let win_aspect = Rc::new(Cell::new(None::<f64>));
@@ -105,27 +105,48 @@ fn build_window(
     let want_recent = file_boot.borrow().is_none() && !history::load().is_empty();
     w.recent_scrl.set_visible(want_recent);
 
+    let hdr_csd_baseline = Rc::new(Cell::new(None));
+    wire_header_csd_baseline_snap(&hdr_csd_baseline, &w.header);
+
     let ch_hide = Rc::new(ChromeBarHide {
         nav: nav_t.clone(), vol: w.vol_menu.clone(), sub: w.sub_menu.clone(),
         speed: w.speed_mbtn.clone(), main: w.menu_btn.clone(), root: w.root.clone(),
-        gl: w.gl_area.clone(), bar_show: bar_show.clone(), recent: w.recent_scrl.clone(),
+        header: w.header.clone(), gl: w.gl_area.clone(), bar_show: bar_show.clone(),
+        recent: w.recent_scrl.clone(),
         bottom: w.bottom.clone(), player: player.clone(), squelch: motion_squelch.clone(),
         seek_grabbed: seek_grabbed.clone(),
+        hdr_csd_baseline: Rc::clone(&hdr_csd_baseline),
     });
 
     let on_video_chrome: Rc<dyn Fn()> = {
-        let (root, gl, b, recent, bot, p, chh) = (
-            w.root.clone(), w.gl_area.clone(), bar_show.clone(),
-            w.recent_scrl.clone(), w.bottom.clone(), player.clone(), Rc::clone(&ch_hide),
+        let (csp, root, gl, b, recent, bot, p, hdr, chh) = (
+            Rc::clone(&hdr_csd_baseline),
+            w.root.clone(),
+            w.gl_area.clone(),
+            bar_show.clone(),
+            w.recent_scrl.clone(),
+            w.bottom.clone(),
+            player.clone(),
+            w.header.clone(),
+            Rc::clone(&ch_hide),
         );
         Rc::new(move || {
             b.set(true);
-            apply_chrome(&root, &gl, &b, &recent, &bot, &p);
+            apply_chrome(ChromeApplyParts {
+                hdr_csd_baseline: &csp,
+                root: &root,
+                header: &hdr,
+                gl: &gl,
+                bar_show: &b,
+                recent: &recent,
+                bottom: &bot,
+                player: &p,
+            });
             schedule_bars_autohide(Rc::clone(&chh));
         })
     };
     wire_menu_chrome(Rc::clone(&ch_hide), &w.vol_menu, &w.sub_menu, &w.speed_mbtn, &w.menu_btn);
-    wire_play_toggles(&w.play_pause, PlayToggleCtx {
+    let play_ctx = PlayToggleCtx {
         app: app.clone(), player: player.clone(), video_pref: Rc::clone(&video_pref),
         win: w.win.clone(),
         video_handle: w.video_handle.clone(),
@@ -134,16 +155,33 @@ fn build_window(
         on_file_loaded: Rc::clone(&on_file_loaded),
         win_aspect: win_aspect.clone(), sub_menu: Some(w.sub_menu.clone()),
         play_pause: w.play_pause.clone(),
-    });
+    };
+    wire_play_toggles(&w.play_pause, play_ctx.clone());
     let browse_chrome: Rc<dyn Fn()> = {
-        let (root, gl, b, recent, bot, p, nav) = (
-            w.root.clone(), w.gl_area.clone(), bar_show.clone(),
-            w.recent_scrl.clone(), w.bottom.clone(), player.clone(), nav_t.clone(),
+        let (csp, root, gl, b, recent, bot, p, hdr, nav) = (
+            Rc::clone(&hdr_csd_baseline),
+            w.root.clone(),
+            w.gl_area.clone(),
+            bar_show.clone(),
+            w.recent_scrl.clone(),
+            w.bottom.clone(),
+            player.clone(),
+            w.header.clone(),
+            nav_t.clone(),
         );
         Rc::new(move || {
             if let Some(id) = nav.borrow_mut().take() { id.remove(); }
             b.set(true);
-            apply_chrome(&root, &gl, &b, &recent, &bot, &p);
+            apply_chrome(ChromeApplyParts {
+                hdr_csd_baseline: &csp,
+                root: &root,
+                header: &hdr,
+                gl: &gl,
+                bar_show: &b,
+                recent: &recent,
+                bottom: &bot,
+                player: &p,
+            });
         })
     };
     let on_open = make_on_open_handler(OpenHandlerCtx {
@@ -155,12 +193,20 @@ fn build_window(
     });
     *on_open_slot.borrow_mut() = Some(on_open.clone());
 
-    wire_sibling_nav_buttons(SiblingNavCtx {
-        btn_prev: w.sibling_nav.prev_btn.clone(), btn_next: w.sibling_nav.next_btn.clone(),
-        player: player.clone(), win: w.win.clone(), gl: w.gl_area.clone(),
-        recent: w.recent_scrl.clone(), last_path: last_path.clone(),
-        on_video_chrome: on_video_chrome.clone(), win_aspect: win_aspect.clone(),
-        sibling_seof: sibling_seof.clone(), on_file_loaded: Rc::clone(&on_file_loaded),
+    wire_window_drop_targets(&w.win, player, &w.sub_menu, &on_open);
+
+    let sibling_nav_ctx = wire_sibling_navigation(SiblingNavShell {
+        btn_prev: w.sibling_nav.prev_btn.clone(),
+        btn_next: w.sibling_nav.next_btn.clone(),
+        win: w.win.clone(),
+        gl: w.gl_area.clone(),
+        recent: w.recent_scrl.clone(),
+        player: player.clone(),
+        last_path: last_path.clone(),
+        on_video_chrome: on_video_chrome.clone(),
+        win_aspect: win_aspect.clone(),
+        sibling_seof: sibling_seof.clone(),
+        on_file_loaded: Rc::clone(&on_file_loaded),
     });
 
     let recent_wiring = wire_recent_undo(RecentUndoCtx {
@@ -198,30 +244,7 @@ fn build_window(
         w.win.clone(), w.gl_area.clone(), w.recent_scrl.clone(), w.flow_recent.clone(),
     );
 
-    let fs_clock_tick = Rc::new(RefCell::new(None::<glib::SourceId>));
-    wire_window_input(WindowInputCtx {
-        win: w.win.clone(), root: w.root.clone(), header: w.header.clone(),
-        outer_ovl: w.outer_ovl.clone(), video_handle: w.video_handle.clone(),
-        bottom: w.bottom.clone(),
-        gl: w.gl_area.clone(), recent: w.recent_scrl.clone(),
-        app: app.clone(), player: player.clone(), video_pref: Rc::clone(&video_pref),
-        bar_show: bar_show.clone(), nav_t: nav_t.clone(), cur_t: cur_t.clone(),
-        ptr_in_gl: ptr_in_gl.clone(), motion_squelch: motion_squelch.clone(),
-        last_cap_xy: last_cap_xy.clone(), last_gl_xy: last_gl_xy.clone(),
-        fs_restore: fs_restore.clone(), skip_max_to_fs: skip_max_to_fs.clone(),
-        last_unmax: last_unmax.clone(), ch_hide: Rc::clone(&ch_hide),
-        on_browse_back: on_browse_back.clone(),
-        on_video_chrome: on_video_chrome.clone(), on_file_loaded: Rc::clone(&on_file_loaded),
-        last_path: last_path.clone(), win_aspect: win_aspect.clone(),
-        sibling_seof: sibling_seof.clone(),
-        play_pause: w.play_pause.clone(),
-        seek: w.seek.clone(),
-        seek_sync: seek_sync.clone(),
-        time_left: w.time_left.clone(),
-        fs_clock: w.fs_clock.clone(),
-        fs_clock_tick,
-        reapply_60: reapply_60.clone(),
-    });
+    include!("build_window/install_window_input.rs");
 
     let video_file_actions = wire_video_file_actions(VideoFileActionCtx {
         app: app.clone(), player: player.clone(), recent: w.recent_scrl.clone(),
@@ -244,15 +267,7 @@ fn build_window(
         mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
     });
 
-    wire_seek_control(&w.seek, SeekControlDeps {
-        player: player.clone(),
-        gl: w.gl_area.clone(),
-        seek_sync: seek_sync.clone(),
-        seek_grabbed: seek_grabbed.clone(),
-        time_left: w.time_left.clone(),
-        preview_hover_t: seek_preview.hover_t.clone(),
-        reapply_60: reapply_60.clone(),
-    });
+    include!("build_window/post_seek_mpris.rs");
 
     let vol_sync = Rc::new(Cell::new(false));
     wire_volume_controls(VolumeCtx {
@@ -261,50 +276,7 @@ fn build_window(
         vol_mute_btn: w.vol_mute_btn.clone(), vol_sync: vol_sync.clone(),
     });
 
-    wire_aspect_resize_on_map(
-        &w.win, &w.recent_scrl, &win_aspect, &aspect_resize_end_deb, &aspect_resize_wired,
-    );
-
-    wire_transport_events(TransportSetup {
-        app: app.clone(), player: player.clone(),
-        sub_pref: sub_pref.clone(),
-        win: w.win.clone(), gl: w.gl_area.clone(), recent: w.recent_scrl.clone(),
-        recent_visible,
-        last_path: last_path.clone(), sibling_seof: sibling_seof.clone(),
-        sibling_nav: w.sibling_nav.clone(), exit_after_current: exit_after_current.clone(),
-        win_aspect: win_aspect.clone(), idle_inhib: Rc::clone(&idle_inhib),
-        mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
-        on_video_chrome: on_video_chrome.clone(), on_file_loaded: Rc::clone(&on_file_loaded),
-        reapply_60: reapply_60.clone(), bar_show: bar_show.clone(),
-        seek_chapters: Rc::clone(&seek_chapters),
-        widgets: TransportWidgets {
-            play_pause: w.play_pause.clone(), seek: w.seek.clone(), seek_adj: w.seek_adj.clone(),
-            seek_sync: seek_sync.clone(), seek_grabbed: seek_grabbed.clone(),
-            time_left: w.time_left.clone(), time_right: w.time_right.clone(),
-            speed_menu: w.speed_mbtn.clone(), vol_menu: w.vol_menu.clone(),
-            vol_adj: w.vol_adj.clone(), vol_mute: w.vol_mute_btn.clone(),
-            vol_sync: vol_sync.clone(),
-        },
-    });
-
-    wire_final_actions(FinalActionCtx {
-        app: app.clone(),
-        win: w.win.clone(),
-        fs_restore: Rc::clone(&fs_restore),
-        last_unmax: Rc::clone(&last_unmax),
-        skip_max_to_fs: Rc::clone(&skip_max_to_fs),
-        root: w.root.clone(),
-        gl: w.gl_area.clone(),
-        recent: w.recent_scrl.clone(), bottom: w.bottom.clone(), player: player.clone(),
-        sub_pref: sub_pref.clone(), video_pref: Rc::clone(&video_pref),
-        main_menu: w.main_menu.clone(), pref_menu: w.pref_menu.clone(),
-        seek_bar_on: Rc::clone(&seek_bar_on),
-        last_path: last_path.clone(), on_video_chrome: on_video_chrome.clone(),
-        on_file_loaded: Rc::clone(&on_file_loaded),
-        win_aspect: Rc::clone(&win_aspect), bar_show: bar_show.clone(),
-        idle_inhib: Rc::clone(&idle_inhib), exit_after_current: exit_after_current.clone(),
-        mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
-    });
+    include!("build_window/aspect_transport_final.rs");
 }
 
 include!("build_window/popover_shows.rs");

@@ -3,6 +3,8 @@ fn w_in_win_motion(ctx: &WindowInputCtx) {
     cap.set_propagation_phase(gtk::PropagationPhase::Capture);
     {
         let root_c = ctx.root.clone();
+        let hdr_csd = Rc::clone(&ctx.hdr_csd_baseline);
+        let hdr_c = ctx.header.clone();
         let gl_c = ctx.gl.clone();
         let recent_c = ctx.recent.clone();
         let bottom_c = ctx.bottom.clone();
@@ -14,6 +16,10 @@ fn w_in_win_motion(ctx: &WindowInputCtx) {
         cap.connect_motion(glib::clone!(
             #[strong]
             root_c,
+            #[strong]
+            hdr_csd,
+            #[strong]
+            hdr_c,
             #[strong]
             gl_c,
             #[strong]
@@ -48,14 +54,16 @@ fn w_in_win_motion(ctx: &WindowInputCtx) {
 
                 if !b.get() {
                     b.set(true);
-                    apply_chrome(
-                        &root_c,
-                        &gl_c,
-                        &b,
-                        &recent_c,
-                        &bottom_c,
-                        &p_c,
-                    );
+                    apply_chrome(ChromeApplyParts {
+                        hdr_csd_baseline: &hdr_csd,
+                        root: &root_c,
+                        header: &hdr_c,
+                        gl: &gl_c,
+                        bar_show: &b,
+                        recent: &recent_c,
+                        bottom: &bottom_c,
+                        player: &p_c,
+                    });
                 }
                 schedule_bars_autohide(Rc::clone(&ch_hide));
             }

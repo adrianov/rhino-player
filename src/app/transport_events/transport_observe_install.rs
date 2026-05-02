@@ -30,6 +30,7 @@ fn install_observers_when_ready(ctx: &Rc<TransportCtx>) -> bool {
         (PROP_MUTE, "mute", Format::Flag),
         (PROP_VOLUME_MAX, "volume-max", Format::Double),
         (PROP_PATH, "path", Format::String),
+        (PROP_CONTAINER_FPS, "container-fps", Format::Double),
     ]) {
         eprintln!("[rhino] transport observe_props failed: {e}");
         return false;
@@ -104,6 +105,7 @@ fn property_event(id: u64, data: PropertyData<'_>) -> Option<TransportEv> {
         (PROP_MUTE, PropertyData::Flag(v)) => TransportEv::Mute(*v),
         (PROP_VOLUME_MAX, PropertyData::Double(v)) => TransportEv::VolumeMax(*v),
         (PROP_PATH, PropertyData::Str(_)) => TransportEv::PathChanged,
+        (PROP_CONTAINER_FPS, PropertyData::Double(_)) => TransportEv::ContainerFpsChanged,
         _ => return None,
     })
 }

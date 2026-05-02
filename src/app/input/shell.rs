@@ -51,6 +51,8 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
     let fs_tick_slot = ctx.fs_clock_tick.clone();
     {
         let root_fs = ctx.root.clone();
+        let hdr_csd = Rc::clone(&ctx.hdr_csd_baseline);
+        let header_fs = ctx.header.clone();
         let gl_fs = gl_area.clone();
         let recent_fs = ctx.recent.clone();
         let bottom_fs = ctx.bottom.clone();
@@ -86,14 +88,16 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                 let s = skip_fs.clone();
                 let _ = glib::source::idle_add_local_once(move || { s.set(false); });
             }
-            apply_chrome(
-                &root_fs,
-                &gl_fs,
-                &b,
-                &recent_fs,
-                &bottom_fs,
-                &p_fs,
-            );
+            apply_chrome(ChromeApplyParts {
+                hdr_csd_baseline: &hdr_csd,
+                root: &root_fs,
+                header: &header_fs,
+                gl: &gl_fs,
+                bar_show: &b,
+                recent: &recent_fs,
+                bottom: &bottom_fs,
+                player: &p_fs,
+            });
             gl_fs.queue_render();
             w.queue_draw();
             if !w.is_fullscreen() {
@@ -120,8 +124,14 @@ fn w_in_max_mode(ctx: &WindowInputCtx) {
         if !w.is_maximized() && !w.is_fullscreen() {
             *lu.borrow_mut() = win_normal_size(w);
         } else if !w.is_maximized() && w.is_fullscreen() {
-            skip_fs.set(true);
-            w.unfullscreen();
+            // Linux: user un-maximizes while fullscreen → leave fullscreen. macOS: GDK often reports
+            // `!maximized && fullscreen` during normal fullscreen entry; treating that as demaximize
+            // scheduled `unfullscreen_safe` and canceled fullscreen after our idle deferral fix.
+            #[cfg(not(target_os = "macos"))]
+            {
+                skip_fs.set(true);
+                unfullscreen_safe(w);
+            }
         } else if w.is_maximized() && !w.is_fullscreen() {
             if skip_fs.get() {
                 return;

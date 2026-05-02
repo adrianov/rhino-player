@@ -46,6 +46,7 @@ struct ChromeBarHide {
     speed: gtk::MenuButton,
     main: gtk::MenuButton,
     root: adw::ToolbarView,
+    header: adw::HeaderBar,
     gl: gtk::GLArea,
     bar_show: Rc<Cell<bool>>,
     recent: gtk::ScrolledWindow,
@@ -55,6 +56,8 @@ struct ChromeBarHide {
     /// True while the user is pressing the seek thumb. Auto-hide reschedules itself instead of
     /// hiding the bars so the slider does not vanish under the cursor mid-drag.
     seek_grabbed: Rc<Cell<bool>>,
+    /// First mapped `shows_*_title_buttons` snapshot; restores exact CSD layout after chrome hide.
+    hdr_csd_baseline: Rc<Cell<Option<(bool, bool)>>>,
 }
 
 fn show_pointer(gl: &gtk::GLArea) {

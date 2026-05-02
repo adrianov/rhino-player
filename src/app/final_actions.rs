@@ -5,6 +5,7 @@ struct FinalActionCtx {
     last_unmax: Rc<RefCell<(i32, i32)>>,
     skip_max_to_fs: Rc<Cell<bool>>,
     root: adw::ToolbarView,
+    header: adw::HeaderBar,
     gl: gtk::GLArea,
     recent: gtk::ScrolledWindow,
     bottom: gtk::Box,
@@ -23,6 +24,7 @@ struct FinalActionCtx {
     idle_inhib: Rc<RefCell<Option<u32>>>,
     exit_after_current: Rc<Cell<bool>>,
     mpv_teardown_after_draw: Rc<Cell<bool>>,
+    hdr_csd_baseline: Rc<Cell<Option<(bool, bool)>>>,
 }
 
 fn wire_final_actions(ctx: FinalActionCtx) {
@@ -33,6 +35,7 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         last_unmax,
         skip_max_to_fs,
         root,
+        header,
         gl,
         recent,
         bottom,
@@ -50,6 +53,7 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         idle_inhib,
         exit_after_current,
         mpv_teardown_after_draw,
+        hdr_csd_baseline,
     } = ctx;
 
     let open = gio::SimpleAction::new("open", None);
@@ -210,7 +214,16 @@ fn wire_final_actions(ctx: FinalActionCtx) {
     app.set_accels_for_action("app.quit", &["<Primary>q", "q"]);
     app.set_accels_for_action("app.toggle-fullscreen", &["F11"]);
 
-    apply_chrome(&root, &gl, &bar_show, &recent, &bottom, &player);
+    apply_chrome(ChromeApplyParts {
+        hdr_csd_baseline: &hdr_csd_baseline,
+        root: &root,
+        header: &header,
+        gl: &gl,
+        bar_show: &bar_show,
+        recent: &recent,
+        bottom: &bottom,
+        player: &player,
+    });
     {
         let pz = player.clone();
         let bz = bar_show.clone();

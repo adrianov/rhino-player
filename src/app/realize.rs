@@ -17,7 +17,8 @@ struct MpvRealizeCtx {
     pending_recent_backfill: Rc<RefCell<Option<RecentBackfillJob>>>,
     close_video: gio::SimpleAction,
     move_to_trash: gio::SimpleAction,
-    /// When set by [schedule_quit_persist], the next `GLArea::render` drains mpv with a valid GL binding (macOS).
+    /// When set by [schedule_quit_persist], the next `GLArea::render` runs `teardown_gl_paint` then
+    /// an idle calls [`MpvBundle::dispose_for_quit`] (`mpv_terminate_destroy`) and `quit`.
     mpv_teardown_after_draw: Rc<Cell<bool>>,
 }
 
@@ -144,17 +145,28 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
 
     let p_draw = player.clone();
     let td = mpv_teardown_after_draw;
+    let gl_bundle_drop = gl.clone();
+    #[cfg(not(target_os = "macos"))]
     let win_rd = win.clone();
     let app_rd = app.clone();
     gl.connect_render(move |area, _ctx| {
         area.make_current();
         if td.replace(false) {
-            if let Some(b) = p_draw.borrow_mut().take() {
+            // Final paint runs here (`teardown_gl_paint`); an idle binds GL again then
+            // [`MpvBundle::dispose_for_quit`] (`mpv_terminate_destroy` — not `mpv_destroy`).
+            if let Some(b) = p_draw.borrow().as_ref() {
                 b.teardown_gl_paint(area);
             }
+            #[cfg(not(target_os = "macos"))]
             win_rd.set_visible(false);
+            let to_drop = p_draw.borrow_mut().take();
             let app_q = app_rd.clone();
+            let gl_q = gl_bundle_drop.clone();
             glib::idle_add_local_once(move || {
+                gl_q.make_current();
+                if let Some(b) = to_drop {
+                    b.dispose_for_quit(&gl_q);
+                }
                 app_q.quit();
             });
             return glib::Propagation::Stop;
