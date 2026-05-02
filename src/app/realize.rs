@@ -237,8 +237,8 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
         // through. Clear with a fully transparent color and let the GTK chrome (which
         // gdk renders into the same sublayer) stay opaque on top.
         #[cfg(target_os = "macos")]
-        {
-            crate::mpv_embed::macos_video_bundle::clear_glarea_transparent();
+        if let Some(b) = p_draw.borrow().as_ref() {
+            b.clear_glarea_transparent();
         }
         #[cfg(not(target_os = "macos"))]
         if let Some(b) = p_draw.borrow().as_ref() {

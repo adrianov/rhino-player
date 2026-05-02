@@ -30,10 +30,6 @@ pub struct MpvBundle {
     render: RenderContext,
     #[cfg(not(target_os = "macos"))]
     gl_ptr: usize,
-    /// Last **GLArea** drawable height in physical pixels (`scale_factor × widget height`). Combined
-    /// with mpv **`height`** / **`dheight`** for MVTools CPU tiering (`video_pref::smooth_motion_cost_height`).
-    #[cfg(not(target_os = "macos"))]
-    last_draw_h: std::cell::Cell<i32>,
 
     /// macOS native render surface — owns the NSView, CAOpenGLLayer, dispatch queue, and
     /// the raw `mpv_render_context`. AppKit menu / popover tracking does not stall it.
@@ -112,7 +108,6 @@ impl MpvBundle {
                 _gl: gl_libs,
                 gl_ptr,
                 pending_resume: std::cell::Cell::new(None),
-                last_draw_h: std::cell::Cell::new(0),
             },
             auto_off,
         ))
@@ -132,20 +127,6 @@ impl MpvBundle {
     }
 
     #[cfg(not(target_os = "macos"))]
-    pub(crate) fn smooth_draw_height_px(&self) -> i32 {
-        self.last_draw_h.get()
-    }
-
-    /// macOS: the native CAOpenGLLayer always presents at the layer's full backing size.
-    /// We track GLArea height in points × scale for the same purpose as Linux.
-    #[cfg(target_os = "macos")]
-    pub(crate) fn smooth_draw_height_px(&self) -> i32 {
-        // mpv's `height` / `dheight` properties are still the truthful source for MVTools
-        // tiering on macOS; this falls back to 0 to keep the existing heuristics conservative.
-        0
-    }
-
-    #[cfg(not(target_os = "macos"))]
     fn draw_impl(&self, area: &gtk::GLArea) -> bool {
         if area.upcast_ref::<glib::Object>().as_ptr() as usize != self.gl_ptr {
             return false;
@@ -156,7 +137,6 @@ impl MpvBundle {
         if w <= 0 || h <= 0 {
             return false;
         }
-        self.last_draw_h.set(h);
         let mut fbo: i32 = 0;
         unsafe { (self._gl.gl_get_integerv)(GL_FRAMEBUFFER_BINDING, &mut fbo) };
         self.render.render::<EglState>(fbo, w, h, true).is_ok()
@@ -229,6 +209,16 @@ impl MpvBundle {
 
     #[cfg(not(target_os = "macos"))]
     pub fn watch_overlay<W: glib::object::IsA<gtk::Widget>>(&self, _widget: &W) {}
+
+    /// macOS only: clear the GLArea framebuffer with alpha=0 so the native video layer
+    /// below shows through. Call from inside `connect_render`. Reuses the bundle's
+    /// existing `OpenGL.framework` handle — no second `dlopen`.
+    #[cfg(target_os = "macos")]
+    pub fn clear_glarea_transparent(&self) {
+        if let Some(m) = self.macos.as_ref() {
+            m.clear_glarea_transparent();
+        }
+    }
 
     /// Drain libmpv events until the queue is empty, dispatching each to `handler`.
     /// Call from the closure registered by [install_event_drain].

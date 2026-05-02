@@ -29,21 +29,16 @@ use super::macos_video_displaylink::DriverStateHandle;
 
 const GL_COLOR_BUFFER_BIT: c_int = 0x4000;
 
-/// Clear the **GLArea**'s default framebuffer (the one GTK manages, not our native
-/// layer) with `(0, 0, 0, 0)` so the GLArea's region in gdk-macos's compositing tree
-/// has alpha=0. Combined with `insertSublayer:atIndex:0` for the native video layer
-/// this lets the video show through the GLArea while the GTK chrome (which gdk paints
-/// into the same sublayer) stays opaque on top.
-///
-/// Must run with the GLArea's GL context current (call from inside `connect_render`).
-/// The symbols are looked up once via `dlsym(RTLD_DEFAULT)` and cached.
-pub fn clear_glarea_transparent() {
+type GlClearColorFn = unsafe extern "C" fn(f32, f32, f32, f32);
+type GlClearFn = unsafe extern "C" fn(c_int);
+
+/// Look up `glClearColor` + `glClear` from the dlopen handle inside `loader` and cache
+/// them in a process-global slot. Returns `None` if either symbol is missing (so we
+/// fail closed without crashing).
+fn cached_clear_syms(loader: &GlSymbolLoader) -> Option<(GlClearColorFn, GlClearFn)> {
     use std::sync::OnceLock;
-    type ClearColorFn = unsafe extern "C" fn(f32, f32, f32, f32);
-    type ClearFn = unsafe extern "C" fn(c_int);
-    static SYMS: OnceLock<Option<(ClearColorFn, ClearFn)>> = OnceLock::new();
-    let syms = SYMS.get_or_init(|| {
-        let loader = GlSymbolLoader::open().ok()?;
+    static SYMS: OnceLock<Option<(GlClearColorFn, GlClearFn)>> = OnceLock::new();
+    *SYMS.get_or_init(|| {
         let cc = loader.lookup("glClearColor");
         let cl = loader.lookup("glClear");
         if cc.is_null() || cl.is_null() {
@@ -51,17 +46,11 @@ pub fn clear_glarea_transparent() {
         }
         unsafe {
             Some((
-                std::mem::transmute::<*mut c_void, ClearColorFn>(cc),
-                std::mem::transmute::<*mut c_void, ClearFn>(cl),
+                std::mem::transmute::<*mut c_void, GlClearColorFn>(cc),
+                std::mem::transmute::<*mut c_void, GlClearFn>(cl),
             ))
         }
-    });
-    if let Some((clear_color, clear)) = syms {
-        unsafe {
-            clear_color(0.0, 0.0, 0.0, 0.0);
-            clear(GL_COLOR_BUFFER_BIT);
-        }
-    }
+    })
 }
 
 /// macOS render plumbing tied to one [`Mpv`] instance. Drop order matters — see [`Drop`].
@@ -75,8 +64,9 @@ pub struct MacosRender {
     /// Boxed so the raw pointer we hand to `mpv_render_context_set_update_callback`
     /// stays valid even if the surrounding `MpvBundle` is moved.
     update_ctx: Box<UpdateCtx>,
-    /// Keeps the OpenGL.framework dlopen handle alive for `get_proc_address`.
-    _gl_loader: Arc<GlSymbolLoader>,
+    /// `OpenGL.framework` dlopen handle. Held for the render context's `get_proc_address`
+    /// callback **and** reused by `clear_glarea_transparent` (no second dlopen).
+    gl_loader: Arc<GlSymbolLoader>,
 }
 
 /// Cheap `Send` payload handed to mpv's update callback. Holds an [`Arc`] to the
@@ -107,7 +97,7 @@ impl MacosRender {
             surface,
             render_ctx,
             update_ctx,
-            _gl_loader: gl_loader,
+            gl_loader,
         })
     }
 
@@ -116,6 +106,20 @@ impl MacosRender {
     /// per-frame tick comparison inside the surface.
     pub fn watch_overlay<W: IsA<gtk::Widget>>(&self, widget: &W) {
         self.surface.watch_overlay(widget);
+    }
+
+    /// Clear the GLArea's framebuffer to alpha=0 so gdk-macos's compositing produces
+    /// transparent pixels in the GLArea region — the native CAOpenGLLayer **below** then
+    /// shows through. Reuses the same `OpenGL.framework` handle that the render context
+    /// holds, so we never `dlopen` it twice.
+    pub fn clear_glarea_transparent(&self) {
+        let Some((clear_color, clear)) = cached_clear_syms(&self.gl_loader) else {
+            return;
+        };
+        unsafe {
+            clear_color(0.0, 0.0, 0.0, 0.0);
+            clear(GL_COLOR_BUFFER_BIT);
+        }
     }
 }
 
