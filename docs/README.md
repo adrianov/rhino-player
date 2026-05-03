@@ -51,6 +51,8 @@ Feature numbers **05**, **16**, and **19** are unused (withdrawn playlist / sess
 
 Some UX targets were attempted in code but did not validate in manual testing on the maintainer’s GNOME / Wayland setup. They are documented as **not achieved in the current Cursor / Composer 2 Fast pass** (revisit with a different model or deeper GTK review): one-click switch between header `MenuButton` popovers — see [17-window-behavior](features/17-window-behavior.md).
 
+**macOS hybrid UI:** simplified repaint paths deliberately avoid aggressive chrome redraws during resize/maximize churn (risk of AppKit ↔ GDK fullscreen/recursion trouble). Bottom toolbar occasionally shows **through** stale compositing until some other redraw clears it — **documented as an unresolved glitch** under `## Notes` in [17-window-behavior](features/17-window-behavior.md).
+
 ## Architecture and product context
 
 - [`docs/architecture.md`](architecture.md) — three-layer model (product behavior / fixed core / platform binding), domain glossary mapping scenario terms to today's core API names, and the per-port binding table.
