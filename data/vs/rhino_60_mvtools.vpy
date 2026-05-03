@@ -24,18 +24,19 @@ _TARGET_NUM = 60
 _TARGET_DEN = 1
 _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_GLOBAL_HINT = {"global": True}
-# Motion-estimation macroblock size: ``width×height / divisor`` → **nearest** power of two
+# Motion-estimation macroblock size: ``ideal = width×height / _MV_AREA_PERF_DIV`` → **nearest** power of two
 # (minimal ``abs(blksize - ideal)`` among 4…512), then ``overlap = blksize // 2``.
-# **20000** fits common anchors: **1920×1080** → ~104 → **128**; **3840×1600** → ~307 → **256**.
-_MV_BLK_AREA_DIV = 20000
+# **Performance divisor**: raise it for smaller blocks / heavier ME; lower for larger blocks / lighter CPU / thermals.
+# At **10000**: **1920×1080** → ~207 → **256**; **3840×1600** / **3840×2160** → **512**.
+_MV_AREA_PERF_DIV = 10000
 _MV_BLK_POW2 = tuple(2**i for i in range(2, 10))  # 4 … 512
 
 
 def _blksize_overlap_from_area(width_px: int, height_px: int) -> tuple[int, int]:
-    """``blksize`` = closest power of two to ``W×H / _MV_BLK_AREA_DIV``; ``overlap = blksize // 2``."""
+    """``blksize`` = closest power of two to ``W×H / _MV_AREA_PERF_DIV``; ``overlap = blksize // 2``."""
     w = max(1, width_px)
     h = max(1, height_px)
-    ideal = (w * h) / _MV_BLK_AREA_DIV
+    ideal = (w * h) / _MV_AREA_PERF_DIV
     blk = min(_MV_BLK_POW2, key=lambda p: abs(p - ideal))
     return blk, blk // 2
 
