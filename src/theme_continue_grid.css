@@ -41,6 +41,7 @@
             color: inherit;
             border-radius: 12px;
             /* Let [sync_card_sizes] impose 16:9; intrinsic label/margins must not grow the tile. */
+            min-width: 0;
             min-height: 0;
             padding: 0;
         }

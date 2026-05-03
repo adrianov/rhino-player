@@ -97,6 +97,7 @@ fn new_undo_bar() -> UndoBar {
 /// area for main-window double-click fullscreen: not the card strip or undo bar.
 pub fn new_scroll() -> (gtk::Box, gtk::Box, [gtk::Box; 4], UndoBar) {
     let h = gtk::Box::new(gtk::Orientation::Horizontal, 16);
+    h.set_homogeneous(true);
     h.set_halign(gtk::Align::Center);
     h.set_baseline_position(gtk::BaselinePosition::Top);
     h.set_vexpand(false);
@@ -202,6 +203,7 @@ fn sync_card_sizes(card_row: &gtk::Box, cards: &[gtk::Overlay]) {
         card.set_height_request(h);
         if let Some(pw) = card.parent() {
             if let Some(clamp) = pw.downcast_ref::<adw::Clamp>() {
+                clamp.set_maximum_size(w);
                 clamp.set_width_request(w);
                 clamp.set_height_request(h);
             }

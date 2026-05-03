@@ -17,6 +17,7 @@ fn open_video_pick_card() -> gtk::Overlay {
         .hexpand(true)
         .css_classes(["flat"])
         .build();
+    btn.set_can_shrink(true);
 
     let col = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
