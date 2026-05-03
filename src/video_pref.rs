@@ -27,8 +27,7 @@
 //! Clearing the graph
 //! (**Smooth off** or **vf** error) restores **`hwdec=auto`** / **`vd-lavc-dr=auto`**.
 //! Successful **MVTools** plugin resolution (`libmvtools.so` on Linux, `libmvtools.dylib` on
-//! macOS) is stored in SQLite (`video_mvtools_lib`); the next session
-//! reuses that path if the file still exists, avoiding a full search.
+//! macOS) is stored in SQLite (`video_mvtools_lib`).
 //!
 //! [try_load] drains mpv so those transport events run; other hooks (speed, Preferences)
 //! call [apply_mpv_video] directly. Transport **`Pause(false)`** runs [smooth_vf_attach_if_playing]

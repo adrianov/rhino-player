@@ -193,6 +193,7 @@ pub fn save_audio_track_name(name: &str) {
 const K_VIDEO_SMOOTH_60: &str = "video_smooth_60";
 const K_VIDEO_VS: &str = "video_vs_path";
 const K_VIDEO_MVTOOLS_LIB: &str = "video_mvtools_lib";
+const K_VIDEO_MANIPMV_LIB: &str = "video_manipmv_lib";
 
 #[derive(Debug, Clone, Default)]
 pub struct VideoPrefs {
@@ -204,5 +205,7 @@ pub struct VideoPrefs {
     /// Cached absolute path to the **MVTools** plugin file (`libmvtools.so` on Linux,
     /// `libmvtools.dylib` on macOS) after a successful find; skipped on next call if still a file.
     pub mvtools_lib: String,
+    /// Legacy SQLite field (`video_manipmv_lib`); unused by the bundled `.vpy`.
+    pub manipmv_lib: String,
 }
 

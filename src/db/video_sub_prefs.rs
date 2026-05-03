@@ -9,6 +9,9 @@ pub fn load_video() -> VideoPrefs {
     if let Some(s) = get_setting_str(K_VIDEO_MVTOOLS_LIB) {
         p.mvtools_lib = s;
     }
+    if let Some(s) = get_setting_str(K_VIDEO_MANIPMV_LIB) {
+        p.manipmv_lib = s;
+    }
     p
 }
 
@@ -16,6 +19,7 @@ pub fn save_video(p: &VideoPrefs) {
     put_setting(K_VIDEO_SMOOTH_60, if p.smooth_60 { "1" } else { "0" });
     put_setting(K_VIDEO_VS, &p.vs_path);
     put_setting(K_VIDEO_MVTOOLS_LIB, &p.mvtools_lib);
+    put_setting(K_VIDEO_MANIPMV_LIB, &p.manipmv_lib);
 }
 
 // --- subtitle appearance + last manual track label (see docs/features/24-subtitles.md) ---
