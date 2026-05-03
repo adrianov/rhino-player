@@ -1,7 +1,7 @@
 //! XDG config: `~/.config/rhino/…` and project data paths (bundled [`.vpy`] for VapourSynth).
 //! [mvtools_from_env] / [mvtools_lib_search] find the **MVTools** plugin file
-//! (`libmvtools.so` on Linux, `libmvtools.dylib` on macOS); the app caches the path in SQLite and
-//! sets the `RHINO_MVTOOLS_LIB` env (see `video_pref` `apply_mvtools_env`).
+//! (`libmvtools.so` on Linux, `libmvtools.dylib` on macOS). The app caches the path in SQLite and sets
+//! `RHINO_MVTOOLS_LIB` (see `video_pref`).
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -176,13 +176,11 @@ const DISTRO_MVTOOLS_PATHS: &[&str] = &[
     "/usr/local/lib/vapoursynth/libmvtools.so",
 ];
 
-/// `~/.local/share/pipx/venvs/<name>/lib/python*/site-packages/vapoursynth/plugins/vsrepo/libmvtools.so`
-/// (e.g. vsrepo in a pipx venv) — checked before scanning all of `~/.local`. Linux-only:
-/// `vsrepo` is not used in the macOS Homebrew layout.
+/// Pipx venvs under **`~/.local/share/pipx/venvs`**, **`~/.local/pipx/venvs`**, or **`$PIPX_HOME/venvs`**:
+/// **`…/site-packages/vapoursynth/plugins/vsrepo/libmvtools.so`**. Linux-only: macOS uses Homebrew paths.
 #[cfg(not(target_os = "macos"))]
-fn mvtools_in_pipx_venvs(local: &Path) -> Option<PathBuf> {
-    let venvs_root = local.join("share/pipx/venvs");
-    let venvs = std::fs::read_dir(&venvs_root).ok()?;
+fn mvtools_scan_pipx_venvs_root(venvs_root: &Path) -> Option<PathBuf> {
+    let venvs = std::fs::read_dir(venvs_root).ok()?;
     for venv in venvs.flatten() {
         let Ok(vft) = venv.file_type() else {
             continue;
@@ -214,11 +212,21 @@ fn mvtools_in_pipx_venvs(local: &Path) -> Option<PathBuf> {
     None
 }
 
+#[cfg(not(target_os = "macos"))]
+fn mvtools_in_pipx_venvs(local: &Path) -> Option<PathBuf> {
+    mvtools_scan_pipx_venvs_root(&local.join("share/pipx/venvs"))
+        .or_else(|| mvtools_scan_pipx_venvs_root(&local.join("pipx/venvs")))
+        .or_else(|| {
+            let ph = std::env::var_os("PIPX_HOME")?;
+            mvtools_scan_pipx_venvs_root(&PathBuf::from(ph).join("venvs"))
+        })
+}
+
+#[cfg(not(target_os = "macos"))]
 /// Breadth-first search for `file_name` under `root`, at most `max_depth` directory levels from
 /// `root`, stopping after `max_dir_reads` `read_dir` calls (avoids huge trees). Symlink directories
 /// are not descended (same idea as Python `follow_symlinks=False`), so cycles do not burn the read budget.
-/// Used only by the Linux pipx/vsrepo fallback; macOS uses Homebrew's fixed prefix instead.
-#[cfg(not(target_os = "macos"))]
+/// Used for **MVTools** pipx / `~/.local` fallback search on Linux ([extra_mvtools_search]).
 fn find_file_breadth_first(
     root: &Path,
     file_name: &str,
