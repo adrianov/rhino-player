@@ -24,17 +24,33 @@ _TARGET_NUM = 60
 _TARGET_DEN = 1
 _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_GLOBAL_HINT = {"global": True}
+# Motion-estimation macroblock size: ``width×height / divisor`` → **nearest** power of two
+# (minimal ``abs(blksize - ideal)`` among 4…512), then ``overlap = blksize // 2``.
+# **20000** fits common anchors: **1920×1080** → ~104 → **128**; **3840×1600** → ~307 → **256**.
+_MV_BLK_AREA_DIV = 20000
+_MV_BLK_POW2 = tuple(2**i for i in range(2, 10))  # 4 … 512
 
 
-def _mv_graph_for_short_edge(
-    short_edge_px: int,
+def _blksize_overlap_from_area(width_px: int, height_px: int) -> tuple[int, int]:
+    """``blksize`` = closest power of two to ``W×H / _MV_BLK_AREA_DIV``; ``overlap = blksize // 2``."""
+    w = max(1, width_px)
+    h = max(1, height_px)
+    ideal = (w * h) / _MV_BLK_AREA_DIV
+    blk = min(_MV_BLK_POW2, key=lambda p: abs(p - ideal))
+    return blk, blk // 2
+
+
+def _mv_graph_for_frame_size(
+    width_px: int,
+    height_px: int,
 ) -> tuple[str, int, int, int, int, int, int, bool, bool, bool]:
     """Tier tag + MVTools params for native-resolution ME.
 
     Returns ``(tier, blksize, overlap, pel, sharp, search, flow_mask, flow_blend,
     truemotion, chroma)``.
-    **hd** vs **uhd** split on short edge (>1440) for stderr ``tier=`` only; **both** use
-    ``blksize=256``, ``overlap=128``, ``pel=1``, ``sharp=1``, ``search=4``, ``chroma=True`` (luma + chroma;
+    **hd** vs **uhd** split on short edge (>1440) for stderr ``tier=`` only.
+    ``blksize`` / ``overlap`` derive from frame area (nearest power of two, half overlap);
+    other params: ``pel=1``, ``sharp=1``, ``search=4``, ``chroma=True`` (luma + chroma;
     luma-only MVs tend to mis-register chroma). **Analyse** / **FlowFPS**: ``mask=2``, ``blend=True``;
     ``truemotion=True``.
 
@@ -42,9 +58,12 @@ def _mv_graph_for_short_edge(
     frame size). Fixed small values (e.g. 4/6) truncate the hierarchy on many resolutions
     and can leave FlowFPS with little real blending.
     """
-    h = max(1, short_edge_px)
-    tier = "uhd" if h > 1440 else "hd"
-    return (tier, 256, 128, 1, 1, 4, 2, True, True, True)
+    w = max(1, width_px)
+    h = max(1, height_px)
+    short_edge = min(w, h)
+    tier = "uhd" if short_edge > 1440 else "hd"
+    blksize, overlap = _blksize_overlap_from_area(width_px, height_px)
+    return (tier, blksize, overlap, 1, 1, 4, 2, True, True, True)
 
 
 # mpv may run this script multiple times per single `vf` attach; Rhino sets `RHINO_VPY_LOG_EPOCH`
@@ -354,7 +373,7 @@ else:
             work = core.std.AssumeFPS(clip, fpsnum=sn, fpsden=sd)
         _full_short = min(work.width, work.height)
         _tier, _blk, _ov, _pel, _sharp, _search, _fmask, _fblend, _tm, _mv_chroma = (
-            _mv_graph_for_short_edge(_full_short)
+            _mv_graph_for_frame_size(work.width, work.height)
         )
         print(
             f"[rhino_60_mvtools] mvtools preset tier={_tier} (short-edge={_full_short}px): "
