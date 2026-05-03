@@ -24,24 +24,23 @@ _TARGET_NUM = 60
 _TARGET_DEN = 1
 _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_GLOBAL_HINT = {"global": True}
-_MV_CHROMA = False
 
 
 def _mv_graph_for_short_edge(
     short_edge_px: int,
-) -> tuple[str, int, int, int, int, int, int, bool, int | None, bool]:
+) -> tuple[str, int, int, int, int, int, int, bool, int | None, bool, bool]:
     """Tier tag + MVTools params for native-resolution ME.
 
-    Tuple: ``(tier, blksize, overlap, pel, sharp, search, flow_mask, flow_blend, super_levels|None,
-    truemotion)``. **uhd** uses **64×32** blocks (fewer ME blocks than smaller tiling on large frames),
-    ``pel=1``, ``search=4``, ``sharp=1``, FlowFPS ``mask=2``, ``Super`` pyramid ``levels=4``,
-    ``truemotion=True``, FlowFPS ``blend=True``.
-    **hd** uses ``Super`` ``levels=6`` (more pyramid depth at 1080p-class sizes than **uhd**).
+    Returns ``(tier, blksize, overlap, pel, sharp, search, flow_mask, flow_blend,
+    super_levels, truemotion, chroma)``.
+    **hd** vs **uhd** split on short edge (>1440). Both use ``blksize=16``, ``overlap=8``.
+    **hd**: ``chroma=True`` (luma+chroma MV), ``pel=2``, ``sharp=2``, ``Super`` ``levels=6``.
+    **uhd**: same ``chroma`` (``True``), ``pel=1``, ``sharp=1``, ``Super`` ``levels=4``.
     """
     h = max(1, short_edge_px)
     if h > 1440:
-        return ("uhd", 64, 32, 1, 1, 4, 2, True, 4, True)
-    return ("hd", 16, 8, 2, 2, 4, 2, True, 6, True)
+        return ("uhd", 16, 8, 1, 1, 4, 2, True, 4, True, True)
+    return ("hd", 16, 8, 2, 2, 4, 2, True, 6, True, True)
 
 
 # mpv may run this script multiple times per single `vf` attach; Rhino sets `RHINO_VPY_LOG_EPOCH`
@@ -350,19 +349,19 @@ else:
             sn, sd = _mul_src_fps_rational(src_num, src_den, spd_frac)
             work = core.std.AssumeFPS(clip, fpsnum=sn, fpsden=sd)
         _full_short = min(work.width, work.height)
-        _tier, _blk, _ov, _pel, _sharp, _search, _fmask, _fblend, _lvls, _tm = (
+        _tier, _blk, _ov, _pel, _sharp, _search, _fmask, _fblend, _lvls, _tm, _mv_chroma = (
             _mv_graph_for_short_edge(_full_short)
         )
         _lv_s = "auto" if _lvls is None else str(_lvls)
         print(
             f"[rhino_60_mvtools] mvtools preset tier={_tier} (short-edge={_full_short}px): "
-            f"me={work.width}x{work.height} blksize={_blk} overlap={_ov} chroma={_MV_CHROMA} "
+            f"me={work.width}x{work.height} blksize={_blk} overlap={_ov} chroma={_mv_chroma} "
             f"pel={_pel} sharp={_sharp} search={_search} super_levels={_lv_s} truemotion={_tm} "
             f"FlowFPS(mask={_fmask},blend={_fblend})",
             file=sys.stderr,
             flush=True,
         )
-        _sup_kw = {"pel": _pel, "sharp": _sharp, "chroma": _MV_CHROMA}
+        _sup_kw = {"pel": _pel, "sharp": _sharp, "chroma": _mv_chroma}
         if _lvls is not None:
             _sup_kw["levels"] = _lvls
         sup = core.mv.Super(work, **_sup_kw)
@@ -371,7 +370,7 @@ else:
             blksize=_blk,
             overlap=_ov,
             search=_search,
-            chroma=_MV_CHROMA,
+            chroma=_mv_chroma,
             truemotion=_tm,
             isb=True,
             **_MV_GLOBAL_HINT,
@@ -381,7 +380,7 @@ else:
             blksize=_blk,
             overlap=_ov,
             search=_search,
-            chroma=_MV_CHROMA,
+            chroma=_mv_chroma,
             truemotion=_tm,
             isb=False,
             **_MV_GLOBAL_HINT,
