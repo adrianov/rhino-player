@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# System-wide install: binary, desktop, icons, metainfo, bundled VapourSynth scripts
+# System-wide install: binary, desktop, icons, metainfo, man page, bundled VapourSynth scripts
 # (see src/paths.rs: ../share/rhino-player/vs/ next to the binary).
 #
 # Usage: sudo ./data/install-system-wide.sh [/path/to/rhino-player]
@@ -29,7 +29,8 @@ install -d -m 0755 "$SHARE_RHINO/vs"
 install -m 0755 "$BIN" "$DEST_BIN"
 install -m 0644 "$DATA/vs"/*.vpy "$SHARE_RHINO/vs/"
 
-install -d -m 0755 "$APP_SHARE/applications" "$APP_SHARE/metainfo" "$APP_SHARE/icons"
+install -d -m 0755 "$APP_SHARE/applications" "$APP_SHARE/metainfo" "$APP_SHARE/icons" \
+  "$APP_SHARE/man/man1"
 cp -a "$DATA/icons/hicolor" "$APP_SHARE/icons/"
 
 # Exec: full path so launch works even if /usr/local/bin is not first on a weird PATH
@@ -53,11 +54,19 @@ if [[ -f "$DATA/metainfo/ch.rhino.RhinoPlayer.metainfo.xml" ]]; then
     "$APP_SHARE/metainfo/ch.rhino.RhinoPlayer.metainfo.xml"
 fi
 
+if [[ -f "$REPO_ROOT/doc/rhino-player.1" ]]; then
+  gzip -9 -n -c "$REPO_ROOT/doc/rhino-player.1" >"$APP_SHARE/man/man1/rhino-player.1.gz"
+  chmod 0644 "$APP_SHARE/man/man1/rhino-player.1.gz"
+fi
+
 if command -v gtk-update-icon-cache &>/dev/null; then
   gtk-update-icon-cache -f -t "$APP_SHARE/icons/hicolor" 2>/dev/null || true
 fi
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$APP_SHARE/applications" 2>/dev/null || true
+fi
+if command -v mandb &>/dev/null; then
+  mandb -pq "$APP_SHARE/man" 2>/dev/null || true
 fi
 
 # Register as default for common video types (per user who invoked sudo)
@@ -79,4 +88,4 @@ else
   echo "  xdg-mime default ch.rhino.RhinoPlayer.desktop video/mp4  # and other types as needed"
 fi
 
-echo "Installed $DEST_BIN and $SHARE_RHINO/vs/, desktop + icons + metainfo under $APP_SHARE"
+echo "Installed $DEST_BIN and $SHARE_RHINO/vs/, desktop + icons + metainfo + man page under $APP_SHARE"

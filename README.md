@@ -86,7 +86,7 @@ The installer copies:
 
 - `rhino-player` to `/usr/local/bin`
 - bundled VapourSynth scripts to `/usr/local/share/rhino-player/vs`
-- desktop launcher, icon theme assets, and AppStream metadata to `/usr/local/share`
+- desktop launcher, icon theme assets, AppStream metadata, and **`rhino-player(1)`** man page to `/usr/local/share`
 
 You can choose another prefix with `PREFIX`:
 
@@ -102,7 +102,7 @@ To build a **`.deb`** for Debian, Ubuntu, or similar (requires `dpkg-deb`, from 
 ./scripts/stage-github-release.sh
 ```
 
-This runs `cargo build --release`, stages `/usr/bin/rhino-player` plus the same Freedesktop assets and bundled `share/rhino-player/vs` files as a normal distro package, and writes **`releases/rhino-player_<version>-1_<arch>.deb`** (that folder is for [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases) assets — see [`releases/README.md`](releases/README.md)). Install with `cd releases && sudo apt install ./rhino-player_*.deb`. Override the output directory with `OUTPUT=/tmp` or bump the Debian package revision with `DEB_REV=2`.
+This runs `cargo build --release`, stages `/usr/bin/rhino-player` plus the same Freedesktop assets, **`rhino-player(1)`** man page, and bundled `share/rhino-player/vs` files as a normal distro package, and writes **`releases/rhino-player_<version>-1_<arch>.deb`** (that folder is for [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases) assets — see [`releases/README.md`](releases/README.md)). Install with `cd releases && sudo apt install ./rhino-player_*.deb`. Override the output directory with `OUTPUT=/tmp` or bump the Debian package revision with `DEB_REV=2`.
 
 For a user-local launcher during development, install only the desktop file and icons under `~/.local/share` and point it at a chosen binary:
 
@@ -115,6 +115,8 @@ After installing, launch Rhino Player from your app grid, from a file manager, o
 ```bash
 rhino-player /path/to/video.mkv
 ```
+
+Manual page: **`man rhino-player`** (after install) or **`man ./doc/rhino-player.1`** from the repository tree.
 
 ## Smooth 60 FPS Setup
 

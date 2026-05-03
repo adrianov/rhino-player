@@ -34,7 +34,8 @@ trap cleanup EXIT
 
 INST="$STAGE/usr"
 install -d -m 0755 "$INST/bin" "$INST/share/rhino-player/vs" \
-  "$INST/share/applications" "$INST/share/metainfo" "$INST/share/icons"
+  "$INST/share/applications" "$INST/share/metainfo" "$INST/share/icons" \
+  "$INST/share/man/man1"
 
 install -m 0755 "$REPO_ROOT/target/release/rhino-player" "$INST/bin/"
 install -m 0644 "$REPO_ROOT/data/vs"/*.vpy "$INST/share/rhino-player/vs/"
@@ -43,6 +44,8 @@ install -m 0644 "$REPO_ROOT/data/applications/ch.rhino.RhinoPlayer.desktop" \
   "$INST/share/applications/"
 install -m 0644 "$REPO_ROOT/data/metainfo/ch.rhino.RhinoPlayer.metainfo.xml" \
   "$INST/share/metainfo/"
+gzip -9 -n -c "$REPO_ROOT/doc/rhino-player.1" >"$INST/share/man/man1/rhino-player.1.gz"
+chmod 0644 "$INST/share/man/man1/rhino-player.1.gz"
 
 DEBIAN="$STAGE/DEBIAN"
 install -d -m 0755 "$DEBIAN"
@@ -70,6 +73,9 @@ if [ "$1" = "configure" ]; then
   fi
   if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database -q /usr/share/applications 2>/dev/null || true
+  fi
+  if command -v mandb >/dev/null 2>&1; then
+    mandb -pq /usr/share/man 2>/dev/null || true
   fi
 fi
 exit 0

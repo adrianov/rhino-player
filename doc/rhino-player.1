@@ -1,0 +1,55 @@
+.TH RHINO-PLAYER 1 "2026" "Rhino Player" "User Commands"
+.SH NAME
+rhino-player \- GTK media player using mpv
+.SH SYNOPSIS
+.B rhino-player
+.RI [ FILE ]
+.SH DESCRIPTION
+Rhino Player plays local video and audio using
+.BR mpv (1)
+with a GTK\ 4 and libadwaita shell.
+Invoked with no arguments, it opens the continue/recent view.
+.PP
+If
+.I FILE
+is given, that path is opened when the main window appears.
+When several paths are passed by the desktop environment, only the first is used.
+.SH OPTIONS
+Rhino Player is a GTK application; standard session and display options apply.
+The full list is printed by:
+.PP
+.nf
+\fBrhino-player \-\-help\fR
+.fi
+.SH FILES
+.TP
+.I ~/.config/rhino/rhino.sqlite
+SQLite database: watch history, preferences, thumbnails metadata.
+.TP
+.I PREFIX/share/rhino-player/vs
+Bundled VapourSynth preset scripts when installed from a package or installer
+.RI ( PREFIX
+is typically
+.I /usr
+or
+.IR /usr/local ).
+.SH ENVIRONMENT
+.TP
+.B RHINO_MVTOOLS_LIB
+If set, absolute path to the MVTools plugin used when Smooth Video (VapourSynth) is enabled.
+.TP
+.B RHINO_SOURCE_FPS
+Overrides detected container frame rate for the bundled smooth-motion script when needed.
+.SH SEE ALSO
+.BR mpv (1),
+.BR update-desktop-database (1),
+.BR gtk-update-icon-cache (1)
+.PP
+Project page: \(lahttps://github.com/adrianov/rhino-player\(ra
+.SH AUTHORS
+Written by Peter Adrianov.
+.SH COPYRIGHT
+Copyright \(co 2026 Peter Adrianov.
+License GPLv3+: GNU GPL version 3 or later \(lahttps://www.gnu.org/licenses/gpl.html\(ra.
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
