@@ -4,8 +4,8 @@
 
 #![allow(deprecated)]
 
-use glib::SignalHandlerId;
 use glib::object::{IsA, ObjectExt};
+use glib::SignalHandlerId;
 use gtk::prelude::{Cast, WidgetExt, WidgetExtManual};
 use objc2::msg_send;
 use objc2::rc::Retained;
@@ -19,10 +19,7 @@ use super::macos_video_layer::RhinoMpvGlLayer;
 
 type OverlayCell = std::rc::Rc<std::cell::RefCell<Option<gtk::Widget>>>;
 
-fn translate_to_window<W: IsA<gtk::Widget>>(
-    widget: &W,
-    win: &gtk::Window,
-) -> Option<(f64, f64)> {
+fn translate_to_window<W: IsA<gtk::Widget>>(widget: &W, win: &gtk::Window) -> Option<(f64, f64)> {
     widget
         .compute_point(win, &gtk::graphene::Point::new(0.0, 0.0))
         .map(|p| (p.x() as f64, p.y() as f64))
@@ -57,8 +54,7 @@ pub(super) fn sync_layer_frame_now<W: IsA<gtk::Widget>>(
     let visible = sizer.is_visible() && sizer.is_mapped() && !overlay_shown;
     let w = (sizer.width() as f64).max(1.0);
     let h = (sizer.height() as f64).max(1.0);
-    let win_h =
-        nswindow_content_height_for(sizer).unwrap_or_else(|| window.height() as f64);
+    let win_h = nswindow_content_height_for(sizer).unwrap_or_else(|| window.height() as f64);
     let ns_y = win_h - y - h;
     let frame = NSRect::new(NSPoint::new(x, ns_y), NSSize::new(w, h));
     let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(w, h));
@@ -107,16 +103,21 @@ pub(super) fn wire_sizer_resync(
     });
 
     let l_tick = layer;
-    let last = std::cell::Cell::new((0i32, 0i32, 0i32, false, false));
+    // Tick debounce key uses AppKit contentView height (`nswindow_content_height_for`), matching
+    // [`sync_layer_frame_now`] — GTK `Window::height` alone can lag or diverge during maximize.
+    let last = std::cell::Cell::new((0i32, 0i32, i64::MIN, false, false));
     sizer_widget.add_tick_callback(move |w, _| {
-        let win_h = w
+        let win_h_fallback = w
             .root()
             .and_then(|r| r.downcast::<gtk::Window>().ok())
             .map(|win| win.height())
             .unwrap_or(0);
+        let snap = nswindow_content_height_for(w)
+            .map(|h| (h * 4096.0).round() as i64)
+            .unwrap_or((win_h_fallback as i64).saturating_mul(4096));
         let ov = overlay.borrow().clone();
         let ov_vis = ov.as_ref().is_some_and(|v| v.is_visible());
-        let key = (w.width(), w.height(), win_h, w.is_visible(), ov_vis);
+        let key = (w.width(), w.height(), snap, w.is_visible(), ov_vis);
         if key != last.get() {
             sync_layer_frame_now(&l_tick, w, ov.as_ref());
             last.set(key);
