@@ -11,7 +11,7 @@ This directory is the **staging area** on your machine (or in CI) for files you 
 
 So users download installers from the Release **Assets** list, not by cloning the repository. Committing large binaries to git would bloat history and slow every clone; the usual pattern is **build → upload as Release assets** (manually, `gh release create …`, or GitHub Actions).
 
-The repo tracks **only** this README; built files under `releases/` stay **untracked** (see `.gitignore`) until you upload them to GitHub.
+Built files under `releases/` stay **untracked** (see `.gitignore`) until you upload them to GitHub. **Tracked** text: this README and **`github-release-<tag>.md`** (paste into the GitHub Release description).
 
 ## Layout
 
