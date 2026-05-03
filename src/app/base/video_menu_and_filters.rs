@@ -88,9 +88,13 @@ fn register_video_app_actions(
     gl_area: &gtk::GLArea,
     player: &Rc<RefCell<Option<MpvBundle>>>,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
-    pref_menu: &gio::Menu,
-    seek_bar_on: Rc<Cell<bool>>,
+    menu: VideoAppMenuWire,
 ) {
+    let VideoAppMenuWire {
+        pref_menu,
+        seek_bar_on,
+        smooth_toolbar_status,
+    } = menu;
     let v0 = video_pref.borrow().clone();
     let app_s = app.clone();
     let smooth_60 = gio::SimpleAction::new_stateful("smooth-60", None, &v0.smooth_60.to_variant());
@@ -98,6 +102,7 @@ fn register_video_app_actions(
         let p = Rc::clone(&video_pref);
         let pl = Rc::clone(player);
         let gla = gl_area.clone();
+        let smooth_lbl = smooth_toolbar_status.clone();
         smooth_60.connect_change_state(move |a, s| {
             let Some(s) = s else {
                 return;
@@ -114,6 +119,7 @@ fn register_video_app_actions(
                 a.set_state(&false.to_variant());
                 show_smooth_setup_dialog(&app_s);
                 gla.queue_render();
+                stamp_smooth_toolbar_status(smooth_lbl.as_ref(), false);
                 return;
             }
             a.set_state(s);
@@ -133,9 +139,14 @@ fn register_video_app_actions(
                 }
             }
             gla.queue_render();
+            stamp_smooth_toolbar_status(
+                smooth_lbl.as_ref(),
+                a.state().and_then(|v| v.get::<bool>()).unwrap_or(false),
+            );
         });
     }
     app.add_action(&smooth_60);
+    stamp_smooth_toolbar_status(smooth_toolbar_status.as_ref(), v0.smooth_60);
 
     let seek_bar_preview =
         gio::SimpleAction::new_stateful("seek-bar-preview", None, &seek_bar_on.get().to_variant());
@@ -209,6 +220,7 @@ fn register_video_app_actions(
         let pl = Rc::clone(player);
         let gla = gl_area.clone();
         let pref = pref_menu.clone();
+        let smooth_pick_parent = smooth_toolbar_status.clone();
         choose.connect_activate(move |_, _| {
             let vf = vpy_file_filter();
             let filters = gio::ListStore::new::<gtk::FileFilter>();
@@ -224,6 +236,7 @@ fn register_video_app_actions(
             let pl2 = Rc::clone(&pl);
             let gl2 = gla.clone();
             let pref2 = pref.clone();
+            let smooth_pick = smooth_pick_parent.clone();
             dialog.open(Some(&w), None::<&gio::Cancellable>, move |res| {
                 let Ok(file) = res else {
                     return;
@@ -237,6 +250,7 @@ fn register_video_app_actions(
                     db::save_video(&p2.borrow());
                     sync_smooth_60_to_off(&app3);
                     show_smooth_setup_dialog(&app3);
+                    sync_smooth_toolbar_from_action(&app3, smooth_pick.as_ref());
                     return;
                 }
                 {
@@ -245,14 +259,14 @@ fn register_video_app_actions(
                     g.smooth_60 = true;
                     db::save_video(&g);
                 }
-                apply_vs_path_chosen(&pl2, &p2, &app3);
+                apply_vs_path_chosen(&pl2, &p2, &app3, smooth_pick.as_ref());
                 video_pref_submenu_rebuild(&pref2, &p2.borrow(), &app3);
                 gl2.queue_render();
             });
         });
     }
     app.add_action(&choose);
-    video_pref_submenu_rebuild(pref_menu, &v0, app);
+    video_pref_submenu_rebuild(&pref_menu, &v0, app);
 }
 
 fn smooth_60_action(app: &adw::Application) -> Option<gio::SimpleAction> {
@@ -265,6 +279,7 @@ fn apply_vs_path_chosen(
     pl: &Rc<RefCell<Option<MpvBundle>>>,
     p: &Rc<RefCell<db::VideoPrefs>>,
     app: &adw::Application,
+    smooth_toolbar_status: Option<&gtk::Label>,
 ) {
     if let Some(plr) = pl.borrow().as_ref() {
         let r = video_pref::apply_mpv_video(plr, &mut p.borrow_mut(), None);
@@ -274,8 +289,10 @@ fn apply_vs_path_chosen(
         } else if let Some(sa) = smooth_60_action(app) {
             sa.set_state(&p.borrow().smooth_60.to_variant());
         }
+        sync_smooth_toolbar_from_action(app, smooth_toolbar_status);
     } else if let Some(sa) = smooth_60_action(app) {
         sa.set_state(&true.to_variant());
+        sync_smooth_toolbar_from_action(app, smooth_toolbar_status);
     }
 }
 

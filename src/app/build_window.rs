@@ -5,6 +5,7 @@ include!("build_window/header_popovers.rs");
 include!("build_window/sibling_nav_buttons.rs");
 include!("build_window/wire_mpris_linux.rs");
 include!("build_window/speed_menu.rs");
+include!("build_window/smooth_video_toolbar.rs");
 include!("build_window/volume_wiring.rs");
 include!("build_window/widgets.rs");
 include!("build_window/wire_drag_drop.rs");

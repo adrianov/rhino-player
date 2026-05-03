@@ -16,8 +16,10 @@ struct WindowWidgets {
     vol_header_img: gtk::Image,
     vol_readout: gtk::Label,
     sub_menu: gtk::MenuButton,
+    sub_readout: gtk::Label,
     speed_mbtn: gtk::MenuButton,
     speed_readout: gtk::Label,
+    smooth_status: gtk::Label,
     speed_list: gtk::ListBox,
     speed_sync: Rc<Cell<bool>>,
     seek: gtk::Scale,
@@ -70,14 +72,15 @@ fn build_widgets(
     drop(menubar_model);
     let HeaderPopovers {
         vol_adj, vol_header_img, vol_readout, vol_mute_btn, audio_tracks_block, audio_tracks_box,
-        audio_tracks_section, vol_pop, vol_menu, sub_tracks_block, sub_tracks_box, sub_tracks_section,
-        sub_scale_adj, sub_color_btn, sub_pop, sub_menu,
+        audio_tracks_section, vol_pop, vol_menu,         sub_tracks_block, sub_tracks_box, sub_tracks_section,
+        sub_scale_adj, sub_color_btn, sub_pop, sub_menu, sub_readout,
     } = build_header_popovers(sub_pref);
 
     let gl_area = build_gl_video_area();
     let SpeedMenuResult { speed_readout, speed_mbtn, speed_list, speed_sync } =
         build_speed_menu(player, &gl_area, video_pref, app);
 
+    let SmoothToolbarWidgets { smooth_btn, smooth_status } = build_smooth_video_toolbar(app);
     let menu_btn = {
         #[cfg(not(target_os = "macos"))]
         {
@@ -94,7 +97,7 @@ fn build_widgets(
         header,
         fs_clock,
         hdr_title_mirror,
-    } = build_toolbar_header_shell(&menu_btn, &vol_menu, &sub_menu, &speed_mbtn);
+    } = build_toolbar_header_shell(&menu_btn, &vol_menu, &sub_menu, &smooth_btn, &speed_mbtn);
 
     let SeekTimeLabels {
         seek_adj,
@@ -125,7 +128,8 @@ fn build_widgets(
 
     WindowWidgets {
         win, root, header, outer_ovl, video_handle, gl_area, bottom, play_pause, sibling_nav,
-        menu_btn, vol_menu, vol_header_img, vol_readout, sub_menu, speed_mbtn, speed_readout,
+        menu_btn, vol_menu, vol_header_img, vol_readout, sub_menu, sub_readout, smooth_status,
+        speed_mbtn, speed_readout,
         speed_list, speed_sync,
         seek, seek_adj, time_left, time_right,
         vol_adj, vol_mute_btn,

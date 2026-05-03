@@ -28,6 +28,7 @@ struct FinalActionCtx {
     mpv_teardown_after_draw: Rc<Cell<bool>>,
     hdr_csd_baseline: Rc<Cell<Option<(bool, bool)>>>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
+    smooth_toolbar_status: gtk::Label,
 }
 
 include!("final_actions_smooth_resize.rs");
@@ -54,8 +55,11 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         &ctx.gl,
         &ctx.player,
         Rc::clone(&ctx.video_pref),
-        &ctx.pref_menu,
-        Rc::clone(&ctx.seek_bar_on),
+        VideoAppMenuWire {
+            pref_menu: ctx.pref_menu.clone(),
+            seek_bar_on: Rc::clone(&ctx.seek_bar_on),
+            smooth_toolbar_status: Some(ctx.smooth_toolbar_status.clone()),
+        },
     );
     wire_final_platform_accels(&ctx);
     wire_final_idle_chrome_resize(&ctx);

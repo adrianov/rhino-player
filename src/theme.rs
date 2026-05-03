@@ -55,6 +55,26 @@ const APP_CSS: &str = r#"
             min-width: 0;
             opacity: 0.92;
         }
+        button.rp-smooth-mbtn.flat {
+            min-height: 26px;
+            min-width: 0;
+            padding-left: 4px;
+            padding-right: 4px;
+        }
+        button.rp-smooth-mbtn.flat box.rp-smooth-face {
+            padding: 0;
+            margin: 0;
+            border-spacing: 0;
+        }
+        button.rp-smooth-mbtn.flat label.rp-smooth-readout {
+            color: #9a9996;
+            font-feature-settings: "tnum";
+            font-size: 0.75em;
+            padding: 0;
+            margin: 0;
+            min-width: 0;
+            opacity: 0.92;
+        }
         menubutton.rp-vol-mbtn.flat > button {
             min-height: 26px;
             min-width: 0;
@@ -67,6 +87,26 @@ const APP_CSS: &str = r#"
             border-spacing: 0;
         }
         menubutton.rp-vol-mbtn.flat label.rp-vol-readout {
+            color: #9a9996;
+            font-feature-settings: "tnum";
+            font-size: 0.75em;
+            padding: 0;
+            margin: 0;
+            min-width: 0;
+            opacity: 0.92;
+        }
+        menubutton.rp-sub-mbtn.flat > button {
+            min-height: 26px;
+            min-width: 0;
+            padding-left: 4px;
+            padding-right: 4px;
+        }
+        menubutton.rp-sub-mbtn.flat box.rp-sub-face {
+            padding: 0;
+            margin: 0;
+            border-spacing: 0;
+        }
+        menubutton.rp-sub-mbtn.flat label.rp-sub-readout {
             color: #9a9996;
             font-feature-settings: "tnum";
             font-size: 0.75em;

@@ -107,6 +107,7 @@ fn build_toolbar_header_shell(
     menu_btn: &gtk::MenuButton,
     vol_menu: &gtk::MenuButton,
     sub_menu: &gtk::MenuButton,
+    smooth_btn: &gtk::Button,
     speed_mbtn: &gtk::MenuButton,
 ) -> ToolbarHeaderShell {
     let fs_clock = gtk::Label::new(None);
@@ -123,6 +124,7 @@ fn build_toolbar_header_shell(
     header.pack_end(menu_btn);
     header.pack_end(vol_menu);
     header.pack_end(sub_menu);
+    header.pack_end(smooth_btn);
     header.pack_end(speed_mbtn);
     header.pack_end(&fs_clock);
 
