@@ -28,6 +28,7 @@ mod seek_bar_preview;
 mod sibling_advance;
 mod chapter_list;
 mod sub_prefs;
+mod sub_track_abbr;
 mod sub_tracks;
 mod theme;
 mod time;

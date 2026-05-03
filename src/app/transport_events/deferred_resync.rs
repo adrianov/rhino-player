@@ -5,6 +5,19 @@
 /// `time-pos` updates, `core-idle` change, `eof-reached` flip, and `EndFile(Eof)` (none of those
 /// fire dependably with `keep-open=yes` at 8×). Coarser 1 s resolution is enough for the seek bar
 /// and clock; sibling advance fires within a second of mpv stalling at the tail.
+fn sync_sub_header_readout(player: &Rc<RefCell<Option<MpvBundle>>>, label: &gtk::Label) {
+    let Ok(g) = player.try_borrow() else {
+        return;
+    };
+    let Some(b) = g.as_ref() else {
+        if !label.text().is_empty() {
+            label.set_text("");
+        }
+        return;
+    };
+    crate::sub_tracks::refresh_sub_header(&b.mpv, label);
+}
+
 fn install_transport_tick(ctx: &Rc<TransportCtx>) {
     if let Some(id) = ctx.tick.borrow_mut().take() {
         id.remove();
@@ -39,6 +52,7 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     if core_idle && dur > 0.0 && (dur - pos) <= TICK_EOF_TAIL_SEC {
         run_sibling_eof(ctx);
     }
+    sync_sub_header_readout(&ctx.player, &ctx.widgets.sub_readout);
     mpris_enqueue_snapshot(ctx);
 }
 

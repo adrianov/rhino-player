@@ -5,7 +5,7 @@
 /// - `vol_pop` and `sub_pop` are the popover children of those buttons.
 /// - The track sections (`audio_tracks_box`, `sub_tracks_box`) are populated by
 ///   `audio_tracks` / `sub_tracks` on `popover.connect_show`.
-/// - `vol_adj`, `vol_header_img`, `vol_readout`, `vol_mute_btn`, `sub_scale_adj`, `sub_color_btn` are wired by
+/// - `vol_adj`, `vol_header_img`, `vol_readout`, `vol_mute_btn`, `sub_readout`, `sub_scale_adj`, `sub_color_btn` are wired by
 ///   the volume / subtitle preference handlers in `build_window`.
 struct HeaderPopovers {
     vol_adj: gtk::Adjustment,
@@ -24,6 +24,7 @@ struct HeaderPopovers {
     sub_color_btn: gtk::ColorDialogButton,
     sub_pop: gtk::Popover,
     sub_menu: gtk::MenuButton,
+    sub_readout: gtk::Label,
 }
 
 fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers {
@@ -143,11 +144,28 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
     sub_pop.add_css_class("rp-header-popover");
     sub_pop.set_child(Some(&sub_col));
     header_popover_non_modal(&sub_pop);
+
+    let sub_header_img = gtk::Image::from_icon_name("media-view-subtitles-symbolic");
+    sub_header_img.set_valign(gtk::Align::Center);
+    let sub_readout = gtk::Label::new(Some("Off"));
+    sub_readout.add_css_class("rp-sub-readout");
+    sub_readout.set_valign(gtk::Align::Center);
+    sub_readout.set_xalign(0.0);
+    let sub_face = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    sub_face.add_css_class("rp-sub-face");
+    sub_face.set_valign(gtk::Align::Center);
+    sub_face.append(&sub_header_img);
+    sub_face.append(&sub_readout);
+
     let sub_menu = gtk::MenuButton::new();
-    sub_menu.set_icon_name("media-view-subtitles-symbolic");
+    sub_menu.set_child(Some(&sub_face));
     sub_menu.set_tooltip_text(Some("Subtitles: tracks and style"));
     sub_menu.set_popover(Some(&sub_pop));
     sub_menu.add_css_class("flat");
+    sub_menu.add_css_class("rp-sub-mbtn");
+    sub_menu.set_hexpand(false);
+    sub_menu.set_valign(gtk::Align::Center);
+    sub_menu.set_always_show_arrow(false);
     sub_menu.set_visible(false);
 
     HeaderPopovers {
@@ -167,5 +185,6 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
         sub_color_btn,
         sub_pop,
         sub_menu,
+        sub_readout,
     }
 }

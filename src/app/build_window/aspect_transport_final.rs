@@ -25,6 +25,7 @@
             vol_readout: w.vol_readout.clone(),
             vol_adj: w.vol_adj.clone(), vol_mute: w.vol_mute_btn.clone(),
             vol_sync: vol_sync.clone(),
+            sub_readout: w.sub_readout.clone(),
         },
     });
 
@@ -51,5 +52,6 @@
         mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
         hdr_csd_baseline: Rc::clone(&hdr_csd_baseline),
         hdr_title_mirror: w.hdr_title_mirror.clone(),
+        smooth_toolbar_status: w.smooth_status.clone(),
     });
 }

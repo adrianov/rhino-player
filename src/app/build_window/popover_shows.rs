@@ -27,10 +27,12 @@ fn wire_popover_shows(
         player.clone(), w.sub_tracks_box.clone(),
         Rc::clone(&w.sub_tracks_block), w.gl_area.clone(), w.sub_tracks_section.clone(),
     );
+    let sub_rd = w.sub_readout.clone();
     w.sub_pop.connect_show(move |_| {
         let show = sub_tracks::rebuild_popover(
             &p2, &bx2, &blk2, &gla2,
             Some(Rc::clone(&on_sub_pick)), Some(Rc::clone(&on_sub_off)),
+            Some(sub_rd.clone()),
         );
         sec2.set_visible(show);
     });

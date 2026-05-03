@@ -9,6 +9,7 @@ use gtk::prelude::*;
 
 use crate::db::SubPrefs;
 use crate::mpv_embed::MpvBundle;
+use crate::sub_track_abbr::abbrev_track_lang;
 
 type SubPickFn = Rc<dyn Fn(&str)>;
 type SubOffFn = Rc<dyn Fn()>;
@@ -28,6 +29,55 @@ struct Row {
     id: i64,
     text: String,
     lang: String,
+}
+
+fn track_header_token(r: &Row) -> String {
+    let l = r.lang.trim();
+    if !l.is_empty() {
+        let a = abbrev_track_lang(Some(l));
+        if !a.is_empty() {
+            return a;
+        }
+    }
+    let head = r
+        .text
+        .split(" – ")
+        .next()
+        .unwrap_or(r.text.as_str())
+        .trim();
+    abbrev_track_lang(Some(head))
+}
+
+fn compact_header_label_row(sid: i64, rows: &[Row]) -> String {
+    let Some(row) = rows.iter().find(|r| r.id == sid) else {
+        return "…".to_string();
+    };
+    let t = track_header_token(row);
+    if t.is_empty() {
+        "…".into()
+    } else {
+        t
+    }
+}
+
+/// Updates the subtitles header caption from the current subtitle track (`Off` when hidden).
+pub fn refresh_sub_header(mpv: &Mpv, label: &gtk::Label) {
+    let s = sub_header_compact(mpv);
+    if label.text().as_str() != s.as_str() {
+        label.set_text(&s);
+    }
+}
+
+fn sub_header_compact(mpv: &Mpv) -> String {
+    if !sub_visibility(mpv) {
+        return "Off".to_string();
+    }
+    let sid = match current_sid(mpv) {
+        Some(id) => id,
+        None => return "Auto".to_string(),
+    };
+    let rows = sub_rows(mpv);
+    compact_header_label_row(sid, &rows)
 }
 
 fn line_label(id: i64, title: Option<String>, lang: Option<String>) -> String {
@@ -171,97 +221,4 @@ fn set_sub_id(mpv: &Mpv, id: i64) {
     }
 }
 
-/// Rebuild radio rows: **Off** + each sub. Returns **true** if any sub track exists.
-///
-/// [on_pick] is called with the list label when the user turns **on** a sub track (not **Off**).
-/// [on_sub_off] when the user selects **Off** (persist so new files skip Levenshtein and stay off).
-pub fn rebuild_popover(
-    player: &Rc<RefCell<Option<MpvBundle>>>,
-    bx: &gtk::Box,
-    block: &Rc<Cell<bool>>,
-    gl: &gtk::GLArea,
-    on_pick: Option<SubPickFn>,
-    on_sub_off: Option<SubOffFn>,
-) -> bool {
-    while let Some(c) = bx.first_child() {
-        bx.remove(&c);
-    }
-    let g = player.borrow();
-    let Some(b) = g.as_ref() else {
-        return false;
-    };
-    let mpv = &b.mpv;
-    let rows = sub_rows(mpv);
-    if rows.is_empty() {
-        return false;
-    }
-    let off_active = !sub_visibility(mpv);
-    let want = current_sid(mpv);
-    let fallback = rows.first().map(|r| r.id);
-    block.set(true);
-    let p = Rc::clone(player);
-    let gl2 = gl.clone();
-    let mut items: Vec<(i64, gtk::CheckButton)> = vec![];
-
-    let off_btn = gtk::CheckButton::with_label("Off");
-    let first = off_btn.clone();
-    let p_off = Rc::clone(&p);
-    let bl_off = Rc::clone(block);
-    let g_off = gl2.clone();
-    let off_cb = on_sub_off.as_ref().map(Rc::clone);
-    off_btn.connect_toggled(move |b| {
-        if bl_off.get() || !b.is_active() {
-            return;
-        }
-        if let Some(pl) = p_off.borrow().as_ref() {
-            set_sub_off(&pl.mpv);
-        }
-        if let Some(f) = off_cb.as_ref() {
-            f();
-        }
-        g_off.queue_render();
-    });
-    items.push((-1, off_btn));
-
-    for r in &rows {
-        let btn = gtk::CheckButton::with_label(&r.text);
-        btn.set_group(Some(&first));
-        let id = r.id;
-        let label = r.text.clone();
-        let p2 = Rc::clone(&p);
-        let blk2 = Rc::clone(block);
-        let gl3 = gl2.clone();
-        let pick = on_pick.as_ref().map(Rc::clone);
-        btn.connect_toggled(move |b| {
-            if blk2.get() || !b.is_active() {
-                return;
-            }
-            if let Some(pl) = p2.borrow().as_ref() {
-                set_sub_id(&pl.mpv, id);
-            }
-            if let Some(f) = pick.as_ref() {
-                f(&label);
-            }
-            gl3.queue_render();
-        });
-        items.push((r.id, btn));
-    }
-
-    for (_, btn) in &items {
-        bx.append(btn);
-    }
-    for (id, btn) in &items {
-        if *id == -1 {
-            btn.set_active(off_active);
-        } else {
-            let on = if off_active {
-                false
-            } else {
-                want.or(fallback) == Some(*id)
-            };
-            btn.set_active(on);
-        }
-    }
-    block.set(false);
-    true
-}
+include!("sub_tracks_rebuild.rs");
