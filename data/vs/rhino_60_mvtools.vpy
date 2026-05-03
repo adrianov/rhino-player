@@ -36,11 +36,12 @@ def _mv_graph_for_short_edge(
     truemotion)``. **uhd** uses **64×32** blocks (fewer ME blocks than smaller tiling on large frames),
     ``pel=1``, ``search=4``, ``sharp=1``, FlowFPS ``mask=2``, ``Super`` pyramid ``levels=4``,
     ``truemotion=True``, FlowFPS ``blend=True``.
+    **hd** uses the same ``Super`` ``levels=4`` cap (auto depth was heavier on typical 1080p-class frames).
     """
     h = max(1, short_edge_px)
     if h > 1440:
         return ("uhd", 64, 32, 1, 1, 4, 2, True, 4, True)
-    return ("hd", 16, 8, 2, 2, 4, 2, True, None, True)
+    return ("hd", 16, 8, 2, 2, 4, 2, True, 4, True)
 
 
 # mpv may run this script multiple times per single `vf` attach; Rhino sets `RHINO_VPY_LOG_EPOCH`
