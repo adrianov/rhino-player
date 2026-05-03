@@ -83,7 +83,8 @@ pub fn fill_row(
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let a11y = format!("{name}, {p:.0} percent played");
+        let label_txt = crate::human_media_title::human_media_title(&name);
+        let a11y = format!("{label_txt}, {p:.0} percent played");
 
         let card = gtk::Overlay::new();
         card.set_vexpand(false);
@@ -133,7 +134,7 @@ pub fn fill_row(
         no_target(&footer);
         footer.add_css_class("rp-recent-card-footer");
 
-        let label = gtk::Label::new(Some(&name));
+        let label = gtk::Label::new(Some(&label_txt));
         no_target(&label);
         label.add_css_class("rp-recent-card-title");
         label.set_ellipsize(gtk::pango::EllipsizeMode::None);

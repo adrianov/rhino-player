@@ -30,7 +30,10 @@ fn menu_append_action_icon(
 
 fn title_for_open_path(path: &Path) -> String {
     match path.file_name().and_then(|n| n.to_str()) {
-        Some(name) => format!("{name} — {APP_WIN_TITLE}"),
+        Some(name) => format!(
+            "{} — {APP_WIN_TITLE}",
+            crate::human_media_title::human_media_title(name)
+        ),
         None => format!("{} — {APP_WIN_TITLE}", path.display()),
     }
 }

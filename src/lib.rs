@@ -9,6 +9,7 @@ mod db;
 mod glib_log_filter;
 mod mpris;
 mod history;
+mod human_media_title;
 mod icons;
 mod idle_inhibit;
 mod jpeg_texture;

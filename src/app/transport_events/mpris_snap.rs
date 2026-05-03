@@ -28,10 +28,13 @@ fn mpris_shot_from_ctx(ctx: &TransportCtx) -> crate::mpris::MprisShot {
         .or_else(|| ctx.player.borrow().as_ref().and_then(|b| crate::media_probe::local_file_from_mpv(&b.mpv)));
 
     let title = title_tag.or_else(|| {
-        path_res
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .and_then(|s| s.to_str().map(std::string::ToString::to_string))
+        path_res.as_ref().and_then(|p| {
+            p.file_name().and_then(|s| {
+            s.to_str()
+                .map(crate::human_media_title::human_media_title)
+                    .filter(|t| !t.is_empty())
+            })
+        })
     });
 
     let cur = path_res.as_ref().filter(|p| p.is_file());

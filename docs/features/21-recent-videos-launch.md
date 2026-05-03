@@ -15,7 +15,7 @@ mpv_props: [path, time-pos, duration, eof-reached]
 - Drop entries from the list (with undo) when you no longer want to resume them.
 
 ## Description
-On empty launch (no CLI paths, no other "open this first" path takes over the first paint), the main content shows a row that always begins with **Open Video** (same workflow as choosing a file from the main menu). Up to **five** continue cards follow in most-recently-opened order when history entries exist; when history is empty, only this tile appears. Each history card has a thumbnail (cover style), the filename (no ellipsis), a thin progress bar with numeric percent, and trash + remove controls on hover.
+On empty launch (no CLI paths, no other "open this first" path takes over the first paint), the main content shows a row that always begins with **Open Video** (same workflow as choosing a file from the main menu). Up to **five** continue cards follow in most-recently-opened order when history entries exist; when history is empty, only this tile appears. Each history card has a thumbnail (cover style), a human-readable title derived from the last path segment (release-style dots, season/episode markers, and technical tags collapsed — no ellipsis), a thin progress bar with numeric percent, and trash + remove controls on hover.
 
 Clicking a history card loads that file and unpauses, even if watch-later had stored a paused session. The first history card may be warm-preloaded paused behind the grid; activating it (click or Space) hides the grid and reveals playback after a short reveal delay. Returning to the grid keeps the current file paused for warm reuse when the continue strip stays visible (including empty history while using this launch pattern). Playback stops when browsing back hides the strip (no boot-file launch paths).
 
@@ -36,7 +36,7 @@ Feature: Recent videos grid on empty launch
     When the window paints
     Then an Open Video tile is visible ahead of recent entries
     And up to five history cards appear after it most-recent-first
-    And each history card shows a thumbnail, filename, and percent progress
+    And each history card shows a thumbnail, human-readable title from the path segment, and percent progress
 
   Scenario: Empty history still shows the continue strip with Open Video
     Given the first window is shown with no CLI paths and no session takeover
@@ -58,10 +58,12 @@ Feature: Recent videos grid on empty launch
     When the user presses Space
     Then after WARM_REVEAL_DELAY_MS the grid hides, chrome reveals, the window presents, and pause clears
 
-  Scenario: Card layout uses full filename and percent
+  Scenario: Card layout uses human-readable title and percent
     Given a card is rendered for an existing file
     When the user reads the card
-    Then the title shows the last path segment without ellipsis (word-wrapped)
+    Then the title shows a human-readable label derived from the last path segment without ellipsis (word-wrapped)
+    And release-style dots, technical tags, and common resolution markers are not shown as separate tokens when they were only filename noise
+    And season and episode markers from the segment appear as readable season and episode wording when recognized
     And the progress bar shows numeric percent (0% if never started, 100% when finished)
 
   Scenario: Remove from list with undo
@@ -106,7 +108,7 @@ Feature: Recent videos grid on empty launch
 ## Notes
 - Trigger: empty CLI args; first paint follows this grid and CLI rules in [06-open-and-cli](06-open-and-cli.md).
 - Deduplication: opening a path moves it to the front; capacity 20, display 5; `history::load` prunes missing files.
-- Card UI: each card uses about 40% of the strip width with a minimum size, with a fixed **16:9** thumbnail frame (width drives height); image uses cover style (no letterboxing); title and progress sit in a soft bottom gradient overlay; the percentage is a small translucent pill; the trash icon sits left of the close icon on hover. The leading **Open Video** tile uses the same footprint and `rp-recent-card` chrome plus dashed border styling in `theme_continue_grid.css`; it activates `app.open` (same flow as the **Open Video** menu entry).
+- Card UI: each card uses about 40% of the strip width with a minimum size, with a fixed **16:9** thumbnail frame (width drives height); image uses cover style (no letterboxing); title and progress sit in a soft bottom gradient overlay; the percentage is a small translucent pill; the trash icon sits left of the close icon on hover. The card title uses `human_media_title` on the basename (Transmission-style cleanup; window title uses the same helper). The leading **Open Video** tile uses the same footprint and `rp-recent-card` chrome plus dashed border styling in `theme_continue_grid.css`; it activates `app.open` (same flow as the **Open Video** menu entry).
 - Snackbar: pill-shaped at the bottom; auto-hide after 10 s; remove and trash share one session LIFO stack; Undo snapshots include watch-later sidecar bytes plus the full media row; trash entries also store the `Trash/files/…` path for untrash.
 - `back_to_browse` clears the session undo stack except for trash (so the snackbar can offer untrash).
 - Length and progress: write libmpv `duration` and `time-pos` to the DB on file switch and window close (no `ffprobe`); fall back to watch-later (`start=` / `# path`) before showing 0%.
