@@ -42,12 +42,7 @@ fn sync_smooth_60_to_off(app: &adw::Application) {
     }
 }
 
-fn set_toolbar_reveal(root: &adw::ToolbarView, show: bool) -> bool {
-    let changed = root.reveals_top_bars() != show || root.reveals_bottom_bars() != show;
-    root.set_reveal_top_bars(show);
-    root.set_reveal_bottom_bars(show);
-    changed
-}
+include!("toolbar_reveal_set.rs");
 
 /// Rebuilds the **Preferences** submenu: Smooth 60, seek preview, optional `basename` for `video_vs_path`
 /// ([vs-custom]), [choose-vs].

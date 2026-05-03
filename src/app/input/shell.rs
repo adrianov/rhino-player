@@ -1,43 +1,4 @@
-/// Re-snapshot chrome and the video layer when a fullscreen window regains focus.
-///
-/// macOS: AppKit's cross-fade across Spaces / displays leaves gdk-macos's chrome
-/// `CALayer` with stale, sometimes vertically-stretched contents that appear as a
-/// horizontal band of the header bar over the video. Calling `queue_allocate` +
-/// `queue_draw` re-snapshots GTK chrome, [`crate::macos_window::invalidate_window_layers`]
-/// drops the cached backing store on the contentView, and a deferred `touch_chrome_gl`
-/// pushes a fresh video frame after AppKit's transition settles.
-///
-/// Linux: the same hook clears any stale Wayland header snapshot the compositor may
-/// repaint over the video on focus return; mac-specific layer invalidation is a no-op.
-fn wire_focus_return_repaint(
-    ctx: &WindowInputCtx,
-    touch_chrome_gl: Rc<dyn Fn(&adw::ApplicationWindow)>,
-) {
-    let root_ia = ctx.shell.root.clone();
-    let vh_ia = ctx.shell.video_handle.clone();
-    let win_focus = ctx.shell.win.clone();
-    let tch = touch_chrome_gl;
-    win_focus.connect_is_active_notify(move |w| {
-        if !w.is_active() || !w.is_fullscreen() {
-            return;
-        }
-        tch(w);
-        if let Some(surf) = w.native().and_then(|n| n.surface()) {
-            surf.queue_render();
-        }
-        root_ia.queue_allocate();
-        vh_ia.queue_draw();
-        #[cfg(target_os = "macos")]
-        crate::macos_window::invalidate_window_layers(w);
-        let tch2 = Rc::clone(&tch);
-        let w2 = w.clone();
-        let _ = glib::source::idle_add_local_once(move || {
-            tch2(&w2);
-            #[cfg(target_os = "macos")]
-            crate::macos_window::invalidate_window_layers(&w2);
-        });
-    });
-}
+include!("shell_focus_return_repaint.rs");
 
 fn w_in_set_shell(ctx: &WindowInputCtx) {
     let s = &ctx.shell;
@@ -232,10 +193,7 @@ fn w_in_max_mode(ctx: &WindowInputCtx) {
                 skip_fs.set(true);
                 unfullscreen_safe(w, fs_busy_mx.as_ref());
             }
-        } else if w.is_maximized() && !w.is_fullscreen() {
-            if skip_fs.get() {
-                return;
-            }
+        } else if w.is_maximized() && !w.is_fullscreen() && !skip_fs.get() {
             if fr.borrow().is_none() {
                 *fr.borrow_mut() = Some(*lu.borrow());
             }
