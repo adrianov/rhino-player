@@ -3,6 +3,7 @@
 //! (`libmvtools.so` on Linux, `libmvtools.dylib` on macOS); the app caches the path in SQLite and
 //! sets the `RHINO_MVTOOLS_LIB` env (see `video_pref` `apply_mvtools_env`).
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 /// `~/.config/rhino` (created if possible). `None` if `HOME` / config base is missing.
@@ -20,6 +21,65 @@ pub fn app_config() -> Option<PathBuf> {
 
 const BUNDLED_MVT60_VPY: &str = "rhino_60_mvtools.vpy";
 
+fn macos_app_contents_from_exe(bin_dir: &Path) -> Option<&Path> {
+    if bin_dir.file_name() != Some(OsStr::new("MacOS")) {
+        return None;
+    }
+    bin_dir.parent()
+}
+
+fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for p in paths {
+        if !out.iter().any(|e| e == &p) {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// Roots that may contain `share/rhino-player/vs` next to `current_exe`:
+/// **`PREFIX/share`** when the binary is **`PREFIX/bin/…`**; **`Contents/Resources`** and **`Contents`**
+/// when it is **`…/Contents/MacOS/…`** (macOS `.app`).
+fn share_roots_next_to_exe() -> Vec<PathBuf> {
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+    let Some(bin_dir) = exe.parent() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    if let Some(contents) = macos_app_contents_from_exe(bin_dir) {
+        let res = contents.join("Resources");
+        if res.is_dir() {
+            out.push(res);
+        }
+        out.push(contents.to_path_buf());
+    }
+    if let Some(prefix) = bin_dir.parent() {
+        out.push(prefix.to_path_buf());
+    }
+    dedupe_paths(out)
+}
+
+/// **Freedesktop hicolor tree** bundled inside a shipped macOS `.app` (`Contents/Resources/data/icons`).
+pub fn bundled_data_icons_dir_for_running_exe() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let bin_dir = exe.parent()?;
+    let contents = macos_app_contents_from_exe(bin_dir)?;
+    let icons = contents.join("Resources/data/icons");
+    icons.is_dir().then_some(icons)
+}
+
+/// Prefers **`Contents/Resources/data/icons`** in a `.app`; otherwise the compile-time **`data/icons`** checkout.
+pub fn bundled_data_icons_dir_for_runtime() -> Option<PathBuf> {
+    bundled_data_icons_dir_for_running_exe().or_else(|| {
+        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("data/icons");
+        p.is_dir().then_some(p)
+    })
+}
+
 /// Bundled `data/vs/…/rhino_60_mvtools.vpy` when **Preferences** → VapourSynth is active and DB
 /// `video_vs_path` is empty.
 pub fn bundled_mvtools_60() -> Option<PathBuf> {
@@ -29,12 +89,10 @@ pub fn bundled_mvtools_60() -> Option<PathBuf> {
     if dev.is_file() {
         return Some(dev);
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let c = dir.join("../share/rhino-player/vs").join(BUNDLED_MVT60_VPY);
-            if c.is_file() {
-                return std::fs::canonicalize(&c).ok().or(Some(c));
-            }
+    for base in share_roots_next_to_exe() {
+        let p = base.join("share/rhino-player/vs").join(BUNDLED_MVT60_VPY);
+        if p.is_file() {
+            return std::fs::canonicalize(&p).ok().or(Some(p));
         }
     }
     None

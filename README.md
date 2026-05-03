@@ -63,6 +63,14 @@ source ./scripts/macos-dev-env.sh
 cargo build --release
 ```
 
+To assemble **Rhino Player.app** with Retina **`AppIcon.icns`**, `Info.plist` (viewer for common video/audio types so Finder can **Open With** / change default handler), bundled `rhino-player` executable, **`Resources/data/icons`** hicolor assets, and `share/rhino-player/vs` scripts:
+
+```bash
+./scripts/macos-build-app-bundle.sh
+```
+
+Output: `dist/macos/Rhino Player.app` (respects **`DEST_ROOT`** to change the folder). Libraries still load from Homebrew at runtime (`brew install gtk4 libadwaita mpv`).
+
 **Smooth Video (VapourSynth + MVTools)** is supported on macOS via Homebrew — see the macOS section below. Core playback and the rest of the UI work on macOS too.
 
 ## Install (Linux)
@@ -217,7 +225,7 @@ The project keeps detailed feature specs and implementation notes under [docs/](
 
 ## Copyright
 
-Copyright (C) 2026 Peter Adrianov
+Copyright © 2026 Peter Adrianov
 
 ## License
 

@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Rhino Player</string>
+	<key>CFBundleExecutable</key>
+	<string>rhino-player</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>ch.rhino.RhinoPlayer</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Rhino Player</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 Peter Adrianov</string>
+
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Video</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>3g2</string><string>3gp</string><string>asf</string><string>avi</string>
+				<string>divx</string><string>dvr-ms</string><string>f4v</string><string>flv</string>
+				<string>h264</string><string>h265</string><string>hevc</string><string>m2ts</string>
+				<string>m4v</string><string>mkv</string><string>mov</string><string>mpeg</string>
+				<string>mpg</string><string>mp4</string><string>mts</string><string>mxf</string>
+				<string>nsv</string><string>ogv</string><string>rmp4</string><string>ts</string>
+				<string>vob</string><string>webm</string><string>wmv</string><string>xvid</string>
+				<string>y4m</string><string>yuv</string>
+			</array>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.movie</string>
+				<string>public.video</string>
+				<string>public.mpeg-4</string>
+				<string>public.avi</string>
+				<string>public.mpeg</string>
+				<string>public.mpeg-2-transport-stream</string>
+				<string>com.apple.quicktime-movie</string>
+				<string>org.matroska.mkv</string>
+				<string>org.webmproject.webm</string>
+				<string>public.3gpp</string>
+				<string>public.3gpp2</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Audio</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>m4a</string><string>mp3</string><string>flac</string><string>ogg</string>
+				<string>oga</string><string>opus</string><string>wav</string><string>aac</string>
+			</array>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.audio</string>
+				<string>public.mp3</string>
+				<string>public.mpeg-4-audio</string>
+				<string>public.flac-audio</string>
+				<string>public.ogg-audio</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
