@@ -1,122 +1,40 @@
-/// GNOME/Linux hamburger panel: GTK 4 hides leading icons beside labels in [`GtkPopoverMenu`]
-/// backed by [`gio::Menu`]; build explicit rows (**icon**, **label**) and wire [`gio::Action`]s.
+/// GNOME/Linux primary menu: [`gtk::MenuButton`] + [`gio::Menu`] so GTK builds a standard
+/// [`gtk::PopoverMenu`] (libadwaita styling). Item text only at the top level — no custom icon rows.
 #[cfg(not(target_os = "macos"))]
-fn build_linux_main_menu_button(
-    app: &adw::Application,
-    pref_menu: &gio::Menu,
-    exit_after_current: &Rc<Cell<bool>>,
-) -> gtk::MenuButton {
+fn build_linux_main_menu_button(pref_menu: &gio::Menu) -> gtk::MenuButton {
     let mb = gtk::MenuButton::new();
     mb.set_icon_name("open-menu-symbolic");
     mb.set_tooltip_text(Some("Main menu"));
 
-    let pop = gtk::Popover::builder().autohide(true).focusable(true).build();
-    pop.add_css_class("menu");
-    pop.add_css_class("rp-main-menu-popover");
+    let menu = gio::Menu::new();
 
-    let col = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(0)
-        .css_classes(["rp-main-menu-box"])
-        .build();
+    let sec_file = gio::Menu::new();
+    menu_append_action_icon(&sec_file, Some("Open Video…"), Some("app.open"), None);
+    menu_append_action_icon(&sec_file, Some("Close Video"), Some("app.close-video"), None);
+    menu.append_section(None::<&str>, &sec_file);
 
-    fn row_with_icon(icon_name: &str, text: &str) -> gtk::Box {
-        let row = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
-            .spacing(10)
-            .margin_start(12)
-            .margin_end(12)
-            .margin_top(6)
-            .margin_bottom(6)
-            .build();
-        let im = gtk::Image::from_icon_name(icon_name);
-        im.set_pixel_size(18);
-        im.set_valign(gtk::Align::Center);
-        let lab = gtk::Label::builder().label(text).hexpand(true).xalign(0f32).build();
-        row.append(&im);
-        row.append(&lab);
-        row
-    }
+    let sec_session = gio::Menu::new();
+    menu_append_action_icon(
+        &sec_session,
+        Some("Exit After Current Video"),
+        Some("app.exit-after-current"),
+        None,
+    );
+    menu_append_action_icon(&sec_session, Some("Move to Trash"), Some("app.move-to-trash"), None);
+    menu.append_section(None::<&str>, &sec_session);
 
-    fn wire_action(icon: &'static str, label: &'static str, action: &'static str) -> gtk::Button {
-        let b = gtk::Button::builder()
-            .hexpand(true)
-            .css_classes(["flat", "rp-main-menu-act"])
-            .build();
-        b.set_child(Some(&row_with_icon(icon, label)));
-        b.set_action_name(Some(action));
-        b
-    }
+    let sec_view = gio::Menu::new();
+    menu_append_action_icon(&sec_view, Some("Fullscreen"), Some("app.toggle-fullscreen"), None);
+    menu.append_section(None::<&str>, &sec_view);
 
-    col.append(&wire_action("document-open-symbolic", "Open Video…", "app.open"));
-    col.append(&wire_action("window-close-symbolic", "Close Video", "app.close-video"));
-    col.append(&wire_action("view-fullscreen-symbolic", "Fullscreen", "app.toggle-fullscreen"));
+    menu.append_submenu(Some("Preferences"), pref_menu);
 
-    let exit_syncing = Rc::new(Cell::new(false));
-    let exit_row = gtk::Box::builder()
-        .orientation(gtk::Orientation::Horizontal)
-        .margin_start(12)
-        .margin_end(12)
-        .margin_top(6)
-        .margin_bottom(6)
-        .css_classes(["rp-main-menu-act"])
-        .build();
-    let exit_lab = gtk::Label::builder()
-        .label("Exit After Current Video")
-        .hexpand(true)
-        .xalign(0f32)
-        .build();
-    let exit_chk = gtk::CheckButton::builder()
-        .hexpand(true)
-        .valign(gtk::Align::Center)
-        .child(&exit_lab)
-        .build();
-    exit_row.append(&exit_chk);
-    col.append(&exit_row);
+    let sec_about = gio::Menu::new();
+    menu_append_action_icon(&sec_about, Some("About Rhino Player"), Some("app.about"), None);
+    menu_append_action_icon(&sec_about, Some("Quit"), Some("app.quit"), None);
+    menu.append_section(None::<&str>, &sec_about);
 
-    let app_chk = app.clone();
-    let ex_sync_flag = exit_syncing.clone();
-    exit_chk.connect_toggled(move |c| {
-        if ex_sync_flag.get() {
-            return;
-        }
-        let want = c.is_active();
-        app_chk.change_action_state("exit-after-current", &want.to_variant());
-    });
-
-    col.append(&wire_action("user-trash-symbolic", "Move to Trash", "app.move-to-trash"));
-
-    let pref_pop =
-        gtk::PopoverMenu::from_model_full(pref_menu, gtk::PopoverMenuFlags::NESTED);
-    header_popover_non_modal(&pref_pop);
-    let pref_btn =
-        gtk::MenuButton::builder().hexpand(true).popover(&pref_pop).direction(gtk::ArrowType::Right).build();
-    pref_btn.add_css_class("flat");
-    pref_btn.add_css_class("rp-main-menu-act");
-    pref_btn.set_child(Some(&row_with_icon(
-        "preferences-system-symbolic",
-        "Preferences",
-    )));
-
-    col.append(&pref_btn);
-    col.append(&wire_action(
-        "help-about-symbolic",
-        "About Rhino Player",
-        "app.about",
-    ));
-    col.append(&wire_action("application-exit-symbolic", "Quit", "app.quit"));
-
-    let ex_sync_pop = exit_syncing;
-    let ex_cell = exit_after_current.clone();
-    let chk_snap = exit_chk.clone();
-    pop.connect_show(move |_| {
-        ex_sync_pop.set(true);
-        chk_snap.set_active(ex_cell.get());
-        ex_sync_pop.set(false);
-    });
-
-    pop.set_child(Some(&col));
-    mb.set_popover(Some(&pop));
+    mb.set_menu_model(Some(&menu));
 
     mb.connect_notify_local(Some("popover"), move |b, _| {
         if let Some(p) = b.popover() {

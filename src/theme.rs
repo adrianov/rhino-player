@@ -133,27 +133,6 @@ const APP_CSS: &str = r#"
         .rp-popover-box list.rich-list {
             background: none;
         }
-        popover.menu.rp-main-menu-popover contents {
-            padding: 6px;
-        }
-        .rp-main-menu-box {
-            min-width: 240px;
-        }
-        button.rp-main-menu-act.flat {
-            border-radius: 6px;
-            padding: 4px 8px;
-            min-height: 40px;
-        }
-        button.rp-main-menu-act.flat:hover {
-            background-color: rgba(255, 255, 255, 0.07);
-        }
-        .rp-main-menu-act checkbutton {
-            margin: 0;
-        }
-        menubutton.rp-main-menu-act.flat:hover {
-            background-color: rgba(255, 255, 255, 0.07);
-            border-radius: 6px;
-        }
         /* Seek hover preview (see docs/features/18-thumbnail-preview.md) */
         frame.rp-seek-thumb-frame {
             padding: 3px;

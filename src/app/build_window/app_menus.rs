@@ -1,6 +1,6 @@
 /// Builds the application's [gio::Menu] models: the **Preferences** subtree and, on macOS,
-/// the hierarchical menubar root. Linux uses a custom popover for the hamburger (see
-/// `linux_main_menu_button.rs`); placeholder empty menus fill tuple slots there.
+/// the hierarchical menubar root. Linux uses the same [gio::Menu] with [gtk::MenuButton::set_menu_model]
+/// for the primary menu (`linux_main_menu_button.rs`); placeholder empty menus fill tuple slots there.
 ///
 /// Action ids match [gio::SimpleAction]s on the application; this helper only
 /// builds static structure consumed by [gtk::MenuButton] or `Application::set_menubar`.

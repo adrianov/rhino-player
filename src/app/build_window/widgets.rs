@@ -58,6 +58,8 @@ fn build_widgets(
 ) -> WindowWidgets {
     #[cfg(target_os = "macos")]
     std::hint::black_box(exit_after_current.clone());
+    #[cfg(not(target_os = "macos"))]
+    let _ = &exit_after_current;
 
     let win = build_main_application_window(app);
     let PlaybackChromeRow { play_pause, sibling_nav } = build_playback_chrome_row();
@@ -79,7 +81,7 @@ fn build_widgets(
     let menu_btn = {
         #[cfg(not(target_os = "macos"))]
         {
-            build_linux_main_menu_button(app, &pref_menu, &exit_after_current)
+            build_linux_main_menu_button(&pref_menu)
         }
         #[cfg(target_os = "macos")]
         {
