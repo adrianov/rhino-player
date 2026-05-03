@@ -7,17 +7,7 @@ use libmpv2::Mpv;
 pub const MAX_FIXED_SPEED: f64 = 8.0;
 
 /// Supported `speed` values (popover row order matches this array).
-pub const SPEEDS: [f64; 9] = [
-    1.0,
-    1.5,
-    2.0,
-    3.0,
-    4.0,
-    5.0,
-    6.0,
-    7.0,
-    MAX_FIXED_SPEED,
-];
+pub const SPEEDS: [f64; 9] = [1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, MAX_FIXED_SPEED];
 
 const EPS: f64 = 0.01;
 

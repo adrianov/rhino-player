@@ -22,7 +22,7 @@ use std::sync::Mutex;
 use objc2::define_class;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::{AnyThread, DefinedClass, msg_send};
+use objc2::{msg_send, AnyThread, DefinedClass};
 use objc2_core_video::CVTimeStamp;
 use objc2_foundation::NSObjectProtocol;
 
@@ -129,10 +129,7 @@ define_class!(
 );
 
 impl RhinoMpvGlLayer {
-    pub fn new(
-        cgl_pixel_format: CGLPixelFormatObj,
-        cgl_context: CGLContextObj,
-    ) -> Retained<Self> {
+    pub fn new(cgl_pixel_format: CGLPixelFormatObj, cgl_context: CGLContextObj) -> Retained<Self> {
         let this = Self::alloc().set_ivars(LayerIvars {
             cgl_pixel_format,
             cgl_context,

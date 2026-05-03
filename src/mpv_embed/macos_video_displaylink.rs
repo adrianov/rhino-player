@@ -20,8 +20,8 @@
 
 use std::os::raw::c_void;
 use std::ptr::{self, NonNull};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use objc2::rc::Retained;
 use objc2_core_video::{
@@ -61,18 +61,19 @@ impl DriverState {
 impl DisplayLinkDriver {
     /// Create + start a CVDisplayLink wired to `layer`. Returns the running driver and a
     /// cheap handle suitable for handing to mpv's update callback.
-    pub fn install(layer: Retained<RhinoMpvGlLayer>) -> Result<(Self, Arc<DriverStateHandle>), String> {
+    pub fn install(
+        layer: Retained<RhinoMpvGlLayer>,
+    ) -> Result<(Self, Arc<DriverStateHandle>), String> {
         let state = DriverState::new(layer);
         let mut link_ptr: *mut CVDisplayLink = ptr::null_mut();
-        let err = unsafe {
-            CVDisplayLinkCreateWithActiveCGDisplays(NonNull::from(&mut link_ptr))
-        };
+        let err = unsafe { CVDisplayLinkCreateWithActiveCGDisplays(NonNull::from(&mut link_ptr)) };
         if err != 0 || link_ptr.is_null() {
-            return Err(format!("CVDisplayLinkCreateWithActiveCGDisplays failed: {err}"));
+            return Err(format!(
+                "CVDisplayLinkCreateWithActiveCGDisplays failed: {err}"
+            ));
         }
-        let link: Retained<CVDisplayLink> = unsafe {
-            Retained::from_raw(link_ptr).ok_or("displayLink retain failed")?
-        };
+        let link: Retained<CVDisplayLink> =
+            unsafe { Retained::from_raw(link_ptr).ok_or("displayLink retain failed")? };
         let user_info = state.as_ref() as *const DriverState as *mut c_void;
         let err = unsafe { link.set_output_callback(Some(display_link_callback), user_info) };
         if err != 0 {
@@ -85,7 +86,13 @@ impl DisplayLinkDriver {
         let handle = Arc::new(DriverStateHandle {
             ptr: state.as_ref() as *const DriverState,
         });
-        Ok((Self { link: Some(link), state }, handle))
+        Ok((
+            Self {
+                link: Some(link),
+                state,
+            },
+            handle,
+        ))
     }
 }
 
@@ -116,7 +123,9 @@ impl DriverStateHandle {
         if self.ptr.is_null() {
             return;
         }
-        unsafe { (*self.ptr).mark_pending(); }
+        unsafe {
+            (*self.ptr).mark_pending();
+        }
     }
 }
 
@@ -140,4 +149,3 @@ unsafe extern "C-unwind" fn display_link_callback(
     }
     0
 }
-

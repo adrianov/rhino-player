@@ -6,11 +6,11 @@
 use std::path::{Path, PathBuf};
 
 #[cfg(not(target_os = "macos"))]
+use glib::GStr;
+#[cfg(not(target_os = "macos"))]
 use gtk::gio;
 #[cfg(not(target_os = "macos"))]
 use gtk::gio::prelude::FileExt;
-#[cfg(not(target_os = "macos"))]
-use glib::GStr;
 
 /// Moves [path] to the user's Trash (**Err** = move failed).
 ///
@@ -34,7 +34,8 @@ pub fn trash_local_file_for_undo(path: &Path) -> Result<Option<PathBuf>, String>
 #[cfg(target_os = "macos")]
 fn is_macos_trash_item(p: &Path) -> bool {
     p.ancestors().any(|a| {
-        a.file_name().is_some_and(|n| n == ".Trash" || n == ".Trashes")
+        a.file_name()
+            .is_some_and(|n| n == ".Trash" || n == ".Trashes")
     })
 }
 
@@ -111,8 +112,8 @@ pub fn find_trash_files_stored_path(
     let base = trash_base()?;
     let files_dir = base.join("files");
     let info_dir = base.join("info");
-    let want =
-        std::fs::canonicalize(original_before_trash).unwrap_or_else(|_| original_before_trash.to_path_buf());
+    let want = std::fs::canonicalize(original_before_trash)
+        .unwrap_or_else(|_| original_before_trash.to_path_buf());
     let mut best: Option<(PathBuf, std::time::SystemTime)> = None;
     let entries = std::fs::read_dir(&info_dir).ok()?;
     for e in entries.filter_map(std::io::Result::ok) {

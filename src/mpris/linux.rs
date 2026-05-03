@@ -8,10 +8,10 @@ use futures::future::join;
 use gtk::glib;
 use mpris_server::{Player, Time};
 
-use crate::mpv_embed::MpvBundle;
-use crate::APP_ID;
 use super::linux_sync::{dispatch_mpris_ctl, MprisCtl};
 use super::{MprisShot, MprisStartArgs};
+use crate::mpv_embed::MpvBundle;
+use crate::APP_ID;
 
 static MPRIS_TX: Mutex<Option<async_channel::Sender<MprisCtl>>> = Mutex::new(None);
 

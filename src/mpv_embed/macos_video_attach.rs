@@ -10,11 +10,11 @@
 
 use std::sync::Arc;
 
-use glib::SignalHandlerId;
 use glib::object::{IsA, ObjectExt};
+use glib::SignalHandlerId;
 use gtk::prelude::{Cast, WidgetExt};
 use objc2::rc::Retained;
-use objc2::{MainThreadMarker, msg_send};
+use objc2::{msg_send, MainThreadMarker};
 use objc2_app_kit::NSView;
 
 use crate::macos_window::nswindow_for_widget;
@@ -22,10 +22,10 @@ use crate::macos_window::nswindow_for_widget;
 use objc2_quartz_core::CALayer;
 
 use super::macos_video_cgl::{
-    self, CGLContextObj, CGLPixelFormatObj, GlSymbolLoader, make_pixel_format_and_context,
+    self, make_pixel_format_and_context, CGLContextObj, CGLPixelFormatObj, GlSymbolLoader,
 };
 use super::macos_video_displaylink::{DisplayLinkDriver, DriverStateHandle};
-use super::macos_video_layer::{DrawCallback, RhinoMpvGlLayer, as_calayer};
+use super::macos_video_layer::{as_calayer, DrawCallback, RhinoMpvGlLayer};
 use super::macos_video_layer_frame::{sync_layer_frame_now, wire_sizer_resync};
 
 /// Public handle returned from [`install`]. Drops everything in order on release.
@@ -82,7 +82,9 @@ impl NativeVideoSurface {
     pub fn watch_overlay<W: IsA<gtk::Widget>>(&self, widget: &W) {
         let w = widget.clone().upcast::<gtk::Widget>();
         *self.overlay.borrow_mut() = Some(w.clone());
-        let Some(sizer_widget) = self.sizer_widget.clone() else { return; };
+        let Some(sizer_widget) = self.sizer_widget.clone() else {
+            return;
+        };
         let layer = self.layer.clone();
         let overlay = self.overlay.clone();
         w.connect_local("notify::visible", false, move |_| {
@@ -186,4 +188,3 @@ pub fn install<W: IsA<gtk::Widget>>(sizer: &W) -> Result<NativeVideoSurface, Str
         overlay,
     })
 }
-

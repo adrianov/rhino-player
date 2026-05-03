@@ -25,10 +25,7 @@ pub fn mpv_chapter_list(mpv: &Mpv) -> Vec<(f64, String)> {
         parse_root(&mut root, &mut out);
         libmpv2_sys::mpv_free_node_contents(&mut root);
     }
-    out.sort_by(|a, b| {
-        a.0.partial_cmp(&b.0)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    out.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     out
 }
 

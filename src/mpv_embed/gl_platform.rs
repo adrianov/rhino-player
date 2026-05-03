@@ -28,7 +28,8 @@ impl GlDynLib {
             let _egl = unsafe { Library::new("libEGL.so.1") }.map_err(|e| e.to_string())?;
             let _gl = unsafe { Library::new("libGL.so.1") }.map_err(|e| e.to_string())?;
             // Copy fn pointers out of [Symbol] before moving [Library] (Symbol borrows Library).
-            let get_proc = *unsafe { _egl.get(b"eglGetProcAddress\0") }.map_err(|e| e.to_string())?;
+            let get_proc =
+                *unsafe { _egl.get(b"eglGetProcAddress\0") }.map_err(|e| e.to_string())?;
             let gl_get_integerv =
                 *unsafe { _gl.get(b"glGetIntegerv\0") }.map_err(|e| e.to_string())?;
             Ok(Self {

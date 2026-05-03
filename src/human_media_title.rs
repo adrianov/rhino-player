@@ -127,7 +127,11 @@ fn naive_fallback(trimmed: &str) -> String {
 }
 
 fn strip_extension_owned(name: String) -> String {
-    patterns().strip_ext.replace_all(&name, "").trim().to_string()
+    patterns()
+        .strip_ext
+        .replace_all(&name, "")
+        .trim()
+        .to_string()
 }
 
 fn normalize_commas(s: String) -> String {
@@ -148,10 +152,7 @@ fn split_join_spaces(s: &str) -> String {
 }
 
 fn strip_year_ellipsis(s: &mut String) {
-    *s = patterns()
-        .year_ellipsis
-        .replace_all(s, " ")
-        .into_owned();
+    *s = patterns().year_ellipsis.replace_all(s, " ").into_owned();
 }
 
 fn fix_paren_edges(s: &mut String) {
@@ -176,10 +177,7 @@ fn brackets_to_spaces(s: &mut String) {
 }
 
 fn merged_rip_spacing(s: &mut String) {
-    *s = patterns()
-        .merged_rip
-        .replace_all(s, "$1 $2")
-        .into_owned();
+    *s = patterns().merged_rip.replace_all(s, "$1 $2").into_owned();
 }
 
 fn strip_bluray(s: &mut String) {
@@ -204,10 +202,7 @@ fn strip_resolution_tokens(s: &mut String) {
 }
 
 fn strip_leftover_season_tokens(s: &mut String) {
-    *s = patterns()
-        .season_leftover
-        .replace_all(s, " ")
-        .into_owned();
+    *s = patterns().season_leftover.replace_all(s, " ").into_owned();
 }
 
 fn strip_year_tokens(s: &mut String) {

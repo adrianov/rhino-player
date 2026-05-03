@@ -4,7 +4,7 @@
 
 #![allow(deprecated)]
 
-use std::ffi::{CStr, c_void};
+use std::ffi::{c_void, CStr};
 use std::os::raw::{c_char, c_int};
 use std::ptr;
 use std::sync::Arc;
@@ -15,8 +15,7 @@ use libmpv2::Mpv;
 use libmpv2_sys::{
     mpv_opengl_fbo, mpv_opengl_init_params, mpv_render_context, mpv_render_context_create,
     mpv_render_context_free, mpv_render_context_render, mpv_render_context_set_update_callback,
-    mpv_render_param,
-    mpv_render_param_type_MPV_RENDER_PARAM_API_TYPE as PARAM_API_TYPE,
+    mpv_render_param, mpv_render_param_type_MPV_RENDER_PARAM_API_TYPE as PARAM_API_TYPE,
     mpv_render_param_type_MPV_RENDER_PARAM_FLIP_Y as PARAM_FLIP_Y,
     mpv_render_param_type_MPV_RENDER_PARAM_INVALID as PARAM_INVALID,
     mpv_render_param_type_MPV_RENDER_PARAM_OPENGL_FBO as PARAM_OPENGL_FBO,
@@ -61,7 +60,9 @@ impl MacosRender {
         let gl_loader = surface.gl_loader();
 
         let render_ctx = create_render_context(mpv, &gl_loader)?;
-        let update_ctx = Box::new(UpdateCtx { handle: surface.redraw_handle() });
+        let update_ctx = Box::new(UpdateCtx {
+            handle: surface.redraw_handle(),
+        });
         wire_update_callback(render_ctx, &update_ctx);
         wire_draw_callback(render_ctx, &surface);
 
@@ -136,12 +137,22 @@ fn create_render_context(
         get_proc_address_ctx: Arc::as_ptr(gl_loader) as *mut c_void,
     };
     let mut params: [mpv_render_param; 3] = [
-        mpv_render_param { type_: PARAM_API_TYPE, data: api_type },
-        mpv_render_param { type_: PARAM_OPENGL_INIT_PARAMS, data: &mut init as *mut _ as *mut c_void },
-        mpv_render_param { type_: PARAM_INVALID, data: ptr::null_mut() },
+        mpv_render_param {
+            type_: PARAM_API_TYPE,
+            data: api_type,
+        },
+        mpv_render_param {
+            type_: PARAM_OPENGL_INIT_PARAMS,
+            data: &mut init as *mut _ as *mut c_void,
+        },
+        mpv_render_param {
+            type_: PARAM_INVALID,
+            data: ptr::null_mut(),
+        },
     ];
     let mut rctx: *mut mpv_render_context = ptr::null_mut();
-    let err = unsafe { mpv_render_context_create(&mut rctx, mpv.ctx.as_ptr(), params.as_mut_ptr()) };
+    let err =
+        unsafe { mpv_render_context_create(&mut rctx, mpv.ctx.as_ptr(), params.as_mut_ptr()) };
     if err < 0 || rctx.is_null() {
         return Err(format!("mpv_render_context_create failed: {err}"));
     }
@@ -178,9 +189,18 @@ fn wire_draw_callback(rctx: *mut mpv_render_context, surface: &NativeVideoSurfac
         };
         let mut flip: c_int = 1;
         let mut params: [mpv_render_param; 3] = [
-            mpv_render_param { type_: PARAM_OPENGL_FBO, data: &mut fbo_data as *mut _ as *mut c_void },
-            mpv_render_param { type_: PARAM_FLIP_Y, data: &mut flip as *mut _ as *mut c_void },
-            mpv_render_param { type_: PARAM_INVALID, data: ptr::null_mut() },
+            mpv_render_param {
+                type_: PARAM_OPENGL_FBO,
+                data: &mut fbo_data as *mut _ as *mut c_void,
+            },
+            mpv_render_param {
+                type_: PARAM_FLIP_Y,
+                data: &mut flip as *mut _ as *mut c_void,
+            },
+            mpv_render_param {
+                type_: PARAM_INVALID,
+                data: ptr::null_mut(),
+            },
         ];
         unsafe {
             mpv_render_context_render(

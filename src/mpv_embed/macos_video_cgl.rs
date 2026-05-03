@@ -12,12 +12,12 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::ptr::NonNull;
 use std::sync::OnceLock;
 
-pub use objc2_open_gl::{CGLContextObj, CGLPixelFormatObj};
 use objc2_open_gl::{
     CGLChoosePixelFormat, CGLContextEnable, CGLContextParameter, CGLCreateContext,
     CGLDestroyContext, CGLDestroyPixelFormat, CGLEnable, CGLError, CGLOpenGLProfile,
     CGLPixelFormatAttribute, CGLSetCurrentContext, CGLSetParameter,
 };
+pub use objc2_open_gl::{CGLContextObj, CGLPixelFormatObj};
 
 #[link(name = "System", kind = "dylib")]
 extern "C" {
@@ -72,15 +72,17 @@ fn choose_pixel_format(profile: CGLOpenGLProfile) -> Result<CGLPixelFormatObj, S
 
 fn create_context(pix: CGLPixelFormatObj) -> Result<CGLContextObj, String> {
     let mut ctx: CGLContextObj = std::ptr::null_mut();
-    let err = unsafe {
-        CGLCreateContext(pix, std::ptr::null_mut(), NonNull::from(&mut ctx))
-    };
+    let err = unsafe { CGLCreateContext(pix, std::ptr::null_mut(), NonNull::from(&mut ctx)) };
     if err != CGLError::NoError || ctx.is_null() {
         return Err(format!("CGLCreateContext failed: {}", err.0));
     }
     let one: c_int = 1;
     unsafe {
-        let _ = CGLSetParameter(ctx, CGLContextParameter::CGLCPSwapInterval, NonNull::from(&one));
+        let _ = CGLSetParameter(
+            ctx,
+            CGLContextParameter::CGLCPSwapInterval,
+            NonNull::from(&one),
+        );
         let _ = CGLEnable(ctx, CGLContextEnable::CGLCEMPEngine);
         let _ = CGLSetCurrentContext(ctx);
     }

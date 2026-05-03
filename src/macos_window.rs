@@ -4,8 +4,8 @@
 //! and exposes helpers used by the GTK shell: hide / show traffic lights,
 //! optional native fullscreen exit (see [`macos_native_unfullscreen`]), and layer invalidation.
 
-use gdk4_macos::MacosSurface;
 use gdk4_macos::prelude::Cast;
+use gdk4_macos::MacosSurface;
 use glib::object::IsA;
 use gtk::prelude::{NativeExt, WidgetExt};
 use objc2::msg_send;
@@ -65,7 +65,9 @@ pub fn invalidate_window_layers<W: IsA<gtk::Widget>>(widget: &W) {
     };
     unsafe {
         let cv: *mut NSView = msg_send![&*win, contentView];
-        let Some(content_view) = Retained::retain(cv) else { return };
+        let Some(content_view) = Retained::retain(cv) else {
+            return;
+        };
         let _: () = msg_send![&*content_view, setNeedsDisplay: true];
         let _: () = msg_send![&*content_view, displayIfNeeded];
     }

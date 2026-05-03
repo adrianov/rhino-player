@@ -6,9 +6,7 @@ use std::path::Path;
 
 use adw::prelude::FileExt;
 use gtk::gio;
-use mpris_server::{
-    Metadata, PlaybackStatus, Player, Time, TrackId, zbus,
-};
+use mpris_server::{zbus, Metadata, PlaybackStatus, Player, Time, TrackId};
 
 use super::MprisShot;
 

@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 /// Canonicalizes relative paths before building [`NSURL`] (required by Foundation).
 pub fn move_to_trash_ns(path: &Path) -> Result<PathBuf, String> {
     let abs = std::fs::canonicalize(path).map_err(|e| format!("trash: {e}"))?;
-    let url = NSURL::from_file_path(&abs).ok_or_else(|| "trash: path not representable".to_string())?;
+    let url =
+        NSURL::from_file_path(&abs).ok_or_else(|| "trash: path not representable".to_string())?;
     let fm = NSFileManager::defaultManager();
     let mut out: Option<Retained<NSURL>> = None;
     fm.trashItemAtURL_resultingItemURL_error(&url, Some(&mut out))
