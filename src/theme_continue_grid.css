@@ -69,15 +69,18 @@
                 rgba(0, 0, 0, 0.00) 100%
             );
             border-radius: 0 0 12px 12px;
+            min-width: 0;
         }
         label.rp-recent-card-title {
             color: #ffffff;
             font-weight: 600;
             font-size: 0.98em;
             text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+            min-width: 0;
         }
         .rp-recent-progress-row {
             min-height: 18px;
+            min-width: 0;
         }
         label.rp-recent-percent {
             min-width: 42px;
@@ -137,7 +140,7 @@
             color: #f6f5f4;
         }
         button.rp-undo-toast-close:hover { background-color: rgba(255, 255, 255, 0.12); }
-        progressbar.rp-recent-bar { min-height: 5px; }
+        progressbar.rp-recent-bar { min-height: 5px; min-width: 0; }
         progressbar.rp-recent-bar trough {
             min-height: 5px;
             border-radius: 9999px;

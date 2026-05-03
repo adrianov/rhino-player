@@ -129,6 +129,7 @@ pub fn fill_row(
         let footer = gtk::Box::new(gtk::Orientation::Vertical, 6);
         footer.set_halign(gtk::Align::Fill);
         footer.set_valign(gtk::Align::End);
+        footer.set_hexpand(true);
         no_target(&footer);
         footer.add_css_class("rp-recent-card-footer");
 
@@ -138,23 +139,28 @@ pub fn fill_row(
         label.set_ellipsize(gtk::pango::EllipsizeMode::None);
         label.set_max_width_chars(-1);
         label.set_wrap(true);
+        label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
         label.set_natural_wrap_mode(gtk::NaturalWrapMode::Word);
         label.set_tooltip_text(c.to_str());
         label.set_halign(gtk::Align::Fill);
+        label.set_hexpand(true);
         label.set_xalign(0.0);
 
         let pro = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         no_target(&pro);
         pro.add_css_class("rp-recent-progress-row");
+        pro.set_hexpand(true);
         let bar = gtk::ProgressBar::new();
         no_target(&bar);
         bar.set_fraction(p / 100.0);
         bar.set_show_text(false);
         bar.set_hexpand(true);
+        bar.set_hexpand_set(true);
         bar.add_css_class("rp-recent-bar");
         let lp = gtk::Label::new(Some(&format!("{p:.0}%")));
         no_target(&lp);
         lp.add_css_class("rp-recent-percent");
+        lp.set_hexpand(false);
         pro.append(&bar);
         pro.append(&lp);
 
