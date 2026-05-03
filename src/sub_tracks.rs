@@ -1,4 +1,4 @@
-//! Subtitle stream list, popover rebuild, and Levenshtein auto-pick. See `docs/features/24-subtitles.md`.
+//! Subtitle stream list, popover rebuild, and token-overlap auto-pick. See `docs/features/24-subtitles.md`.
 
 use libmpv2::Mpv;
 use serde::Deserialize;
@@ -10,6 +10,7 @@ use gtk::prelude::*;
 use crate::db::SubPrefs;
 use crate::mpv_embed::MpvBundle;
 use crate::sub_track_abbr::abbrev_track_lang;
+use crate::track_label_match::{seed_row_score, subtitle_autopick_qualifies, LabelMatchScore};
 
 type SubPickFn = Rc<dyn Fn(&str)>;
 type SubOffFn = Rc<dyn Fn()>;
@@ -39,12 +40,7 @@ fn track_header_token(r: &Row) -> String {
             return a;
         }
     }
-    let head = r
-        .text
-        .split(" – ")
-        .next()
-        .unwrap_or(r.text.as_str())
-        .trim();
+    let head = r.text.split(" – ").next().unwrap_or(r.text.as_str()).trim();
     abbrev_track_lang(Some(head))
 }
 
@@ -137,7 +133,7 @@ fn has_subtitle_track_props(mpv: &Mpv) -> bool {
     false
 }
 
-/// Seeding string for Levenshtein: last hand-picked track label, else a short [LANG] hint.
+/// Seeding text for fuzzy match: last hand-picked track label, else a short [LANG] hint.
 pub fn autoseed(prefs: &SubPrefs) -> String {
     let t = prefs.last_sub_label.trim();
     if !t.is_empty() {
@@ -153,7 +149,8 @@ pub fn autoseed(prefs: &SubPrefs) -> String {
         .to_lowercase()
 }
 
-/// After a new [loadfile], pick the subtitle track closest to [autoseed] (normalized Levenshtein).
+/// After a new [loadfile], pick the subtitle track whose label best matches [autoseed]
+/// (word multiset overlap first, then alphanumeric character multiset overlap).
 pub fn autopick_sub_track(mpv: &Mpv, prefs: &SubPrefs) {
     if prefs.sub_off {
         set_sub_off(mpv);
@@ -167,19 +164,19 @@ pub fn autopick_sub_track(mpv: &Mpv, prefs: &SubPrefs) {
     if seed.is_empty() {
         return;
     }
-    let mut best = 0.0_f64;
+    let mut best_score = LabelMatchScore {
+        word_intersection: 0,
+        char_intersection: 0,
+    };
     let mut best_id: Option<i64> = None;
     for r in &rows {
-        let text = r.text.to_lowercase();
-        let lang = r.lang.to_lowercase();
-        let sc = strsim::normalized_levenshtein(&seed, &text)
-            .max(strsim::normalized_levenshtein(&seed, &lang));
-        if sc > best {
-            best = sc;
+        let s = seed_row_score(&seed, &r.text, &r.lang);
+        if best_id.is_none() || s > best_score {
+            best_score = s;
             best_id = Some(r.id);
         }
     }
-    if best < 0.38 {
+    if !subtitle_autopick_qualifies(best_score) {
         return;
     }
     if let Some(id) = best_id {

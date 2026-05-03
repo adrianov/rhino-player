@@ -17,7 +17,7 @@ mpv_props: [track-list, sid, sub-visibility, sub-color, sub-border-color, sub-bo
 ## Description
 mpv `sub-*` defaults match a warm theatrical look (yellow text, dark outline, legible scale). A header **Subtitles** `MenuButton` is hidden until `track-list` exposes at least one subtitle stream. When shown, the popover offers a scrollable track list (with **Off**), a `sub-scale` control, and a text colour control. Preferences (last hand-picked label, persistent **Off**, colour, scale) live in SQLite and reapply after each load.
 
-After each successful `loadfile`, the app re-applies styling, then runs auto-pick by normalised Levenshtein distance against the last hand-picked label (or a short `LANG` hint before any manual pick), unless the user is in persistent **Off** mode.
+After each successful `loadfile`, the app re-applies styling, then picks a subtitle stream by overlapping informative words between each candidate label or language marker and the last hand-picked label (or a short `LANG` hint before any manual pick); word overlap dominates, shared alphanumeric letters break ties or rank when nothing lines up word-for-word; it skips picking when overlap is negligible, unless the user is in persistent **Off** mode (auto-pick disabled entirely).
 
 ## Behavior
 
@@ -51,14 +51,15 @@ Feature: Subtitles styling and selection
   Scenario: Auto-pick chooses the closest subtitle track
     Given sub_off is false and a saved sub_track_label exists
     When auto-pick runs after styling is reapplied
-    Then sid points to the track with the highest normalised Levenshtein score against the saved label
-    And ties resolve by track id ascending
+    Then sid points to the track whose label scores highest by overlapping informative words versus the saved label hint
+    And among rows with identical word overlap, the higher overlapping alphanumeric-letter count decides
+    And ties after that retain the earliest candidate in playback engine stream order
 
   Scenario: Auto-pick falls back to LANG before any manual pick
     Given sub_off is false and no sub_track_label is stored
     When auto-pick runs
-    Then sid is selected by best Levenshtein match against the user’s LANG hint above a similarity floor
-    And no track is chosen if no candidate clears the floor
+    Then sid is chosen with the same word-then-letter overlap ranking against the user’s LANG hint
+    And no track is chosen if no candidate clears a minimum relevance threshold
 
   Scenario: Subtitles stay above the bottom toolbar
     Given the bottom ToolbarView is revealed
@@ -68,6 +69,7 @@ Feature: Subtitles styling and selection
 ```
 
 ## Notes
+- Word and letter overlaps use multiset intersections of alphanumeric tokens and characters (`track_label_match`). Each subtitle row compares the seed to both list text and bare language markers and keeps the stronger score.
 - `sub-color` / `sub-border-color` are passed as `#RRGGBB` strings (libmpv ignores int forms here).
 - `sub-ass-override=force` makes ASS subs follow Rhino’s style overrides.
 - Errors from setting sub properties are logged only; no UI notification.

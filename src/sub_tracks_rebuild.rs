@@ -1,7 +1,7 @@
 /// Rebuild radio rows: **Off** + each sub. Returns **true** if any sub track exists.
 ///
 /// [on_pick] is called with the list label when the user turns **on** a sub track (not **Off**).
-/// [on_sub_off] when the user selects **Off** (persist so new files skip Levenshtein and stay off).
+/// [on_sub_off] when the user selects **Off** (persist so new files skip fuzzy auto-pick and stay off).
 pub fn rebuild_popover(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     bx: &gtk::Box,

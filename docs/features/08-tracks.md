@@ -17,7 +17,7 @@ settings: [aid_per_path, preferred_audio_track_label]
 ## Description
 The `track-list` property drives the UI. Today the **Sound** popover (header) hosts the audio-track list when the file has at least two `type: audio` entries; subtitle handling is owned by [24-subtitles](24-subtitles.md). Video-track switching and external `sub-add` / `audio-add` flows are planned.
 
-For audio, choosing a row sets mpv `aid` to that track id. The choice persists per local-file path in SQLite and updates a global preferred audio-track label. After each load, the app first restores the saved per-file `aid`; otherwise it picks the closest Levenshtein match to the global label, repairs `aid=no` when several tracks exist, and sets `aid` to the only id when exactly one exists.
+For audio, choosing a row sets mpv `aid` to that track id. The choice persists per local-file path in SQLite and updates a global preferred audio-track label. After each load, the app first restores the saved per-file `aid`; otherwise it picks the best word-overlap match to the global label (letter overlap breaks ties / ranks when words do not intersect), repairs `aid=no` when several tracks exist, and sets `aid` to the only id when exactly one exists.
 
 ## Behavior
 

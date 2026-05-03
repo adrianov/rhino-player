@@ -35,9 +35,9 @@ pub struct SubPrefs {
     pub border_color: u32,
     pub border_size: f64,
     pub scale: f64,
-    /// Last subtitle track the user picked in the popover (label text), for Levenshtein auto-pick.
+    /// Last subtitle track the user picked in the popover (label text), for token-overlap auto-pick.
     pub last_sub_label: String,
-    /// User chose **Off**: do not run Levenshtein on new files; keep `sub-visibility` off after load.
+    /// User chose **Off**: skip subtitle auto-match on new files; keep `sub-visibility` off after load.
     pub sub_off: bool,
 }
 

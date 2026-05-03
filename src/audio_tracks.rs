@@ -1,12 +1,12 @@
 //! Audio stream list and `aid` for the sound popover. See `docs/features/08-tracks.md`.
 
 use crate::mpv_embed::MpvBundle;
+use crate::track_label_match::{match_score, LabelMatchScore};
 use crate::{db, media_probe};
 use libmpv2::Mpv;
 use serde::Deserialize;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use strsim::levenshtein;
 
 use gtk::prelude::*;
 
@@ -90,12 +90,23 @@ fn norm_label(s: &str) -> String {
 }
 
 fn closest_label<'a>(rows: &'a [Row], want: &str) -> Option<&'a Row> {
-    let want = norm_label(want);
-    if want.is_empty() {
+    let want_n = norm_label(want);
+    if want_n.is_empty() {
         return None;
     }
-    rows.iter()
-        .min_by_key(|row| levenshtein(&norm_label(&row.text), &want))
+    let mut best_score = LabelMatchScore {
+        word_intersection: 0,
+        char_intersection: 0,
+    };
+    let mut picked: Option<&'a Row> = None;
+    for row in rows {
+        let s = match_score(&want_n, &norm_label(&row.text));
+        if picked.is_none() || s > best_score {
+            best_score = s;
+            picked = Some(row);
+        }
+    }
+    picked
 }
 
 /// Restore per-file track first, otherwise use the closest saved audio-track label.
