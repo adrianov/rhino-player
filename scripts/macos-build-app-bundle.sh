@@ -24,7 +24,7 @@ DEST_ROOT="${DEST_ROOT:-$REPO/dist/macos}"
 APP_PATH="$DEST_ROOT/$APP_BUNDLE"
 CONTENTS="$APP_PATH/Contents"
 
-cargo build --release
+cargo build --release --config 'build.rustc-wrapper=""'
 
 rm -rf "$APP_PATH"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources/share/rhino-player/vs"

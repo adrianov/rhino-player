@@ -94,6 +94,16 @@ You can choose another prefix with `PREFIX`:
 sudo PREFIX=/usr ./data/install-system-wide.sh
 ```
 
+To build a **`.deb`** for Debian, Ubuntu, or similar (requires `dpkg-deb`, from the `dpkg` package):
+
+```bash
+./scripts/build-deb.sh
+# same destination via the GitHub-oriented helper:
+./scripts/stage-github-release.sh
+```
+
+This runs `cargo build --release`, stages `/usr/bin/rhino-player` plus the same Freedesktop assets and bundled `share/rhino-player/vs` files as a normal distro package, and writes **`releases/rhino-player_<version>-1_<arch>.deb`** (that folder is for [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases) assets — see [`releases/README.md`](releases/README.md)). Install with `cd releases && sudo apt install ./rhino-player_*.deb`. Override the output directory with `OUTPUT=/tmp` or bump the Debian package revision with `DEB_REV=2`.
+
 For a user-local launcher during development, install only the desktop file and icons under `~/.local/share` and point it at a chosen binary:
 
 ```bash

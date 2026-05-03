@@ -48,6 +48,9 @@ $RECYCLE.BIN/
 
 # ---- Distributing / bundling (optional) ----
 /dist/
+# GitHub Release staging: keep releases/README.md only (see that file).
+/releases/*
+!/releases/README.md
 /pkg/
 /artifacts/
 .flathub/
