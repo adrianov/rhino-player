@@ -1,3 +1,4 @@
-/// Fixed mpv **`vf vapoursynth:`** frame-queue depth — unchanged across resolutions (spatial MVTools
-/// preset stays inside the bundled `.vpy` from **`video_in`**).
-pub(crate) const SMOOTH_VF_BUFFERED_FRAMES: i32 = 24;
+/// Fixed mpv **`vf vapoursynth:`** frame-queue depth (smaller → less vf RAM / prefetch; MVTools cost is
+/// dominated by the `.vpy` graph). Spatial MVTools preset stays inside **`video_in`** tiers in the
+/// bundled script.
+pub(crate) const SMOOTH_VF_BUFFERED_FRAMES: i32 = 16;
