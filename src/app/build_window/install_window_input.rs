@@ -49,5 +49,21 @@
     });
 
     #[cfg(target_os = "macos")]
-    wire_macos_media_keys(play_ctx.clone(), sibling_nav_ctx.clone());
+    wire_macos_media_keys(
+        play_ctx.clone(),
+        SiblingNavCtx {
+            btn_prev: w.sibling_nav.prev_btn.clone(),
+            btn_next: w.sibling_nav.next_btn.clone(),
+            win: w.win.clone(),
+            gl: w.gl_area.clone(),
+            recent: w.recent_scrl.clone(),
+            player: player.clone(),
+            last_path: last_path.clone(),
+            on_video_chrome: on_video_chrome.clone(),
+            win_aspect: win_aspect.clone(),
+            sibling_seof: sibling_seof.clone(),
+            on_file_loaded: Rc::clone(&on_file_loaded),
+            hdr_title_mirror: w.hdr_title_mirror.clone(),
+        },
+    );
 }
