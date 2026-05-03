@@ -16,8 +16,8 @@
 //! When attaching Smooth `vf` with media open, Rhino leaves **`hwdec`** / **`vd-lavc-dr`** unchanged
 //! (usually **`hwdec=auto`**); that works on typical stacks without forcing software decode.
 //! **`buffered-frames=`** in the mpv `vf vapoursynth:` string is a fixed queue depth; **`mv.Super` /
-//! `mv.Analyse` / `mv.FlowFPS`** tunables live in the bundled `.vpy`, chosen from **`video_in`** short edge
-//! (**≤1440** vs **>1440** tiers — see `data/vs/rhino_60_mvtools.vpy`).
+//! `mv.Analyse` / `mv.FlowFPS`** tunables live in the bundled `.vpy`, tiered by **`video_in`** pixel area
+//! (**≥2560×1440** vs smaller frames — see `data/vs/rhino_60_mvtools.vpy`).
 //! After mpv loads a file with Smooth on at ~1.0×, the transport layer schedules [apply_mpv_video]
 //! when **`FileLoaded`** or **`path`** fires (transport coalesced idle). If the active **`vf`** chain
 //! already matches the resolved script and buffer settings, Rhino refreshes env vars only and skips

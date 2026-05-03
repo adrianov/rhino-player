@@ -23,48 +23,44 @@ _LOCAL_MAX_DIR_READS = 8000
 _TARGET_NUM = 60
 _TARGET_DEN = 1
 _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
-_MV_GLOBAL_HINT = {"global": True}
-# Motion-estimation macroblock size: ``ideal = width×height / _MV_AREA_PERF_DIV`` → **nearest** power of two
-# (minimal ``abs(blksize - ideal)`` among 4…512), then ``overlap = blksize // 2``.
-# **Performance divisor**: raise it for smaller blocks / heavier ME; lower for larger blocks / lighter CPU / thermals.
-# At **10000**: **1920×1080** → ~207 → **256**; **3840×1600** / **3840×2160** → **512**.
-_MV_AREA_PERF_DIV = 10000
-_MV_BLK_POW2 = tuple(2**i for i in range(2, 10))  # 4 … 512
-
-
-def _blksize_overlap_from_area(width_px: int, height_px: int) -> tuple[int, int]:
-    """``blksize`` = closest power of two to ``W×H / _MV_AREA_PERF_DIV``; ``overlap = blksize // 2``."""
-    w = max(1, width_px)
-    h = max(1, height_px)
-    ideal = (w * h) / _MV_AREA_PERF_DIV
-    blk = min(_MV_BLK_POW2, key=lambda p: abs(p - ideal))
-    return blk, blk // 2
+_MV_GLOBAL_HINT = {"global": False}  # no global pan predictor — lighter ``Analyse``
+# MVTools square ``blksize`` is capped at **128** upstream; half overlap is the largest allowed.
+_MV_BLK_SIZE = 128
+_MV_BLK_OVERLAP = _MV_BLK_SIZE // 2
+# ``tier=uhd`` when ``width × height >= _MV_UHD_AREA_MIN`` (**2560×1440** pixels): ``mv.Super(levels=3)`` only.
+# All other graph params match **hd** (same overlap, sharp, FlowFPS mask/blend, etc.).
+_MV_UHD_SUPER_LEVELS = 3
+_MV_UHD_AREA_MIN = 2560 * 1440
 
 
 def _mv_graph_for_frame_size(
     width_px: int,
     height_px: int,
 ) -> tuple[str, int, int, int, int, int, int, bool, bool, bool]:
-    """Tier tag + MVTools params for native-resolution ME.
+    """Tier tag + MVTools params.
 
     Returns ``(tier, blksize, overlap, pel, sharp, search, flow_mask, flow_blend,
     truemotion, chroma)``.
-    **hd** vs **uhd** split on short edge (>1440) for stderr ``tier=`` only.
-    ``blksize`` / ``overlap`` derive from frame area (nearest power of two, half overlap);
-    other params: ``pel=1``, ``sharp=1``, ``search=4``, ``chroma=True`` (luma + chroma;
-    luma-only MVs tend to mis-register chroma). **Analyse** / **FlowFPS**: ``mask=2``, ``blend=True``;
-    ``truemotion=True``.
-
-    ``Super`` omits ``levels`` so MVTools uses ``levels=0`` (automatic pyramid depth from
-    frame size). Fixed small values (e.g. 4/6) truncate the hierarchy on many resolutions
-    and can leave FlowFPS with little real blending.
+    Fixed ``blksize`` / ``overlap`` (**128** / **64**) — largest square block MVTools allows, with half overlap.
+    **uhd** when ``width × height >= _MV_UHD_AREA_MIN`` (e.g. **2560×1440**): ``mv.Super`` ``levels=3`` only.
+    **hd** omits ``levels`` (MVTools auto pyramid). **hd** and **uhd** otherwise share: ``pel=1``, ``sharp=1``,
+    ``search=1``, ``chroma=True``, ``truemotion=False``, ``FlowFPS(mask=2, blend=True)``, ``global=False``.
     """
     w = max(1, width_px)
     h = max(1, height_px)
-    short_edge = min(w, h)
-    tier = "uhd" if short_edge > 1440 else "hd"
-    blksize, overlap = _blksize_overlap_from_area(width_px, height_px)
-    return (tier, blksize, overlap, 1, 1, 4, 2, True, True, True)
+    tier = "uhd" if w * h >= _MV_UHD_AREA_MIN else "hd"
+    return (
+        tier,
+        _MV_BLK_SIZE,
+        _MV_BLK_OVERLAP,
+        1,
+        1,
+        1,
+        2,
+        True,
+        False,
+        True,
+    )
 
 
 # mpv may run this script multiple times per single `vf` attach; Rhino sets `RHINO_VPY_LOG_EPOCH`
@@ -372,19 +368,24 @@ else:
         else:
             sn, sd = _mul_src_fps_rational(src_num, src_den, spd_frac)
             work = core.std.AssumeFPS(clip, fpsnum=sn, fpsden=sd)
-        _full_short = min(work.width, work.height)
+        _px = work.width * work.height
         _tier, _blk, _ov, _pel, _sharp, _search, _fmask, _fblend, _tm, _mv_chroma = (
             _mv_graph_for_frame_size(work.width, work.height)
         )
+        _super_lv = _MV_UHD_SUPER_LEVELS if _tier == "uhd" else None
         print(
-            f"[rhino_60_mvtools] mvtools preset tier={_tier} (short-edge={_full_short}px): "
+            f"[rhino_60_mvtools] mvtools preset tier={_tier} (pixels={_px}, uhd≥{_MV_UHD_AREA_MIN}): "
             f"me={work.width}x{work.height} blksize={_blk} overlap={_ov} chroma={_mv_chroma} "
-            f"pel={_pel} sharp={_sharp} search={_search} Super.levels=auto truemotion={_tm} "
-            f"FlowFPS(mask={_fmask},blend={_fblend})",
+            f"pel={_pel} sharp={_sharp} search={_search} global={_MV_GLOBAL_HINT['global']} "
+            f"Super.levels={_super_lv if _super_lv is not None else 'auto'} "
+            f"truemotion={_tm} FlowFPS(mask={_fmask},blend={_fblend})",
             file=sys.stderr,
             flush=True,
         )
-        sup = core.mv.Super(work, pel=_pel, sharp=_sharp, chroma=_mv_chroma)
+        _super_kw = {"pel": _pel, "sharp": _sharp, "chroma": _mv_chroma}
+        if _super_lv is not None:
+            _super_kw["levels"] = _super_lv
+        sup = core.mv.Super(work, **_super_kw)
         v_backward = core.mv.Analyse(
             sup,
             blksize=_blk,
