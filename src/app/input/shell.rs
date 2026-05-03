@@ -195,13 +195,7 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                     tch_leave,
                 );
                 #[cfg(not(target_os = "macos"))]
-                {
-                    let _ = glib::source::idle_add_local_once(move || {
-                        restore_windowed_size(&fr_leave, &w_leave);
-                        skip_leave.set(false);
-                        tch_leave(&w_leave);
-                    });
-                }
+                schedule_leave_fs_idle_linux(fr_leave, w_leave, skip_leave, tch_leave);
             }
             if !w.is_fullscreen() {
                 let gl2 = gl_fs.clone();
@@ -255,6 +249,20 @@ fn restore_windowed_size(fr: &Rc<RefCell<Option<(i32, i32)>>>, w: &adw::Applicat
         if w.is_maximized() { w.unmaximize(); }
         w.set_default_size(gw, gh);
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn schedule_leave_fs_idle_linux(
+    fr_leave: Rc<RefCell<Option<(i32, i32)>>>,
+    w_leave: adw::ApplicationWindow,
+    skip_leave: Rc<Cell<bool>>,
+    tch_leave: Rc<dyn Fn(&adw::ApplicationWindow)>,
+) {
+    let _ = glib::source::idle_add_local_once(move || {
+        restore_windowed_size(&fr_leave, &w_leave);
+        skip_leave.set(false);
+        tch_leave(&w_leave);
+    });
 }
 
 fn schedule_sub_pos(
