@@ -114,10 +114,6 @@ fn can_find_mvtools(v: &db::VideoPrefs) -> bool {
         || crate::paths::mvtools_lib_search().is_some()
 }
 
-fn smooth_setup_scroll_text() -> String {
-    SMOOTH_SETUP_TEXT.to_string()
-}
-
 /// Copy-paste setup instructions shown when Smooth 60 cannot attach its VapourSynth filter.
 fn show_smooth_setup_dialog(app: &adw::Application) {
     let parent = app.active_window();
@@ -148,7 +144,7 @@ fn show_smooth_setup_dialog(app: &adw::Application) {
     text.set_editable(false);
     text.set_cursor_visible(false);
     text.set_monospace(true);
-    text.buffer().set_text(&smooth_setup_scroll_text());
+    text.buffer().set_text(SMOOTH_SETUP_TEXT);
 
     let scroll = gtk::ScrolledWindow::builder()
         .hexpand(true)
