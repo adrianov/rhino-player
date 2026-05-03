@@ -134,6 +134,8 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
         let lgl = ctx.last_gl_xy.clone();
         let fr = ctx.fs_restore.clone();
         let skip_fs = ctx.skip_max_to_fs.clone();
+        let fs_busy_ntf = Rc::clone(&ctx.fs_transition_busy);
+        let fs_settle_ntf = Rc::clone(&ctx.fs_transition_settle);
         let win_sig = ctx.shell.win.clone();
         let tch_fs = Rc::clone(&touch_chrome_gl);
         win_sig.connect_fullscreened_notify(move |w| {
@@ -176,7 +178,7 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                 // On macOS, `idle_add_once` still pumps mid `_NSExitFullScreenTransitionController`;
                 // `apply_chrome` touches traffic-light cells (`_NSThemeZoomWidgetCell`) and can recurse
                 // `_updateTitlebarContainerViewFrameIfNecessary` ↔ `_syncToolbarPosition` → stack overflow.
-                // Defer restore + chrome with [`crate::macos_timing::FULLSCREEN_TRANSITION_SETTLE`].
+                // Defer restore + chrome with [`crate::fullscreen_timing::TRANSITION_SETTLE`].
                 //
                 let fr_leave = Rc::clone(&fr);
                 let w_leave = w.clone();
@@ -185,7 +187,7 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                 #[cfg(target_os = "macos")]
                 macos_schedule_leave_fs_restore_chrome(
                     &fs_leave_gen,
-                    crate::macos_timing::FULLSCREEN_TRANSITION_SETTLE,
+                    crate::fullscreen_timing::TRANSITION_SETTLE,
                     fs_leave_gen.get(),
                     fr_leave,
                     w_leave,
@@ -212,6 +214,7 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                     move || schedule_sub_pos(&gl2, &p2, b2.get(), bot2.height()),
                 );
             }
+            fs_transition_note_notify_idle_clear(&fs_busy_ntf, &fs_settle_ntf);
         });
     }
 }
@@ -220,6 +223,8 @@ fn w_in_max_mode(ctx: &WindowInputCtx) {
     let fr = ctx.fs_restore.clone();
     let lu = ctx.last_unmax.clone();
     let skip_fs = ctx.skip_max_to_fs.clone();
+    #[cfg(not(target_os = "macos"))]
+    let fs_busy_mx = Rc::clone(&ctx.fs_transition_busy);
     let win = ctx.shell.win.clone();
     win.connect_maximized_notify(move |w| {
         if !w.is_maximized() && !w.is_fullscreen() {
@@ -231,7 +236,7 @@ fn w_in_max_mode(ctx: &WindowInputCtx) {
             #[cfg(not(target_os = "macos"))]
             {
                 skip_fs.set(true);
-                unfullscreen_safe(w);
+                unfullscreen_safe(w, fs_busy_mx.as_ref());
             }
         } else if w.is_maximized() && !w.is_fullscreen() {
             if skip_fs.get() {

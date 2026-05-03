@@ -4,6 +4,7 @@ fn wire_recent_spacer_fullscreen(
     fs_restore: &Rc<RefCell<Option<(i32, i32)>>>,
     last_unmax: &Rc<RefCell<(i32, i32)>>,
     skip_max_to_fs: &Rc<Cell<bool>>,
+    fs_transition_busy: &Rc<Cell<bool>>,
     recent: &gtk::Box,
 ) {
     for sp in sp_empty {
@@ -13,12 +14,13 @@ fn wire_recent_spacer_fullscreen(
         let fr2 = fs_restore.clone();
         let lu2 = last_unmax.clone();
         let sk2 = skip_max_to_fs.clone();
+        let fb2 = fs_transition_busy.clone();
         let rec2 = recent.clone();
         d2.connect_pressed(move |_, n_press, _, _| {
             if n_press != 2 || !rec2.is_visible() {
                 return;
             }
-            toggle_fullscreen(&w2, &fr2, &lu2, &sk2);
+            toggle_fullscreen(&w2, &fr2, &lu2, &sk2, fb2.as_ref());
         });
         sp.add_controller(d2);
     }

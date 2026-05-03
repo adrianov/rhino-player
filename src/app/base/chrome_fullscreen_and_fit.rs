@@ -1,24 +1,20 @@
-/// Leave fullscreen. On macOS, [`GtkWindowExt::unfullscreen`] must not run synchronously from gesture /
-/// key handlers: GDK nests AppKit fullscreen-exit inside GTK delivery and AppKit can recurse between
-/// titlebar / toolbar layout (`NSThemeFrame`). `idle_add_local_once` is still too soon on macOS 26 —
-/// defer with [`crate::macos_timing::FULLSCREEN_TRANSITION_SETTLE`].
-fn unfullscreen_safe(win: &adw::ApplicationWindow) {
+include!("chrome_fs_transition_gate.rs");
+include!("chrome_macos_unfullscreen_defer.rs");
+
+fn unfullscreen_safe_inner(win: &adw::ApplicationWindow) {
     #[cfg(target_os = "macos")]
-    {
-        let w = win.clone();
-        let _ = glib::timeout_add_local_once(
-            crate::macos_timing::FULLSCREEN_TRANSITION_SETTLE,
-            move || {
-                if w.is_fullscreen() {
-                    w.unfullscreen();
-                }
-            },
-        );
-    }
+    macos_schedule_unfullscreen(win.clone());
     #[cfg(not(target_os = "macos"))]
-    {
-        win.unfullscreen();
+    win.unfullscreen();
+}
+
+/// Linux demaximize path: synchronous [`GtkWindowExt::unfullscreen`] after [`fs_transition_try_begin`].
+#[cfg(not(target_os = "macos"))]
+fn unfullscreen_safe(win: &adw::ApplicationWindow, fs_busy: &Cell<bool>) {
+    if !fs_transition_try_begin(fs_busy) {
+        return;
     }
+    unfullscreen_safe_inner(win);
 }
 
 fn toggle_fullscreen(
@@ -26,10 +22,14 @@ fn toggle_fullscreen(
     fs_restore: &RefCell<Option<(i32, i32)>>,
     last_unmax: &RefCell<(i32, i32)>,
     skip_max_to_fs: &Cell<bool>,
+    fs_busy: &Cell<bool>,
 ) {
+    if !fs_transition_try_begin(fs_busy) {
+        return;
+    }
     if win.is_fullscreen() {
         skip_max_to_fs.set(true);
-        unfullscreen_safe(win);
+        unfullscreen_safe_inner(win);
         // unmaximize + set_default_size run in `connect_fullscreened_notify` (leave) if `fs_restore` was set
     } else if !win.is_maximized() {
         *fs_restore.borrow_mut() = Some(win_normal_size(win));
@@ -68,8 +68,9 @@ fn apply_chrome<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>) {
     c.root.set_extend_content_to_top_edge(true);
     c.root.set_extend_content_to_bottom_edge(true);
     let show = c.recent.is_visible() || c.bar_show.get();
-    sync_header_window_controls(c.header, c.hdr_csd_baseline, show);
-    if !set_toolbar_reveal(c.root, show) {
+    let reveal_changed = set_toolbar_reveal(c.root, show);
+    sync_header_window_controls(c.header, c.hdr_csd_baseline, show, c.root);
+    if !reveal_changed {
         return;
     }
     c.gl.queue_render();

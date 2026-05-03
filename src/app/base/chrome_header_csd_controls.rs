@@ -1,3 +1,5 @@
+include!("chrome_macos_traffic_lights.rs");
+
 fn wire_header_csd_baseline_snap(
     baseline: &Rc<Cell<Option<(bool, bool)>>>,
     header: &adw::HeaderBar,
@@ -27,24 +29,45 @@ fn sync_header_window_controls(
     hdr: &adw::HeaderBar,
     baseline: &Rc<Cell<Option<(bool, bool)>>>,
     show_chrome: bool,
+    root: &adw::ToolbarView,
 ) {
     #[cfg(target_os = "macos")]
-    sync_header_window_controls_macos(hdr, baseline, show_chrome);
+    sync_header_window_controls_macos(hdr, baseline, show_chrome, root);
     #[cfg(not(target_os = "macos"))]
     sync_header_window_controls_linux(hdr, baseline, show_chrome);
+    #[cfg(not(target_os = "macos"))]
+    let _ = root;
 }
 
-/// macOS: traffic lights live on the NSWindow titlebar, not in the GTK header. Both
-/// directions (hide / show) work reliably only when we drive `NSWindow.standardWindowButton`
-/// `setHidden:` directly; calling GTK's `set_show_*_title_buttons` here would fight
-/// the AppKit state on the next layout pass.
+/// macOS: native titlebar buttons — windowed hide/show timing in `chrome_macos_traffic_lights.rs`.
 #[cfg(target_os = "macos")]
 fn sync_header_window_controls_macos(
     hdr: &adw::HeaderBar,
     _baseline: &Rc<Cell<Option<(bool, bool)>>>,
     show_chrome: bool,
+    root: &adw::ToolbarView,
 ) {
-    crate::macos_window::set_traffic_lights_visible(hdr, show_chrome);
+    use gtk::prelude::WidgetExt;
+
+    let fullscreen = hdr
+        .root()
+        .and_then(|w| w.downcast::<adw::ApplicationWindow>().ok())
+        .is_some_and(|win| win.is_fullscreen());
+
+    macos_traffic_cancel_poll();
+
+    if fullscreen {
+        crate::macos_window::set_traffic_lights_visible(hdr, true);
+        return;
+    }
+
+    if !show_chrome {
+        crate::macos_window::set_traffic_lights_visible(hdr, false);
+        return;
+    }
+
+    crate::macos_window::set_traffic_lights_visible(hdr, false);
+    macos_traffic_poll_until_stable(hdr.clone(), root.clone());
 }
 
 #[cfg(not(target_os = "macos"))]

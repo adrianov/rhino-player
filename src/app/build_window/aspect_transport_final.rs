@@ -32,6 +32,7 @@
         app: app.clone(),
         win: w.win.clone(),
         fs_restore: Rc::clone(&fs_restore),
+        fs_transition_busy: Rc::clone(&fs_transition_busy),
         last_unmax: Rc::clone(&last_unmax),
         skip_max_to_fs: Rc::clone(&skip_max_to_fs),
         root: w.root.clone(),

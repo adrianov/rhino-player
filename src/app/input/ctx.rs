@@ -23,6 +23,8 @@ struct WindowInputCtx {
     last_cap_xy: Rc<Cell<Option<(f64, f64)>>>,
     last_gl_xy: Rc<Cell<Option<(f64, f64)>>>,
     fs_restore: Rc<RefCell<Option<(i32, i32)>>>,
+    fs_transition_busy: Rc<Cell<bool>>,
+    fs_transition_settle: Rc<RefCell<Option<glib::SourceId>>>,
     skip_max_to_fs: Rc<Cell<bool>>,
     last_unmax: Rc<RefCell<(i32, i32)>>,
     ch_hide: Rc<ChromeBarHide>,

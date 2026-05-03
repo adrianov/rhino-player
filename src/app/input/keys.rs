@@ -45,6 +45,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
     let fr_key = ctx.fs_restore.clone();
     let lu_key = ctx.last_unmax.clone();
     let skip_key = ctx.skip_max_to_fs.clone();
+    let fs_esc_busy = Rc::clone(&ctx.fs_transition_busy);
     let play_key = PlayToggleCtx {
         app: ctx.app.clone(),
         player: p.clone(),
@@ -94,6 +95,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
             key,
             &win_key,
             &skip_key,
+            &fs_esc_busy,
             &recent_esc,
             &p,
             &browse_back,
@@ -123,7 +125,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
             || key == gtk::gdk::Key::f
             || key == gtk::gdk::Key::F
         {
-            toggle_fullscreen(&win_key, &fr_key, &lu_key, &skip_key);
+            toggle_fullscreen(&win_key, &fr_key, &lu_key, &skip_key, fs_esc_busy.as_ref());
             return glib::Propagation::Stop;
         }
         if key == gtk::gdk::Key::m || key == gtk::gdk::Key::M {

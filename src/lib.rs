@@ -12,8 +12,7 @@ mod history;
 mod icons;
 mod idle_inhibit;
 mod jpeg_texture;
-#[cfg(target_os = "macos")]
-mod macos_timing;
+mod fullscreen_timing;
 #[cfg(target_os = "macos")]
 mod macos_window;
 #[cfg(target_os = "macos")]

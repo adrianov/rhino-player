@@ -43,6 +43,8 @@ fn build_window(
         nav_can_next: Cell::new(false),
     });
     let fs_restore = Rc::new(RefCell::new(None::<(i32, i32)>));
+    let fs_transition_busy = Rc::new(Cell::new(false));
+    let fs_transition_settle = Rc::new(RefCell::new(None::<glib::SourceId>));
     // Stops `connect_maximized_notify` re-calling fullscreen in `maximized && !fullscreen` right after `unfullscreen`.
     let skip_max_to_fs = Rc::new(Cell::new(false));
     let last_unmax = Rc::new(RefCell::new((WIN_INIT_W, WIN_INIT_H)));
@@ -103,6 +105,7 @@ fn build_window(
         &fs_restore,
         &last_unmax,
         &skip_max_to_fs,
+        &fs_transition_busy,
         &w.recent_scrl,
     );
 
@@ -112,11 +115,13 @@ fn build_window(
         &fs_restore,
         &last_unmax,
         &skip_max_to_fs,
+        &fs_transition_busy,
         &w.recent_scrl,
     );
 
     wire_recent_spacer_fullscreen(
-        w.recent_spacers, &w.win, &fs_restore, &last_unmax, &skip_max_to_fs, &w.recent_scrl,
+        w.recent_spacers, &w.win, &fs_restore, &last_unmax, &skip_max_to_fs, &fs_transition_busy,
+        &w.recent_scrl,
     );
 
     // Browse grid whenever no CLI/session file boots the window — includes empty history (+ Open card).

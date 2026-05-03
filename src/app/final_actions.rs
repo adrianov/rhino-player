@@ -2,6 +2,7 @@ struct FinalActionCtx {
     app: adw::Application,
     win: adw::ApplicationWindow,
     fs_restore: Rc<RefCell<Option<(i32, i32)>>>,
+    fs_transition_busy: Rc<Cell<bool>>,
     last_unmax: Rc<RefCell<(i32, i32)>>,
     skip_max_to_fs: Rc<Cell<bool>>,
     root: adw::ToolbarView,

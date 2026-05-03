@@ -22,6 +22,8 @@
         last_cap_xy: last_cap_xy.clone(),
         last_gl_xy: last_gl_xy.clone(),
         fs_restore: fs_restore.clone(),
+        fs_transition_busy: fs_transition_busy.clone(),
+        fs_transition_settle: fs_transition_settle.clone(),
         skip_max_to_fs: skip_max_to_fs.clone(),
         last_unmax: last_unmax.clone(),
         ch_hide: Rc::clone(&ch_hide),

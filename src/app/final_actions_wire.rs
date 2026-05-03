@@ -131,8 +131,9 @@ fn wire_final_fullscreen_toggle(ctx: &FinalActionCtx) {
     let fr = Rc::clone(&ctx.fs_restore);
     let lu = Rc::clone(&ctx.last_unmax);
     let sk = Rc::clone(&ctx.skip_max_to_fs);
+    let fb = Rc::clone(&ctx.fs_transition_busy);
     toggle_fullscreen_a.connect_activate(move |_, _| {
-        toggle_fullscreen(&w, fr.as_ref(), lu.as_ref(), sk.as_ref());
+        toggle_fullscreen(&w, fr.as_ref(), lu.as_ref(), sk.as_ref(), fb.as_ref());
     });
     ctx.app.add_action(&toggle_fullscreen_a);
 }
