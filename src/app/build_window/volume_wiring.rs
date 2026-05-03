@@ -7,7 +7,8 @@ struct VolumeCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
     recent: gtk::Box,
     gl: gtk::GLArea,
-    vol_menu: gtk::MenuButton,
+    vol_header_img: gtk::Image,
+    vol_readout: gtk::Label,
     vol_adj: gtk::Adjustment,
     vol_mute_btn: gtk::ToggleButton,
     vol_sync: Rc<Cell<bool>>,
@@ -21,7 +22,8 @@ fn wire_volume_controls(ctx: VolumeCtx) {
 
 fn wire_vol_adj(ctx: &VolumeCtx) {
     let p = ctx.player.clone();
-    let vi = ctx.vol_menu.clone();
+    let vi = ctx.vol_header_img.clone();
+    let vr = ctx.vol_readout.clone();
     let vm = ctx.vol_mute_btn.clone();
     let vsx = ctx.vol_sync.clone();
     ctx.vol_adj.connect_value_changed(move |a| {
@@ -33,13 +35,15 @@ fn wire_vol_adj(ctx: &VolumeCtx) {
             return;
         };
         let v = a.value();
+        let vmax = a.upper();
         let _ = b.mpv.set_property("volume", v);
         if v > 0.5 {
             let _ = b.mpv.set_property("mute", false);
         }
         let m = b.mpv.get_property::<bool>("mute").unwrap_or(false);
         let cur = b.mpv.get_property::<f64>("volume").unwrap_or(v);
-        vi.set_icon_name(vol_icon(m, cur));
+        vi.set_icon_name(Some(vol_icon(m, cur)));
+        stamp_vol_percent_readout(&vr, cur, vmax);
         vsx.set(true);
         if vm.is_active() != m {
             vm.set_active(m);
@@ -52,7 +56,9 @@ fn wire_vol_adj(ctx: &VolumeCtx) {
 
 fn wire_mute_toggle(ctx: &VolumeCtx) {
     let p = ctx.player.clone();
-    let vi = ctx.vol_menu.clone();
+    let vi = ctx.vol_header_img.clone();
+    let vr = ctx.vol_readout.clone();
+    let vad = ctx.vol_adj.clone();
     let vsx = ctx.vol_sync.clone();
     ctx.vol_mute_btn.connect_toggled(move |ch| {
         if vsx.get() {
@@ -62,7 +68,8 @@ fn wire_mute_toggle(ctx: &VolumeCtx) {
             let m = ch.is_active();
             let _ = b.mpv.set_property("mute", m);
             let vol = b.mpv.get_property::<f64>("volume").unwrap_or(0.0);
-            vi.set_icon_name(vol_icon(m, vol));
+            vi.set_icon_name(Some(vol_icon(m, vol)));
+            stamp_vol_percent_readout(&vr, vol, vad.upper());
             ch.set_icon_name(vol_mute_pop_icon(m));
             ch.set_tooltip_text(Some(if m { "Unmute" } else { "Mute" }));
         }
@@ -72,7 +79,9 @@ fn wire_mute_toggle(ctx: &VolumeCtx) {
 fn wire_wheel_volume(ctx: &VolumeCtx) {
     let p = ctx.player.clone();
     let r = ctx.recent.clone();
-    let vmi = ctx.vol_menu.clone();
+    let vmi = ctx.vol_header_img.clone();
+    let vr = ctx.vol_readout.clone();
+    let vad = ctx.vol_adj.clone();
     let sc = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
     sc.set_propagation_phase(gtk::PropagationPhase::Target);
     sc.connect_scroll(move |_, _dx, dy| {
@@ -87,7 +96,8 @@ fn wire_wheel_volume(ctx: &VolumeCtx) {
         nudge_mpv_volume(&b.mpv, step);
         let vol = b.mpv.get_property::<f64>("volume").unwrap_or(0.0);
         let m = b.mpv.get_property::<bool>("mute").unwrap_or(false);
-        vmi.set_icon_name(vol_icon(m, vol));
+        vmi.set_icon_name(Some(vol_icon(m, vol)));
+        stamp_vol_percent_readout(&vr, vol, vad.upper());
         glib::Propagation::Stop
     });
     ctx.gl.add_controller(sc);

@@ -5,10 +5,12 @@
 /// - `vol_pop` and `sub_pop` are the popover children of those buttons.
 /// - The track sections (`audio_tracks_box`, `sub_tracks_box`) are populated by
 ///   `audio_tracks` / `sub_tracks` on `popover.connect_show`.
-/// - `vol_adj`, `vol_mute_btn`, `sub_scale_adj`, `sub_color_btn` are wired by
+/// - `vol_adj`, `vol_header_img`, `vol_readout`, `vol_mute_btn`, `sub_scale_adj`, `sub_color_btn` are wired by
 ///   the volume / subtitle preference handlers in `build_window`.
 struct HeaderPopovers {
     vol_adj: gtk::Adjustment,
+    vol_header_img: gtk::Image,
+    vol_readout: gtk::Label,
     vol_mute_btn: gtk::ToggleButton,
     audio_tracks_block: Rc<Cell<bool>>,
     audio_tracks_box: gtk::Box,
@@ -70,11 +72,26 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
     vol_pop.add_css_class("rp-header-popover");
     vol_pop.set_child(Some(&sound_col));
     header_popover_non_modal(&vol_pop);
+    let vol_header_img = gtk::Image::from_icon_name("audio-volume-high-symbolic");
+    vol_header_img.set_valign(gtk::Align::Center);
+    let vol_readout = gtk::Label::new(Some("100%"));
+    vol_readout.add_css_class("rp-vol-readout");
+    vol_readout.set_valign(gtk::Align::Center);
+    vol_readout.set_xalign(0.0);
+    let vol_face = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    vol_face.add_css_class("rp-vol-face");
+    vol_face.set_valign(gtk::Align::Center);
+    vol_face.append(&vol_header_img);
+    vol_face.append(&vol_readout);
     let vol_menu = gtk::MenuButton::new();
-    vol_menu.set_icon_name("audio-volume-high-symbolic");
+    vol_menu.set_child(Some(&vol_face));
     vol_menu.set_tooltip_text(Some("Volume and mute; audio track list if several tracks"));
     vol_menu.set_popover(Some(&vol_pop));
     vol_menu.add_css_class("flat");
+    vol_menu.add_css_class("rp-vol-mbtn");
+    vol_menu.set_hexpand(false);
+    vol_menu.set_valign(gtk::Align::Center);
+    vol_menu.set_always_show_arrow(false);
 
     let sp_init = sub_pref.borrow().clone();
     let sub_tracks_block = Rc::new(Cell::new(false));
@@ -135,6 +152,8 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
 
     HeaderPopovers {
         vol_adj,
+        vol_header_img,
+        vol_readout,
         vol_mute_btn,
         audio_tracks_block,
         audio_tracks_box,

@@ -284,8 +284,8 @@ fn build_window(
     let vol_sync = Rc::new(Cell::new(false));
     wire_volume_controls(VolumeCtx {
         player: player.clone(), recent: w.recent_scrl.clone(), gl: w.gl_area.clone(),
-        vol_menu: w.vol_menu.clone(), vol_adj: w.vol_adj.clone(),
-        vol_mute_btn: w.vol_mute_btn.clone(), vol_sync: vol_sync.clone(),
+        vol_header_img: w.vol_header_img.clone(), vol_readout: w.vol_readout.clone(),
+        vol_adj: w.vol_adj.clone(), vol_mute_btn: w.vol_mute_btn.clone(), vol_sync: vol_sync.clone(),
     });
 
     include!("build_window/aspect_transport_final.rs");

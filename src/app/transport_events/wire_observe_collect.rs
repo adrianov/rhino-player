@@ -53,6 +53,8 @@ struct TransportWidgets {
     speed_menu: gtk::MenuButton,
     speed_readout: gtk::Label,
     vol_menu: gtk::MenuButton,
+    vol_header_img: gtk::Image,
+    vol_readout: gtk::Label,
     vol_adj: gtk::Adjustment,
     vol_mute: gtk::ToggleButton,
     vol_sync: Rc<Cell<bool>>,

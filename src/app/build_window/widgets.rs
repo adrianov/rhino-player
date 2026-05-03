@@ -13,6 +13,8 @@ struct WindowWidgets {
     sibling_nav: SiblingNavUi,
     menu_btn: gtk::MenuButton,
     vol_menu: gtk::MenuButton,
+    vol_header_img: gtk::Image,
+    vol_readout: gtk::Label,
     sub_menu: gtk::MenuButton,
     speed_mbtn: gtk::MenuButton,
     speed_readout: gtk::Label,
@@ -65,8 +67,8 @@ fn build_widgets(
     #[cfg(not(target_os = "macos"))]
     drop(menubar_model);
     let HeaderPopovers {
-        vol_adj, vol_mute_btn, audio_tracks_block, audio_tracks_box, audio_tracks_section,
-        vol_pop, vol_menu, sub_tracks_block, sub_tracks_box, sub_tracks_section,
+        vol_adj, vol_header_img, vol_readout, vol_mute_btn, audio_tracks_block, audio_tracks_box,
+        audio_tracks_section, vol_pop, vol_menu, sub_tracks_block, sub_tracks_box, sub_tracks_section,
         sub_scale_adj, sub_color_btn, sub_pop, sub_menu,
     } = build_header_popovers(sub_pref);
 
@@ -121,7 +123,8 @@ fn build_widgets(
 
     WindowWidgets {
         win, root, header, outer_ovl, video_handle, gl_area, bottom, play_pause, sibling_nav,
-        menu_btn, vol_menu, sub_menu, speed_mbtn, speed_readout, speed_list, speed_sync,
+        menu_btn, vol_menu, vol_header_img, vol_readout, sub_menu, speed_mbtn, speed_readout,
+        speed_list, speed_sync,
         seek, seek_adj, time_left, time_right,
         vol_adj, vol_mute_btn,
         audio_tracks_box, audio_tracks_block, audio_tracks_section,
