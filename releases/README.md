@@ -32,6 +32,14 @@ Keep **one release tag’s assets** here at a time, or use unique versioned file
 
 Override deb output only if needed: `OUTPUT=/tmp ./scripts/build-deb.sh`
 
+### `apt` note (`_apt` / Permission denied)
+
+Installing with `sudo apt install ./releases/….deb` while the file lives under your **home** directory may print:
+
+`couldn't be accessed by user '_apt'` / **Download is performed unsandboxed as root**
+
+That is normal on Ubuntu: user **`_apt`** cannot read paths inside `~/…` when home is private. **The install usually still succeeds** (apt falls back to root). To silence it, copy the package somewhere world-readable first, e.g. `cp releases/*.deb /tmp/` then `sudo apt install /tmp/rhino-player_*.deb`.
+
 ## Upload to GitHub
 
 From the repo root, after tagging:
