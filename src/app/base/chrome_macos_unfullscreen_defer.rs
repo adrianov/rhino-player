@@ -15,10 +15,17 @@ fn macos_schedule_unfullscreen(win: adw::ApplicationWindow) {
                 MACOS_DEFER_UNFULLSCREEN.with(|s| {
                     *s.borrow_mut() = None;
                 });
-                if !win.is_fullscreen() {
-                    return;
-                }
-                win.unfullscreen();
+                let win2 = win.clone();
+                let _ = glib::source::idle_add_local_once(move || {
+                    if !win2.is_fullscreen() {
+                        return;
+                    }
+                    if crate::macos_window::macos_native_unfullscreen(win2.upcast_ref::<gtk::Widget>())
+                    {
+                        return;
+                    }
+                    win2.unfullscreen();
+                });
             },
         );
         *slot.borrow_mut() = Some(id);

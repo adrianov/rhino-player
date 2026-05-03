@@ -1,8 +1,8 @@
 //! macOS-only helpers around the native [`NSWindow`] hosting a [`gtk::Window`].
 //!
 //! Resolves the underlying NSWindow via `gdk4_macos::MacosSurface::native()` (GTK 4.8+)
-//! and exposes one operation today: hide / show the standard "traffic-light" buttons
-//! together with our chrome auto-hide.
+//! and exposes helpers used by the GTK shell: hide / show traffic lights,
+//! optional native fullscreen exit (see [`macos_native_unfullscreen`]), and layer invalidation.
 
 use gdk4_macos::MacosSurface;
 use gdk4_macos::prelude::Cast;
@@ -10,7 +10,7 @@ use glib::object::IsA;
 use gtk::prelude::{NativeExt, WidgetExt};
 use objc2::msg_send;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSCursor, NSView, NSWindow, NSWindowButton};
+use objc2_app_kit::{NSCursor, NSView, NSWindow, NSWindowButton, NSWindowStyleMask};
 use std::cell::Cell;
 
 /// Resolve the underlying [`NSWindow`] for a realized GTK widget on macOS.
@@ -26,6 +26,25 @@ pub fn nswindow_for_widget<W: IsA<gtk::Widget>>(w: &W) -> Option<Retained<NSWind
         return None;
     }
     unsafe { Retained::retain(ptr) }
+}
+
+/// Leave native fullscreen via AppKit instead of GTK `unfullscreen()` when possible.
+///
+/// gtk4-macos routes `GtkWindow::unfullscreen` through `_gdk_macos_toplevel_surface_present`,
+/// which has reproduced unbounded `_syncToolbarPosition` ↔ `_updateTitlebarContainerViewFrameIfNecessary`
+/// recursion (Rust stack overflow) on recent macOS during `_NSExitFullScreenTransitionController`.
+/// `-toggleFullScreen:` skips that GDK entry point; GTK usually catches up via surface updates.
+///
+/// Returns `true` if AppKit fullscreen was active and `toggleFullScreen:` was invoked.
+pub fn macos_native_unfullscreen<W: IsA<gtk::Widget>>(widget: &W) -> bool {
+    let Some(win) = nswindow_for_widget(widget) else {
+        return false;
+    };
+    if !win.styleMask().contains(NSWindowStyleMask::FullScreen) {
+        return false;
+    }
+    win.toggleFullScreen(None);
+    true
 }
 
 /// Invalidate the contentView's layer tree and force an immediate redraw.
