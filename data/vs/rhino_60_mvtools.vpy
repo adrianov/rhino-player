@@ -34,8 +34,9 @@ def _mv_graph_for_short_edge(
     Returns ``(tier, blksize, overlap, pel, sharp, search, flow_mask, flow_blend,
     truemotion, chroma)``.
     **hd** vs **uhd** split on short edge (>1440) for stderr ``tier=`` only; **both** use
-    ``blksize=256``, ``overlap=128``, ``pel=1``, ``sharp=1``, ``search=4``, ``chroma=False`` (luma-only
-    **Super** / **Analyse**), ``truemotion=True``. **Analyse** / **FlowFPS**: ``mask=2``, ``blend=True``.
+    ``blksize=256``, ``overlap=128``, ``pel=1``, ``sharp=1``, ``search=4``, ``chroma=True`` (luma + chroma;
+    luma-only MVs tend to mis-register chroma). **Analyse** / **FlowFPS**: ``mask=2``, ``blend=True``;
+    ``truemotion=True``.
 
     ``Super`` omits ``levels`` so MVTools uses ``levels=0`` (automatic pyramid depth from
     frame size). Fixed small values (e.g. 4/6) truncate the hierarchy on many resolutions
@@ -43,7 +44,7 @@ def _mv_graph_for_short_edge(
     """
     h = max(1, short_edge_px)
     tier = "uhd" if h > 1440 else "hd"
-    return (tier, 256, 128, 1, 1, 4, 2, True, True, False)
+    return (tier, 256, 128, 1, 1, 4, 2, True, True, True)
 
 
 # mpv may run this script multiple times per single `vf` attach; Rhino sets `RHINO_VPY_LOG_EPOCH`
