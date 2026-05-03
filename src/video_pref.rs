@@ -11,7 +11,7 @@
 //!
 //! If the VapourSynth `vf` cannot be added (no script, or mpv reports error — missing filter, plugin,
 //! Python), [apply_mpv_video] sets `smooth_60` to `false`, saves settings, and returns `true` so the UI
-//! can sync the **Smooth Video (~60 FPS at 1.0×)** menu.
+//! can sync the **Smooth Video (60 FPS)** menu.
 //!
 //! When attaching Smooth `vf` with media open, Rhino leaves **`hwdec`** / **`vd-lavc-dr`** unchanged
 //! (usually **`hwdec=auto`**); that works on typical stacks without forcing software decode.

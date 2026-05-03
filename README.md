@@ -11,7 +11,7 @@ Rhino Player is a desktop video player for Linux (GNOME, Ubuntu, and similar sys
 - **mpv-powered format support:** play the local video formats supported by your installed mpv/libmpv, including common containers such as MKV, MP4, WebM, AVI, MOV, MPEG-TS, and more.
 - **Continue where you left off:** start on a recent-video grid with thumbnails, progress, and one-click resume.
 - **TV-series friendly playback:** continue through episodes in a folder, then move into the next sibling folder, making season-by-season watching easier.
-- **Optional Smooth Video (~60 FPS at 1.0×):** synthesize smoother motion with VapourSynth + MVTools when your system supports it.
+- **Optional Smooth Video (60 FPS):** synthesize smoother motion with VapourSynth + MVTools when your system supports it.
 - **Subtitles:** pick subtitle tracks, remember subtitle style preferences, and auto-pick matching subtitle tracks when possible.
 - **Audio track switching:** choose between available audio tracks while watching a video.
 - **Seek preview:** hover over the progress bar to preview frames before jumping.
@@ -120,7 +120,7 @@ Manual page: **`man rhino-player`** (after install) or **`man ./doc/rhino-player
 
 ## Smooth 60 FPS Setup
 
-Rhino’s **Preferences → Smooth Video (~60 FPS at 1.0×)** uses mpv’s VapourSynth video filter plus MVTools. This is optional; normal playback works without it.
+Rhino’s **Preferences → Smooth Video (60 FPS)** uses mpv’s VapourSynth video filter plus MVTools. This is optional; normal playback works without it.
 
 ### macOS
 
@@ -139,7 +139,7 @@ mpv --vf=help 2>&1 | grep -E '^[[:space:]]*vapoursynth[[:space:]]'
 python3 -c "import vapoursynth as vs; vs.core.std.LoadPlugin('$(brew --prefix)/lib/libmvtools.dylib'); print(vs.core.mv)"
 ```
 
-Both lines must print non-empty output. Then enable **Preferences → Smooth Video (~60 FPS at 1.0×)** in Rhino.
+Both lines must print non-empty output. Then enable **Preferences → Smooth Video (60 FPS)** in Rhino.
 
 ### Linux
 
@@ -209,7 +209,7 @@ ldd /path/to/rhino-player | grep libmpv
 
 ### Use It
 
-Once the checks pass, start Rhino, open a video, and enable **Preferences → Smooth Video (~60 FPS at 1.0×)**. The built-in `data/vs/rhino_60_mvtools.vpy` script is used by default on every platform; choose a custom `.vpy` only if you want to replace it.
+Once the checks pass, start Rhino, open a video, and enable **Preferences → Smooth Video (60 FPS)**. The built-in `data/vs/rhino_60_mvtools.vpy` script is used by default on every platform; choose a custom `.vpy` only if you want to replace it.
 
 Smooth 60 runs only around **1.0×** playback speed. At faster fixed steps Rhino skips the filter. Expect higher CPU use while it is active, and a brief warm-up while the filter graph starts.
 

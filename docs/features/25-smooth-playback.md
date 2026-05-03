@@ -27,7 +27,7 @@ Feature: Smooth playback via mpv display-resample (removed)
 
   Scenario: Behavioural replacement points to feature 26
     Given the user wants smoother motion on a fixed-Hz display
-    When they enable Smooth Video (~60 FPS at 1.0×)
+    When they enable Smooth Video (60 FPS)
     Then expectations follow the VapourSynth FlowFPS rules in 26-sixty-fps-motion
     And no removed mpv interpolation toggle is exposed
 ```

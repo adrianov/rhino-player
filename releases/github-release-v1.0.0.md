@@ -6,7 +6,7 @@ Rhino Player **1.0.0** — mpv-backed desktop player with a GTK 4 / libadwaita U
 - **Folder-friendly playback** — sibling next/prev and EOF folder advance
 - **Tracks & subtitles** — audio/subtitle selection; subtitle prefs
 - **Seek bar preview** — hover to preview frames
-- **Smooth Video (~60 FPS)** — optional VapourSynth + MVTools when installed separately
+- **Smooth Video (60 FPS)** — optional VapourSynth + MVTools when installed separately
 - **Desktop integration** — `.desktop` entry, hicolor icons, AppStream metainfo, **`man rhino-player`**
 
 ### Download (Assets)

@@ -127,7 +127,7 @@ fn log_apply(v: &VideoPrefs) {
     );
     if !v.smooth_60 {
         eprintln!(
-            "[rhino] video: smooth_60 off — no 60 fps vf. Enable **Preferences** → **Smooth Video (~60 FPS at 1.0×)** for VapourSynth (bundled .vpy if path is empty)."
+            "[rhino] video: smooth_60 off — no 60 fps vf. Enable **Preferences** → **Smooth Video (60 FPS)** for VapourSynth (bundled .vpy if path is empty)."
         );
     }
 }

@@ -43,7 +43,7 @@ impl MpvBundle {
     /// placeholder, the render context binds to a native `CAOpenGLLayer` instead).
     ///
     /// [VideoPrefs] (optional VapourSynth 60 fps `vf`) from SQLite; see [apply_mpv_video].
-    /// The `bool` is `true` when **Smooth Video (~60 FPS at 1.0×)** was auto-disabled.
+    /// The `bool` is `true` when **Smooth Video (60 FPS)** was auto-disabled.
     pub fn new(gl_area: &gtk::GLArea, video: &mut VideoPrefs) -> Result<(Self, bool), String> {
         let mpv = Mpv::with_initializer(|init| {
             init.set_option("vo", "libmpv")?;

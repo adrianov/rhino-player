@@ -1,6 +1,6 @@
 const APP_WIN_TITLE: &str = "Rhino Player";
 /// **Preferences** row for `video_smooth_60`: stores **intent**; the bundled `.vpy` runs only at ~**1.0×**.
-const SMOOTH60_MENU_LABEL: &str = "Smooth Video (~60 FPS at 1.0×)";
+const SMOOTH60_MENU_LABEL: &str = "Smooth Video (60 FPS)";
 const SEEK_BAR_MENU_LABEL: &str = "Progress Bar Preview";
 const LICENSE_NOTICE: &str = concat!(
     "Rhino Player is licensed as GPL-3.0-or-later.\n\n",
