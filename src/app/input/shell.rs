@@ -88,6 +88,9 @@ fn show_fs_wall_clock_fullscreen(
 }
 
 fn w_in_fullscreen(ctx: &WindowInputCtx) {
+    #[cfg(target_os = "macos")]
+    let fs_leave_gen = Rc::new(Cell::new(0u32));
+
     let gl_area = &ctx.shell.gl;
     let fs_clock = ctx.fs_clock.clone();
     let fs_tick_slot = ctx.fs_clock_tick.clone();
@@ -134,6 +137,9 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
         let win_sig = ctx.shell.win.clone();
         let tch_fs = Rc::clone(&touch_chrome_gl);
         win_sig.connect_fullscreened_notify(move |w| {
+            #[cfg(target_os = "macos")]
+            fs_leave_gen.set(fs_leave_gen.get().wrapping_add(1));
+
             if let Some(id) = nav.borrow_mut().take() {
                 id.remove();
             }
@@ -141,11 +147,14 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
             lcap.set(None);
             lgl.set(None);
             if w.is_fullscreen() {
-                // `skip_max_to_fs` is true while exiting fullscreen so `maximized_notify` does not
-                // call `w.fullscreen()` again (stack overflow). Only skip the paired `maximize` in
-                // that window — still run chrome / clock so a true→false→true notify sequence does
-                // not leave stale UI if the platform emits one during an AppKit transition.
-                if !skip_fs.get() && !w.is_maximized() {
+                // Clear the leave-fullscreen deferral latch; stash first so we can still suppress a
+                // redundant `maximize()` when this notify fires mid exit→re-enter AppKit turbulence.
+                let defer_max_pair = skip_fs.get();
+                skip_fs.set(false);
+                // Only skip the paired `maximize` in that window — still run chrome / clock so a
+                // true→false→true notify sequence does not leave stale UI if the platform emits one
+                // during an AppKit transition.
+                if !defer_max_pair && !w.is_maximized() {
                     *fr.borrow_mut() = Some(win_normal_size(w));
                     w.maximize();
                 }
@@ -164,18 +173,33 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                 // `maximized_notify`'s "!maximized && fullscreen" path → unfullscreen again and
                 // recurse until stack overflow (e.g. double-click exit).
                 //
-                // Run chrome refresh in the same idle after restore: `apply_chrome` + `queue_draw`
-                // during the fullscreen→windowed transition can race gdk-macos display-link pause and
-                // trip `gdk_display_link_source_pause (source->paused == FALSE)` (Gdk-CRITICAL).
+                // On macOS, `idle_add_once` still pumps mid `_NSExitFullScreenTransitionController`;
+                // `apply_chrome` touches traffic-light cells (`_NSThemeZoomWidgetCell`) and can recurse
+                // `_updateTitlebarContainerViewFrameIfNecessary` ↔ `_syncToolbarPosition` → stack overflow.
+                // Defer restore + chrome with [`crate::macos_timing::FULLSCREEN_TRANSITION_SETTLE`].
+                //
                 let fr_leave = Rc::clone(&fr);
                 let w_leave = w.clone();
                 let skip_leave = skip_fs.clone();
                 let tch_leave = Rc::clone(&tch_fs);
-                let _ = glib::source::idle_add_local_once(move || {
-                    restore_windowed_size(&fr_leave, &w_leave);
-                    skip_leave.set(false);
-                    tch_leave(&w_leave);
-                });
+                #[cfg(target_os = "macos")]
+                macos_schedule_leave_fs_restore_chrome(
+                    &fs_leave_gen,
+                    crate::macos_timing::FULLSCREEN_TRANSITION_SETTLE,
+                    fs_leave_gen.get(),
+                    fr_leave,
+                    w_leave,
+                    skip_leave,
+                    tch_leave,
+                );
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let _ = glib::source::idle_add_local_once(move || {
+                        restore_windowed_size(&fr_leave, &w_leave);
+                        skip_leave.set(false);
+                        tch_leave(&w_leave);
+                    });
+                }
             }
             if !w.is_fullscreen() {
                 let gl2 = gl_fs.clone();
@@ -238,4 +262,26 @@ fn schedule_sub_pos(
     if let Some(bundle) = player.borrow().as_ref() {
         sub_prefs::apply_sub_pos_for_toolbar(&bundle.mpv, show, bot_h, gl.height());
     }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_schedule_leave_fs_restore_chrome(
+    gen: &Rc<Cell<u32>>,
+    delay: std::time::Duration,
+    want_gen: u32,
+    fr_leave: Rc<RefCell<Option<(i32, i32)>>>,
+    w_leave: adw::ApplicationWindow,
+    skip_leave: Rc<Cell<bool>>,
+    tch_leave: Rc<dyn Fn(&adw::ApplicationWindow)>,
+) {
+    let gen_rc = Rc::clone(gen);
+    let _ = glib::timeout_add_local_once(delay, move || {
+        if gen_rc.get() != want_gen || w_leave.is_fullscreen() {
+            skip_leave.set(false);
+            return;
+        }
+        restore_windowed_size(&fr_leave, &w_leave);
+        skip_leave.set(false);
+        tch_leave(&w_leave);
+    });
 }

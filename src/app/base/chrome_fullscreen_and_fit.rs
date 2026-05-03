@@ -1,19 +1,19 @@
 /// Leave fullscreen. On macOS, [`GtkWindowExt::unfullscreen`] must not run synchronously from gesture /
 /// key handlers: GDK nests AppKit fullscreen-exit inside GTK delivery and AppKit can recurse between
 /// titlebar / toolbar layout (`NSThemeFrame`). `idle_add_local_once` is still too soon on macOS 26 —
-/// defer with a short wall-clock timeout so `unfullscreen` runs after the outer transition unwinds.
-#[cfg(target_os = "macos")]
-const MACOS_UNFULLSCREEN_DEFER: Duration = Duration::from_millis(100);
-
+/// defer with [`crate::macos_timing::FULLSCREEN_TRANSITION_SETTLE`].
 fn unfullscreen_safe(win: &adw::ApplicationWindow) {
     #[cfg(target_os = "macos")]
     {
         let w = win.clone();
-        let _ = glib::timeout_add_local_once(MACOS_UNFULLSCREEN_DEFER, move || {
-            if w.is_fullscreen() {
-                w.unfullscreen();
-            }
-        });
+        let _ = glib::timeout_add_local_once(
+            crate::macos_timing::FULLSCREEN_TRANSITION_SETTLE,
+            move || {
+                if w.is_fullscreen() {
+                    w.unfullscreen();
+                }
+            },
+        );
     }
     #[cfg(not(target_os = "macos"))]
     {
