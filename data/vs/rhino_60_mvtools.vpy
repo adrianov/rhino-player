@@ -27,13 +27,15 @@ _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (ex
 # MVTools square ``blksize`` is capped at **128** upstream; half overlap is the largest allowed.
 _MV_BLK_SIZE = 128
 _MV_BLK_OVERLAP = _MV_BLK_SIZE // 2
-# ``tier=uhd`` stderr tag when ``width × height >= _MV_UHD_AREA_MIN`` (**2560×1440**); ``tier=hd`` otherwise.
-# **Both tiers**: ``Super`` / ``Analyse`` / ``FlowFPS`` at **native decode size** only (**no** downscaled proxy or
-# bicubic upscale of interpolated frames — avoids blur from low-res synthesis).
+# ``tier=uhd`` stderr tag when **decode** ``width × height >= _MV_UHD_AREA_MIN`` (**2560×1440**); ``tier=hd`` otherwise.
+# **HD-class decode**: ``Super`` / ``Analyse`` / ``FlowFPS`` at **native decode** (**stderr ``path=full``**).
+# **UHD-class decode**: ``resize.Bicubic`` to **½** width×height for MVTools only (**``path=half``**); **no** upscale —
+# output stays ~1080p-class from 4K decode (lower CPU than full-raster ME).
 # **Both tiers**: ``chroma=True`` on ``Super`` / ``Analyse`` (luma-only ME here yields bad chroma — green tint).
-_MV_SUPER_LEVELS = 4
+# ``Super`` **`levels`**: **0** = MVTools **automatic** pyramid depth (upstream default — full depth from frame size).
+_MV_SUPER_LEVELS = 0
 _MV_UHD_AREA_MIN = 2560 * 1440
-# MVTools default ``hpad``/``vpad`` (**16**).
+# Explicit ``Super`` edge padding (MVTools default is **16**).
 _MV_SUPER_PAD = 16
 
 
@@ -45,10 +47,10 @@ def _mv_graph_for_frame_size(
 
     Returns ``(tier, blksize, overlap, pel, sharp, search, flow_mask, flow_blend,
     truemotion, chroma)``.
-    ``tier`` is **uhd** when ``width × height >= _MV_UHD_AREA_MIN``, else **hd** (stderr tag only).
-    **Both tiers**: ME at native decode size — ``blksize`` / ``overlap`` **128** / **64**
+    ``tier`` is **uhd** when **decode** ``width × height >= _MV_UHD_AREA_MIN``, else **hd** (stderr tag only).
+    Pass **decode** width/height (before any UHD half-downscale). **Both tiers** share ``blksize`` / ``overlap`` **128** / **64**
     (fewer motion blocks per frame than a **64** grid at the same resolution — typically less ``Analyse`` work).
-    ``mv.Super`` ``levels=_MV_SUPER_LEVELS`` (**4**) on the **full-size** clip.
+    ``mv.Super`` ``levels=0`` (MVTools **automatic** pyramid) on the MVTools raster (**full** decode for **hd**, **half** decode for **uhd**).
     **Both tiers**: ``chroma=True`` on ``Super`` / ``Analyse``.
     Shared: ``pel=1``, ``sharp=1``, ``search=2``, ``truemotion=True``, ``FlowFPS(mask=2, blend=True)``, ``global=True``.
     """
@@ -375,27 +377,41 @@ else:
         else:
             sn, sd = _mul_src_fps_rational(src_num, src_den, spd_frac)
             work = core.std.AssumeFPS(clip, fpsnum=sn, fpsden=sd)
-        _px = work.width * work.height
+        _decode_w = work.width
+        _decode_h = work.height
+        _decode_px = _decode_w * _decode_h
+        if _decode_px >= _MV_UHD_AREA_MIN:
+            _me_w = max(2, _decode_w // 2)
+            _me_h = max(2, _decode_h // 2)
+            work_me = core.resize.Bicubic(work, width=_me_w, height=_me_h)
+            _me_path = "half"
+        else:
+            work_me = work
+            _me_path = "full"
         _tier, _blk, _ov, _pel, _sharp, _search, _fmask, _fblend, _tm, _mv_chroma = (
-            _mv_graph_for_frame_size(work.width, work.height)
+            _mv_graph_for_frame_size(_decode_w, _decode_h)
         )
         _super_kw = {
             "pel": _pel,
             "sharp": _sharp,
             "chroma": _mv_chroma,
             "levels": _MV_SUPER_LEVELS,
+            "hpad": _MV_SUPER_PAD,
+            "vpad": _MV_SUPER_PAD,
         }
+        _super_lvl_log = "auto" if _MV_SUPER_LEVELS == 0 else str(_MV_SUPER_LEVELS)
         print(
-            f"[rhino_60_mvtools] mvtools preset tier={_tier} (pixels={_px}, uhd≥{_MV_UHD_AREA_MIN}) "
-            f"path=full full={work.width}x{work.height} "
+            f"[rhino_60_mvtools] mvtools preset tier={_tier} "
+            f"(decode_px={_decode_px}, uhd≥{_MV_UHD_AREA_MIN}) "
+            f"path={_me_path} decode={_decode_w}x{_decode_h} me={work_me.width}x{work_me.height} "
             f"blksize={_blk} overlap={_ov} chroma={_mv_chroma} "
             f"pel={_pel} sharp={_sharp} search={_search} global={_MV_GLOBAL_HINT['global']} "
-            f"Super.levels={_MV_SUPER_LEVELS} "
+            f"Super.levels={_super_lvl_log} hpad={_MV_SUPER_PAD} vpad={_MV_SUPER_PAD} "
             f"truemotion={_tm} FlowFPS(mask={_fmask},blend={_fblend})",
             file=sys.stderr,
             flush=True,
         )
-        sup = core.mv.Super(work, **_super_kw)
+        sup = core.mv.Super(work_me, **_super_kw)
         v_backward = core.mv.Analyse(
             sup,
             blksize=_blk,
@@ -417,7 +433,7 @@ else:
             **_MV_GLOBAL_HINT,
         )
         smooth = core.mv.FlowFPS(
-            work,
+            work_me,
             sup,
             v_backward,
             v_forward,
