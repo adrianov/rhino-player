@@ -18,7 +18,7 @@
     <mediatype>video/x-matroska</mediatype>
   </provides>
   <releases>
-    <release version="0.1.0" date="2026-04-25"/>
+    <release version="1.0.0" date="2026-05-03"/>
   </releases>
   <developer id="ch.rhino">
     <name>Peter Adrianov</name>
