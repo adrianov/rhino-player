@@ -102,7 +102,7 @@ fn percent_from_resume(start: Option<f64>, duration: Option<f64>) -> f64 {
 }
 
 /// Continue-grid backfill: cap generated width near card size and let GTK cover-scale if needed.
-const GRID_THUMB_W: u32 = 480;
+const GRID_THUMB_W: u32 = 960;
 const GRID_FALLBACK_SEC: f64 = 2.0;
 
 /// Hash for cache filename (FNV-1a on UTF-8 path bytes).

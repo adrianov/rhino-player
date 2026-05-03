@@ -112,6 +112,6 @@ Feature: Recent videos grid on empty launch
 - Snackbar: pill-shaped at the bottom; auto-hide after 10 s; remove and trash share one session LIFO stack; Undo snapshots include watch-later sidecar bytes plus the full media row; trash entries also store the `Trash/files/…` path for untrash.
 - `back_to_browse` clears the session undo stack except for trash (so the snackbar can offer untrash).
 - Length and progress: write libmpv `duration` and `time-pos` to the DB on file switch and window close (no `ffprobe`); fall back to watch-later (`start=` / `# path`) before showing 0%.
-- Thumbnails: `vo=image` libmpv with high-resolution seeking off; scale to ~480 px wide with `force_original_aspect_ratio=decrease`; JPEG quality ~82; video-only player with no audio / subtitles / external autoload / scripts / resume; loop-filter skipping only.
+- Thumbnails: `vo=image` libmpv with high-resolution seeking off; scale to ~960 px wide with `force_original_aspect_ratio=decrease`; JPEG quality ~82; video-only player with no audio / subtitles / external autoload / scripts / resume; loop-filter skipping only.
 - Acceptance (manual): with ≥3 valid history entries, launch with no args → Open tile plus three cards in correct order, percentages match reopen behaviour, click loads + seeks. Empty history → browse strip shows Open tile only. With a CLI file, this grid is not the first view.
 - Out of scope (v1): editing history order, hiding entries, streaming-art thumbs for remote URLs.
