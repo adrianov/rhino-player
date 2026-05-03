@@ -102,17 +102,11 @@ Feature: Optional ~60 fps motion via VapourSynth
     Then it uses the cached path without searching disk
     And an explicit override in the environment takes precedence when set
 
-  Scenario: Very large decode outputs use a lighter motion-analysis path
+  Scenario: Very large decode outputs still synthesize motion at native decode dimensions
     Given the smooth-motion preference is on
     When the temporal-smoothing filter graph runs at approximately 1.0×
-    And the shorter decode dimension clearly exceeds mainstream full-frame HD height
-    Then the graph favours real-time throughput over the strongest motion-detail settings used for smaller outputs
-
-  Scenario: Optional reduced-resolution motion synthesis for very large decode sizes
-    Given the smooth-motion preference is on
-    And an optional environment opt-in targets only the throughput-oriented temporal-smoothing tier
-    When the temporal-smoothing filter graph runs at approximately 1.0× for decode sizes clearly above mainstream HD-class dimensions
-    Then the bundled script may synthesize motion against a reduced-resolution working picture before restoring output dimensions
+    And the decode pixel area clearly exceeds mainstream HD-class dimensions
+    Then the bundled script synthesizes interpolated frames at the full raster dimensions of the decoded picture
 
   Scenario: Disable clears vf and restores hwdec / vd-lavc-dr
     Given a vapoursynth graph is active
@@ -122,10 +116,10 @@ Feature: Optional ~60 fps motion via VapourSynth
 ```
 
 ## Notes
-- Settings: `video_smooth_60` 0/1, `video_vs_path` UTF-8 path (empty for bundled), `video_mvtools_lib` cached absolute path. Persisted with other video prefs (see [14-preferences](14-preferences.md)).
+- Settings: `video_smooth_60` 0/1, `video_vs_path` UTF-8 path (empty for bundled), `video_mvtools_lib` cached absolute path. Legacy `video_manipmv_lib` may remain in the DB but is unused by the bundled script. Persisted with other video prefs (see [14-preferences](14-preferences.md)).
 - Menu wiring: stateful `smooth-60` action (Preferences → Smooth Video (60 FPS)); `vs-custom` row appears when `video_vs_path` is non-empty; **Choose VapourSynth Script…** sets the path and saves only after MVTools is resolved.
 - mpv defaults are otherwise untouched when Smooth is off (no forced `video-sync`, `interpolation`, or `hwdec`); GTK frame clock and libmpv presentation paths still drive vsync.
-- The vf line is `vapoursynth:file=…:buffered-frames=16:concurrent-frames=auto` (fixed queue depth). Stderr **`tier=uhd`** when **`width × height ≥ 2560×1440`** pixels; otherwise **`tier=hd`**. Fixed **`blksize=128`**, **`overlap=64`** (largest square block vapoursynth-mvtools **`Analyse`** allows, with half overlap). **`mv.Super`** **`levels=3`** when **`tier=uhd`**, **`levels=4`** when **`tier=hd`**. **hd** and **uhd** share **`pel=1`**, **`sharp=1`**, **`search=1`** (N-step — lighter than **`search=2`** / **`search=4`**), **`truemotion=False`**, **`global=False`** on **`Analyse`**, **`chroma=True`** on **Super** and **Analyse**, **`FlowFPS`** **`mask=2`**, **`blend=True`**, toward **60/1**. Stderr logs **`tier=`**, pixel count, threshold, and parameters. Why **`levels`** differ by tier and whether a minimum exists for smooth motion: [references-mvtools-super-levels](../references-mvtools-super-levels.md).
+- The vf line is `vapoursynth:file=…:buffered-frames=16:concurrent-frames=auto` (fixed queue depth). Stderr **`tier=uhd`** when **`width × height ≥ 2560×1440`** pixels; otherwise **`tier=hd`**. **Both tiers**: **`mv.Super`** / **`Analyse`** / **`FlowFPS`** at **native decode size** — **`blksize=128`**, **`overlap=64`**, **`levels=4`** (**stderr `path=full`** — no motion proxy or interpolated-frame upscale). **`chroma=True`** on **Super** and **Analyse** on **both** tiers (luma-only ME corrupts chroma). **`pel=1`**, **`sharp=1`**, **`search=2`** (hexagon search — heavier than **`search=1`**), **`truemotion=True`**, **`global=True`** on **`Analyse`**, **`FlowFPS`** **`mask=2`**, **`blend=True`**, toward **60/1**. Stderr logs **`tier=`**, **`path=`**, decode dimensions. Details: [references-mvtools-super-levels](../references-mvtools-super-levels.md).
 - Pause (`pause=yes`) alone keeps the `vf` graph loaded so pause/unpause does not rebuild MVTools. Each **main-player** seek (bottom bar, arrow keys, preview commit) runs **`vf clr`** immediately before **`seek`** whenever vapoursynth was still present; **`smooth_vf_attach_if_playing`** after the seek **only** when **not** paused (during playback scrubbing FlowFPS comes back at once). While **paused**, the graph stays cleared after that seek until **`Pause(false)`** reapplies it. **`apply_pending_resume`** also clears vapoursynth before its **`seek`** so resume positioning does not run through a stale graph. Playback (`pause=no`): **`smooth_vf_attach_if_playing`** re-runs filter application when Smooth applies and **`vapoursynth` is missing**. On **`Pause(false)`** it uses **`apply_mpv_video_after_transport_unpause`** / **`reapply_60_after_transport_unpause`**, which assume **`pause=no`** inside **`apply_mpv_video_impl`** — **`get_property("pause")`** can still lag **`observe_property`** after unpause, leaving **`use_mvtools`** false so Smooth never reattached after pause/seek. **`trust_not_paused`** only skips pause reads in the outer attach gates; seek-driven reattach uses live **`pause`**. Implemented from libmpv `pause` observation plus seek hooks.
 - After loadfile, one GLib **idle** runs [apply_mpv_video] so **`vf`** / **`RHINO_PLAYBACK_SPEED`** / **`RHINO_SOURCE_FPS`** align once `path` and playback state are ready; no deliberate playback deferral before attaching Smooth **`vf`**. The separate ~**320 ms** file-loaded hook only aligns UI speed / subtitles — not Smooth timing.
 - The bundled script tags source with `AssumeFPS` once at 1.0×, then `FlowFPS(60/1)` (no second `AssumeFPS(×1)`). At 1.5× / 2.0× it retimes with `AssumeFPS(× speed)` first, then `FlowFPS`.

@@ -19,17 +19,24 @@ What people usually observe:
 - **Higher** **`levels`** (up to what the resolution supports) tends to **help** hierarchical estimation when **large** motions must be found before refining—often subjectively **better** interpolation on hard pans or fast motion.
 - **Lower** **`levels`** can still look fine on **gentler** motion or smaller frames; there is **no universal cutoff** at 3 vs 4—only workload vs quality tradeoffs.
 
-## Rhino’s bundled preset (why **HD** uses **4**, **UHD** uses **3**)
+## Low-res motion vectors on the full-resolution picture?
 
-In **`data/vs/rhino_60_mvtools.vpy`**, **`tier=uhd`** (pixel area **≥ 2560×1440**) uses **`Super(levels=3)`** to **reduce CPU/memory pressure** on very large frames— **`levels=4`** there has been seen to **stall real-time playback** on typical hardware.
+**`mv.FlowFPS`** expects the **same frame size** for the **input clip**, the **`Super`** clip, and the **`Analyse`** vector clips. MVTools does **not** ship a filter that recomputes **`Super`** at full resolution while reusing vectors from a smaller raster.
 
-**`tier=hd`** keeps **`Super(levels=4)`** as a **quality-first** default at resolutions where cost is more manageable and a deeper pyramid often matches subjective expectations for smooth interpolation.
+Third-party **[vapoursynth-manipmv](https://pypi.org/project/vapoursynth-manipmv/)** ( **`ScaleVect`** — [upstream repo](https://github.com/Mikewando/manipulate-motion-vectors)) can **scale vector clips** (block grid, overlaps, padding, motion samples) so motion can be **estimated on a proxy raster** and **`mv.FlowFPS`** run at **full decode size**. **`mv.Super`** on the full-resolution clip must use **`hpad` / `vpad`** scaled by the same factor as the vectors (see the plugin README **× SCALE** pattern).
 
-That split is **product tuning**, not an MVTools rule.
+## Rhino’s bundled preset (`rhino_60_mvtools.vpy`)
+
+**Block size vs cost:** MVTools **`Analyse`** walks a grid of motion blocks. **Smaller `blksize`** ⇒ **more blocks per frame** at the same width×height ⇒ **`Analyse` tends to get heavier**, not lighter.
+
+Rhino’s bundled script runs **`mv.Super`** / **`Analyse`** / **`mv.FlowFPS`** only at **native decode dimensions** (no downscaled motion proxy, no bicubic upscale of interpolated frames). Stderr **`tier=uhd`** tags outputs with pixel area **≥ 2560×1440** (**logging only** vs **`tier=hd`**). **`Super`** / **`Analyse`** use **`chroma=true`** on **both** tiers (luma-only ME breaks chroma). Same **`blksize` / `overlap` / `levels`** (**`128` / `64` / `4`**). **`Analyse`** uses **`search=2`**, **`truemotion=true`**, **`global=true`** (**`Super`**: **`pel=1`**, **`sharp=1`**). Stderr **`path=full`** logs that graph shape.
+
+For experiments with **proxy motion estimation** or **vector scaling**, third-party **[vapoursynth-manipmv](https://pypi.org/project/vapoursynth-manipmv/)** (**`ScaleVect`**) remains documented below as general MVTools ecosystem reading — it is **not** wired into Rhino’s bundled preset.
 
 ## Further reading
 
 - vapoursynth-mvtools **`readme.rst`** (filter signatures and **`levels=0`** default).
+- [vapoursynth-manipmv](https://pypi.org/project/vapoursynth-manipmv/) (**`ScaleVect`**).
 - Legacy MVTools / **MSuper** explanations on the Avisynth side (same hierarchical idea): e.g. [MVTools2 — MSuper](http://www.avisynth.nl/index.php/MVTools2/MSuper).
 
 Related feature doc: [features/26-sixty-fps-motion.md](features/26-sixty-fps-motion.md).

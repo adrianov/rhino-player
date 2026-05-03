@@ -23,15 +23,18 @@ _LOCAL_MAX_DIR_READS = 8000
 _TARGET_NUM = 60
 _TARGET_DEN = 1
 _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
-_MV_GLOBAL_HINT = {"global": False}  # no global pan predictor — lighter ``Analyse``
+_MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (extra ME path)
 # MVTools square ``blksize`` is capped at **128** upstream; half overlap is the largest allowed.
 _MV_BLK_SIZE = 128
 _MV_BLK_OVERLAP = _MV_BLK_SIZE // 2
-# ``tier=uhd`` when ``width × height >= _MV_UHD_AREA_MIN`` (**2560×1440** pixels); ``tier=hd`` otherwise.
-# ``mv.Super``: **uhd** ``levels=3`` — lighter at huge pixel counts (avoids freezes); **hd** ``levels=4`` — deeper pyramid often looks smoother (see ``docs/references-mvtools-super-levels.md``).
-_MV_UHD_SUPER_LEVELS = 3
-_MV_HD_SUPER_LEVELS = 4
+# ``tier=uhd`` stderr tag when ``width × height >= _MV_UHD_AREA_MIN`` (**2560×1440**); ``tier=hd`` otherwise.
+# **Both tiers**: ``Super`` / ``Analyse`` / ``FlowFPS`` at **native decode size** only (**no** downscaled proxy or
+# bicubic upscale of interpolated frames — avoids blur from low-res synthesis).
+# **Both tiers**: ``chroma=True`` on ``Super`` / ``Analyse`` (luma-only ME here yields bad chroma — green tint).
+_MV_SUPER_LEVELS = 4
 _MV_UHD_AREA_MIN = 2560 * 1440
+# MVTools default ``hpad``/``vpad`` (**16**).
+_MV_SUPER_PAD = 16
 
 
 def _mv_graph_for_frame_size(
@@ -42,25 +45,27 @@ def _mv_graph_for_frame_size(
 
     Returns ``(tier, blksize, overlap, pel, sharp, search, flow_mask, flow_blend,
     truemotion, chroma)``.
-    Fixed ``blksize`` / ``overlap`` (**128** / **64**) — largest square block MVTools allows, with half overlap.
-    ``tier`` is **uhd** when ``width × height >= _MV_UHD_AREA_MIN``, else **hd**.
-    **uhd**: ``mv.Super`` ``levels=_MV_UHD_SUPER_LEVELS`` (**3**); **hd**: ``levels=_MV_HD_SUPER_LEVELS`` (**4**).
-    Shared: ``pel=1``, ``sharp=1``,
-    ``search=1``, ``chroma=True``, ``truemotion=False``, ``FlowFPS(mask=2, blend=True)``, ``global=False``.
+    ``tier`` is **uhd** when ``width × height >= _MV_UHD_AREA_MIN``, else **hd** (stderr tag only).
+    **Both tiers**: ME at native decode size — ``blksize`` / ``overlap`` **128** / **64**
+    (fewer motion blocks per frame than a **64** grid at the same resolution — typically less ``Analyse`` work).
+    ``mv.Super`` ``levels=_MV_SUPER_LEVELS`` (**4**) on the **full-size** clip.
+    **Both tiers**: ``chroma=True`` on ``Super`` / ``Analyse``.
+    Shared: ``pel=1``, ``sharp=1``, ``search=2``, ``truemotion=True``, ``FlowFPS(mask=2, blend=True)``, ``global=True``.
     """
     w = max(1, width_px)
     h = max(1, height_px)
     tier = "uhd" if w * h >= _MV_UHD_AREA_MIN else "hd"
+    blk, ov = _MV_BLK_SIZE, _MV_BLK_OVERLAP
     return (
         tier,
-        _MV_BLK_SIZE,
-        _MV_BLK_OVERLAP,
-        1,
+        blk,
+        ov,
         1,
         1,
         2,
+        2,
         True,
-        False,
+        True,
         True,
     )
 
@@ -374,25 +379,23 @@ else:
         _tier, _blk, _ov, _pel, _sharp, _search, _fmask, _fblend, _tm, _mv_chroma = (
             _mv_graph_for_frame_size(work.width, work.height)
         )
-        _super_lv = (
-            _MV_UHD_SUPER_LEVELS if _tier == "uhd" else _MV_HD_SUPER_LEVELS
-        )
+        _super_kw = {
+            "pel": _pel,
+            "sharp": _sharp,
+            "chroma": _mv_chroma,
+            "levels": _MV_SUPER_LEVELS,
+        }
         print(
-            f"[rhino_60_mvtools] mvtools preset tier={_tier} (pixels={_px}, uhd≥{_MV_UHD_AREA_MIN}): "
-            f"me={work.width}x{work.height} blksize={_blk} overlap={_ov} chroma={_mv_chroma} "
+            f"[rhino_60_mvtools] mvtools preset tier={_tier} (pixels={_px}, uhd≥{_MV_UHD_AREA_MIN}) "
+            f"path=full full={work.width}x{work.height} "
+            f"blksize={_blk} overlap={_ov} chroma={_mv_chroma} "
             f"pel={_pel} sharp={_sharp} search={_search} global={_MV_GLOBAL_HINT['global']} "
-            f"Super.levels={_super_lv} "
+            f"Super.levels={_MV_SUPER_LEVELS} "
             f"truemotion={_tm} FlowFPS(mask={_fmask},blend={_fblend})",
             file=sys.stderr,
             flush=True,
         )
-        sup = core.mv.Super(
-            work,
-            pel=_pel,
-            sharp=_sharp,
-            chroma=_mv_chroma,
-            levels=_super_lv,
-        )
+        sup = core.mv.Super(work, **_super_kw)
         v_backward = core.mv.Analyse(
             sup,
             blksize=_blk,
@@ -413,7 +416,7 @@ else:
             isb=False,
             **_MV_GLOBAL_HINT,
         )
-        clip = core.mv.FlowFPS(
+        smooth = core.mv.FlowFPS(
             work,
             sup,
             v_backward,
@@ -423,4 +426,5 @@ else:
             mask=_fmask,
             blend=_fblend,
         )
+        clip = smooth
         clip.set_output()
