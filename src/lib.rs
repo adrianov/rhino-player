@@ -1,6 +1,6 @@
 //! Rhino Player: GTK4 shell around libmpv. See `docs/`.
 //!
-//! Copyright (C) 2026 Peter Adrianov. GPL-3.0-or-later.
+//! Copyright © 2026 Peter Adrianov. GPL-3.0-or-later.
 
 mod app;
 mod audio_tracks;

@@ -89,7 +89,7 @@ fn wire_final_about_dialog(ctx: &FinalActionCtx) {
             let mut b = gtk::AboutDialog::builder()
                 .program_name("Rhino Player")
                 .version(env!("CARGO_PKG_VERSION"))
-                .copyright("Copyright (C) 2026 Peter Adrianov")
+                .copyright("Copyright © 2026 Peter Adrianov")
                 .logo_icon_name(APP_ID)
                 .comments("mpv with GTK 4 and libadwaita.")
                 .license(LICENSE_NOTICE)
