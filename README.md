@@ -6,6 +6,14 @@
 
 Rhino Player is a desktop video player for Linux (GNOME, Ubuntu, and similar systems) and macOS. It combines mpv playback with a GTK 4 / libadwaita interface, focused on smooth watching, quick resume, and simple local-file workflows. Linux is the primary target; macOS support is experimental and built on top of Homebrew.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/01-playback-main.webp" alt="Rhino Player during playback: title bar with speed, subtitles, and volume; video with subtitles; bottom transport bar" width="984">
+</p>
+
+*Main window while playing a video.*
+
 ## Features
 
 - **mpv-powered format support:** play the local video formats supported by your installed mpv/libmpv, including common containers such as MKV, MP4, WebM, AVI, MOV, MPEG-TS, and more.
@@ -21,6 +29,10 @@ Rhino Player is a desktop video player for Linux (GNOME, Ubuntu, and similar sys
 - **Desktop integration:** Freedesktop desktop entry, icon theme assets, and AppStream metadata for GNOME-style launchers and app grids.
 
 See the full feature index in [docs/README.md](docs/README.md).
+
+## Install from GitHub Releases
+
+Prebuilt packages are published on **[github.com/adrianov/rhino-player/releases](https://github.com/adrianov/rhino-player/releases)**. Download the **`.deb`** for your architecture on Debian/Ubuntu (and similar) and install it with your package manager, for example `sudo apt install ./rhino-player_*.deb`. On macOS, use the release **`.zip`** that contains **Rhino Player.app** when available; unzip it, then open the app. macOS still needs GTK 4, libadwaita, and mpv from Homebrew at runtime—see [Build from source → macOS](#macos-experimental) below.
 
 ## Build From Source
 
@@ -98,11 +110,11 @@ To build a **`.deb`** for Debian, Ubuntu, or similar (requires `dpkg-deb`, from 
 
 ```bash
 ./scripts/build-deb.sh
-# same destination via the GitHub-oriented helper:
-./scripts/stage-github-release.sh
 ```
 
-This runs `cargo build --release`, stages `/usr/bin/rhino-player` plus the same Freedesktop assets, **`rhino-player(1)`** man page, and bundled `share/rhino-player/vs` files as a normal distro package, and writes **`releases/rhino-player_<version>-1_<arch>.deb`** (that folder is for [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases) assets — see [`releases/README.md`](releases/README.md)). Install with `cd releases && sudo apt install ./rhino-player_*.deb`. Override the output directory with `OUTPUT=/tmp` or bump the Debian package revision with `DEB_REV=2`.
+This runs `cargo build --release`, then builds a normal distro layout (binary under `/usr/bin`, Freedesktop assets, **`rhino-player(1)`**, and bundled `share/rhino-player/vs`) and writes **`releases/rhino-player_<version>-1_<arch>.deb`**. Install with `cd releases && sudo apt install ./rhino-player_*.deb`.
+
+Use `OUTPUT=/tmp` for a different output directory or `DEB_REV=2` to bump the package revision. To stage assets for [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases) (including macOS), see [`releases/README.md`](releases/README.md) and `./scripts/stage-github-release.sh`.
 
 For a user-local launcher during development, install only the desktop file and icons under `~/.local/share` and point it at a chosen binary:
 
@@ -232,8 +244,6 @@ cargo qcheck   # cargo clippy --all-targets --all-features
 ```
 
 The project keeps detailed feature specs and implementation notes under [docs/](docs/). Start with [docs/README.md](docs/README.md).
-
-[vapoursynth-mvtools]: https://github.com/dubhater/vapoursynth-mvtools
 
 ## Copyright
 
