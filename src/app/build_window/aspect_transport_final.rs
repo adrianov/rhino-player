@@ -8,6 +8,7 @@
         sub_pref: sub_pref.clone(),
         win: w.win.clone(), gl: w.gl_area.clone(), recent: w.recent_scrl.clone(),
         recent_visible,
+        playback_focus: Rc::clone(&playback_focus),
         last_path: last_path.clone(), sibling_seof: sibling_seof.clone(),
         sibling_nav: w.sibling_nav.clone(), exit_after_current: exit_after_current.clone(),
         win_aspect: win_aspect.clone(), idle_inhib: Rc::clone(&idle_inhib),
@@ -41,6 +42,7 @@
         gl: w.gl_area.clone(),
         recent: w.recent_scrl.clone(), bottom: w.bottom.clone(), player: player.clone(),
         sub_pref: sub_pref.clone(), video_pref: Rc::clone(&video_pref),
+        playback_focus: Rc::clone(&playback_focus),
         #[cfg(target_os = "macos")]
         main_menu: w.main_menu.clone(),
         pref_menu: w.pref_menu.clone(),

@@ -20,6 +20,8 @@ struct LoadOpts {
     reset_speed_to_normal: bool,
     /// macOS: mirrors the window title in [`adw::HeaderBar::title_widget`]; [`None`] on Linux CSD paths.
     hdr_title_mirror: Option<Rc<gtk::Label>>,
+    /// When set, set **true** in [reveal_ui_after_load] / delayed warm reveal — **false** from [back_to_browse].
+    playback_focus: Option<Rc<Cell<bool>>>,
 }
 
 impl LoadOpts {
@@ -43,6 +45,7 @@ impl LoadOpts {
             on_loaded,
             reset_speed_to_normal,
             hdr_title_mirror,
+            playback_focus: None,
         }
     }
 }

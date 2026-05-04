@@ -29,5 +29,6 @@
         on_file_loaded: &on_file_loaded,
         on_video_chrome: &on_video_chrome,
         hdr_title_mirror: w.hdr_title_mirror.clone(),
+        playback_focus: &playback_focus,
     });
 }

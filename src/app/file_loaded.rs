@@ -16,6 +16,8 @@ struct FileLoadedCtx {
     speed_readout: gtk::Label,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
     app: adw::Application,
+    close_video_btn: gtk::Button,
+    playback_focus: Rc<Cell<bool>>,
 }
 
 fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
@@ -37,6 +39,8 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
         speed_readout,
         video_pref,
         app,
+        close_video_btn,
+        playback_focus,
     } = ctx;
     Rc::new({
         let p = player.clone();
@@ -56,6 +60,8 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
         let spd_r = speed_readout.clone();
         let vp_onload = Rc::clone(&video_pref);
         let app_onload = app.clone();
+        let tip_onload = close_video_btn.clone();
+        let pf_onload = Rc::clone(&playback_focus);
         move || {
             let cur = lp.borrow().clone();
             nav.refresh(cur.as_deref(), seof.as_ref());
@@ -73,6 +79,8 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
             let spd320 = spd_r.clone();
             let vp_320 = Rc::clone(&vp_onload);
             let app_320 = app_onload.clone();
+            let tip_320 = tip_onload.clone();
+            let pf_320 = Rc::clone(&pf_onload);
             let _ = glib::timeout_add_local(Duration::from_millis(320), move || {
                 on_320ms_tick(On320Ctx {
                     player: p2.clone(),
@@ -89,6 +97,8 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
                     app: app_320.clone(),
                     close_action: close_a2.clone(),
                     trash_action: trash_a2.clone(),
+                    close_video_btn: tip_320.clone(),
+                    playback_focus: Rc::clone(&pf_320),
                 });
                 glib::ControlFlow::Break
             });
@@ -177,6 +187,8 @@ struct On320Ctx {
     app: adw::Application,
     close_action: Rc<RefCell<Option<gio::SimpleAction>>>,
     trash_action: Rc<RefCell<Option<gio::SimpleAction>>>,
+    close_video_btn: gtk::Button,
+    playback_focus: Rc<Cell<bool>>,
 }
 
 fn on_320ms_tick(c: On320Ctx) {
@@ -200,7 +212,13 @@ fn on_320ms_tick(c: On320Ctx) {
         }
     }
     if let Some(a) = c.close_action.borrow().as_ref() {
-        sync_close_video_action(a, &c.player, &c.recent);
+        sync_close_video_action(
+            a,
+            &c.close_video_btn,
+            &c.player,
+            &c.recent,
+            c.playback_focus.as_ref(),
+        );
     }
     if let Some(a) = c.trash_action.borrow().as_ref() {
         sync_trash_action(a, &c.player, &c.recent);

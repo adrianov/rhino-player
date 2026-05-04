@@ -87,6 +87,9 @@ fn reveal_ui_after_load(
     let delayed_warm = warm_hit && o.play_on_start;
     if !delayed_warm {
         recent_layer.set_visible(false);
+        if let Some(pf) = o.playback_focus.as_ref() {
+            pf.set(true);
+        }
         if let Some(f) = o.on_start.as_ref() {
             f();
         }
@@ -116,8 +119,12 @@ fn start_playback(
         let gl2 = gl.clone();
         let player2 = player.clone();
         let on_start = o.on_start.clone();
+        let playback_focus = o.playback_focus.clone();
         let _ = glib::timeout_add_local(Duration::from_millis(WARM_REVEAL_DELAY_MS), move || {
             recent.set_visible(false);
+            if let Some(pf) = playback_focus.as_ref() {
+                pf.set(true);
+            }
             if let Some(f) = on_start.as_ref() { f(); }
             win2.present();
             if let Some(b) = player2.borrow().as_ref() {

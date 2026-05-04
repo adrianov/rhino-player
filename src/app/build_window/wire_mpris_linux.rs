@@ -15,6 +15,7 @@ struct MprisLinuxWireCtx<'a> {
     on_file_loaded: &'a Rc<dyn Fn()>,
     on_video_chrome: &'a Rc<dyn Fn()>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
+    playback_focus: &'a Rc<Cell<bool>>,
 }
 
 #[cfg(target_os = "linux")]
@@ -35,6 +36,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
         on_file_loaded,
         on_video_chrome,
         hdr_title_mirror,
+        playback_focus,
     } = ctx;
     let p_seek = player.clone();
     let gl_seek = gl_area.clone();
@@ -67,6 +69,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
         let sibling_seof = sibling_seof.clone();
         let on_loaded = Rc::clone(on_file_loaded);
         let hm = hdr_title_mirror.clone();
+        let pf = Rc::clone(playback_focus);
         move || {
             try_load_sibling_pick(sibling_advance::prev_before_current, "previous", &SiblingNavTryRefs {
                 player: player.clone(),
@@ -79,6 +82,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
                 sibling_seof: sibling_seof.clone(),
                 on_file_loaded: on_loaded.clone(),
                 hdr_title_mirror: hm.clone(),
+                playback_focus: pf.clone(),
             });
         }
     };
@@ -93,6 +97,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
         let sibling_seof = sibling_seof.clone();
         let on_loaded = Rc::clone(on_file_loaded);
         let hm = hdr_title_mirror.clone();
+        let pf = Rc::clone(playback_focus);
         move || {
             try_load_sibling_pick(sibling_advance::next_after_eof, "next", &SiblingNavTryRefs {
                 player: player.clone(),
@@ -105,6 +110,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
                 sibling_seof: sibling_seof.clone(),
                 on_file_loaded: on_loaded.clone(),
                 hdr_title_mirror: hm.clone(),
+                playback_focus: pf.clone(),
             });
         }
     };

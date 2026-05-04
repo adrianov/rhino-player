@@ -9,6 +9,8 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
         do_commit,
         close_action_cell,
         trash_action_cell,
+        playback_focus,
+        close_video_btn,
     } = ctx;
 
     let close_video = gio::SimpleAction::new("close-video", None);
@@ -16,8 +18,14 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
         let p = player.clone();
         let r = recent_scrl.clone();
         let bb = on_browse_back.clone();
+        let app_q = app.clone();
+        let pf = playback_focus.clone();
         close_video.connect_activate(move |_, _| {
-            if r.is_visible() || p.borrow().is_none() {
+            if r.is_visible() || !pf.get() {
+                app_q.activate_action("quit", None);
+                return;
+            }
+            if p.borrow().is_none() {
                 return;
             }
             bb(true);
@@ -29,15 +37,19 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
         let cv = close_video.clone();
         let p = player.clone();
         let r = recent_scrl.clone();
+        let tip = close_video_btn.clone();
+        let pf = playback_focus.clone();
         recent_scrl.connect_notify_local(Some("visible"), move |_, _| {
-            sync_close_video_action(&cv, &p, &r);
+            sync_close_video_action(&cv, &tip, &p, &r, pf.as_ref());
         });
     }
     let _ = glib::idle_add_local_once({
         let cv = close_video.clone();
         let p = player.clone();
         let r = recent_scrl.clone();
-        move || sync_close_video_action(&cv, &p, &r)
+        let tip = close_video_btn.clone();
+        let pf = playback_focus.clone();
+        move || sync_close_video_action(&cv, &tip, &p, &r, pf.as_ref())
     });
     let close_video_rz = close_video.clone();
 

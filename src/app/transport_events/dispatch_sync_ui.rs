@@ -161,6 +161,7 @@ fn run_sibling_eof(ctx: &Rc<TransportCtx>) {
         Rc::clone(&e.win_aspect),
         Some(Rc::clone(&e.on_file_loaded)),
         e.hdr_title_mirror.clone(),
+        Rc::clone(&e.playback_focus),
     );
 }
 

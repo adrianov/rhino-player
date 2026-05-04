@@ -13,6 +13,8 @@ struct FinalActionCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
     sub_pref: Rc<RefCell<db::SubPrefs>>,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
+    /// **True** while the playing layout is active ([try_load] hid the browse grid).
+    playback_focus: Rc<Cell<bool>>,
     /// macOS global menu bar model (File / View).
     #[cfg(target_os = "macos")]
     main_menu: gio::Menu,

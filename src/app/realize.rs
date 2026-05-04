@@ -21,6 +21,8 @@ struct MpvRealizeCtx {
     /// an idle calls [`MpvBundle::dispose_for_quit`] (`mpv_terminate_destroy`) and `quit`.
     mpv_teardown_after_draw: Rc<Cell<bool>>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
+    playback_focus: Rc<Cell<bool>>,
+    close_video_btn: gtk::Button,
 }
 
 struct GlRealizeOkRefs {
@@ -42,6 +44,8 @@ struct GlRealizeOkRefs {
     wa_st: Rc<Cell<Option<f64>>>,
     ol_rz: Rc<dyn Fn()>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
+    playback_focus: Rc<Cell<bool>>,
+    close_video_btn: gtk::Button,
 }
 
 fn gl_realize_bundle_ready(
@@ -83,7 +87,13 @@ fn gl_realize_bundle_ready(
         );
     }
     drain_recent_backfill(&r.pending_rz);
-    sync_close_video_action(&r.close_video, &r.p_realize, &r.recent_rz);
+    sync_close_video_action(
+        &r.close_video,
+        &r.close_video_btn,
+        &r.p_realize,
+        &r.recent_rz,
+        r.playback_focus.as_ref(),
+    );
     sync_trash_action(&r.move_to_trash, &r.p_realize, &r.recent_rz);
     if let Some(pl) = r.p_realize.borrow().as_ref() {
         let show = if r.recent_rz.is_visible() {
@@ -103,21 +113,23 @@ fn gl_realize_bundle_ready(
     }
     trigger_transport_install();
     if let Some(p) = file_boot_rz.replace(None) {
+        let mut o = LoadOpts::replace_media(
+            r.last_rz.clone(),
+            Some(Rc::clone(&r.on_vid_rz)),
+            Rc::clone(&r.wa_st),
+            Some(Rc::clone(&r.ol_rz)),
+            false,
+            false,
+            r.hdr_title_mirror.clone(),
+        );
+        o.playback_focus = Some(Rc::clone(&r.playback_focus));
         if let Err(e) = try_load(
             &p,
             &r.p_realize,
             &r.win_rz,
             &r.gl_rz,
             &r.recent_rz,
-            &LoadOpts::replace_media(
-                r.last_rz.clone(),
-                Some(Rc::clone(&r.on_vid_rz)),
-                Rc::clone(&r.wa_st),
-                Some(Rc::clone(&r.ol_rz)),
-                false,
-                false,
-                r.hdr_title_mirror.clone(),
-            ),
+            &o,
         ) {
             eprintln!("[rhino] try_load (startup): {e}");
         }
@@ -149,6 +161,8 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
         move_to_trash,
         mpv_teardown_after_draw,
         hdr_title_mirror,
+        playback_focus,
+        close_video_btn,
     } = ctx;
 
     let p_realize = player.clone();
@@ -186,6 +200,8 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
         wa_st: wa_st.clone(),
         ol_rz: ol_rz.clone(),
         hdr_title_mirror: hdr_title_mirror.clone(),
+        playback_focus: Rc::clone(&playback_focus),
+        close_video_btn: close_video_btn.clone(),
     };
     gl.connect_realize(move |area| {
         mpv_gl_realize_attach(area, &ok_refs, &file_boot_rz, &vp_realize);

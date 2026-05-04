@@ -27,7 +27,6 @@ fn build_window(
     );
 
     let seek_chapters = Rc::new(RefCell::new(Vec::<(f64, String)>::new()));
-
     let bar_show = Rc::new(Cell::new(true));
     let nav_t = Rc::new(RefCell::new(None::<glib::SourceId>));
     let cur_t = Rc::new(RefCell::new(None::<glib::SourceId>));
@@ -36,6 +35,7 @@ fn build_window(
     let last_cap_xy = Rc::new(Cell::new(None::<(f64, f64)>));
     let last_gl_xy = Rc::new(Cell::new(None::<(f64, f64)>));
     let last_path = Rc::new(RefCell::new(None::<PathBuf>));
+    let playback_focus = Rc::new(Cell::new(false));
     let seek_bar_on = Rc::new(Cell::new(db::load_seek_bar_preview()));
     let sibling_seof = Rc::new(SiblingEofState {
         done: Cell::new(false),
@@ -46,7 +46,6 @@ fn build_window(
     let fs_restore = Rc::new(RefCell::new(None::<(i32, i32)>));
     let fs_transition_busy = Rc::new(Cell::new(false));
     let fs_transition_settle = Rc::new(RefCell::new(None::<glib::SourceId>));
-    // Stops `connect_maximized_notify` re-calling fullscreen in `maximized && !fullscreen` right after `unfullscreen`.
     let skip_max_to_fs = Rc::new(Cell::new(false));
     let last_unmax = Rc::new(RefCell::new((WIN_INIT_W, WIN_INIT_H)));
     let win_aspect = Rc::new(Cell::new(None::<f64>));
@@ -55,7 +54,6 @@ fn build_window(
     let idle_inhib = Rc::new(RefCell::new(None::<u32>));
     let mpv_teardown_after_draw = Rc::new(Cell::new(false));
 
-    // Top/bottom bars are attached when [wire_window_input] runs (`input/shell.rs`), not here.
     #[cfg(target_os = "macos")]
     header_menubtns_switch(&[w.speed_mbtn.clone(), w.sub_menu.clone(), w.vol_menu.clone()]);
     #[cfg(not(target_os = "macos"))]
@@ -64,7 +62,6 @@ fn build_window(
     ]);
 
     wire_popover_shows(player, &w, &sub_pref);
-
     let (seek_sync, seek_grabbed) = (Rc::new(Cell::new(false)), Rc::new(Cell::new(false)));
     let smooth_seek_debounce = Rc::new(RefCell::new(None::<glib::SourceId>));
     let resume_after_seek_idle = Rc::new(Cell::new(false));
@@ -73,7 +70,6 @@ fn build_window(
         Rc::clone(&seek_bar_on), Rc::clone(&seek_chapters),
         seek_bar_preview::SeekPreviewCtx { ovl: w.outer_ovl.clone(), bottom: w.bottom.clone() },
     );
-    // Container lives on the same GdkSurface — no compositor round-trip on show/hide.
     w.outer_ovl.add_overlay(&seek_preview.container);
 
     let undo_shell = w.undo_bar.shell.clone();
@@ -92,7 +88,8 @@ fn build_window(
         speed_sync: w.speed_sync.clone(),
         speed_list: w.speed_list.clone(),
         speed_readout: w.speed_readout.clone(),
-        video_pref: Rc::clone(&video_pref), app: app.clone(),
+        video_pref: Rc::clone(&video_pref), app: app.clone(), close_video_btn: w.close_video_btn.clone(),
+        playback_focus: Rc::clone(&playback_focus),
     });
     wire_sub_style_controls(SubStyleCtx {
         player: player.clone(), sub_pref: sub_pref.clone(), gl: w.gl_area.clone(),
@@ -125,7 +122,6 @@ fn build_window(
         &w.recent_scrl,
     );
 
-    // Browse grid whenever no CLI/session file boots the window — includes empty history (+ Open card).
     let want_recent = file_boot.borrow().is_none();
     w.recent_scrl.set_visible(want_recent);
 
@@ -204,11 +200,10 @@ fn build_window(
         win_aspect: Rc::clone(&win_aspect),
         sub_menu: w.sub_menu.clone(),
         hdr_title_mirror: w.hdr_title_mirror.clone(),
+        playback_focus: Rc::clone(&playback_focus),
     });
     *on_open_slot.borrow_mut() = Some(on_open.clone());
-
     wire_window_drop_targets(&w.win, player, &w.sub_menu, &on_open);
-
     wire_sibling_navigation(SiblingNavCtx {
         btn_prev: w.sibling_nav.prev_btn.clone(),
         btn_next: w.sibling_nav.next_btn.clone(),
@@ -222,6 +217,7 @@ fn build_window(
         sibling_seof: sibling_seof.clone(),
         on_file_loaded: Rc::clone(&on_file_loaded),
         hdr_title_mirror: w.hdr_title_mirror.clone(),
+        playback_focus: Rc::clone(&playback_focus),
     });
 
     let recent_wiring = wire_recent_undo(RecentUndoCtx {
@@ -236,17 +232,18 @@ fn build_window(
     let do_commit = recent_wiring.do_commit;
     let on_remove = recent_wiring.on_remove;
     let on_trash = recent_wiring.on_trash;
-
     let recent_visible = Rc::new(Cell::new(w.recent_scrl.is_visible()));
     {
         let rv = Rc::clone(&recent_visible);
         w.recent_scrl
             .connect_notify_local(Some("visible"), move |r, _| rv.set(r.is_visible()));
     }
-
     let on_browse_back = make_browse_back(
         BackToBrowseCtx {
-            player: player.clone(), on_open: on_open.clone(),
+            player: player.clone(),
+            close_video_btn: w.close_video_btn.clone(),
+            close_action_cell: Rc::clone(&close_act_for_sync),
+            on_open: on_open.clone(),
             on_remove: on_remove.clone(), on_trash: on_trash.clone(),
             recent_backfill: recent_backfill.clone(), last_path: last_path.clone(),
             sibling_seof: sibling_seof.clone(), sibling_nav: w.sibling_nav.clone(),
@@ -255,6 +252,7 @@ fn build_window(
             undo_btn: undo_btn.clone(), undo_timer: undo_timer.clone(),
             undo_remove_stack: undo_remove_stack.clone(),
             recent_visible: Rc::clone(&recent_visible),
+            playback_focus: Rc::clone(&playback_focus),
             browse_has_strip: want_recent,
             hdr_title_mirror: w.hdr_title_mirror.clone(),
         },
@@ -267,8 +265,8 @@ fn build_window(
         app: app.clone(), player: player.clone(), recent: w.recent_scrl.clone(),
         on_browse_back: on_browse_back.clone(), undo_timer: undo_timer.clone(),
         undo_remove_stack: undo_remove_stack.clone(), do_commit: do_commit.clone(),
-        close_action_cell: Rc::clone(&close_act_for_sync),
-        trash_action_cell: Rc::clone(&trash_act_for_sync),
+        close_action_cell: Rc::clone(&close_act_for_sync), trash_action_cell: Rc::clone(&trash_act_for_sync),
+        playback_focus: Rc::clone(&playback_focus), close_video_btn: w.close_video_btn.clone(),
     });
 
     wire_mpv_realize(MpvRealizeCtx {
@@ -282,7 +280,8 @@ fn build_window(
         close_video: video_file_actions.close_video,
         move_to_trash: video_file_actions.move_to_trash,
         mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
-        hdr_title_mirror: w.hdr_title_mirror.clone(),
+        hdr_title_mirror: w.hdr_title_mirror.clone(), playback_focus: Rc::clone(&playback_focus),
+        close_video_btn: w.close_video_btn.clone(),
     });
 
     include!("build_window/post_seek_mpris.rs");

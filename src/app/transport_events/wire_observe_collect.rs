@@ -86,6 +86,7 @@ struct TransportEofCtx {
     on_file_loaded: Rc<dyn Fn()>,
     reapply_60: VideoReapply60,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
+    playback_focus: Rc<Cell<bool>>,
 }
 
 struct TransportCtx {
@@ -131,6 +132,7 @@ struct TransportSetup {
     reapply_60: VideoReapply60,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     bar_show: Rc<Cell<bool>>,
+    playback_focus: Rc<Cell<bool>>,
     widgets: TransportWidgets,
     seek_chapters: Rc<RefCell<Vec<(f64, String)>>>,
 }
@@ -155,6 +157,7 @@ fn wire_transport_events(s: TransportSetup) {
             on_file_loaded: s.on_file_loaded,
             reapply_60: s.reapply_60,
             hdr_title_mirror: s.hdr_title_mirror.clone(),
+            playback_focus: Rc::clone(&s.playback_focus),
         },
         bar_show: s.bar_show,
         recent_visible: s.recent_visible,

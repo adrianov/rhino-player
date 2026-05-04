@@ -49,6 +49,8 @@ struct WindowWidgets {
     fs_clock: gtk::Label,
     /// macOS GTK: optional label in [`adw::HeaderBar::title_widget`] so double-click toggles fullscreen.
     hdr_title_mirror: Option<Rc<gtk::Label>>,
+    /// Bottom-bar `app.close-video`; tooltip from [sync_close_video_action].
+    close_video_btn: gtk::Button,
 }
 
 fn build_widgets(
@@ -106,7 +108,7 @@ fn build_widgets(
         time_right,
     } = build_seek_and_time_row();
 
-    let bottom = build_bottom_bar(
+    let (bottom, close_video_btn) = build_bottom_bar(
         &sibling_nav.prev_wrap,
         &play_pause,
         &sibling_nav.next_wrap,
@@ -143,6 +145,7 @@ fn build_widgets(
         recent_scrl, flow_recent, recent_spacers, undo_bar,
         fs_clock,
         hdr_title_mirror,
+        close_video_btn,
     }
 }
 
@@ -153,7 +156,7 @@ fn build_bottom_bar(
     time_left: &gtk::Label,
     seek: &gtk::Scale,
     time_right: &gtk::Label,
-) -> gtk::Box {
+) -> (gtk::Box, gtk::Button) {
     let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     bottom.add_css_class("rp-bottom");
     bottom.set_vexpand(false);
@@ -167,13 +170,12 @@ fn build_bottom_bar(
     bottom.append(seek);
     bottom.append(time_right);
     let close_btn = gtk::Button::from_icon_name("window-close-symbolic");
-    close_btn.set_tooltip_text(Some("Close Video (Ctrl+W)"));
     close_btn.add_css_class("flat");
     close_btn.set_valign(gtk::Align::Center);
     close_btn.set_action_name(Some("app.close-video"));
     close_btn.set_margin_start(2);
     bottom.append(&close_btn);
-    bottom
+    (bottom, close_btn)
 }
 
 fn build_video_overlay(child: &gtk::GLArea) -> gtk::Overlay {

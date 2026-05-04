@@ -36,6 +36,8 @@ struct WindowInputCtx {
     last_path: Rc<RefCell<Option<PathBuf>>>,
     win_aspect: Rc<Cell<Option<f64>>>,
     sibling_seof: Rc<SiblingEofState>,
+    /// Shared with [try_load] reveal / [back_to_browse].
+    playback_focus: Rc<Cell<bool>>,
     play_pause: gtk::Button,
     seek: gtk::Scale,
     seek_sync: Rc<Cell<bool>>,

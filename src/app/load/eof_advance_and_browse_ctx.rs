@@ -18,6 +18,7 @@ fn maybe_advance_sibling_on_eof(
     win_aspect: Rc<Cell<Option<f64>>>,
     on_loaded: Option<Rc<dyn Fn()>>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
+    playback_focus: Rc<Cell<bool>>,
 ) {
     let g = match player.try_borrow() {
         Ok(b) => b,
@@ -45,7 +46,7 @@ fn maybe_advance_sibling_on_eof(
     drop(g);
     seof.done.set(true);
     if let Some(np) = next {
-        let o = LoadOpts::replace_media(
+        let mut o = LoadOpts::replace_media(
             Rc::clone(last_path),
             Some(Rc::clone(on_start)),
             Rc::clone(&win_aspect),
@@ -54,6 +55,7 @@ fn maybe_advance_sibling_on_eof(
             true,
             hdr_title_mirror,
         );
+        o.playback_focus = Some(Rc::clone(&playback_focus));
         if let Err(e) = try_load(&np, player, win, gl, recent, &o) {
             eprintln!("[rhino] sibling advance: {e}");
             seof.done.set(false);
@@ -65,7 +67,7 @@ fn maybe_advance_sibling_on_eof(
     }
 }
 
-/// Bottom-bar **Previous** / **Next** tooltips: the **file name** of the target in folder/sibling
+/// Bottom-bar **Previous** / **Next** tooltips: humanized **base name** of the target in folder/sibling
 /// order; [can] is from [SiblingEofState::nav_sensitivity].
 fn sibling_bar_tooltip(is_prev: bool, can: bool, cur: Option<&Path>) -> String {
     if !can {
@@ -95,11 +97,13 @@ fn sibling_bar_tooltip(is_prev: bool, can: bool, cur: Option<&Path>) -> String {
             "Next in folder order".to_string()
         };
     };
-    // File name only (non-utf8: lossy); icon shows previous vs next.
-    t.file_name()
+    // Lossy UTF-8 from `OsStr`; humanized like window title / continue cards.
+    let raw = t
+        .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| t.to_string_lossy().into_owned())
+        .unwrap_or_else(|| t.to_string_lossy().into_owned());
+    crate::human_media_title::human_media_title(&raw)
 }
 
 fn nudge_mpv_volume(mpv: &Mpv, delta: f64) {
@@ -199,6 +203,9 @@ fn rearm_undo_dismiss(
 
 /// Shared handles for leaving playback and repainting the recent grid (Escape path).
 struct BackToBrowseCtx {
+    /// Bottom-bar close (`app.close-video`); tooltip + enable state via [sync_close_video_action].
+    close_video_btn: gtk::Button,
+    close_action_cell: Rc<RefCell<Option<gio::SimpleAction>>>,
     player: Rc<RefCell<Option<MpvBundle>>>,
     on_open: RcPathFn,
     on_remove: RcPathFn,
@@ -219,6 +226,8 @@ struct BackToBrowseCtx {
     /// Mirrors browse-overlay [gtk::Widget::is_visible]; refreshed before pausing
     /// on browse-back so transport can skip unloading the motion filter without racing `notify::visible`.
     recent_visible: Rc<Cell<bool>>,
+    /// **True** while the main chrome targets the playing file (grid hidden after [try_load] reveal).
+    playback_focus: Rc<Cell<bool>>,
     /// First paint used the browse row (no boot file): keep the strip visible with the Open tile
     /// even when history is empty (`false` for CLI/session boot paths).
     browse_has_strip: bool,

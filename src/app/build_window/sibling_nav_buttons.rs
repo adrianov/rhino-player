@@ -10,6 +10,7 @@ struct SiblingNavTryRefs {
     sibling_seof: Rc<SiblingEofState>,
     on_file_loaded: Rc<dyn Fn()>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
+    playback_focus: Rc<Cell<bool>>,
 }
 
 /// Loads another local file using the same sibling-folder ordering as EOF advance (**Previous** /
@@ -32,7 +33,7 @@ fn try_load_sibling_pick(
     };
     r.sibling_seof.done.set(false);
     drop(g);
-    let o = LoadOpts::replace_media(
+    let mut o = LoadOpts::replace_media(
         Rc::clone(&r.last_path),
         Some(Rc::clone(&r.on_video_chrome)),
         Rc::clone(&r.win_aspect),
@@ -41,6 +42,7 @@ fn try_load_sibling_pick(
         false,
         r.hdr_title_mirror.clone(),
     );
+    o.playback_focus = Some(Rc::clone(&r.playback_focus));
     if let Err(e) = try_load(&np, &r.player, &r.win, &r.gl, &r.recent, &o) {
         eprintln!("[rhino] {log_tag}: {e}");
     }
@@ -68,6 +70,7 @@ struct SiblingNavCtx {
     sibling_seof: Rc<SiblingEofState>,
     on_file_loaded: Rc<dyn Fn()>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
+    playback_focus: Rc<Cell<bool>>,
 }
 
 impl SiblingNavCtx {
@@ -83,6 +86,7 @@ impl SiblingNavCtx {
             sibling_seof: self.sibling_seof.clone(),
             on_file_loaded: self.on_file_loaded.clone(),
             hdr_title_mirror: self.hdr_title_mirror.clone(),
+            playback_focus: Rc::clone(&self.playback_focus),
         }
     }
 }

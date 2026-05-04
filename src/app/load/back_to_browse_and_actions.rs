@@ -10,6 +10,7 @@ fn back_to_browse(
     clear_undo: bool,
 ) {
     cancel_undo_timer(&c.undo_timer);
+    c.playback_focus.set(false);
     if clear_undo {
         *c.undo_remove_stack.borrow_mut() = Vec::new();
     }
@@ -45,6 +46,7 @@ fn back_to_browse(
             }
             glib::ControlFlow::Break
         });
+        schedule_sync_close_video_idle(c, recent);
         return;
     }
 
@@ -76,6 +78,7 @@ fn back_to_browse(
             glib::ControlFlow::Break
         });
     });
+    schedule_sync_close_video_idle(c, recent);
 }
 
 /// Wraps [back_to_browse] into a single `Rc<dyn Fn(bool)>` closure (arg = `clear_undo`).
@@ -92,13 +95,41 @@ fn make_browse_back(
     })
 }
 
-/// Enables [gio::SimpleAction] `app.close-video` when the player is ready and the continue grid is hidden.
+/// Enables `app.close-video` and matches the bottom close button tooltip to browse vs playback.
 fn sync_close_video_action(
     a: &gio::SimpleAction,
+    tip_target: &gtk::Button,
     player: &Rc<RefCell<Option<MpvBundle>>>,
     recent: &impl IsA<gtk::Widget>,
+    playback_focus: &Cell<bool>,
 ) {
-    a.set_enabled(player.borrow().is_some() && !recent.is_visible());
+    let has_player = player.borrow().is_some();
+    let grid = recent.is_visible();
+    a.set_enabled(has_player || grid);
+
+    let tip = if grid || !playback_focus.get() {
+        "Quit Rhino Player"
+    } else {
+        "Close Video (Ctrl+W)"
+    };
+    if tip_target.tooltip_text().as_deref() != Some(tip) {
+        tip_target.set_tooltip_text(Some(tip));
+    }
+}
+
+fn schedule_sync_close_video_idle(c: &BackToBrowseCtx, recent: &gtk::Box) {
+    let cell = Rc::clone(&c.close_action_cell);
+    let tip_target = c.close_video_btn.clone();
+    let p = c.player.clone();
+    let pf = Rc::clone(&c.playback_focus);
+    let recent = recent.clone();
+    let _ = glib::idle_add_local_once(move || {
+        let g = cell.borrow();
+        let Some(a) = g.as_ref() else {
+            return;
+        };
+        sync_close_video_action(a, &tip_target, &p, &recent, pf.as_ref());
+    });
 }
 
 /// Enables [gio::SimpleAction] `app.move-to-trash` for a local file in playback (not streams / empty path).

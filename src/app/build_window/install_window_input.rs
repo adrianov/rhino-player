@@ -34,6 +34,7 @@
         last_path: last_path.clone(),
         win_aspect: win_aspect.clone(),
         sibling_seof: sibling_seof.clone(),
+        playback_focus: Rc::clone(&playback_focus),
         play_pause: w.play_pause.clone(),
         seek: w.seek.clone(),
         seek_sync: seek_sync.clone(),
@@ -66,6 +67,7 @@
             sibling_seof: sibling_seof.clone(),
             on_file_loaded: Rc::clone(&on_file_loaded),
             hdr_title_mirror: w.hdr_title_mirror.clone(),
+            playback_focus: Rc::clone(&playback_focus),
         },
     );
 }
