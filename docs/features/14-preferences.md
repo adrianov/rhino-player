@@ -5,7 +5,7 @@ status: wip
 priority: p1
 layers: [db, mpv, ui]
 related: [03, 18, 22, 24, 26]
-settings: [seek_bar_preview, master_volume, master_mute, video_smooth_60, video_vs_path, video_mvtools_lib]
+settings: [seek_bar_preview, master_volume, master_mute, video_smooth_60, video_vs_path, video_mvtools_lib, video_smooth_max_area]
 ---
 
 ## Use cases
@@ -42,5 +42,5 @@ Feature: Preferences and persistent settings
 ```
 
 ## Notes
-- Keys persisted today in SQLite include `seek_bar_preview` (toggles [18-thumbnail-preview](18-thumbnail-preview.md)), `master_volume` / `master_mute` (see [22-audio-volume-mute](22-audio-volume-mute.md)), `video_smooth_60` / `video_vs_path` / `video_mvtools_lib` (see [26-sixty-fps-motion](26-sixty-fps-motion.md)), plus subtitle preferences in [24-subtitles](24-subtitles.md).
+- Keys persisted today in SQLite include `seek_bar_preview` (toggles [18-thumbnail-preview](18-thumbnail-preview.md)), `master_volume` / `master_mute` (see [22-audio-volume-mute](22-audio-volume-mute.md)), `video_smooth_60` / `video_vs_path` / `video_mvtools_lib` / `video_smooth_max_area` (see [26-sixty-fps-motion](26-sixty-fps-motion.md)), plus subtitle preferences in [24-subtitles](24-subtitles.md).
 - `is-maximized` and other window-restore keys are still TBD.
