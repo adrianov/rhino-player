@@ -5,6 +5,7 @@
 
     wire_transport_events(TransportSetup {
         app: app.clone(), player: player.clone(),
+        video_pref: Rc::clone(&video_pref),
         sub_pref: sub_pref.clone(),
         win: w.win.clone(), gl: w.gl_area.clone(), recent: w.recent_scrl.clone(),
         recent_visible,

@@ -93,6 +93,8 @@ struct TransportCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
     widgets: TransportWidgets,
     eof: TransportEofCtx,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
+    smooth_overload: Rc<RefCell<crate::video_pref::SmoothOverloadState>>,
     /// Bottom-bar visibility flag; transient seek-slider redraws are skipped while it is `false`
     /// to avoid invalidating chrome that is animating in / out (the cause of fullscreen flicker).
     bar_show: Rc<Cell<bool>>,
@@ -114,6 +116,7 @@ struct TransportCtx {
 struct TransportSetup {
     app: adw::Application,
     player: Rc<RefCell<Option<MpvBundle>>>,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
     sub_pref: Rc<RefCell<db::SubPrefs>>,
     win: adw::ApplicationWindow,
     gl: gtk::GLArea,
@@ -159,6 +162,10 @@ fn wire_transport_events(s: TransportSetup) {
             hdr_title_mirror: s.hdr_title_mirror.clone(),
             playback_focus: Rc::clone(&s.playback_focus),
         },
+        video_pref: s.video_pref.clone(),
+        smooth_overload: Rc::new(RefCell::new(
+            crate::video_pref::SmoothOverloadState::default(),
+        )),
         bar_show: s.bar_show,
         recent_visible: s.recent_visible,
         sibling_nav: s.sibling_nav,

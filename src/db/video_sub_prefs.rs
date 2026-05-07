@@ -12,6 +12,11 @@ pub fn load_video() -> VideoPrefs {
     if let Some(s) = get_setting_str(K_VIDEO_MANIPMV_LIB) {
         p.manipmv_lib = s;
     }
+    if let Some(s) = get_setting_str(K_VIDEO_SMOOTH_MAX_AREA) {
+        if let Ok(n) = s.trim().parse::<u64>() {
+            p.smooth_max_area = n.max(MIN_SMOOTH_MAX_AREA);
+        }
+    }
     p
 }
 
@@ -20,6 +25,10 @@ pub fn save_video(p: &VideoPrefs) {
     put_setting(K_VIDEO_VS, &p.vs_path);
     put_setting(K_VIDEO_MVTOOLS_LIB, &p.mvtools_lib);
     put_setting(K_VIDEO_MANIPMV_LIB, &p.manipmv_lib);
+    put_setting(
+        K_VIDEO_SMOOTH_MAX_AREA,
+        &format!("{}", p.smooth_max_area.max(MIN_SMOOTH_MAX_AREA)),
+    );
 }
 
 // --- subtitle appearance + last manual track label (see docs/features/24-subtitles.md) ---

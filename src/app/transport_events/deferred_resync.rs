@@ -53,6 +53,13 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
         run_sibling_eof(ctx);
     }
     sync_sub_header_readout(&ctx.player, &ctx.widgets.sub_readout);
+    crate::video_pref::smooth_budget_on_transport_tick(
+        &ctx.player,
+        &ctx.video_pref,
+        pause,
+        core_idle,
+        ctx.smooth_overload.as_ref(),
+    );
     mpris_enqueue_snapshot(ctx);
 }
 

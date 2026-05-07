@@ -5,8 +5,11 @@ use libmpv2::Mpv;
 
 use crate::db;
 use crate::db::VideoPrefs;
+use crate::db::MIN_SMOOTH_MAX_AREA;
 use crate::paths;
-use crate::paths::{RHINO_PLAYBACK_SPEED_VAR, RHINO_VPY_LOG_EPOCH_VAR};
+use crate::paths::{
+    RHINO_PLAYBACK_SPEED_VAR, RHINO_SMOOTH_MAX_AREA_VAR, RHINO_VPY_LOG_EPOCH_VAR,
+};
 use crate::playback_speed::MAX_FIXED_SPEED;
 
 /// [apply_mpv_video] result (replaces a bare `bool` for "smooth was auto-off" on older call sites).
@@ -152,7 +155,18 @@ pub(crate) fn vf_smooth_matches_prefs(mpv: &Mpv, v: &VideoPrefs) -> bool {
         .file_name()
         .and_then(|n| n.to_str())
         .is_some_and(|base| vf.contains(base));
-    path_matches || base_matches
+    if !(path_matches || base_matches) {
+        return false;
+    }
+    smooth_max_area_env_matches(v)
+}
+
+fn smooth_max_area_env_matches(v: &VideoPrefs) -> bool {
+    let want = v.smooth_max_area.max(MIN_SMOOTH_MAX_AREA);
+    std::env::var(RHINO_SMOOTH_MAX_AREA_VAR)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        == Some(want)
 }
 
 fn resolve_vs_script_path(v: &VideoPrefs) -> Option<String> {
@@ -200,6 +214,10 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
         Some(s) => set_playback_speed_env(s),
         None => set_playback_speed_env_from_mpv(mpv),
     }
+    std::env::set_var(
+        RHINO_SMOOTH_MAX_AREA_VAR,
+        format!("{}", v.smooth_max_area.max(MIN_SMOOTH_MAX_AREA)),
+    );
     set_source_fps_env_from_mpv(mpv);
     if video_log() {
         eprintln!(

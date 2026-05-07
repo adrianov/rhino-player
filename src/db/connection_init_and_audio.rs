@@ -194,8 +194,14 @@ const K_VIDEO_SMOOTH_60: &str = "video_smooth_60";
 const K_VIDEO_VS: &str = "video_vs_path";
 const K_VIDEO_MVTOOLS_LIB: &str = "video_mvtools_lib";
 const K_VIDEO_MANIPMV_LIB: &str = "video_manipmv_lib";
+const K_VIDEO_SMOOTH_MAX_AREA: &str = "video_smooth_max_area";
 
-#[derive(Debug, Clone, Default)]
+/// Default ME/output pixel budget when the persistent store has no row (**1920×1080**).
+pub const DEFAULT_SMOOTH_MAX_AREA: u64 = 1920 * 1080;
+/// Clamp loaded/saved smooth pixel budgets below this floor (**320×180**).
+pub const MIN_SMOOTH_MAX_AREA: u64 = 320 * 180;
+
+#[derive(Debug, Clone)]
 pub struct VideoPrefs {
     /// When set: add mpv `vf=vapoursynth` with [vs_path] or bundled `.vpy` (no `display-resample`).
     /// Default **off** until the user opts in; bundled script applies when `video_vs_path` is empty once enabled.
@@ -207,5 +213,19 @@ pub struct VideoPrefs {
     pub mvtools_lib: String,
     /// Legacy SQLite field (`video_manipmv_lib`); unused by the bundled `.vpy`.
     pub manipmv_lib: String,
+    /// Max decode width×height for bundled MVTools before proportional downscale; persisted when CPU overload shrinks it.
+    pub smooth_max_area: u64,
+}
+
+impl Default for VideoPrefs {
+    fn default() -> Self {
+        Self {
+            smooth_60: false,
+            vs_path: String::new(),
+            mvtools_lib: String::new(),
+            manipmv_lib: String::new(),
+            smooth_max_area: DEFAULT_SMOOTH_MAX_AREA,
+        }
+    }
 }
 

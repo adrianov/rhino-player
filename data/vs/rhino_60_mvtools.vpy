@@ -26,18 +26,30 @@ _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (extra ME path)
 # MVTools square ``blksize`` is capped at **128** upstream. ``overlap`` must be **< blksize**. **128**/**32**
 # uses **maximum** block size — **fewest** motion blocks per frame (light ``Analyse``, coarse spatial sampling vs smaller presets).
-# ``tier=uhd`` stderr tag when **decode** ``width × height >= _MV_UHD_AREA_MIN`` (**2560×1440**); ``tier=hd`` otherwise.
-# **HD-class decode**: ``Super`` / ``Analyse`` / ``FlowFPS`` at **native decode** (**stderr ``path=full``**).
-# **UHD-class decode**: ``resize.Bicubic`` to **½** width×height for MVTools only (**``path=half``**); **no** upscale —
-# output stays ~1080p-class from 4K decode (lower CPU than full-raster ME).
-# **Both tiers**: ``chroma=True`` on ``Super`` / ``Analyse`` (luma-only ME here yields bad chroma — green tint).
+# **Decode-area policy**: Rhino sets ``RHINO_SMOOTH_MAX_AREA`` (persisted max decode width×height for ME).
+# If **decode** ``width × height`` exceeds that budget, **both** dimensions scale by ``√(budget/decode_px)``
+# so MVTools runs at **≤ budget** pixels (**stderr ``path=scaled``**); otherwise **native** (**``path=full``**).
+# **No** upscale — output matches the MVTools raster.
+# ``tier=uhd`` stderr tag when **decode** ``width × height >= _MV_DECODE_TAG_AREA`` (**2560×1440**); ``tier=hd`` otherwise (logging only).
+# **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse`` (luma-only ME yields bad chroma — green tint).
 _MV_BLK_SIZE = 128
 _MV_BLK_OVERLAP = 32
 # ``Super`` **`levels`**: **0** = MVTools **automatic** pyramid depth from frame size (upstream default).
 _MV_SUPER_LEVELS = 0
-_MV_UHD_AREA_MIN = 2560 * 1440
+_MV_DECODE_TAG_AREA = 2560 * 1440
 # Explicit ``Super`` edge padding (MVTools default is **16**).
 _MV_SUPER_PAD = 16
+
+
+def _smooth_max_area_px() -> int:
+    """ME/output pixel budget from Rhino (**RHINO_SMOOTH_MAX_AREA**; default **1920×1080**)."""
+    raw = (os.environ.get("RHINO_SMOOTH_MAX_AREA") or "").strip()
+    if not raw:
+        return 1920 * 1080
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 1920 * 1080
 
 
 def _mv_graph_for_frame_size(
@@ -48,16 +60,16 @@ def _mv_graph_for_frame_size(
 
     Returns ``(tier, blksize, overlap, pel, sharp, search, flow_mask, flow_blend,
     truemotion, chroma)``.
-    ``tier`` is **uhd** when **decode** ``width × height >= _MV_UHD_AREA_MIN``, else **hd** (stderr tag only).
-    Pass **decode** width/height (before any UHD half-downscale). **Both tiers** share ``blksize`` / ``overlap`` **128** / **32**
-    (``blksize`` at upstream **maximum**; **32** overlap — coarse ME grid, fewer blocks than smaller presets).
-    ``mv.Super`` ``levels=0`` (automatic pyramid) on the MVTools raster (**full** decode for **hd**, **half** decode for **uhd**).
-    **Both tiers**: ``chroma=True`` on ``Super`` / ``Analyse``.
+    ``tier`` is **uhd** when **decode** ``width × height >= _MV_DECODE_TAG_AREA``, else **hd** (stderr tag only).
+    ME raster may be **proportionally** smaller than decode when ``RHINO_SMOOTH_MAX_AREA`` < decode pixels.
+    Shared ``blksize`` / ``overlap`` **128** / **32**.
+    ``mv.Super`` ``levels=0`` (automatic pyramid) on the MVTools raster (**``path=full``** or **``path=scaled``**).
+    **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse``.
     Shared: ``pel=1``, ``sharp=1``, ``search=4`` (hex), ``truemotion=True``, ``FlowFPS(mask=2, blend=True)``, ``global=True``.
     """
     w = max(1, width_px)
     h = max(1, height_px)
-    tier = "uhd" if w * h >= _MV_UHD_AREA_MIN else "hd"
+    tier = "uhd" if w * h >= _MV_DECODE_TAG_AREA else "hd"
     blk, ov = _MV_BLK_SIZE, _MV_BLK_OVERLAP
     return (
         tier,
@@ -381,14 +393,16 @@ else:
         _decode_w = work.width
         _decode_h = work.height
         _decode_px = _decode_w * _decode_h
-        if _decode_px >= _MV_UHD_AREA_MIN:
-            _me_w = max(2, _decode_w // 2)
-            _me_h = max(2, _decode_h // 2)
-            work_me = core.resize.Bicubic(work, width=_me_w, height=_me_h)
-            _me_path = "half"
-        else:
+        _smooth_cap = _smooth_max_area_px()
+        if _decode_px <= _smooth_cap:
             work_me = work
             _me_path = "full"
+        else:
+            _scale = math.sqrt(float(_smooth_cap) / float(_decode_px))
+            _me_w = max(2, int(round(_decode_w * _scale)))
+            _me_h = max(2, int(round(_decode_h * _scale)))
+            work_me = core.resize.Bicubic(work, width=_me_w, height=_me_h)
+            _me_path = "scaled"
         _tier, _blk, _ov, _pel, _sharp, _search, _fmask, _fblend, _tm, _mv_chroma = (
             _mv_graph_for_frame_size(_decode_w, _decode_h)
         )
@@ -403,7 +417,7 @@ else:
         _super_lvl_log = "auto" if _MV_SUPER_LEVELS == 0 else str(_MV_SUPER_LEVELS)
         print(
             f"[rhino_60_mvtools] mvtools preset tier={_tier} "
-            f"(decode_px={_decode_px}, uhd≥{_MV_UHD_AREA_MIN}) "
+            f"(decode_px={_decode_px}, smooth_cap={_smooth_cap}) "
             f"path={_me_path} decode={_decode_w}x{_decode_h} me={work_me.width}x{work_me.height} "
             f"blksize={_blk} overlap={_ov} chroma={_mv_chroma} "
             f"pel={_pel} sharp={_sharp} search={_search} global={_MV_GLOBAL_HINT['global']} "
