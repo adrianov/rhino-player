@@ -13,6 +13,17 @@ use objc2::rc::Retained;
 use objc2_app_kit::{NSCursor, NSView, NSWindow, NSWindowButton, NSWindowStyleMask};
 use std::cell::Cell;
 
+mod gtk_idle_defer {
+    //! Run `f` after at least one GTK main-context idle pass (nested [`idle_add_local_once`]).
+    //! Avoids extra dylib links (`libdispatch` is not always exposed as `-ldispatch` on the linker path).
+
+    pub(super) fn after_idle_turn(f: impl FnOnce() + 'static) {
+        let _ = glib::source::idle_add_local_once(move || {
+            let _ = glib::source::idle_add_local_once(f);
+        });
+    }
+}
+
 /// Resolve the underlying [`NSWindow`] for a realized GTK widget on macOS.
 ///
 /// Returns `None` before the GtkWindow is realized (no surface yet) or on non-macOS
@@ -35,7 +46,12 @@ pub fn nswindow_for_widget<W: IsA<gtk::Widget>>(w: &W) -> Option<Retained<NSWind
 /// recursion (Rust stack overflow) on recent macOS during `_NSExitFullScreenTransitionController`.
 /// `-toggleFullScreen:` skips that GDK entry point; GTK usually catches up via surface updates.
 ///
-/// Returns `true` if AppKit fullscreen was active and `toggleFullScreen:` was invoked.
+/// **Scheduling:** calling `-toggleFullScreen:` synchronously still hit the same AppKit recursion on
+/// macOS 26.x during exit fullscreen (stack overflow in `_NSThemeZoomWidgetCell` / titlebar layout).
+/// We defer with **two** GTK main-context idle callbacks so AppKit/GTK finish the current geometry
+/// burst before `-toggleFullScreen:` runs (no standalone `-ldispatch` link — unreliable on some SDKs).
+///
+/// Returns `true` if AppKit fullscreen was active and exit was **scheduled** (may still be animating).
 pub fn macos_native_unfullscreen<W: IsA<gtk::Widget>>(widget: &W) -> bool {
     let Some(win) = nswindow_for_widget(widget) else {
         return false;
@@ -43,7 +59,13 @@ pub fn macos_native_unfullscreen<W: IsA<gtk::Widget>>(widget: &W) -> bool {
     if !win.styleMask().contains(NSWindowStyleMask::FullScreen) {
         return false;
     }
-    win.toggleFullScreen(None);
+    let win = win.clone();
+    gtk_idle_defer::after_idle_turn(move || {
+        if !win.styleMask().contains(NSWindowStyleMask::FullScreen) {
+            return;
+        }
+        win.toggleFullScreen(None);
+    });
     true
 }
 
