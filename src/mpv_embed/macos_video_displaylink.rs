@@ -21,7 +21,7 @@
 use std::os::raw::c_void;
 use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use objc2::rc::Retained;
 use objc2_core_video::{
@@ -32,8 +32,8 @@ use super::macos_video_layer::RhinoMpvGlLayer;
 
 /// State shared between mpv's update callback and the displayLink callback.
 pub struct DisplayLinkDriver {
-    /// `Some` until [`stop`] runs; held to keep the link alive.
-    link: Option<Retained<CVDisplayLink>>,
+    /// `Mutex` so main thread can **`CVDisplayLinkStop`** during **`vf clr`** without dropping the link.
+    link: Mutex<Option<Retained<CVDisplayLink>>>,
     /// Heap-stable so the raw pointer we pass to CV stays valid even if
     /// `DisplayLinkDriver` itself moves.
     state: Box<DriverState>,
@@ -42,6 +42,8 @@ pub struct DisplayLinkDriver {
 pub struct DriverState {
     layer: Retained<RhinoMpvGlLayer>,
     pending: AtomicBool,
+    /// Main clears vapoursynth **`vf`** — suppress **`display_now`** / draw callbacks cross-thread.
+    vf_teardown_suppress: AtomicBool,
 }
 
 impl DriverState {
@@ -49,11 +51,15 @@ impl DriverState {
         Box::new(Self {
             layer,
             pending: AtomicBool::new(false),
+            vf_teardown_suppress: AtomicBool::new(false),
         })
     }
 
-    /// Set by mpv's update callback (any thread).
+    /// Set by mpv's update callback (any thread). Ignored during **`vf`** teardown on main.
     pub fn mark_pending(&self) {
+        if self.vf_teardown_suppress.load(Ordering::Acquire) {
+            return;
+        }
         self.pending.store(true, Ordering::Release);
     }
 }
@@ -88,19 +94,40 @@ impl DisplayLinkDriver {
         });
         Ok((
             Self {
-                link: Some(link),
+                link: Mutex::new(Some(link)),
                 state,
             },
             handle,
         ))
     }
+
+    /// **`running=false`**: **`CVDisplayLinkStop`** — must **not** run inside **`display_link_callback`**.
+    pub(crate) fn set_cv_running(&self, running: bool) -> Result<(), String> {
+        let guard = self
+            .link
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let Some(ref link) = *guard else {
+            return Err("CVDisplayLink already released".into());
+        };
+        let code = if running { link.start() } else { link.stop() };
+        if code != 0 {
+            return Err(format!(
+                "CVDisplayLink {} failed: {code}",
+                if running { "Start" } else { "Stop" }
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Drop for DisplayLinkDriver {
     fn drop(&mut self) {
-        if let Some(link) = self.link.take() {
+        let Ok(mut guard) = self.link.lock() else {
+            return;
+        };
+        if let Some(link) = guard.take() {
             let _ = link.stop();
-            // Detach our callback so any in-flight tick from CV becomes a no-op.
             unsafe {
                 let _ = link.set_output_callback(None, ptr::null_mut());
             }
@@ -127,6 +154,41 @@ impl DriverStateHandle {
             (*self.ptr).mark_pending();
         }
     }
+
+    /// True while **`begin_vf_teardown`** / **`end_vf_teardown`** bracket **`vf clr`** on main.
+    pub fn vf_teardown_suppress_active(&self) -> bool {
+        if self.ptr.is_null() {
+            return false;
+        }
+        unsafe {
+            (*self.ptr)
+                .vf_teardown_suppress
+                .load(Ordering::Acquire)
+        }
+    }
+
+    /// Serialize **`mpv`** render/display-link bumps vs **`vf clr`** (Smooth **off** mid-play).
+    pub fn begin_vf_teardown(&self) {
+        if self.ptr.is_null() {
+            return;
+        }
+        unsafe {
+            let s = &*self.ptr;
+            s.vf_teardown_suppress.store(true, Ordering::Release);
+            s.pending.store(false, Ordering::Release);
+        }
+    }
+
+    pub fn end_vf_teardown(&self) {
+        if self.ptr.is_null() {
+            return;
+        }
+        unsafe {
+            (*self.ptr)
+                .vf_teardown_suppress
+                .store(false, Ordering::Release);
+        }
+    }
 }
 
 /// CVDisplayLink output callback. Runs on the displayLink's dedicated kernel thread, so
@@ -144,6 +206,10 @@ unsafe extern "C-unwind" fn display_link_callback(
         return 0;
     }
     let state = unsafe { &*(user_info as *const DriverState) };
+    if state.vf_teardown_suppress.load(Ordering::Acquire) {
+        state.pending.store(false, Ordering::Release);
+        return 0;
+    }
     if state.pending.swap(false, Ordering::AcqRel) {
         state.layer.display_now();
     }

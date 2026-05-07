@@ -27,7 +27,7 @@ pub fn commit_quit(&self) {
     self.stop_playback();
 }
 
-/// Save SQLite resume snapshot before leaving the open file (e.g. **Back to Browse**).
+/// Save outgoing resume snapshot before leaving the open file (e.g. **Back to Browse**).
 pub fn snapshot_outgoing_before_leave(&self) {
     self.save_playback_state();
 }

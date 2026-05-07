@@ -203,7 +203,7 @@ pub const MIN_SMOOTH_MAX_AREA: u64 = 320 * 180;
 
 #[derive(Debug, Clone)]
 pub struct VideoPrefs {
-    /// When set: add mpv `vf=vapoursynth` with [vs_path] or bundled `.vpy` (no `display-resample`).
+    /// When set: add mpv `vf=vapoursynth` with [vs_path] or bundled `.vpy` (+ presentation tuning — see feature 26 Notes).
     /// Default **off** until the user opts in; bundled script applies when `video_vs_path` is empty once enabled.
     pub smooth_60: bool,
     /// Absolute path to a `.vpy` for mpv’s `vapoursynth` filter, or empty for bundled script.

@@ -255,6 +255,7 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
     } else {
         eprintln!("[rhino] video: vf add vapoursynth command accepted");
     }
+    apply_smooth_vf_present_opts(mpv);
     false
 }
 

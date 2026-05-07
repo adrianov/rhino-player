@@ -59,6 +59,18 @@ pub struct NativeVideoSurface {
 }
 
 impl NativeVideoSurface {
+    pub(crate) fn pause_cv_display_link(&self) {
+        if let Some(ref dl) = self.display_link {
+            let _ = dl.set_cv_running(false);
+        }
+    }
+
+    pub(crate) fn resume_cv_display_link(&self) {
+        if let Some(ref dl) = self.display_link {
+            let _ = dl.set_cv_running(true);
+        }
+    }
+
     /// Symbol loader for libmpv's `get_proc_address` callback.
     pub fn gl_loader(&self) -> Arc<GlSymbolLoader> {
         Arc::clone(&self.gl_loader)
@@ -87,9 +99,10 @@ impl NativeVideoSurface {
         };
         let layer = self.layer.clone();
         let overlay = self.overlay.clone();
+        let repaint = self.redraw_handle.clone();
         w.connect_local("notify::visible", false, move |_| {
             let ov = overlay.borrow().clone();
-            sync_layer_frame_now(&layer, &sizer_widget, ov.as_ref());
+            sync_layer_frame_now(&layer, &sizer_widget, ov.as_ref(), Some(repaint.as_ref()));
             None
         });
     }
@@ -147,7 +160,6 @@ pub fn install<W: IsA<gtk::Widget>>(sizer: &W) -> Result<NativeVideoSurface, Str
     let overlay: std::rc::Rc<std::cell::RefCell<Option<gtk::Widget>>> =
         std::rc::Rc::new(std::cell::RefCell::new(None));
 
-    sync_layer_frame_now(&layer, sizer, None);
     layer.set_backing_scale(sizer.scale_factor() as f64);
     let our_calayer = as_calayer(&layer);
     unsafe {
@@ -162,7 +174,19 @@ pub fn install<W: IsA<gtk::Widget>>(sizer: &W) -> Result<NativeVideoSurface, Str
     }
 
     let sizer_widget = sizer.clone().upcast::<gtk::Widget>();
-    let id = wire_sizer_resync(&sizer_widget, layer.clone(), overlay.clone());
+    let (display_link, redraw_handle) = DisplayLinkDriver::install(layer.clone())?;
+    sync_layer_frame_now(
+        &layer,
+        sizer,
+        None,
+        Some(redraw_handle.as_ref()),
+    );
+    let id = wire_sizer_resync(
+        &sizer_widget,
+        layer.clone(),
+        overlay.clone(),
+        redraw_handle.clone(),
+    );
 
     // Track Retina / non-Retina monitor changes so the FBO matches actual pixels.
     let l_scale = layer.clone();
@@ -172,8 +196,6 @@ pub fn install<W: IsA<gtk::Widget>>(sizer: &W) -> Result<NativeVideoSurface, Str
         }
         None
     });
-
-    let (display_link, redraw_handle) = DisplayLinkDriver::install(layer.clone())?;
 
     Ok(NativeVideoSurface {
         layer,

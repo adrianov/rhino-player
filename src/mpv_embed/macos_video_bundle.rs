@@ -14,8 +14,9 @@ use gtk::prelude::WidgetExt;
 use libmpv2::Mpv;
 use libmpv2_sys::{
     mpv_opengl_fbo, mpv_opengl_init_params, mpv_render_context, mpv_render_context_create,
-    mpv_render_context_free, mpv_render_context_render, mpv_render_context_set_update_callback,
-    mpv_render_param, mpv_render_param_type_MPV_RENDER_PARAM_API_TYPE as PARAM_API_TYPE,
+    mpv_render_context_free, mpv_render_context_render, mpv_render_context_report_swap,
+    mpv_render_context_set_update_callback, mpv_render_context_update, mpv_render_param,
+    mpv_render_param_type_MPV_RENDER_PARAM_API_TYPE as PARAM_API_TYPE,
     mpv_render_param_type_MPV_RENDER_PARAM_FLIP_Y as PARAM_FLIP_Y,
     mpv_render_param_type_MPV_RENDER_PARAM_INVALID as PARAM_INVALID,
     mpv_render_param_type_MPV_RENDER_PARAM_OPENGL_FBO as PARAM_OPENGL_FBO,
@@ -83,6 +84,26 @@ impl MacosRender {
     /// per-frame tick comparison inside the surface.
     pub fn watch_overlay<W: IsA<gtk::Widget>>(&self, widget: &W) {
         self.surface.watch_overlay(widget);
+    }
+
+    /// Serialize **`vf clr`** vs **`CVDisplayLink`** / **`mpv_render_context_render`** (Smooth **off**).
+    pub(crate) fn with_vf_teardown<R>(&self, f: impl FnOnce() -> R) -> R {
+        self.surface.pause_cv_display_link();
+        let h = self.surface.redraw_handle();
+        h.begin_vf_teardown();
+        let out = f();
+        h.end_vf_teardown();
+        self.surface.resume_cv_display_link();
+        out
+    }
+
+    pub(crate) fn mark_display_pending(&self) {
+        self.surface.redraw_handle().mark_pending();
+    }
+
+    /// Wake **`vo=libmpv`** render state after **`vf`** changes (bitmask per mpv **`mpv_render_context_update`**).
+    pub(crate) fn ping_render_context(&self) -> u64 {
+        unsafe { mpv_render_context_update(self.render_ctx) }
     }
 
     /// Clear the GLArea's framebuffer to alpha=0 so gdk-macos's compositing produces
@@ -176,9 +197,13 @@ fn wire_update_callback(rctx: *mut mpv_render_context, ctx: &UpdateCtx) {
 
 fn wire_draw_callback(rctx: *mut mpv_render_context, surface: &NativeVideoSurface) {
     let render_ctx_addr = rctx as usize;
+    let redraw = surface.redraw_handle();
     const GL_RGBA8: c_int = 0x8058;
     surface.set_draw_callback(Some(Box::new(move |fbo, w, h| {
         if w <= 0 || h <= 0 {
+            return;
+        }
+        if redraw.vf_teardown_suppress_active() {
             return;
         }
         let mut fbo_data = mpv_opengl_fbo {
@@ -203,10 +228,12 @@ fn wire_draw_callback(rctx: *mut mpv_render_context, surface: &NativeVideoSurfac
             },
         ];
         unsafe {
-            mpv_render_context_render(
-                render_ctx_addr as *mut mpv_render_context,
-                params.as_mut_ptr(),
-            );
+            let ctx = render_ctx_addr as *mut mpv_render_context;
+            mpv_render_context_render(ctx, params.as_mut_ptr());
+            // **`display-resample`** needs swap timing. Linux gates plain **`audio`** playback off; macOS keeps swaps for **`CVDisplayLink`**.
+            if crate::video_pref::smooth_vf_timing_report_active() {
+                mpv_render_context_report_swap(ctx);
+            }
         }
     })));
 }

@@ -58,6 +58,7 @@ impl MpvBundle {
             // `pause` from leaking across sessions.
             let _ = init.set_option("save-position-on-quit", "no");
             let _ = init.set_option("resume-playback", "no");
+            // Plain sync: Linux **`audio`** + no swap; macOS **`display-resample`** + swap via **`restore_non_smooth_present_opts`**.
             Ok(())
         })
         .map_err(|e| format!("{e:?}"))?;
@@ -126,6 +127,8 @@ impl MpvBundle {
         ))
     }
 
+    mpv_bundle_macos_vf_methods!();
+
     #[cfg(not(target_os = "macos"))]
     fn draw_impl(&self, area: &gtk::GLArea) -> bool {
         if area.upcast_ref::<glib::Object>().as_ptr() as usize != self.gl_ptr {
@@ -139,7 +142,11 @@ impl MpvBundle {
         }
         let mut fbo: i32 = 0;
         unsafe { (self._gl.gl_get_integerv)(GL_FRAMEBUFFER_BINDING, &mut fbo) };
-        self.render.render::<EglState>(fbo, w, h, true).is_ok()
+        let ok = self.render.render::<EglState>(fbo, w, h, true).is_ok();
+        if ok && crate::video_pref::smooth_vf_timing_report_active() {
+            self.render.report_swap();
+        }
+        ok
     }
 
     /// Linux: render through the GLArea on the GTK frame clock. macOS: not used — the
@@ -157,9 +164,9 @@ impl MpvBundle {
     pub fn teardown_gl_paint(&self, area: &gtk::GLArea) {
         #[cfg(not(target_os = "macos"))]
         {
-            if self.draw_impl(area) {
-                self.render.report_swap();
-            }
+            // `draw_impl` already calls `report_swap` when Smooth vf requests it; an unconditional
+            // swap here confused VO timing after Smooth toggles / plain playback.
+            let _ = self.draw_impl(area);
             let _ = self.render.update();
         }
         #[cfg(target_os = "macos")]

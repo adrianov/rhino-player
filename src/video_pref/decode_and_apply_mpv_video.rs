@@ -16,24 +16,96 @@ fn post_smooth_60_state(mpv: &Mpv, v: &VideoPrefs, want_60: bool, disabled_60: b
 }
 
 fn set_auto_decode(mpv: &Mpv, vlog: bool) {
-    if let Err(e) = mpv.set_property("hwdec", "auto") {
-        eprintln!("[rhino] video: set hwdec auto failed: {e:?}");
-    } else if vlog {
-        eprintln!("[rhino] video: hwdec=auto (no mvtools vf: smooth off or speed ≠ 1.0×)");
+    let need_hwdec = mpv
+        .get_property::<String>("hwdec")
+        .map(|s| s != "auto")
+        .unwrap_or(true);
+    if need_hwdec {
+        if let Err(e) = mpv.set_property("hwdec", "auto") {
+            eprintln!("[rhino] video: set hwdec auto failed: {e:?}");
+        } else if vlog {
+            eprintln!("[rhino] video: hwdec=auto (no mvtools vf: smooth off or speed ≠ 1.0×)");
+        }
     }
-    let _ = mpv.set_property("vd-lavc-dr", "auto");
+    let need_dr = mpv
+        .get_property::<String>("vd-lavc-dr")
+        .map(|s| s != "auto")
+        .unwrap_or(true);
+    if need_dr {
+        let _ = mpv.set_property("vd-lavc-dr", "auto");
+    }
 }
 
-fn clear_vf(mpv: &Mpv, vlog: bool) {
-    if let Err(e) = mpv.command("vf", &["clr", ""]) {
-        eprintln!("[rhino] video: vf clr failed: {e:?}; trying set_property vf");
-        if let Err(e2) = mpv.set_property("vf", "") {
-            eprintln!("[rhino] video: set_property vf (clear) failed: {e2:?}");
+/// Plain playback after Smooth **off** / **`vf`** strip — prefer **`clear_vf`** which ends with this once **`vf`** is empty.
+///
+/// **Linux:** **`audio`** then swap gate off — never **`display-resample`** without **`report_swap`**.
+/// **macOS:** **`display-resample`** + swap (**`CVDisplayLink`**); fallback **`audio`** + gate off on failure.
+/// **`vf clr`** runs in **`with_macos_vf_teardown`** when a bundle is passed.
+fn restore_non_smooth_present_opts(mpv: &Mpv) {
+    let _ = mpv.set_property("interpolation", "no");
+    #[cfg(target_os = "macos")]
+    {
+        if mpv.set_property("video-sync", "display-resample").is_ok() {
+            smooth_vf_swap_timing_set(true);
+        } else {
+            let _ = mpv.set_property("video-sync", "audio");
+            smooth_vf_swap_timing_set(false);
         }
-    } else if vlog {
-        eprintln!("[rhino] video: vf clr ok");
     }
-    let _ = mpv.set_property("vf", "");
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = mpv.set_property("video-sync", "audio");
+        smooth_vf_swap_timing_set(false);
+    }
+}
+
+/// FlowFPS outputs ~60 fps from the vf chain; **audio**-locked sync often collapses visible cadence.
+/// Match presentation to the display timeline (`display-resample`) and disable shader **`interpolation`**.
+/// **`hwdec`** / **`vd-lavc-dr`** stay whatever mpv already uses (typically auto).
+fn apply_smooth_vf_present_opts(mpv: &Mpv) {
+    if let Err(e) = mpv.set_property("video-sync", "display-resample") {
+        if video_log() {
+            eprintln!("[rhino] video: (verbose) video-sync display-resample failed: {e:?}");
+        }
+    }
+    let _ = mpv.set_property("interpolation", "no");
+    if video_log() {
+        eprintln!(
+            "[rhino] video: (verbose) smooth vf: video-sync=display-resample interpolation=no"
+        );
+    }
+    // Enable swap reports last so **`report_swap`** cannot fire until **`display-resample`** is active.
+    smooth_vf_swap_timing_set(true);
+}
+
+fn clear_vf(mpv: &Mpv, bundle: Option<&MpvBundle>, vlog: bool) {
+    let inner = || {
+        if let Err(e) = mpv.command("vf", &["clr", ""]) {
+            eprintln!("[rhino] video: vf clr failed: {e:?}; trying set_property vf");
+            if let Err(e2) = mpv.set_property("vf", "") {
+                eprintln!("[rhino] video: set_property vf (clear) failed: {e2:?}");
+            }
+        } else if vlog {
+            eprintln!("[rhino] video: vf clr ok");
+        }
+        let _ = mpv.set_property("vf", "");
+        restore_non_smooth_present_opts(mpv);
+    };
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(b) = bundle {
+            b.with_macos_vf_teardown(inner);
+            b.macos_ping_render_context();
+            b.macos_mark_display_pending();
+        } else {
+            inner();
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = bundle;
+        inner();
+    }
 }
 
 fn log_vf_diagnostics(mpv: &Mpv, vlog: bool) {
@@ -108,12 +180,12 @@ pub fn unload_smooth_on_pause(mpv: &Mpv) -> bool {
         return false;
     }
     let vlog = video_log();
-    clear_vf(mpv, vlog);
+    clear_vf(mpv, None, vlog);
     set_auto_decode(mpv, vlog);
     true
 }
 pub fn apply_mpv_video_init(mpv: &Mpv, v: &mut VideoPrefs) -> MpvVideoApply {
-    apply_mpv_video_impl(mpv, v, None, None)
+    apply_mpv_video_impl(mpv, None, v, None, None)
 }
 
 /// Normal playback is intentionally a no-op: leave mpv's timing, decode, and filter defaults alone.
@@ -133,7 +205,7 @@ fn log_apply(v: &VideoPrefs) {
 }
 
 pub fn apply_mpv_video(b: &MpvBundle, v: &mut VideoPrefs, speed_hint: Option<f64>) -> MpvVideoApply {
-    apply_mpv_video_impl(&b.mpv, v, speed_hint, None)
+    apply_mpv_video_impl(&b.mpv, Some(b), v, speed_hint, None)
 }
 
 /// Runs [apply_mpv_video_impl] with **`pause=no`** assumed for MVTools eligibility — mpv's **`pause`**
@@ -144,11 +216,12 @@ pub fn apply_mpv_video_after_transport_unpause(
     v: &mut VideoPrefs,
     speed_hint: Option<f64>,
 ) -> MpvVideoApply {
-    apply_mpv_video_impl(&b.mpv, v, speed_hint, Some(false))
+    apply_mpv_video_impl(&b.mpv, Some(b), v, speed_hint, Some(false))
 }
 
 fn apply_mpv_video_impl(
     mpv: &Mpv,
+    bundle: Option<&MpvBundle>,
     v: &mut VideoPrefs,
     speed_hint: Option<f64>,
     pause_override: Option<bool>,
@@ -162,9 +235,16 @@ fn apply_mpv_video_impl(
     let had_vapoursynth = vf_string_has_vapoursynth(mpv);
     if !use_mvtools {
         let keep_vf_during_pause = paused && want_60;
-        if had_vapoursynth && !keep_vf_during_pause {
-            clear_vf(mpv, vlog);
+        let stripped_vf = had_vapoursynth && !keep_vf_during_pause;
+        if stripped_vf {
+            clear_vf(mpv, bundle, vlog);
             set_auto_decode(mpv, vlog);
+            if !want_60 {
+                smooth_off_refresh_playhead(mpv, bundle);
+            }
+        }
+        if !want_60 && !stripped_vf {
+            restore_non_smooth_present_opts(mpv);
         }
         post_smooth_60_state(mpv, v, want_60, false, vlog);
         return MpvVideoApply::default();
@@ -189,6 +269,7 @@ fn apply_mpv_video_impl(
         // re-run the script after `vf add`. Rebuild when cadence becomes known or changes (e.g.
         // `container-fps` lagged behind the first attach).
         if fps_env_before == fps_env_after {
+            apply_smooth_vf_present_opts(mpv);
             post_smooth_60_state(mpv, v, want_60, false, vlog);
             return MpvVideoApply::default();
         }
@@ -196,7 +277,7 @@ fn apply_mpv_video_impl(
             "[rhino] video: rebuilding vapoursynth vf ({} changed)",
             crate::paths::RHINO_SOURCE_FPS_VAR
         );
-        clear_vf(mpv, vlog);
+        clear_vf(mpv, bundle, vlog);
         let disabled_60 = add_smooth_60(mpv, v, speed_hint);
         post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
         return MpvVideoApply {
@@ -204,67 +285,11 @@ fn apply_mpv_video_impl(
         };
     }
 
-    // Leave hwdec / vd-lavc-dr unchanged when attaching VS (default hwdec=auto is fine on typical stacks).
-    clear_vf(mpv, vlog);
+    // Smooth vf presentation + swap timing; stripping vf restores plain opts (clear_vf).
+    clear_vf(mpv, bundle, vlog);
     let disabled_60 = add_smooth_60(mpv, v, speed_hint);
     post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
     MpvVideoApply {
         smooth_auto_off: disabled_60,
-    }
-}
-
-/// Wrap paths for mpv `vf` / `vapoursynth:file=` when they contain characters that split sub-options
-/// (`:`, `,`, `=`) or start a bracket string (`[`, `]`, space). Inside `[…]`, `\` and `]` are escaped
-/// per mpv’s string rules so a trailing `]` in a path does not truncate the filter.
-fn mpv_escape_path(p: &str) -> String {
-    let needs_brackets = p.contains(':')
-        || p.contains(' ')
-        || p.contains('[')
-        || p.contains(']')
-        || p.contains(',')
-        || p.contains('=')
-        || p.contains('\\');
-    if !needs_brackets {
-        return p.to_string();
-    }
-    let mut inner = String::with_capacity(p.len() + 8);
-    for ch in p.chars() {
-        match ch {
-            '\\' => inner.push_str(r"\\"),
-            ']' => inner.push_str(r"\]"),
-            _ => inner.push(ch),
-        }
-    }
-    format!("[{inner}]")
-}
-
-#[cfg(test)]
-mod mpv_escape_path_tests {
-    use super::mpv_escape_path;
-
-    #[test]
-    fn unix_path_without_meta_is_unchanged() {
-        assert_eq!(
-            mpv_escape_path("/home/u/vs/rhino_60_mvtools.vpy"),
-            "/home/u/vs/rhino_60_mvtools.vpy"
-        );
-    }
-
-    #[test]
-    fn space_colon_eq_comma_use_brackets() {
-        assert_eq!(
-            mpv_escape_path("/a b/c:d=e,f.vpy"),
-            r"[/a b/c:d=e,f.vpy]"
-        );
-    }
-
-    #[test]
-    fn close_bracket_is_escaped_inside_brackets() {
-        assert_eq!(mpv_escape_path(r"/x]y.vpy"), r"[/x\]y.vpy]");
-    }
-
-    #[test]
-    fn backslash_doubled_inside_brackets() {
-        assert_eq!(mpv_escape_path(r"/a\b.vpy"), r"[/a\\b.vpy]");
     }
 }
