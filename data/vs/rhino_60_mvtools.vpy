@@ -29,7 +29,8 @@ _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (ex
 # **Decode-area policy**: Rhino sets ``RHINO_SMOOTH_MAX_AREA`` (persisted max decode width×height for ME).
 # If **decode** ``width × height`` exceeds that budget, **both** dimensions scale by ``√(budget/decode_px)``
 # so MVTools runs at **≤ budget** pixels (**stderr ``path=scaled``**); otherwise **native** (**``path=full``**).
-# **No** upscale — output matches the MVTools raster.
+# **FlowFPS** runs on that ME raster; **set_output** uses **FlowFPS** dimensions (ME raster size — may be smaller
+# than decode when ``path=scaled``). mpv scales to the window; geometry may **diverge** from ``video_in``.
 # ``tier=uhd`` stderr tag when **decode** ``width × height >= _MV_DECODE_TAG_AREA`` (**2560×1440**); ``tier=hd`` otherwise (logging only).
 # **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse`` (luma-only ME yields bad chroma — green tint).
 _MV_BLK_SIZE = 128
@@ -42,7 +43,7 @@ _MV_SUPER_PAD = 16
 
 
 def _smooth_max_area_px() -> int:
-    """ME/output pixel budget from Rhino (**RHINO_SMOOTH_MAX_AREA**; default **1920×1080**)."""
+    """ME pixel budget from Rhino (**RHINO_SMOOTH_MAX_AREA**; default **1920×1080** decode-area equivalent)."""
     raw = (os.environ.get("RHINO_SMOOTH_MAX_AREA") or "").strip()
     if not raw:
         return 1920 * 1080
@@ -63,7 +64,8 @@ def _mv_graph_for_frame_size(
     ``tier`` is **uhd** when **decode** ``width × height >= _MV_DECODE_TAG_AREA``, else **hd** (stderr tag only).
     ME raster may be **proportionally** smaller than decode when ``RHINO_SMOOTH_MAX_AREA`` < decode pixels.
     Shared ``blksize`` / ``overlap`` **128** / **32**.
-    ``mv.Super`` ``levels=0`` (automatic pyramid) on the MVTools raster (**``path=full``** or **``path=scaled``**).
+    ``mv.Super`` ``levels=0`` (automatic pyramid) on the MVTools raster; **FlowFPS** output keeps **ME** frame size
+    (may differ from decode when ``RHINO_SMOOTH_MAX_AREA`` constrained the ME raster).
     **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse``.
     Shared: ``pel=1``, ``sharp=1``, ``search=4`` (hex), ``truemotion=True``, ``FlowFPS(mask=2, blend=True)``, ``global=True``.
     """
@@ -418,7 +420,7 @@ else:
         print(
             f"[rhino_60_mvtools] mvtools preset tier={_tier} "
             f"(decode_px={_decode_px}, smooth_cap={_smooth_cap}) "
-            f"path={_me_path} decode={_decode_w}x{_decode_h} me={work_me.width}x{work_me.height} "
+            f"path={_me_path} decode={_decode_w}x{_decode_h} vf_out={work_me.width}x{work_me.height} "
             f"blksize={_blk} overlap={_ov} chroma={_mv_chroma} "
             f"pel={_pel} sharp={_sharp} search={_search} global={_MV_GLOBAL_HINT['global']} "
             f"Super.levels={_super_lvl_log} hpad={_MV_SUPER_PAD} vpad={_MV_SUPER_PAD} "
