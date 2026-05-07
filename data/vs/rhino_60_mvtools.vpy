@@ -24,14 +24,15 @@ _TARGET_NUM = 60
 _TARGET_DEN = 1
 _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (extra ME path)
-# MVTools square ``blksize`` is capped at **128** upstream. ``overlap`` must be **< blksize**. **16**/**8** = half overlap (common MVTools default-ish preset): fewer blocks per frame than **8**/**4**, lighter ``Analyse`` than ultra-fine **8**-pixel blocks.
+# MVTools square ``blksize`` is capped at **128** upstream. ``overlap`` must be **< blksize**. **128**/**32**
+# uses **maximum** block size — **fewest** motion blocks per frame (light ``Analyse``, coarse spatial sampling vs smaller presets).
 # ``tier=uhd`` stderr tag when **decode** ``width × height >= _MV_UHD_AREA_MIN`` (**2560×1440**); ``tier=hd`` otherwise.
 # **HD-class decode**: ``Super`` / ``Analyse`` / ``FlowFPS`` at **native decode** (**stderr ``path=full``**).
 # **UHD-class decode**: ``resize.Bicubic`` to **½** width×height for MVTools only (**``path=half``**); **no** upscale —
 # output stays ~1080p-class from 4K decode (lower CPU than full-raster ME).
 # **Both tiers**: ``chroma=True`` on ``Super`` / ``Analyse`` (luma-only ME here yields bad chroma — green tint).
-_MV_BLK_SIZE = 16
-_MV_BLK_OVERLAP = 8
+_MV_BLK_SIZE = 128
+_MV_BLK_OVERLAP = 32
 # ``Super`` **`levels`**: **0** = MVTools **automatic** pyramid depth from frame size (upstream default).
 _MV_SUPER_LEVELS = 0
 _MV_UHD_AREA_MIN = 2560 * 1440
@@ -48,8 +49,8 @@ def _mv_graph_for_frame_size(
     Returns ``(tier, blksize, overlap, pel, sharp, search, flow_mask, flow_blend,
     truemotion, chroma)``.
     ``tier`` is **uhd** when **decode** ``width × height >= _MV_UHD_AREA_MIN``, else **hd** (stderr tag only).
-    Pass **decode** width/height (before any UHD half-downscale). **Both tiers** share ``blksize`` / ``overlap`` **16** / **8**
-    (half-overlap on 16-pixel blocks; lighter grid than **8**/**4**, sharper than coarse ``32``/**16**).
+    Pass **decode** width/height (before any UHD half-downscale). **Both tiers** share ``blksize`` / ``overlap`` **128** / **32**
+    (``blksize`` at upstream **maximum**; **32** overlap — coarse ME grid, fewer blocks than smaller presets).
     ``mv.Super`` ``levels=0`` (automatic pyramid) on the MVTools raster (**full** decode for **hd**, **half** decode for **uhd**).
     **Both tiers**: ``chroma=True`` on ``Super`` / ``Analyse``.
     Shared: ``pel=1``, ``sharp=1``, ``search=4`` (hex), ``truemotion=True``, ``FlowFPS(mask=2, blend=True)``, ``global=True``.
