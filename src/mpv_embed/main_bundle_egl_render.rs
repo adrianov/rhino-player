@@ -58,7 +58,7 @@ impl MpvBundle {
             // `pause` from leaking across sessions.
             let _ = init.set_option("save-position-on-quit", "no");
             let _ = init.set_option("resume-playback", "no");
-            // Plain sync: Linux **`audio`** + no swap; macOS **`display-resample`** + swap via **`restore_non_smooth_present_opts`**.
+            // Plain **`display-resample`** + **`report_swap`** via [apply_mpv_video_init] when Smooth off (Linux + macOS).
             Ok(())
         })
         .map_err(|e| format!("{e:?}"))?;
@@ -128,6 +128,11 @@ impl MpvBundle {
     }
 
     mpv_bundle_macos_vf_methods!();
+
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn linux_ping_render_context(&self) {
+        let _ = self.render.update();
+    }
 
     #[cfg(not(target_os = "macos"))]
     fn draw_impl(&self, area: &gtk::GLArea) -> bool {

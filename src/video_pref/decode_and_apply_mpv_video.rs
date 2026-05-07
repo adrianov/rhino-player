@@ -38,22 +38,14 @@ fn set_auto_decode(mpv: &Mpv, vlog: bool) {
 
 /// Plain playback after Smooth **off** / **`vf`** strip — prefer **`clear_vf`** which ends with this once **`vf`** is empty.
 ///
-/// **Linux:** **`audio`** then swap gate off — never **`display-resample`** without **`report_swap`**.
-/// **macOS:** **`display-resample`** + swap (**`CVDisplayLink`**); fallback **`audio`** + gate off on failure.
-/// **`vf clr`** runs in **`with_macos_vf_teardown`** when a bundle is passed.
+/// **`vo=libmpv`**: **`display-resample`** + **`report_swap`** (Linux **EGL** / **GLArea** + macOS **CVDisplayLink**).
+/// Fallback **`audio`** + swap gate off if **`display-resample`** fails.
+/// **`vf clr`** runs inside **`with_macos_vf_teardown`** when a bundle is passed (macOS).
 fn restore_non_smooth_present_opts(mpv: &Mpv) {
     let _ = mpv.set_property("interpolation", "no");
-    #[cfg(target_os = "macos")]
-    {
-        if mpv.set_property("video-sync", "display-resample").is_ok() {
-            smooth_vf_swap_timing_set(true);
-        } else {
-            let _ = mpv.set_property("video-sync", "audio");
-            smooth_vf_swap_timing_set(false);
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
+    if mpv.set_property("video-sync", "display-resample").is_ok() {
+        smooth_vf_swap_timing_set(true);
+    } else {
         let _ = mpv.set_property("video-sync", "audio");
         smooth_vf_swap_timing_set(false);
     }
