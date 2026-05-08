@@ -129,6 +129,9 @@ pub const RHINO_SOURCE_FPS_VAR: &str = "RHINO_SOURCE_FPS";
 /// new interpreter after seek).
 pub const RHINO_VPY_LOG_EPOCH_VAR: &str = "RHINO_VPY_LOG_EPOCH";
 
+/// **`RHINO_SMOOTH_DROP_STATS=1`** stderr **≈5 s** strain tallies (**mistimed** → VO **`frame-drop-count`** → decoder) while Smooth bundled **`vf`** is active (see **`smooth_budget`**).
+pub const RHINO_SMOOTH_DROP_STATS_VAR: &str = "RHINO_SMOOTH_DROP_STATS";
+
 /// [RHINO_MVTOOLS_LIB_VAR] if set to an existing file; otherwise `None`.
 pub fn mvtools_from_env() -> Option<PathBuf> {
     let p = std::env::var(RHINO_MVTOOLS_LIB_VAR).ok()?;

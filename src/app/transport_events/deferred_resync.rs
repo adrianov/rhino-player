@@ -5,6 +5,22 @@
 /// `time-pos` updates, `core-idle` change, `eof-reached` flip, and `EndFile(Eof)` (none of those
 /// fire dependably with `keep-open=yes` at 8×). Coarser 1 s resolution is enough for the seek bar
 /// and clock; sibling advance fires within a second of mpv stalling at the tail.
+use gtk::gdk::prelude::ToplevelExt;
+use gtk::prelude::NativeExt;
+
+/// **`smooth_budget`** uses presentation strain; GTK / compositors mis-read it when unfocused,
+/// minimized, or unmapped. Skip **both** ladders until the playback shell suits pacing again.
+#[must_use]
+fn smooth_budget_transport_window_ticks_count(win: &adw::ApplicationWindow) -> bool {
+    if !win.is_visible() || !win.is_mapped() || !win.is_active() {
+        return false;
+    }
+    !win.surface().is_some_and(|s| {
+        s.downcast_ref::<gtk::gdk::Toplevel>()
+            .is_some_and(|t| t.state().contains(gtk::gdk::ToplevelState::MINIMIZED))
+    })
+}
+
 fn sync_sub_header_readout(player: &Rc<RefCell<Option<MpvBundle>>>, label: &gtk::Label) {
     let Ok(g) = player.try_borrow() else {
         return;
@@ -53,13 +69,15 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
         run_sibling_eof(ctx);
     }
     sync_sub_header_readout(&ctx.player, &ctx.widgets.sub_readout);
-    crate::video_pref::smooth_budget_on_transport_tick(
-        &ctx.player,
-        &ctx.video_pref,
-        pause,
-        core_idle,
-        ctx.smooth_overload.as_ref(),
-    );
+    if smooth_budget_transport_window_ticks_count(&ctx.eof.win) {
+        crate::video_pref::smooth_budget_on_transport_tick(
+            &ctx.player,
+            &ctx.video_pref,
+            pause,
+            core_idle,
+            ctx.smooth_budget_decoder.as_ref(),
+        );
+    }
     mpris_enqueue_snapshot(ctx);
 }
 

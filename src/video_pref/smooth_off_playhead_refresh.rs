@@ -14,7 +14,7 @@ fn smooth_off_refresh_playhead(mpv: &Mpv, bundle: Option<&crate::mpv_embed::MpvB
     }
     #[cfg(not(target_os = "macos"))]
     if let Some(b) = bundle {
-        let _ = b.linux_ping_render_context();
+        b.linux_ping_render_context();
     }
     #[cfg(target_os = "macos")]
     if let Some(b) = bundle {

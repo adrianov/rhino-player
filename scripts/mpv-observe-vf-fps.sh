@@ -32,7 +32,8 @@ for t in $(seq 1 "$DURATION"); do
 import json, socket, sys
 path = sys.argv[1]
 props = [
-    'container-fps', 'estimated-vf-fps', 'decoder-frame-drop-count', 'frame-drop-count',
+    'container-fps', 'estimated-vf-fps', 'mistimed-frame-count',
+    'decoder-frame-drop-count', 'frame-drop-count', 'vo-delayed-frame-count',
     'display-fps', 'estimated-display-fps',
 ]
 s = socket.socket(socket.AF_UNIX)

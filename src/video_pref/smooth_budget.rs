@@ -1,68 +1,65 @@
-// Process CPU sampling and persisted **`video_smooth_max_area`** for the bundled MVTools script.
+// Bundled **`video_smooth_max_area`** tuning from mpv presentation / output strain properties (transport tick ≈ **1 Hz**).
 
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
-/// Target: average process CPU core-equivalent ≤ this fraction of logical cores relative to the **current**
-/// saved ME pixel budget (each overload step scales that budget, not the factory default).
-const TARGET_CPU_CORE_FRACTION: f64 = 0.75;
-/// Require this many consecutive overloaded transport ticks before shrinking the budget.
-const OVERLOAD_STREAK_TICKS: u32 = 2;
+/// Sliding window length for decoding-stress (**seconds**).
+const DROP_WINDOW_SECS: u64 = 5;
 
-/// Recover when utilization stays strictly **below** this fraction of logical cores (see [`SmoothBudgetProbe::tick_busy_cores`]).
-const UNDERUTIL_CPU_CORE_FRACTION: f64 = 0.50;
-/// Require this many consecutive underutil ticks before raising the ME budget (**1 Hz** tick ≈ seconds).
-const UNDERUTIL_STREAK_TICKS: u32 = 30;
+/// **`window`** must span **this** fraction of **[`DROP_WINDOW_SECS`]`** wall time before interpreting rate.
+const DROP_WINDOW_FILL_FRAC: f64 = 0.95;
 
+/// **`2`%** floor used **inside** **`budget_after_decoder_overload`** (**`saved ×`** this **/** measured rate**); **not** the transport **overload fire** threshold (**`OVERLOAD_STRAIN_GT_FRAC`**).
+const DROP_OVERLOAD_FRAC: f64 = 0.02;
+
+/// Clamp pathological **`rate`** before **`saved × 2% / rate`** (VO / mistimed counters can spike vs decode-only math).
+const OVERLOAD_EFFECTIVE_RATE_CAP: f64 = 0.10_f64;
+
+/// Proportional overload never removes more than **half** the prior **ME** px² in **one** firing (before SQLite **MIN** clamp).
+const OVERLOAD_MIN_KEEP_PERCENT_OF_PREV: u64 = 50;
+
+/// Strict **≈5 s** tail: rolling strain must **exceed** this **fraction** for **`OVERLOAD_FIRE_STREAK_TICKS`** successive **`1 Hz`** ticks before ME shrink.
+const OVERLOAD_STRAIN_GT_FRAC: f64 = 0.40;
+
+/// Consecutive overload ticks (**~seconds**) before persisting a lower ME budget.
+const OVERLOAD_FIRE_STREAK_TICKS: u32 = 5;
+
+/// **Recovery** rolling tail for **VO** / **decoder** when **`mistimed-frame-count`** is absent — needs **less** wall time than overload’s **≈5 s** × **95%**.
+const RECOVERY_STRAIN_TAIL_MIN_ELAPSED_SECS: f64 = 2.1;
+
+/// Relaxed-window rolling strain must stay **strictly below** this **fraction** for **`RECOVERY_FIRE_STREAK_TICKS`** successive ticks before ME raise.
+const RECOVERY_STRAIN_LT_FRAC: f64 = 0.20;
+
+/// **~30 s** at **`1 Hz`** with **`recovery_rate`** **`<`** **`RECOVERY_STRAIN_LT_FRAC`** before **`recovery_candidate`** raise.
+const RECOVERY_FIRE_STREAK_TICKS: u32 = 30;
+
+/// Strain **fraction** = Δtally ÷ (**Δwall × denominator Hz**).
+#[must_use]
+pub(crate) fn budget_signal_rate_in_window(signal_delta: u64, elapsed_secs: f64, denominator_hz: f64) -> f64 {
+    let hz = denominator_hz.clamp(0.05_f64, 960.0);
+    let frames = elapsed_secs.max(1e-6) * hz;
+    (signal_delta as f64 / frames.max(1.0)).min(10.0)
+}
+
+/// `(instant, cumulative **budget signal** tally)` plus optional **`RHINO_SMOOTH_DROP_STATS`** baselines.
 #[derive(Default)]
-pub(crate) struct SmoothOverloadState {
-    probe: SmoothBudgetProbe,
+pub(crate) struct SmoothBudgetDecoderState {
+    samples: VecDeque<(Instant, u64)>,
+    prev_signal_total: Option<u64>,
+    recovery_quiet_streak: u32,
     overload_streak: u32,
-    underutil_streak: u32,
+    smooth_drop_prev_emit_wall: Option<Instant>,
+    smooth_drop_signal_base: u64,
+    smooth_drop_mistimed_baseline: Option<u64>,
+    smooth_drop_vo_baseline: Option<u64>,
+    smooth_drop_decoder_baseline: Option<u64>,
 }
 
-#[derive(Default)]
-struct SmoothBudgetProbe {
-    prev_wall: Option<std::time::Instant>,
-    prev_cpu_secs: Option<f64>,
-}
-
-impl SmoothBudgetProbe {
-    /// Process CPU core-equivalent over the last interval: `Δ(user+system CPU seconds) / Δwall`.
-    fn tick_busy_cores(&mut self) -> Option<f64> {
-        let wall = std::time::Instant::now();
-        let cpu = process_cpu_seconds();
-        let out = match (self.prev_wall, self.prev_cpu_secs) {
-            (Some(pw), Some(pc)) => {
-                let dt = wall.duration_since(pw).as_secs_f64().max(1e-6);
-                let dc = (cpu - pc).max(0.0);
-                Some(dc / dt)
-            }
-            _ => None,
-        };
-        self.prev_wall = Some(wall);
-        self.prev_cpu_secs = Some(cpu);
-        out
-    }
-}
-
-fn logical_cpu_cores() -> u32 {
-    std::thread::available_parallelism()
-        .map(|n| u32::try_from(n.get()).unwrap_or(1))
-        .unwrap_or(1)
-        .max(1)
-}
-
-fn process_cpu_seconds() -> f64 {
-    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
-    // SAFETY: `getrusage` writes valid fields on success; zero-init is acceptable beforehand.
-    if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) } != 0 {
-        return 0.0;
-    }
-    let u = (ru.ru_utime.tv_sec as f64) + (ru.ru_utime.tv_usec as f64) * 1e-6;
-    let s = (ru.ru_stime.tv_sec as f64) + (ru.ru_stime.tv_usec as f64) * 1e-6;
-    u + s
-}
+include!("smooth_budget_sampling.rs");
+include!("smooth_budget_drop_log.rs");
+include!("smooth_budget_decision_log.rs");
 
 pub(crate) fn clamp_smooth_area(px: u64) -> u64 {
     px.max(crate::db::MIN_SMOOTH_MAX_AREA)
@@ -86,28 +83,48 @@ pub(crate) fn recovery_candidate(saved_px: u64) -> Option<u64> {
     Some(clamp_smooth_area(limited))
 }
 
-/// `busy_cores` from [SmoothBudgetProbe::tick_busy_cores]. Scales **`current_budget_px`**, not the default
-/// 1920×1080 baseline, so sustained overload steps down from whatever is already saved.
-pub(crate) fn budget_after_overload(current_budget_px: u64, busy_cores: f64, cpu_cores: u32) -> u64 {
+/// Proportional **`× 2% / rate`**, with **`rate`** ceiling and a **≥ ~50 %** retain floor so one spike cannot hit **`MIN`**.
+#[must_use]
+pub(crate) fn budget_after_decoder_overload(current_budget_px: u64, rate: f64) -> u64 {
     let base = current_budget_px.max(crate::db::MIN_SMOOTH_MAX_AREA);
-    let cc = f64::from(cpu_cores.max(1));
-    let bc = busy_cores.max(1e-9);
-    let v = base as f64 * cc * TARGET_CPU_CORE_FRACTION / bc;
-    clamp_smooth_area(v.round() as u64)
+    let t = DROP_OVERLOAD_FRAC;
+    let eps = t * 1.0000001;
+    let effective = rate.max(eps).min(OVERLOAD_EFFECTIVE_RATE_CAP);
+    let proportional = (base as f64 * t / effective).round() as u64;
+
+    let min_keep = base
+        .saturating_mul(OVERLOAD_MIN_KEEP_PERCENT_OF_PREV)
+        .saturating_div(100)
+        .max(crate::db::MIN_SMOOTH_MAX_AREA);
+
+    let shrunk = proportional.max(min_keep).min(base.saturating_sub(1));
+    clamp_smooth_area(shrunk.max(crate::db::MIN_SMOOTH_MAX_AREA))
+}
+
+/// Prefer raising only when **`decode_px` exceeds the clamped persisted cap** (same **`decode ≤ cap`** gate as **`bundled_me_vf_out_wh`** before ME downscale).
+#[must_use]
+pub(crate) fn raised_me_budget_can_reduce_downscale(decode_px: Option<u64>, smooth_max_px: u64) -> bool {
+    let cap = smooth_max_px.max(crate::db::MIN_SMOOTH_MAX_AREA);
+    decode_px.map_or(true, |px| px > cap)
 }
 
 /// Persist a new **`video_smooth_max_area`** and run **`apply_mpv_video`** so **`RHINO_SMOOTH_MAX_AREA`** and the bundled
-/// VapourSynth graph match SQLite — a warm **mpv** interpreter does **not** pick up env/token-only tweaks.
+/// graph match SQLite.
+#[must_use]
 fn persist_budget_and_maybe_rebuild_vf(
     player: &Rc<RefCell<Option<crate::mpv_embed::MpvBundle>>>,
     video_pref: &Rc<RefCell<crate::db::VideoPrefs>>,
     new_budget_px: u64,
     stderr_reason_suffix: &'static str,
-) {
+) -> bool {
     {
         let mut vp = video_pref.borrow_mut();
         if new_budget_px == vp.smooth_max_area {
-            return;
+            eprintln!(
+                "[rhino] smooth: persist_skip ME_budget_px² unchanged {} ({stderr_reason_suffix})",
+                vp.smooth_max_area
+            );
+            return false;
         }
         eprintln!(
             "[rhino] video: smooth_max_area {} → {} px² {}",
@@ -119,24 +136,26 @@ fn persist_budget_and_maybe_rebuild_vf(
 
     let mut vp = video_pref.borrow_mut();
     let Ok(mut g) = player.try_borrow_mut() else {
-        return;
+        return true;
     };
     let Some(b) = g.as_mut() else {
-        return;
+        return true;
     };
 
     let _ = apply_mpv_video(b, &mut vp, None);
+    true
 }
 
-/// Called from the **1 Hz** transport tick (bundled `.vpy` only): adjust **`smooth_max_area`** on sustained
-/// high (**shrink**) or low (**grow**) CPU **load**, then **`apply_mpv_video`** so the warm VapourSynth instance
-/// observes the new ME budget (env + interpreter both).
+include!("smooth_budget_sample_window.rs");
+
+/// **`1 Hz`** transport tick (**bundled** `.vpy` only; **caller** skips ticks while the playback shell window is inactive / unmapped—see **`transport_events`**): tighten ME budget when the **playback smoothness strain tally**
+/// shows **>** **`OVERLOAD_STRAIN_GT_FRAC`** strict rolling strain **five** successive ticks; relax when relaxed-window strain **\<** **`RECOVERY_STRAIN_LT_FRAC`** **thirty** successive ticks.
 pub(crate) fn smooth_budget_on_transport_tick(
     player: &Rc<RefCell<Option<crate::mpv_embed::MpvBundle>>>,
     video_pref: &Rc<RefCell<crate::db::VideoPrefs>>,
     pause: bool,
     core_idle: bool,
-    overload_state: &RefCell<SmoothOverloadState>,
+    state_cell: &RefCell<SmoothBudgetDecoderState>,
 ) {
     if pause || core_idle {
         return;
@@ -158,109 +177,55 @@ pub(crate) fn smooth_budget_on_transport_tick(
     if !vf_chain_has_vapoursynth(&b.mpv) || !mvtools_vf_eligible(&b.mpv, None) {
         return;
     }
+    let Some(snap) = read_smooth_budget_signal(&b.mpv) else {
+        return;
+    };
+    let cur_count = snap.primary;
+    let fps = playback_fps_for_decode_budget(&b.mpv);
+    let decode_px = decode_pixel_area_for_me_budget(&b.mpv);
     drop(g);
 
+    let now = Instant::now();
     let current_budget_px = video_pref.borrow().smooth_max_area;
-
-    let (busy_cores, cores, overload_fire, recover_fire) = {
-        let mut st = overload_state.borrow_mut();
-        let Some(bc) = st.probe.tick_busy_cores() else {
-            return;
-        };
-        let cores = logical_cpu_cores();
-        let util = bc / f64::from(cores);
-        match util {
-            u if u > TARGET_CPU_CORE_FRACTION => {
-                st.overload_streak = st.overload_streak.saturating_add(1);
-                st.underutil_streak = 0;
-            }
-            u if u < UNDERUTIL_CPU_CORE_FRACTION => {
-                st.underutil_streak = st.underutil_streak.saturating_add(1);
-                st.overload_streak = 0;
-            }
-            _ => {
-                st.overload_streak = 0;
-                st.underutil_streak = 0;
-            }
-        }
-
-        let mut overload_fire = false;
-        if st.overload_streak >= OVERLOAD_STREAK_TICKS {
-            st.overload_streak = 0;
-            overload_fire = true;
-        }
-
-        let mut recover_fire = false;
-        if st.underutil_streak >= UNDERUTIL_STREAK_TICKS {
-            st.underutil_streak = 0;
-            recover_fire = true;
-        }
-
-        (bc, cores, overload_fire, recover_fire)
+    let allow_recovery_raise = raised_me_budget_can_reduce_downscale(decode_px, current_budget_px);
+    let (
+        rate_opt,
+        recovery_rate_opt,
+        overload_fire,
+        recover_fire,
+        overload_streak,
+        recovery_quiet_streak,
+        overload_window_ready,
+        recovery_window_ready,
+    ) = {
+        let mut st = state_cell.borrow_mut();
+        let out = sample_window_and_fire_flags(&mut st, cur_count, now, fps, snap.src);
+        maybe_emit_smooth_drop_stats_line(&mut st, &snap, fps, now);
+        out
     };
 
-    if overload_fire {
-        let cand = budget_after_overload(current_budget_px, busy_cores, cores);
-        persist_budget_and_maybe_rebuild_vf(
-            player,
-            video_pref,
-            cand,
-            "(process CPU high — lowering ME budget)",
-        );
-        return;
-    }
+    let o = TransportBudgetOutcome {
+        current_budget_px,
+        cur_count,
+        now,
+        rate_opt,
+        recovery_rate_opt,
+        overload_fire,
+        recover_fire,
+        allow_recovery_raise,
+        snap,
+        decode_fps: fps,
+        decode_px,
+        overload_streak,
+        recovery_quiet_streak,
+        overload_window_ready,
+        recovery_window_ready,
+    };
 
-    if recover_fire {
-        if let Some(recover_to) = recovery_candidate(current_budget_px) {
-            if recover_to > current_budget_px {
-                persist_budget_and_maybe_rebuild_vf(
-                    player,
-                    video_pref,
-                    recover_to,
-                    "(process CPU low — raising ME budget)",
-                );
-            }
-        }
-    }
+    apply_budget_actions_after_sample(player, video_pref, state_cell, &o);
 }
+
+include!("smooth_budget_transport_apply.rs");
 
 #[cfg(test)]
-mod budget_tests {
-    use super::*;
-
-    #[test]
-    fn formula_returns_baseline_at_target_utilization() {
-        let cores = 8_u32;
-        let busy = f64::from(cores) * TARGET_CPU_CORE_FRACTION;
-        assert_eq!(
-            budget_after_overload(crate::db::DEFAULT_SMOOTH_MAX_AREA, busy, cores),
-            crate::db::DEFAULT_SMOOTH_MAX_AREA
-        );
-    }
-
-    #[test]
-    fn formula_scales_from_current_budget_not_default() {
-        let cores = 8_u32;
-        let busy = f64::from(cores);
-        let half = crate::db::DEFAULT_SMOOTH_MAX_AREA / 2;
-        assert_eq!(
-            budget_after_overload(half, busy, cores),
-            clamp_smooth_area((half as f64 * TARGET_CPU_CORE_FRACTION).round() as u64)
-        );
-    }
-
-    #[test]
-    fn recovery_raises_by_ten_percent_and_caps_default() {
-        assert_eq!(
-            recovery_candidate(500_000_u64),
-            Some(clamp_smooth_area(550_000_u64))
-        );
-        let just_below_default = crate::db::DEFAULT_SMOOTH_MAX_AREA - 800;
-        assert_eq!(recovery_candidate(just_below_default), Some(crate::db::DEFAULT_SMOOTH_MAX_AREA));
-    }
-
-    #[test]
-    fn recovery_unknown_at_nominal_ceiling() {
-        assert_eq!(recovery_candidate(crate::db::DEFAULT_SMOOTH_MAX_AREA), None);
-    }
-}
+include!("smooth_budget_tests.rs");
