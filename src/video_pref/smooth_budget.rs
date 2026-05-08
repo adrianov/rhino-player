@@ -192,6 +192,8 @@ pub(crate) fn smooth_budget_on_transport_tick(
     let now = Instant::now();
     let current_budget_px = video_pref.borrow().smooth_max_area;
     let allow_recovery_raise = raised_me_budget_can_reduce_downscale(decode_px, current_budget_px);
+    let recovery_blocked_after_overload_snapshot =
+        state_cell.borrow().recovery_blocked_after_overload_this_open;
     let (
         rate_opt,
         recovery_rate_opt,
@@ -204,7 +206,14 @@ pub(crate) fn smooth_budget_on_transport_tick(
     ) = {
         let mut st = state_cell.borrow_mut();
         let out = sample_window_and_fire_flags(&mut st, cur_count, now, fps, snap.src);
-        maybe_emit_smooth_drop_stats_line(&mut st, &snap, fps, now);
+        maybe_emit_smooth_drop_stats_line(
+            &mut st,
+            &snap,
+            fps,
+            now,
+            recovery_blocked_after_overload_snapshot,
+            out.0,
+        );
         out
     };
 

@@ -56,7 +56,12 @@ fn apply_budget_actions_after_sample(
         return;
     }
 
-    eprintln_smooth_budget_hold_line(o);
+    if o
+        .rate_opt
+        .is_some_and(|r| r >= OVERLOAD_STRAIN_GT_FRAC)
+    {
+        eprintln_smooth_budget_hold_line(o);
+    }
 }
 
 fn reset_decoder_state_after_shrink(cell: &RefCell<SmoothBudgetDecoderState>, now: Instant, cur_count: u64) {
