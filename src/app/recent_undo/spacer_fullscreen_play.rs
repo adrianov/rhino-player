@@ -160,25 +160,15 @@ fn wire_play_toggles(play_pause: &gtk::Button, ctx: PlayToggleCtx) {
         });
     }
 
-    // Keep secondary-click on WindowHandle capture: GTK runs built-in shell menu handlers on the
-    // handle before the GLArea child sees the gesture unless we Stop here.
-    let sec = gtk::EventControllerLegacy::new();
+    // Secondary click on WindowHandle: use GestureClick + Claimed so GTK’s pointer/active-state
+    // bookkeeping stays paired (EventControllerLegacy + Stop risked “broken accounting” warnings).
+    let sec = gtk::GestureClick::new();
+    sec.set_button(gtk::gdk::BUTTON_SECONDARY);
     sec.set_propagation_phase(gtk::PropagationPhase::Capture);
     let vh_ctx = ctx.clone();
-    sec.connect_event(move |_, ev| {
-        if ev.event_type() != gtk::gdk::EventType::ButtonPress {
-            return glib::Propagation::Proceed;
-        }
-        let Some(be) = ev.downcast_ref::<gtk::gdk::ButtonEvent>() else {
-            return glib::Propagation::Proceed;
-        };
-        if be.button() != gtk::gdk::BUTTON_SECONDARY {
-            return glib::Propagation::Proceed;
-        }
+    sec.connect_pressed(move |gesture, _n_press, _x, _y| {
         if toggle_play_pause(&vh_ctx) {
-            glib::Propagation::Stop
-        } else {
-            glib::Propagation::Proceed
+            let _ = gesture.set_state(gtk::EventSequenceState::Claimed);
         }
     });
     ctx.video_handle.add_controller(sec);
