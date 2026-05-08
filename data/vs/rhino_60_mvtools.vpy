@@ -24,8 +24,8 @@ _TARGET_NUM = 60
 _TARGET_DEN = 1
 _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (extra ME path)
-# MVTools square ``blksize`` is capped at **128** upstream. ``overlap`` must be **< blksize**. **128**/**32**
-# uses **maximum** block size — **fewest** motion blocks per frame (light ``Analyse``, coarse spatial sampling vs smaller presets).
+# MVTools ``Analyse``: ``blksize`` / ``overlap`` match upstream defaults (**8** / **0**). ``overlap`` must be **< blksize**.
+# Smaller blocks ⇒ **more** motion blocks per frame (heavier ``Analyse``, finer spatial sampling vs large-block presets).
 # **Decode-area policy**: Rhino sets ``RHINO_SMOOTH_MAX_AREA`` (persisted max decode width×height for ME).
 # If **decode** ``width × height`` exceeds that budget, **both** dimensions scale by ``√(budget/decode_px)``
 # so MVTools runs at **≤ budget** pixels (**stderr ``path=scaled``**); otherwise **native** (**``path=full``**).
@@ -33,13 +33,21 @@ _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (ex
 # than decode when ``path=scaled``). mpv scales to the window; geometry may **diverge** from ``video_in``.
 # ``tier=uhd`` stderr tag when **decode** ``width × height >= _MV_DECODE_TAG_AREA`` (**2560×1440**); ``tier=hd`` otherwise (logging only).
 # **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse`` (luma-only ME yields bad chroma — green tint).
-_MV_BLK_SIZE = 128
-_MV_BLK_OVERLAP = 32
+_MV_BLK_SIZE = 8
+_MV_BLK_OVERLAP = 0
 # ``Super`` **`levels`**: **0** = MVTools **automatic** pyramid depth from frame size (upstream default).
 _MV_SUPER_LEVELS = 0
 _MV_DECODE_TAG_AREA = 2560 * 1440
 # Explicit ``Super`` edge padding (MVTools default is **16**).
 _MV_SUPER_PAD = 16
+
+
+def _me_wh_aligned(width_px: int, height_px: int) -> tuple[int, int]:
+    """Floor to multiples of ``_MV_BLK_SIZE`` (min ``_MV_BLK_SIZE`` per side) for MVTools block grid / chroma."""
+    b = _MV_BLK_SIZE
+    w = max(b, width_px - (width_px % b))
+    h = max(b, height_px - (height_px % b))
+    return w, h
 
 
 def _smooth_max_area_px() -> int:
@@ -63,7 +71,9 @@ def _mv_graph_for_frame_size(
     truemotion, chroma)``.
     ``tier`` is **uhd** when **decode** ``width × height >= _MV_DECODE_TAG_AREA``, else **hd** (stderr tag only).
     ME raster may be **proportionally** smaller than decode when ``RHINO_SMOOTH_MAX_AREA`` < decode pixels.
-    Shared ``blksize`` / ``overlap`` **128** / **32**.
+    ME **width** / **height** are floored to multiples of ``_MV_BLK_SIZE`` (crop right/bottom on **full** path when
+    possible; else **Bicubic** — e.g. tiny frames).
+    Shared ``blksize`` / ``overlap`` **8** / **0** (MVTools upstream defaults).
     ``mv.Super`` ``levels=0`` (automatic pyramid) on the MVTools raster; **FlowFPS** output keeps **ME** frame size
     (may differ from decode when ``RHINO_SMOOTH_MAX_AREA`` constrained the ME raster).
     **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse``.
@@ -397,13 +407,28 @@ else:
         _decode_px = _decode_w * _decode_h
         _smooth_cap = _smooth_max_area_px()
         if _decode_px <= _smooth_cap:
-            work_me = work
-            _me_path = "full"
+            _aw, _ah = _me_wh_aligned(_decode_w, _decode_h)
+            if _aw == _decode_w and _ah == _decode_h:
+                work_me = work
+                _me_path = "full"
+            elif _aw <= _decode_w and _ah <= _decode_h:
+                work_me = core.std.Crop(
+                    work,
+                    left=0,
+                    right=_decode_w - _aw,
+                    top=0,
+                    bottom=_decode_h - _ah,
+                )
+                _me_path = "full"
+            else:
+                work_me = core.resize.Bicubic(work, width=_aw, height=_ah)
+                _me_path = "full"
         else:
             _scale = math.sqrt(float(_smooth_cap) / float(_decode_px))
             _me_w = max(2, int(round(_decode_w * _scale)))
             _me_h = max(2, int(round(_decode_h * _scale)))
-            work_me = core.resize.Bicubic(work, width=_me_w, height=_me_h)
+            _aw, _ah = _me_wh_aligned(_me_w, _me_h)
+            work_me = core.resize.Bicubic(work, width=_aw, height=_ah)
             _me_path = "scaled"
         _tier, _blk, _ov, _pel, _sharp, _search, _fmask, _fblend, _tm, _mv_chroma = (
             _mv_graph_for_frame_size(_decode_w, _decode_h)
