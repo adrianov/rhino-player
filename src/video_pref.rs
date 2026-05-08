@@ -20,12 +20,14 @@
 //! from **`video_smooth_max_area`** (persisted; proportional ME downscale when decode exceeds it; **FlowFPS**
 //! output stays at the ME raster — may diverge from decode dimensions — see `data/vs/rhino_60_mvtools.vpy`).
 //! With the bundled script, **`smooth_budget_on_transport_tick`** may lower **`video_smooth_max_area`** when **this process**
-//! sustains **>** ~**75%** logical-core CPU utilization (two consecutive **1 Hz** transport ticks), then rebuilds **`vf`**.
+//! sustains **>** ~**75%** logical-core CPU utilization (two consecutive **1 Hz** transport ticks), scaling from the
+//! **current saved** budget (not the factory default), then rebuilds **`vf`**.
 //! After mpv loads a file with Smooth on at ~1.0×, the transport layer schedules [apply_mpv_video]
 //! when **`FileLoaded`** or **`path`** fires (transport coalesced idle). If the active **`vf`** chain
 //! already matches the resolved script and buffer settings, Rhino refreshes env vars only and skips
 //! **`vf clr`**/**`vf add`** unless **[paths::RHINO_SOURCE_FPS_VAR]** changed — then it rebuilds so the
-//! `.vpy` sees the new cadence (env alone does not re-init VapourSynth). Seek-only scrubbing never
+//! `.vpy` sees the new cadence (**env alone does not re-init VapourSynth**; the ME budget is duplicated in
+//! **`vapoursynth:user-data=`** so rebuilds track **SQLite** **`video_smooth_max_area`**). Seek-only scrubbing never
 //! schedules this path.
 //! Clearing the graph
 //! (**Smooth off** or **vf** error) restores **`hwdec=auto`** / **`vd-lavc-dr=auto`**.
@@ -40,6 +42,7 @@ include!("video_pref/smooth_motion_tier.rs");
 include!("video_pref/mvtools_video_log_env.rs");
 include!("video_pref/smooth_vf_swap_timing.rs");
 include!("video_pref/mpv_escape_path.rs");
+include!("video_pref/smooth_vapoursynth_vf_attach.rs");
 include!("video_pref/mvtools_speed_vf_setup.rs");
 include!("video_pref/smooth_off_playhead_refresh.rs");
 include!("video_pref/decode_and_apply_mpv_video.rs");

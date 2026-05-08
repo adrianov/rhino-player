@@ -3,7 +3,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// Target: average process CPU core-equivalent ≤ this fraction of logical cores at the baseline budget.
+/// Target: average process CPU core-equivalent ≤ this fraction of logical cores relative to the **current**
+/// saved ME pixel budget (each overload step scales that budget, not the factory default).
 const TARGET_CPU_CORE_FRACTION: f64 = 0.75;
 /// Require this many consecutive overloaded transport ticks before shrinking the budget.
 const OVERLOAD_STREAK_TICKS: u32 = 2;
@@ -61,11 +62,13 @@ pub(crate) fn clamp_smooth_area(px: u64) -> u64 {
     px.max(crate::db::MIN_SMOOTH_MAX_AREA)
 }
 
-/// `busy_cores` from [SmoothBudgetProbe::tick_busy_cores].
-pub(crate) fn budget_after_overload(busy_cores: f64, cpu_cores: u32) -> u64 {
+/// `busy_cores` from [SmoothBudgetProbe::tick_busy_cores]. Scales **`current_budget_px`**, not the default
+/// 1920×1080 baseline, so sustained overload steps down from whatever is already saved.
+pub(crate) fn budget_after_overload(current_budget_px: u64, busy_cores: f64, cpu_cores: u32) -> u64 {
+    let base = current_budget_px.max(crate::db::MIN_SMOOTH_MAX_AREA);
     let cc = f64::from(cpu_cores.max(1));
     let bc = busy_cores.max(1e-9);
-    let v = crate::db::DEFAULT_SMOOTH_MAX_AREA as f64 * cc * TARGET_CPU_CORE_FRACTION / bc;
+    let v = base as f64 * cc * TARGET_CPU_CORE_FRACTION / bc;
     clamp_smooth_area(v.round() as u64)
 }
 
@@ -120,7 +123,8 @@ pub(crate) fn smooth_budget_on_transport_tick(
     };
 
     let cores = logical_cpu_cores();
-    let cand = budget_after_overload(busy_cores, cores);
+    let current_budget_px = video_pref.borrow().smooth_max_area;
+    let cand = budget_after_overload(current_budget_px, busy_cores, cores);
 
     let should_apply = {
         let mut vp = video_pref.borrow_mut();
@@ -158,6 +162,20 @@ mod budget_tests {
     fn formula_returns_baseline_at_target_utilization() {
         let cores = 8_u32;
         let busy = f64::from(cores) * TARGET_CPU_CORE_FRACTION;
-        assert_eq!(budget_after_overload(busy, cores), crate::db::DEFAULT_SMOOTH_MAX_AREA);
+        assert_eq!(
+            budget_after_overload(crate::db::DEFAULT_SMOOTH_MAX_AREA, busy, cores),
+            crate::db::DEFAULT_SMOOTH_MAX_AREA
+        );
+    }
+
+    #[test]
+    fn formula_scales_from_current_budget_not_default() {
+        let cores = 8_u32;
+        let busy = f64::from(cores);
+        let half = crate::db::DEFAULT_SMOOTH_MAX_AREA / 2;
+        assert_eq!(
+            budget_after_overload(half, busy, cores),
+            clamp_smooth_area((half as f64 * TARGET_CPU_CORE_FRACTION).round() as u64)
+        );
     }
 }

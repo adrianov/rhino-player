@@ -144,8 +144,7 @@ pub(crate) fn vf_smooth_matches_prefs(mpv: &Mpv, v: &VideoPrefs) -> bool {
     if !vfl.contains("vapoursynth") {
         return false;
     }
-    let bf = format!("buffered-frames={}", SMOOTH_VF_BUFFERED_FRAMES);
-    if !vf.contains(&bf) || !vf.contains("concurrent-frames=auto") {
+    if !vf.contains("concurrent-frames=auto") {
         return false;
     }
     let script = script.trim();
@@ -158,7 +157,25 @@ pub(crate) fn vf_smooth_matches_prefs(mpv: &Mpv, v: &VideoPrefs) -> bool {
     if !(path_matches || base_matches) {
         return false;
     }
+    if !vf_smooth_budget_chain_ok(&vf, v) {
+        return false;
+    }
     smooth_max_area_env_matches(v)
+}
+
+/// Modern chain: **`user-data=`** + **`buffered-frames=16`**. Legacy libmpv: no **`user-data`**, jittered
+/// **`buffered-frames`** from the saved area (see [smooth_vf_buffer_legacy_depth]).
+pub(crate) fn vf_smooth_budget_chain_ok(vf: &str, v: &VideoPrefs) -> bool {
+    let want = v.smooth_max_area.max(MIN_SMOOTH_MAX_AREA);
+    if vf.contains("user-data=") {
+        let q = mpv_fixed_len_quote(&format!("{want}"));
+        return vf.contains(&format!("user-data={q}"))
+            && vf.contains(&format!("buffered-frames={}", SMOOTH_VF_BUFFERED_FRAMES));
+    }
+    vf.contains(&format!(
+        "buffered-frames={}",
+        smooth_vf_buffer_legacy_depth(want)
+    ))
 }
 
 fn smooth_max_area_env_matches(v: &VideoPrefs) -> bool {
@@ -239,21 +256,11 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
         return true;
     };
     eprintln!("[rhino] video: VapourSynth script = {p}");
-    let bf = SMOOTH_VF_BUFFERED_FRAMES;
-    let spec = format!(
-        "vapoursynth:file={}:buffered-frames={bf}:concurrent-frames=auto",
-        mpv_escape_path(&p),
-    );
-    if let Err(e) = mpv.command("vf", &["add", &spec]) {
-        eprintln!("[rhino] video: vf add vapoursynth failed: {e:?} (trying set_property; install VapourSynth + mvtools if this persists).");
-        if let Err(e2) = mpv.set_property("vf", spec.clone()) {
-            eprintln!("[rhino] video: set_property vf fallback failed: {e2:?}");
-            turn_off_smooth_60_in_prefs(v);
-            return true;
-        }
-        eprintln!("[rhino] video: VapourSynth set via `vf` property (fallback after vf add error)");
-    } else {
-        eprintln!("[rhino] video: vf add vapoursynth command accepted");
+    let area_u = v.smooth_max_area.max(MIN_SMOOTH_MAX_AREA);
+    let p_esc = mpv_escape_path(&p);
+    if !smooth_vapoursynth_vf_try_attach(mpv, &p_esc, area_u) {
+        turn_off_smooth_60_in_prefs(v);
+        return true;
     }
     apply_smooth_vf_present_opts(mpv);
     false

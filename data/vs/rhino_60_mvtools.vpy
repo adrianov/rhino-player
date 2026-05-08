@@ -26,7 +26,8 @@ _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (extra ME path)
 # MVTools ``Analyse``: ``blksize`` / ``overlap`` match upstream defaults (**8** / **0**). ``overlap`` must be **< blksize**.
 # Smaller blocks ⇒ **more** motion blocks per frame (heavier ``Analyse``, finer spatial sampling vs large-block presets).
-# **Decode-area policy**: Rhino sets ``RHINO_SMOOTH_MAX_AREA`` (persisted max decode width×height for ME).
+# **Decode-area policy**: [mpv] ``vapoursynth:user-data`` passes the pixel budget (**decimal string**) as Python
+# global ``user_data``; Rhino also sets ``RHINO_SMOOTH_MAX_AREA`` for tooling. Prefer ``user_data`` when it is digits.
 # If **decode** ``width × height`` exceeds that budget, **both** dimensions scale by ``√(budget/decode_px)``
 # so MVTools runs at **≤ budget** pixels (**stderr ``path=scaled``**); otherwise **native** (**``path=full``**).
 # **FlowFPS** runs on that ME raster; **set_output** uses **FlowFPS** dimensions (ME raster size — may be smaller
@@ -51,14 +52,26 @@ def _me_wh_aligned(width_px: int, height_px: int) -> tuple[int, int]:
 
 
 def _smooth_max_area_px() -> int:
-    """ME pixel budget from Rhino (**RHINO_SMOOTH_MAX_AREA**; default **1920×1080** decode-area equivalent)."""
+    """ME pixel budget: [mpv] ``user_data`` (digits), else ``RHINO_SMOOTH_MAX_AREA``, else **1920×1080**."""
+    min_budget = 320 * 180
+    ud = globals().get("user_data")
+    if ud is not None:
+        if isinstance(ud, (bytes, bytearray)):
+            ud_s = ud.decode("utf-8", errors="ignore").strip()
+        else:
+            ud_s = str(ud).strip()
+        if ud_s.isdigit():
+            try:
+                return max(min_budget, int(ud_s))
+            except ValueError:
+                pass
     raw = (os.environ.get("RHINO_SMOOTH_MAX_AREA") or "").strip()
     if not raw:
-        return 1920 * 1080
+        return max(min_budget, 1920 * 1080)
     try:
-        return max(1, int(raw))
+        return max(min_budget, int(raw))
     except ValueError:
-        return 1920 * 1080
+        return max(min_budget, 1920 * 1080)
 
 
 def _mv_graph_for_frame_size(
