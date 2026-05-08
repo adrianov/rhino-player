@@ -48,6 +48,22 @@ fn show_fs_wall_clock_fullscreen(
     *tick_slot.borrow_mut() = Some(id);
 }
 
+#[cfg(target_os = "macos")]
+fn macos_fs_notify_defer_maximize(
+    fr: &Rc<RefCell<Option<(i32, i32)>>>,
+    win: &adw::ApplicationWindow,
+) {
+    let fr_mx = Rc::clone(fr);
+    let w_mx = win.clone();
+    let _ = glib::source::idle_add_local_once(move || {
+        if !w_mx.is_fullscreen() || w_mx.is_maximized() {
+            return;
+        }
+        *fr_mx.borrow_mut() = Some(win_normal_size(&w_mx));
+        w_mx.maximize();
+    });
+}
+
 fn w_in_fullscreen(ctx: &WindowInputCtx) {
     #[cfg(target_os = "macos")]
     let fs_leave_gen = Rc::new(Cell::new(0u32));
@@ -117,9 +133,19 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                 // Only skip the paired `maximize` in that window — still run chrome / clock so a
                 // true→false→true notify sequence does not leave stale UI if the platform emits one
                 // during an AppKit transition.
+                // Avoid synchronous `maximize()` in this notify on macOS: fullscreen transitions
+                // can reconfigure GdkMacosMonitor's display link while frame callbacks are in
+                // flight; `_gdk_macos_monitor_remove_frame_callback` may then call
+                // `gdk_display_link_source_pause` when the new link is already paused (GDK CRITICAL:
+                // `source->paused == FALSE`). Defer to the next main-loop turn.
                 if !defer_max_pair && !w.is_maximized() {
-                    *fr.borrow_mut() = Some(win_normal_size(w));
-                    w.maximize();
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        *fr.borrow_mut() = Some(win_normal_size(w));
+                        w.maximize();
+                    }
+                    #[cfg(target_os = "macos")]
+                    macos_fs_notify_defer_maximize(&fr, w);
                 }
                 b.set(false);
                 show_fs_wall_clock_fullscreen(&fs_clock, &fs_tick_slot, w);
