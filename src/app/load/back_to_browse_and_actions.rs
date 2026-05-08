@@ -95,6 +95,11 @@ fn make_browse_back(
     })
 }
 
+#[cfg(target_os = "macos")]
+const CLOSE_VIDEO_PLAYBACK_TIP: &str = "Close Video (Cmd+W)";
+#[cfg(not(target_os = "macos"))]
+const CLOSE_VIDEO_PLAYBACK_TIP: &str = "Close Video (Ctrl+W)";
+
 /// Enables `app.close-video` and matches the bottom close button tooltip to browse vs playback.
 fn sync_close_video_action(
     a: &gio::SimpleAction,
@@ -110,7 +115,7 @@ fn sync_close_video_action(
     let tip = if grid || !playback_focus.get() {
         "Quit Rhino Player"
     } else {
-        "Close Video (Ctrl+W)"
+        CLOSE_VIDEO_PLAYBACK_TIP
     };
     if tip_target.tooltip_text().as_deref() != Some(tip) {
         tip_target.set_tooltip_text(Some(tip));
