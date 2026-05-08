@@ -112,7 +112,7 @@ fn eprintln_smooth_budget_hold_line(o: &TransportBudgetOutcome) {
     let me_budget_px = o.current_budget_px.max(crate::db::MIN_SMOOTH_MAX_AREA);
     let hz = budget_signal_hz_for_comparison(o.decode_fps, o.snap.src);
     let src_explain =
-        "rolling_strain_recovery<20pct_30ticks strict_overload_tail>40pct_5ticks";
+        "rolling_strain_recovery<10pct_30ticks strict_overload_tail>40pct_5ticks";
     eprintln!(
         "[rhino] smooth: decision hold signal={} primary_total={} mistimed={:?} vo_drop={:?} decoder_drop={:?} overload_window_rate_opt={} overload_window_ready={} recovery_window_rate_opt={} recovery_window_ready={} recovery_streak={}/{}({src_explain}) overload_streak={}/{}(>{} strict_tail strain need {} ticks) allow_raise={} decode_px²={:?} ME_budget_px²={me_budget_px} denom_hz={:.1}",
         o.snap.src.as_str(),

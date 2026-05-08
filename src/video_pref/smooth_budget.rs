@@ -18,7 +18,7 @@ const OVERLOAD_FIRE_STREAK_TICKS: u32 = 5;
 const RECOVERY_STRAIN_TAIL_MIN_ELAPSED_SECS: f64 = 2.1;
 
 /// Relaxed-window rolling strain must stay **strictly below** this **fraction** for **`RECOVERY_FIRE_STREAK_TICKS`** successive ticks before ME raise.
-const RECOVERY_STRAIN_LT_FRAC: f64 = 0.20;
+const RECOVERY_STRAIN_LT_FRAC: f64 = 0.10;
 
 /// **~30 s** at **`1 Hz`** with **`recovery_rate`** **`<`** **`RECOVERY_STRAIN_LT_FRAC`** before **`recovery_candidate`** raise.
 const RECOVERY_FIRE_STREAK_TICKS: u32 = 30;
