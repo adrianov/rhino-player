@@ -37,6 +37,15 @@ Feature: Fixed-step playback speed
     And the compact header speed readout shows the chosen fixed rate
     And the header list highlight matches the same canonical step
 
+  Scenario: Digit keys unpause before applying speed
+    Given media with measurable duration is loaded
+    And playback is paused
+    When the user chooses playback rate using keyboard shortcut digits one through eight
+    Then playback is not paused
+    And playback speed matches the fixed-rate shortcut for that digit within 0.01
+    And the compact header speed readout shows the chosen fixed rate
+    And the header list highlight matches the same canonical step
+
   Scenario: Snap to nearest canonical step on drift
     Given mpv reports a speed outside the canonical fixed steps beyond 0.01
     When sync logic runs after FileLoaded
@@ -65,7 +74,7 @@ Feature: Fixed-step playback speed
 ## Notes
 - Fastest row **8.0×** matches mpv default audio pitch preservation: auto `scaletempo2` uses `max-speed=8.0` upstream, so higher `speed` values do not apply reliably with default options.
 - Speed header control: **`rp-speed-mbtn`** `MenuButton` child layout **`rp-speed-face`**: horizontal **`Image`** + **`rp-speed-readout`** (`spacing 4` in code, no extra CSS margins) so the header row matches other icon-only controls in windowed and fullscreen chrome. One hit target opens the popover; disabled when the seek bar slot is insensitive (continue grid).
-- Digit **3** sets **1.5×**; digits **1**, **2**, **4**–**8** set **N**× (**13-input-shortcuts**).
+- Digit **3** sets **1.5×**; digits **1**, **2**, **4**–**8** set **N**× (**13-input-shortcuts**). When playback is paused, that shortcut unpause sequence runs first so rate and Smooth bookkeeping match the bottom-bar play control.
 - Read `speed` after each load; if not within 0.01 of one canonical step, set mpv to the nearest.
 - Header LTR cluster: speed sits left of subtitles, volume, and the hamburger menu.
 - v1 has no SQLite persistence; mpv keeps speed across `loadfile` in one run except sibling-folder auto-advance (see [07-sibling-folder-queue](07-sibling-folder-queue.md)).

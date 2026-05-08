@@ -7,6 +7,7 @@ const DIGIT_SPEED_BLOCK: gtk::gdk::ModifierType = gtk::gdk::ModifierType::CONTRO
 #[derive(Clone)]
 struct DigitSpeedShortcutCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
+    play_toggle: PlayToggleCtx,
     gl: gtk::GLArea,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
     app: adw::Application,
@@ -64,6 +65,15 @@ fn try_digit_speed_shortcut(
         return Some(glib::Propagation::Proceed);
     }
     let v = digit_speed_value(n);
+    let g = c.player.borrow();
+    let Some(b) = g.as_ref() else {
+        return Some(glib::Propagation::Proceed);
+    };
+    let need_unpause = b.mpv.get_property::<bool>("pause").unwrap_or(false);
+    drop(g);
+    if need_unpause {
+        let _ = apply_mpv_pause(&c.play_toggle, false);
+    }
     let g = c.player.borrow();
     let Some(b) = g.as_ref() else {
         return Some(glib::Propagation::Proceed);

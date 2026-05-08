@@ -72,6 +72,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
     let play_seek_toggle = ctx.play_toggle.clone();
     let digit_spd = DigitSpeedShortcutCtx {
         player: p.clone(),
+        play_toggle: ctx.play_toggle.clone(),
         gl: ctx.shell.gl.clone(),
         video_pref: Rc::clone(&ctx.video_pref),
         app: ctx.app.clone(),
