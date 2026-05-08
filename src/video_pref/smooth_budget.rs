@@ -8,9 +8,6 @@ use std::time::{Duration, Instant};
 /// Sliding window length for decoding-stress (**seconds**).
 const DROP_WINDOW_SECS: u64 = 5;
 
-/// **`window`** must span **this** fraction of **[`DROP_WINDOW_SECS`]`** wall time before interpreting rate.
-const DROP_WINDOW_FILL_FRAC: f64 = 0.95;
-
 /// **`2`%** floor used **inside** **`budget_after_decoder_overload`** (**`saved ×`** this **/** measured rate**); **not** the transport **overload fire** threshold (**`OVERLOAD_STRAIN_GT_FRAC`**).
 const DROP_OVERLOAD_FRAC: f64 = 0.02;
 
@@ -26,7 +23,7 @@ const OVERLOAD_STRAIN_GT_FRAC: f64 = 0.40;
 /// Consecutive overload ticks (**~seconds**) before persisting a lower ME budget.
 const OVERLOAD_FIRE_STREAK_TICKS: u32 = 5;
 
-/// **Recovery** rolling tail for **VO** / **decoder** when **`mistimed-frame-count`** is absent — needs **less** wall time than overload’s **≈5 s** × **95%**.
+/// **Recovery** rolling tail for **VO** / **decoder** when **`mistimed-frame-count`** is absent — minimum wall span before strain **rates** exist (`overload` shares this gate; samples still trimmed at **[`DROP_WINDOW_SECS`]**).
 const RECOVERY_STRAIN_TAIL_MIN_ELAPSED_SECS: f64 = 2.1;
 
 /// Relaxed-window rolling strain must stay **strictly below** this **fraction** for **`RECOVERY_FIRE_STREAK_TICKS`** successive ticks before ME raise.
@@ -59,17 +56,25 @@ pub(crate) struct SmoothBudgetDecoderState {
 
 include!("smooth_budget_sampling.rs");
 include!("smooth_budget_drop_log.rs");
-include!("smooth_budget_decision_log.rs");
 
 pub(crate) fn clamp_smooth_area(px: u64) -> u64 {
     px.max(crate::db::MIN_SMOOTH_MAX_AREA)
 }
 
-/// **+10%** step capped at **`DEFAULT_SMOOTH_MAX_AREA`**, **`None`** when already at nominal default or invalid.
+/// Rolling-recovery ceiling: decoded width×height when known, else **`DEFAULT_SMOOTH_MAX_AREA`** (fresh installs / unreadable dims).
 #[must_use]
-pub(crate) fn recovery_candidate(saved_px: u64) -> Option<u64> {
+pub(crate) fn recovery_ceiling_px(decode_area_px: Option<u64>) -> u64 {
+    decode_area_px
+        .map(clamp_smooth_area)
+        .unwrap_or(crate::db::DEFAULT_SMOOTH_MAX_AREA)
+        .max(crate::db::MIN_SMOOTH_MAX_AREA)
+}
+
+/// **+10%** step capped at **[`recovery_ceiling_px`]**, **`None`** when already at that ceiling.
+#[must_use]
+pub(crate) fn recovery_candidate(saved_px: u64, decode_area_px: Option<u64>) -> Option<u64> {
     let base = clamp_smooth_area(saved_px);
-    let cap = crate::db::DEFAULT_SMOOTH_MAX_AREA;
+    let cap = recovery_ceiling_px(decode_area_px);
     if base >= cap {
         return None;
     }
@@ -82,6 +87,8 @@ pub(crate) fn recovery_candidate(saved_px: u64) -> Option<u64> {
     let limited = bumped.min(cap);
     Some(clamp_smooth_area(limited))
 }
+
+include!("smooth_budget_decision_log.rs");
 
 /// Proportional **`× 2% / rate`**, with **`rate`** ceiling and a **≥ ~50 %** retain floor so one spike cannot hit **`MIN`**.
 #[must_use]

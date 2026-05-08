@@ -78,8 +78,8 @@ fn maybe_raise_budget(
     player: &Rc<RefCell<Option<crate::mpv_embed::MpvBundle>>>,
     o: &TransportBudgetOutcome,
 ) {
-    let Some(recover_to) = recovery_candidate(o.current_budget_px) else {
-        eprintln_smooth_budget_recovery_at_default_ceiling(&o.snap, o.current_budget_px);
+    let Some(recover_to) = recovery_candidate(o.current_budget_px, o.decode_px) else {
+        eprintln_smooth_budget_recovery_at_ceiling(&o.snap, o.current_budget_px, o.decode_px);
         return;
     };
     if recover_to <= o.current_budget_px {

@@ -97,14 +97,20 @@ fn eprintln_smooth_budget_recovery_raise_no_step(
     );
 }
 
-fn eprintln_smooth_budget_recovery_at_default_ceiling(snap: &SmoothBudgetSignalSnap, me_budget_px: u64) {
+fn eprintln_smooth_budget_recovery_at_ceiling(
+    snap: &SmoothBudgetSignalSnap,
+    me_budget_px: u64,
+    decode_px: Option<u64>,
+) {
     eprintln!(
-        "[rhino] smooth: decision raise_skipped at_default_ME_ceiling signal={} primary_total={} mistimed={:?} vo_drop={:?} decoder_drop={:?} ME_budget_px²={} (recovery_candidate exhausted)",
+        "[rhino] smooth: decision raise_skipped at_recovery_ME_ceiling signal={} primary_total={} mistimed={:?} vo_drop={:?} decoder_drop={:?} decode_px²={:?} ME_budget_px²={} recovery_ceiling_px²={} (recovery_candidate exhausted)",
         snap.src.as_str(),
         snap.primary,
         snap.mistimed,
         snap.vo_drop,
         snap.decoder_drop,
+        decode_px,
         me_budget_px,
+        recovery_ceiling_px(decode_px),
     );
 }

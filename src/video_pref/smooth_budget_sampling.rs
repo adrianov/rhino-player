@@ -111,13 +111,17 @@ fn overload_rate_from_tail(
     fps: f64,
     signal_src: SmoothBudgetSignalSrc,
 ) -> Option<f64> {
+    // Same minimum wall span as relaxed recovery (`RECOVERY_STRAIN_TAIL_MIN_ELAPSED_SECS`):
+    // overload previously required ~95% of [`DROP_WINDOW_SECS`] (~4.75 s), so `recovery_*`
+    // could report extreme strain while `overload_*` stayed `n/a` and `overload_streak` reset
+    // every tick; deque trimming still caps the trailing tail at [`DROP_WINDOW_SECS`].
     strain_rate_since_deque_front(
         st,
         cur_count,
         now,
         fps,
         signal_src,
-        DROP_WINDOW_SECS as f64 * DROP_WINDOW_FILL_FRAC,
+        RECOVERY_STRAIN_TAIL_MIN_ELAPSED_SECS,
     )
 }
 

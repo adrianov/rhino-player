@@ -2,21 +2,35 @@ mod budget_tests {
     use super::*;
 
     #[test]
-    fn recovery_raises_by_ten_percent_and_caps_default() {
+    fn recovery_raises_by_ten_percent_and_caps_default_when_decode_unknown() {
         assert_eq!(
-            recovery_candidate(500_000_u64),
+            recovery_candidate(500_000_u64, None),
             Some(clamp_smooth_area(550_000_u64))
         );
         let just_below_default = crate::db::DEFAULT_SMOOTH_MAX_AREA - 800;
         assert_eq!(
-            recovery_candidate(just_below_default),
+            recovery_candidate(just_below_default, None),
             Some(crate::db::DEFAULT_SMOOTH_MAX_AREA)
         );
     }
 
     #[test]
-    fn recovery_unknown_at_nominal_ceiling() {
-        assert_eq!(recovery_candidate(crate::db::DEFAULT_SMOOTH_MAX_AREA), None);
+    fn recovery_unknown_decode_stops_at_default_reference() {
+        assert_eq!(
+            recovery_candidate(crate::db::DEFAULT_SMOOTH_MAX_AREA, None),
+            None
+        );
+    }
+
+    #[test]
+    fn recovery_ceiling_follows_decode_when_wider_than_default() {
+        let decode = 6144000_u64;
+        assert_eq!(recovery_ceiling_px(Some(decode)), decode);
+        assert_eq!(
+            recovery_candidate(crate::db::DEFAULT_SMOOTH_MAX_AREA, Some(decode)),
+            Some(2_280_960_u64)
+        );
+        assert_eq!(recovery_candidate(decode, Some(decode)), None);
     }
 
     #[test]

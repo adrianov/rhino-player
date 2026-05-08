@@ -10,9 +10,10 @@ fn bump_overload_streak_from_strict_rate(st: &mut SmoothBudgetDecoderState, over
         Some(r) if r > OVERLOAD_STRAIN_GT_FRAC => {
             st.overload_streak = st.overload_streak.saturating_add(1);
         }
-        _ => {
+        Some(_) => {
             st.overload_streak = 0;
         }
+        None => {}
     }
 }
 
