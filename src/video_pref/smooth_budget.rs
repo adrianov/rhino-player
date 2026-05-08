@@ -13,7 +13,6 @@ const OVERLOAD_STREAK_TICKS: u32 = 2;
 const UNDERUTIL_CPU_CORE_FRACTION: f64 = 0.50;
 /// Require this many consecutive underutil ticks before raising the ME budget (**1 Hz** tick ≈ seconds).
 const UNDERUTIL_STREAK_TICKS: u32 = 30;
-const RECOVERY_FACTOR: f64 = 1.10;
 
 #[derive(Default)]
 pub(crate) struct SmoothOverloadState {
@@ -35,7 +34,7 @@ impl SmoothBudgetProbe {
         let cpu = process_cpu_seconds();
         let out = match (self.prev_wall, self.prev_cpu_secs) {
             (Some(pw), Some(pc)) => {
-                let dt = wall.duration_since(pw).as_secs_f64().max(1e-9);
+                let dt = wall.duration_since(pw).as_secs_f64().max(1e-6);
                 let dc = (cpu - pc).max(0.0);
                 Some(dc / dt)
             }
@@ -77,23 +76,14 @@ pub(crate) fn recovery_candidate(saved_px: u64) -> Option<u64> {
     if base >= cap {
         return None;
     }
-    #[allow(clippy::cast_precision_loss)] // ME px² spans u64 safely for f64 product here
-    let scaled = (base as f64 * RECOVERY_FACTOR).round() as u64;
+    let scaled = base
+        .checked_mul(110)
+        .and_then(|x| x.checked_add(50))
+        .map(|x| x / 100)
+        .unwrap_or(u64::MAX);
     let bumped = scaled.max(base.saturating_add(1));
     let limited = bumped.min(cap);
     Some(clamp_smooth_area(limited))
-}
-
-fn mpv_decode_wh(mpv: &libmpv2::Mpv) -> Option<(i32, i32)> {
-    let pair = |wk: &str, hk: &str| {
-        let w = mpv.get_property::<i64>(wk).ok()?;
-        let h = mpv.get_property::<i64>(hk).ok()?;
-        if w <= 0 || h <= 0 {
-            return None;
-        }
-        Some((i32::try_from(w).ok()?, i32::try_from(h).ok()?))
-    };
-    pair("dwidth", "dheight").or_else(|| pair("width", "height"))
 }
 
 /// `busy_cores` from [SmoothBudgetProbe::tick_busy_cores]. Scales **`current_budget_px`**, not the default
@@ -106,10 +96,11 @@ pub(crate) fn budget_after_overload(current_budget_px: u64, busy_cores: f64, cpu
     clamp_smooth_area(v.round() as u64)
 }
 
+/// Persist a new **`video_smooth_max_area`** and run **`apply_mpv_video`** so **`RHINO_SMOOTH_MAX_AREA`** and the bundled
+/// VapourSynth graph match SQLite — a warm **mpv** interpreter does **not** pick up env/token-only tweaks.
 fn persist_budget_and_maybe_rebuild_vf(
     player: &Rc<RefCell<Option<crate::mpv_embed::MpvBundle>>>,
     video_pref: &Rc<RefCell<crate::db::VideoPrefs>>,
-    old_clamped_budget_px: u64,
     new_budget_px: u64,
     stderr_reason_suffix: &'static str,
 ) {
@@ -134,21 +125,12 @@ fn persist_budget_and_maybe_rebuild_vf(
         return;
     };
 
-    if let Some((dw, dh)) = mpv_decode_wh(&b.mpv) {
-        let out_old = bundled_me_vf_out_wh(dw, dh, old_clamped_budget_px);
-        let out_new = bundled_me_vf_out_wh(dw, dh, new_budget_px);
-        if out_old.is_some() && out_old == out_new {
-            std::env::set_var(crate::paths::RHINO_SMOOTH_MAX_AREA_VAR, format!("{new_budget_px}"));
-            note_bundled_me_budget_vf_applied(new_budget_px);
-            return;
-        }
-    }
-
     let _ = apply_mpv_video(b, &mut vp, None);
 }
 
 /// Called from the **1 Hz** transport tick (bundled `.vpy` only): adjust **`smooth_max_area`** on sustained
-/// high (**shrink**) or low (**grow toward default**) CPU, persist, and **`vf clr`/`vf add`** unless ME dimensions match.
+/// high (**shrink**) or low (**grow**) CPU **load**, then **`apply_mpv_video`** so the warm VapourSynth instance
+/// observes the new ME budget (env + interpreter both).
 pub(crate) fn smooth_budget_on_transport_tick(
     player: &Rc<RefCell<Option<crate::mpv_embed::MpvBundle>>>,
     video_pref: &Rc<RefCell<crate::db::VideoPrefs>>,
@@ -217,14 +199,11 @@ pub(crate) fn smooth_budget_on_transport_tick(
         (bc, cores, overload_fire, recover_fire)
     };
 
-    let old_budget_px = clamp_smooth_area(current_budget_px);
-
     if overload_fire {
         let cand = budget_after_overload(current_budget_px, busy_cores, cores);
         persist_budget_and_maybe_rebuild_vf(
             player,
             video_pref,
-            old_budget_px,
             cand,
             "(process CPU high — lowering ME budget)",
         );
@@ -237,7 +216,6 @@ pub(crate) fn smooth_budget_on_transport_tick(
                 persist_budget_and_maybe_rebuild_vf(
                     player,
                     video_pref,
-                    old_budget_px,
                     recover_to,
                     "(process CPU low — raising ME budget)",
                 );

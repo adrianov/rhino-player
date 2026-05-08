@@ -16,18 +16,19 @@
 //! When attaching Smooth `vf` with media open, Rhino leaves **`hwdec`** / **`vd-lavc-dr`** unchanged
 //! (usually **`hwdec=auto`**).
 //! **`buffered-frames=`** comes from **`SMOOTH_VF_BUFFERED_FRAMES`** (**`smooth_motion_tier.rs`**); **`mv.Super` /
-//! `mv.Analyse` / `mv.FlowFPS`** tunables live in the bundled `.vpy`. Rhino passes **`RHINO_SMOOTH_MAX_AREA`**
-//! from **`video_smooth_max_area`** (persisted; proportional ME downscale when decode exceeds it; **FlowFPS**
-//! output stays at the ME raster — may diverge from decode dimensions — see `data/vs/rhino_60_mvtools.vpy`).
-//! With the bundled script, **`smooth_budget_on_transport_tick`** may lower **`video_smooth_max_area`** when **this process**
-//! sustains **>** ~**75%** logical-core CPU utilization (two consecutive **1 Hz** transport ticks), scaling from the
-//! **current saved** budget (not the factory default), then rebuilds **`vf`**.
+//! `mv.Analyse` / `mv.FlowFPS`** tunables live in the bundled `.vpy`. Persisted **`video_smooth_max_area`**
+//! is passed as **`vf` `user-data=`** px² (**authoritative inside mpv**) and synced to **`RHINO_SMOOTH_MAX_AREA`** (shell **mpv**, logs).
+//! With the bundled script, **`smooth_budget_on_transport_tick`** may **raise or lower** **`video_smooth_max_area`**
+//! from **this process's** logical-core CPU utilization on the **1 Hz** transport tick: **overload** above ~**75%** for two
+//! ticks shrinks from the **current saved** budget; **sustained low** use (well **below ~50%**) for many ticks steps the
+//! saved budget **up** ~**10%** toward the **nominal default** (**1920×1080** ceiling) when still below that cap, then
+//! calls **`apply_mpv_video`** on each persisted change (**`smooth_me_geometry.rs`** is modeling / tests only).
 //! When **`FileLoaded`** or **`path`** fires (transport coalesced idle), **if** **`vf_smooth_matches_prefs`**
-//! is true (resolved script · mpv **`buffered-frames=`** depth · **`RHINO_SMOOTH_MAX_AREA`**, SQLite **`video_smooth_max_area`**,
-//! and last **successful** bundled ME rebuild tracked in **`smooth_vf_me_budget_applied.rs`**), Rhino may refresh
+//! is true (resolved script · mpv **`buffered-frames=`** · bundled **`user-data=`** vs SQLite · env match ·
+//! last **successful** bundled ME rebuild in **`smooth_vf_me_budget_applied.rs`**), Rhino may refresh
 //! env without **`vf clr`/`vf add`** unless **`RHINO_SOURCE_FPS`** moves (cadence **`vf`** rebuild).
-//! **mpv+VapourSynth** can keep a warm **Python** interpreter when **`vf`** text is unchanged; updating **`RHINO_SMOOTH_MAX_AREA`**
-//! alone cannot change **`smooth_cap`** inside **`rhino_60_mvtools.vpy`**, so Rhino **forces **`vf clr`/`vf add`**
+//! **mpv+VapourSynth** can keep a warm **Python** interpreter when **`vf`** text is unchanged; ME budget must be in **`user-data=`**
+//! so **`smooth_cap`** tracks SQLite; Rhino **forces **`vf clr`/`vf add`**
 //! when the persisted ME budget differs from what the bundled graph last rebuilt with. Seek-only scrubbing never
 //! schedules …
 //! Clearing the graph
@@ -46,8 +47,11 @@ include!("video_pref/smooth_vf_swap_timing.rs");
 include!("video_pref/mpv_escape_path.rs");
 include!("video_pref/smooth_vapoursynth_vf_attach.rs");
 include!("video_pref/mvtools_speed_vf_setup.rs");
+#[cfg(test)]
+include!("video_pref/smooth_vf_user_data_budget_match_tests.rs");
 include!("video_pref/smooth_off_playhead_refresh.rs");
 include!("video_pref/decode_and_apply_mpv_video.rs");
-include!("video_pref/smooth_me_geometry.rs");
 include!("video_pref/smooth_budget.rs");
+#[cfg(test)]
+include!("video_pref/smooth_me_geometry.rs");
 include!("video_pref/video_pref_speed_model_tests.rs");

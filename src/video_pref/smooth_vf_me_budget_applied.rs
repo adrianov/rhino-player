@@ -1,5 +1,5 @@
 /// libmpv+VapourSynth often **reuse** an interpreter instance when **`vf vapoursynth:` options are
-/// unchanged** — refreshing **`RHINO_SMOOTH_MAX_AREA`** alone does **not** rerun **`_smooth_max_area_px()`**.
+/// unchanged**. ME budget travels **`user-data=`** digits (script reads **`user_data`** first); env refresh alone cannot retune a warm worker.
 /// Rhino records which clamped **`video_smooth_max_area`** px² was last **successfully rebuilt** (`vf clr`/`vf add`)
 /// so [vf_smooth_matches_prefs] skips only when SQLite and the bundled script stay in sync.
 const UNSET: u64 = u64::MAX;
@@ -8,6 +8,13 @@ static LAST_BUNDLED_ME_BUDGET_APPLIED: std::sync::atomic::AtomicU64 =
 
 pub(crate) fn forget_bundled_me_budget_vf_apply() {
     LAST_BUNDLED_ME_BUDGET_APPLIED.store(UNSET, std::sync::atomic::Ordering::Release);
+}
+
+/// Invalidate bundled ME **`vf_smooth_matches_prefs`** so **`apply_mpv_video`** runs **`vf clr`/`vf add`**
+/// after **`loadfile`** / **`path`** — a warm mpv+VapourSynth interpreter does not observe a revised
+/// **`video_smooth_max_area`** / **`RHINO_SMOOTH_MAX_AREA`** unless the **`vf`** is reinstalled (see **`forget`** above).
+pub fn forget_bundled_me_budget_vf_apply_on_new_media() {
+    forget_bundled_me_budget_vf_apply();
 }
 
 pub(crate) fn note_bundled_me_budget_vf_applied(px: u64) {

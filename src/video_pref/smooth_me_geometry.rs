@@ -1,6 +1,7 @@
 // Predicts bundled vf_out WxH from rhino_60_mvtools.vpy before Super/FlowFPS.
 // ME_GEOMETRY_ALIGN_PX stays in lockstep with _ME_GEOMETRY_ALIGN_PX in data/vs/rhino_60_mvtools.vpy.
-// When smooth_max_area adapts due to CPU, identical ME WxH skips vf clr/add (aspect decode↔vf_out flicker).
+// Kept in sync with bundled ME math for tests and future tuning; CPU budget changes always **`vf clr`/`vf add`**
+// so a warm VapourSynth session never runs with a stale **`smooth_cap`**.
 
 pub(crate) const ME_GEOMETRY_ALIGN_PX: i32 = 8;
 

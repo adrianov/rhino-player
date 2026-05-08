@@ -26,8 +26,8 @@ _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (extra ME path)
 # MVTools ``Analyse``: ``blksize`` / ``overlap`` are ``_MV_BLK_SIZE`` / ``_MV_BLK_OVERLAP`` (``overlap`` < ``blksize``).
 # Block grid cost scales with ``blksize`` (smaller ⇒ usually more blocks per frame).
-# **Decode-area budget**: ``RHINO_SMOOTH_MAX_AREA`` (Rhino sets before every bundled ``vf`` attach) — read first in
-# ``_smooth_max_area_px``; mpv ``user_data`` digits when env is unset (optional shell ``user-data=``).
+# **Decode-area budget**: Rhino passes **`user-data=<px²>`** when libmpv supports it; always sets ``RHINO_SMOOTH_MAX_AREA``
+# (`getenv`-first helpers so embedded ``os.environ`` cannot hide Rust ``set_var`` updates).
 # mpv ``buffered-frames`` is **not** set here — Rhino passes **N** via ``SMOOTH_VF_BUFFERED_FRAMES`` (``smooth_motion_tier.rs``).
 # If **decode** ``width × height`` exceeds that budget, **both** dimensions scale by ``√(budget/decode_px)``
 # so MVTools runs at **≤ budget** pixels (**stderr ``path=scaled``**); otherwise **native** (**``path=full``**).
@@ -48,6 +48,54 @@ _MV_DECODE_TAG_AREA = 2560 * 1440
 _MV_SUPER_PAD = 16
 
 
+def _host_env_strip(var: str) -> str:
+    """Read ``getenv(3)`` so host ``setenv`` (Rhino Rust) wins over a stale ``os.environ`` snapshot.
+
+    VapourSynth often runs embedded in-process; repeated ``vf`` reloads refresh C environ while
+    Python's ``os.environ`` mapping can lag, so numeric ``RHINO_*`` knobs use libc first with
+    ``os.environ`` fallback.
+    """
+    try:
+        import ctypes
+    except ImportError:
+        return (os.environ.get(var) or "").strip()
+
+    libc_getenv = getattr(_host_env_strip, "_libc_getenv", None)
+    if libc_getenv is False:
+        return (os.environ.get(var) or "").strip()
+    if libc_getenv is None:
+        libc = None
+        for ctor in (
+            lambda: ctypes.CDLL(None),
+            lambda: ctypes.CDLL("libc.so.6"),
+            lambda: ctypes.CDLL("libc.dylib"),
+        ):
+            try:
+                libc = ctor()
+                break
+            except OSError:
+                continue
+        if libc is None:
+            setattr(_host_env_strip, "_libc_getenv", False)
+            return (os.environ.get(var) or "").strip()
+        g = libc.getenv
+        g.argtypes = [ctypes.c_char_p]
+        g.restype = ctypes.c_char_p
+        setattr(_host_env_strip, "_libc_getenv", g)
+        libc_getenv = g
+
+    raw = libc_getenv(var.encode("utf-8"))
+    if raw is None:
+        return (os.environ.get(var) or "").strip()
+    if isinstance(raw, bytes):
+        out = raw.decode("utf-8", errors="replace").strip()
+    else:
+        out = str(raw).strip()
+    if out:
+        return out
+    return (os.environ.get(var) or "").strip()
+
+
 def _me_wh_aligned(width_px: int, height_px: int) -> tuple[int, int]:
     """Floor to multiples of ``_ME_GEOMETRY_ALIGN_PX`` (min that per side) before **Super** / scaled ME path."""
     b = _ME_GEOMETRY_ALIGN_PX
@@ -59,16 +107,21 @@ def _me_wh_aligned(width_px: int, height_px: int) -> tuple[int, int]:
 def _smooth_max_area_px() -> int:
     """ME pixel budget (px² clamped).
 
-    Rhino sets ``RHINO_SMOOTH_MAX_AREA`` before attaching the vf; honor it ahead of stale ``user_data``
-    globals from prior VSScript attaches. Otherwise accept ``user_data`` (digits) for shellmpv.
+    **Rhino** always sets ``RHINO_SMOOTH_MAX_AREA`` before ``vf add``. Read that **first** so a stale
+    mpv ``user_data`` global from a reused scripting context cannot override a lowered SQLite cap
+    (especially when ``user-data=`` is unsupported and the ``vf`` text is unchanged).
+
+    Shell **mpv** without that env still uses ``user_data`` digits, then defaults.
     """
     min_budget = 320 * 180
-    raw = (os.environ.get("RHINO_SMOOTH_MAX_AREA") or "").strip()
+
+    raw = _host_env_strip("RHINO_SMOOTH_MAX_AREA")
     if raw.isdigit():
         try:
             return max(min_budget, int(raw))
         except ValueError:
             pass
+
     ud = globals().get("user_data")
     if ud is not None:
         if isinstance(ud, (bytes, bytearray)):
@@ -132,7 +185,7 @@ _logged_stderr_epoch = None
 def _stderr_banner_once_per_rhino_attach(msg: str) -> bool:
     """Return True the first time (this interpreter, per Rhino vf epoch) we print `msg` to stderr."""
     global _logged_stderr_epoch
-    epoch = (os.environ.get("RHINO_VPY_LOG_EPOCH") or "").strip()
+    epoch = _host_env_strip("RHINO_VPY_LOG_EPOCH")
     if epoch:
         if _logged_stderr_epoch == epoch:
             return False
@@ -141,7 +194,7 @@ def _stderr_banner_once_per_rhino_attach(msg: str) -> bool:
     return True
 
 def _mvtools_paths():
-    p = (os.environ.get("RHINO_MVTOOLS_LIB") or "").strip()
+    p = _host_env_strip("RHINO_MVTOOLS_LIB")
     if p:
         yield os.path.expanduser(p)
     if _IS_DARWIN:
@@ -246,7 +299,7 @@ def _load_mvtools(core):
 
 def _speed_frac_from_env() -> Fraction:
     """Exact 1, 1.5, 2 — avoids float/Fraction drift that can skew FlowFPS timebase (A/V at 1×)."""
-    t = (os.environ.get("RHINO_PLAYBACK_SPEED") or "1").strip() or "1"
+    t = (_host_env_strip("RHINO_PLAYBACK_SPEED") or "1").strip() or "1"
     if t in ("1", "1.0", "1.00"):
         return Fraction(1, 1)
     if t in ("1.5", "1.50"):
@@ -269,7 +322,7 @@ def _src_fps_from_env() -> tuple[int, int] | None:
     to NTSC rationals (e.g. ``30000/1001``) without binary-float noise. Wrong rationals from vf forwarding
     would skew FlowFPS output-vs-input frame quotients.
     """
-    t = (os.environ.get("RHINO_SOURCE_FPS") or "").strip()
+    t = _host_env_strip("RHINO_SOURCE_FPS")
     if not t:
         return None
     try:

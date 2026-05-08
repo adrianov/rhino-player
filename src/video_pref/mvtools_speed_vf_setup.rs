@@ -127,10 +127,10 @@ pub fn refresh_smooth_for_playback_speed(
 }
 
 /// True when mpv's `vf` chain already matches what [add_smooth_60] would install for current prefs
-/// (same script path / basename, fixed **`buffered-frames`**, SQLite **`video_smooth_max_area`** aligns with
-/// **`RHINO_SMOOTH_MAX_AREA`** and the **bundled** graph last rebuilt with that row — see [note_bundled_me_budget_vf_applied] /
-/// **`bundled_me_budget_vf_matches_prefs`**). Used to skip redundant **`vf clr`**/**`vf add`** when mpv emits duplicate idle
-/// callbacks after **FileLoaded** / **`path`** — **seek** never reaches [apply_mpv_video_impl].
+/// (resolved script · **`buffered-frames`** · bundled **`user-data=`** equals SQLite **when mpv attaches it**
+/// (**mpv 0.38** lacks this option — **Rhino** falls back · **`vf`** omits **`user-data=`**) · env ·
+/// **`smooth_vf_me_budget_applied`**). Used to skip redundant **`vf clr`**/**`vf add`** on duplicate idle after
+/// **FileLoaded** / **`path`** — **seek** never reaches [apply_mpv_video_impl].
 pub(crate) fn vf_smooth_matches_prefs(mpv: &Mpv, v: &VideoPrefs) -> bool {
     if !v.smooth_60 {
         return false;
@@ -161,16 +161,38 @@ pub(crate) fn vf_smooth_matches_prefs(mpv: &Mpv, v: &VideoPrefs) -> bool {
     if !vf_smooth_queue_chain_ok(&vf) {
         return false;
     }
+    let me_cap = v.smooth_max_area.max(MIN_SMOOTH_MAX_AREA);
+    if v.vs_path.trim().is_empty() && !vf_bundled_user_data_budget_ok(&vf, me_cap) {
+        return false;
+    }
     if !bundled_me_budget_vf_matches_prefs(v) {
         return false;
     }
     smooth_max_area_env_matches(v)
 }
 
-/// True when **`vf`** carries the fixed **`buffered-frames`** depth (**[SMOOTH_VF_BUFFERED_FRAMES]**). ME budget
-/// is not encoded here (**`RHINO_SMOOTH_MAX_AREA`** vs SQLite — see [smooth_max_area_env_matches]).
+/// True when **`vf`** carries the fixed **`buffered-frames`** depth (**[SMOOTH_VF_BUFFERED_FRAMES]**).
+/// Newer **mpv** also passes ME px² in **`user-data=`**; env vs SQLite uses [smooth_max_area_env_matches].
 pub(crate) fn vf_smooth_queue_chain_ok(vf: &str) -> bool {
     vf.contains(&format!("buffered-frames={}", SMOOTH_VF_BUFFERED_FRAMES))
+}
+
+/// When **`vf`** has no **`user-data=`** (older **mpv**), skip; else require exact cap (avoid `user-data=72`
+/// matching **`723100`**).
+fn vf_bundled_user_data_budget_ok(vf: &str, me_cap: u64) -> bool {
+    if !vf.contains("user-data=") {
+        return true;
+    }
+    let needle = format!("user-data={me_cap}");
+    for (idx, _) in vf.match_indices(&needle) {
+        let tail = &vf[idx + needle.len()..];
+        let next = tail.chars().next();
+        if matches!(next, Some(c) if c.is_ascii_digit()) {
+            continue;
+        }
+        return true;
+    }
+    false
 }
 
 fn smooth_max_area_env_matches(v: &VideoPrefs) -> bool {
@@ -252,14 +274,15 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
     };
     eprintln!("[rhino] video: VapourSynth script = {p}");
     let p_esc = mpv_escape_path(&p);
-    if !smooth_vapoursynth_vf_try_attach(mpv, &p_esc) {
+    let me_cap = v.smooth_max_area.max(MIN_SMOOTH_MAX_AREA);
+    let budget_for_vf = v.vs_path.trim().is_empty().then_some(me_cap);
+    if !smooth_vapoursynth_vf_try_attach(mpv, &p_esc, budget_for_vf) {
         turn_off_smooth_60_in_prefs(v);
         return true;
     }
     if v.vs_path.trim().is_empty() {
-        note_bundled_me_budget_vf_applied(v.smooth_max_area.max(MIN_SMOOTH_MAX_AREA));
+        note_bundled_me_budget_vf_applied(me_cap);
     }
     apply_smooth_vf_present_opts(mpv);
     false
 }
-
