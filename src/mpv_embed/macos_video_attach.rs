@@ -175,12 +175,7 @@ pub fn install<W: IsA<gtk::Widget>>(sizer: &W) -> Result<NativeVideoSurface, Str
 
     let sizer_widget = sizer.clone().upcast::<gtk::Widget>();
     let (display_link, redraw_handle) = DisplayLinkDriver::install(layer.clone())?;
-    sync_layer_frame_now(
-        &layer,
-        sizer,
-        None,
-        Some(redraw_handle.as_ref()),
-    );
+    sync_layer_frame_now(&layer, sizer, None, Some(redraw_handle.as_ref()));
     let id = wire_sizer_resync(
         &sizer_widget,
         layer.clone(),

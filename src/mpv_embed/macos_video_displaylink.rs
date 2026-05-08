@@ -103,10 +103,7 @@ impl DisplayLinkDriver {
 
     /// **`running=false`**: **`CVDisplayLinkStop`** — must **not** run inside **`display_link_callback`**.
     pub(crate) fn set_cv_running(&self, running: bool) -> Result<(), String> {
-        let guard = self
-            .link
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let guard = self.link.lock().unwrap_or_else(|p| p.into_inner());
         let Some(ref link) = *guard else {
             return Err("CVDisplayLink already released".into());
         };
@@ -160,11 +157,7 @@ impl DriverStateHandle {
         if self.ptr.is_null() {
             return false;
         }
-        unsafe {
-            (*self.ptr)
-                .vf_teardown_suppress
-                .load(Ordering::Acquire)
-        }
+        unsafe { (*self.ptr).vf_teardown_suppress.load(Ordering::Acquire) }
     }
 
     /// Serialize **`mpv`** render/display-link bumps vs **`vf clr`** (Smooth **off** mid-play).

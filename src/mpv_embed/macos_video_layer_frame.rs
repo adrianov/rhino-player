@@ -156,15 +156,7 @@ pub(super) fn wire_sizer_resync(
     let r_tick = repaint;
     // Tick debounce: cheap key (size / visibility) avoids `compute_point` most frames; origin still
     // probed every POS_PROBE_INTERVAL ticks so chrome-only moves resync without widget-tree walks @ 60 Hz.
-    let last = std::cell::Cell::new((
-        0i32,
-        0i32,
-        i64::MIN,
-        i64::MIN,
-        i64::MIN,
-        false,
-        false,
-    ));
+    let last = std::cell::Cell::new((0i32, 0i32, i64::MIN, i64::MIN, i64::MIN, false, false));
     let last_cheap = std::cell::Cell::new((0i32, 0i32, i64::MIN, false, false));
     let tick_n = std::cell::Cell::new(0_u32);
     const POS_PROBE_INTERVAL: u32 = 8;
@@ -179,13 +171,7 @@ pub(super) fn wire_sizer_resync(
             .unwrap_or((win_h_fallback as i64).saturating_mul(4096));
         let ov = overlay.borrow().clone();
         let ov_vis = ov.as_ref().is_some_and(|v| v.is_visible());
-        let cheap_key = (
-            w.width(),
-            w.height(),
-            snap,
-            w.is_visible(),
-            ov_vis,
-        );
+        let cheap_key = (w.width(), w.height(), snap, w.is_visible(), ov_vis);
         let cheap_changed = cheap_key != last_cheap.get();
         let n = tick_n.get().wrapping_add(1);
         tick_n.set(n);
@@ -196,12 +182,7 @@ pub(super) fn wire_sizer_resync(
         }
 
         let pos_key = translate_to_window(w, &window)
-            .map(|(x, y)| {
-                (
-                    (x * 4096.0).round() as i64,
-                    (y * 4096.0).round() as i64,
-                )
-            })
+            .map(|(x, y)| ((x * 4096.0).round() as i64, (y * 4096.0).round() as i64))
             .unwrap_or((i64::MIN, i64::MIN));
         let key = (
             cheap_key.0,
