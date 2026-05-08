@@ -48,6 +48,12 @@ fn show_fs_wall_clock_fullscreen(
     *tick_slot.borrow_mut() = Some(id);
 }
 
+#[cfg(not(target_os = "macos"))]
+fn linux_fs_notify_maximize_now(fr: &Rc<RefCell<Option<(i32, i32)>>>, win: &adw::ApplicationWindow) {
+    *fr.borrow_mut() = Some(win_normal_size(win));
+    win.maximize();
+}
+
 #[cfg(target_os = "macos")]
 fn macos_fs_notify_defer_maximize(
     fr: &Rc<RefCell<Option<(i32, i32)>>>,
@@ -140,10 +146,7 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                 // `source->paused == FALSE`). Defer to the next main-loop turn.
                 if !defer_max_pair && !w.is_maximized() {
                     #[cfg(not(target_os = "macos"))]
-                    {
-                        *fr.borrow_mut() = Some(win_normal_size(w));
-                        w.maximize();
-                    }
+                    linux_fs_notify_maximize_now(&fr, w);
                     #[cfg(target_os = "macos")]
                     macos_fs_notify_defer_maximize(&fr, w);
                 }
