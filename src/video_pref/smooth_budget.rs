@@ -38,12 +38,18 @@ pub(crate) struct SmoothBudgetDecoderState {
     prev_signal_total: Option<u64>,
     recovery_quiet_streak: u32,
     overload_streak: u32,
+    /// After a **successful** overload shrink (**smaller** ME px²) on this **`loadfile`** / **`path`**, disallow recovery raises.
+    recovery_blocked_after_overload_this_open: bool,
+    /// Last **`getrusage`** sample for process CPU-share between transport ticks.
+    rusage_cpu_prev: Option<(Instant, u64)>,
     smooth_drop_prev_emit_wall: Option<Instant>,
     smooth_drop_signal_base: u64,
     smooth_drop_mistimed_baseline: Option<u64>,
     smooth_drop_vo_baseline: Option<u64>,
     smooth_drop_decoder_baseline: Option<u64>,
 }
+
+include!("smooth_budget_cpu.rs");
 
 include!("smooth_budget_sampling.rs");
 include!("smooth_budget_drop_log.rs");
@@ -202,6 +208,13 @@ pub(crate) fn smooth_budget_on_transport_tick(
         out
     };
 
+    let recovery_blocked_after_overload_this_open =
+        state_cell.borrow().recovery_blocked_after_overload_this_open;
+    let process_cpu_frac = {
+        let mut st = state_cell.borrow_mut();
+        smooth_budget_refresh_process_cpu_frac(&mut st)
+    };
+
     let o = TransportBudgetOutcome {
         current_budget_px,
         cur_count,
@@ -211,6 +224,8 @@ pub(crate) fn smooth_budget_on_transport_tick(
         overload_fire,
         recover_fire,
         allow_recovery_raise,
+        recovery_blocked_after_overload_this_open,
+        process_cpu_frac,
         snap,
         decode_fps: fps,
         decode_px,
@@ -224,6 +239,11 @@ pub(crate) fn smooth_budget_on_transport_tick(
 }
 
 include!("smooth_budget_transport_apply.rs");
+
+/// Full reset on **`FileLoaded`** / **`path`** so overload / **`getrusage`** baselines belong to **one open media**.
+pub(crate) fn smooth_budget_reset_session_on_new_media(cell: &RefCell<SmoothBudgetDecoderState>) {
+    cell.replace(SmoothBudgetDecoderState::default());
+}
 
 #[cfg(test)]
 include!("smooth_budget_tests.rs");

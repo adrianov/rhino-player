@@ -91,6 +91,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             // reinstalls vapoursynth: a warm VapourSynth interpreter reused across **`loadfile`** does not adopt
             // a newer **`RHINO_SMOOTH_MAX_AREA`** unless **`vf clr`/`vf add`** runs (**`smooth_vf_me_budget_applied`**).
             crate::video_pref::forget_bundled_me_budget_vf_apply_on_new_media();
+            crate::video_pref::smooth_budget_reset_session_on_new_media(&ctx.smooth_budget_decoder);
             // New file: apply the SQLite-driven resume, restore the saved audio track *before*
             // any unpause so mpv does not play the default `aid` for a fraction of a second and
             // then switch (audio path re-open caused lip-sync drift on continue-grid → reopen).
@@ -119,6 +120,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
         }
         TransportEv::PathChanged => {
             crate::video_pref::forget_bundled_me_budget_vf_apply_on_new_media();
+            crate::video_pref::smooth_budget_reset_session_on_new_media(&ctx.smooth_budget_decoder);
             ctx.eof.sibling_seof.done.set(false);
             refresh_sibling_nav(ctx);
             transport_tick(ctx);

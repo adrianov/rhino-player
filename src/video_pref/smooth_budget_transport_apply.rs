@@ -7,6 +7,8 @@ struct TransportBudgetOutcome {
     overload_fire: bool,
     recover_fire: bool,
     allow_recovery_raise: bool,
+    recovery_blocked_after_overload_this_open: bool,
+    process_cpu_frac: Option<f64>,
     snap: SmoothBudgetSignalSnap,
     decode_fps: f64,
     decode_px: Option<u64>,
@@ -27,6 +29,9 @@ fn apply_budget_actions_after_sample(
             Some(r_high) => {
                 let cand = budget_after_decoder_overload(o.current_budget_px, r_high);
                 eprintln_smooth_budget_overload(&o.snap, o.decode_fps, r_high, o.current_budget_px, cand);
+                if cand < o.current_budget_px {
+                    state_cell.borrow_mut().recovery_blocked_after_overload_this_open = true;
+                }
                 let _ = persist_budget_and_maybe_rebuild_vf(
                     player,
                     video_pref,
@@ -47,17 +52,7 @@ fn apply_budget_actions_after_sample(
 
     if o.recover_fire {
         state_cell.borrow_mut().recovery_quiet_streak = 0;
-        if o.allow_recovery_raise {
-            maybe_raise_budget(video_pref, player, o);
-        } else {
-            eprintln_smooth_budget_recovery_skip_decode_fits_cap(
-                &o.snap,
-                o.decode_fps,
-                o.rate_opt,
-                o.decode_px,
-                o.current_budget_px.max(crate::db::MIN_SMOOTH_MAX_AREA),
-            );
-        }
+        maybe_handle_recovery_raise(player, video_pref, o);
         return;
     }
 
@@ -71,6 +66,42 @@ fn reset_decoder_state_after_shrink(cell: &RefCell<SmoothBudgetDecoderState>, no
     st.samples.push_back((now, cur_count));
     st.overload_streak = 0;
     reset_smooth_drop_stats_window(&mut st);
+}
+
+fn maybe_handle_recovery_raise(
+    player: &Rc<RefCell<Option<crate::mpv_embed::MpvBundle>>>,
+    video_pref: &Rc<RefCell<crate::db::VideoPrefs>>,
+    o: &TransportBudgetOutcome,
+) {
+    if !o.allow_recovery_raise {
+        eprintln_smooth_budget_recovery_skip_decode_fits_cap(
+            &o.snap,
+            o.decode_fps,
+            o.rate_opt,
+            o.decode_px,
+            o.current_budget_px.max(crate::db::MIN_SMOOTH_MAX_AREA),
+        );
+        return;
+    }
+    if o.recovery_blocked_after_overload_this_open {
+        eprintln_smooth_budget_recovery_skip_after_overload_session(
+            &o.snap,
+            o.decode_fps,
+            o.recovery_rate_opt,
+            o.decode_px,
+        );
+        return;
+    }
+    if o.process_cpu_frac.is_some_and(|f| f > RECOVER_CPU_SHARE_HARD_MAX_FRAC) {
+        eprintln_smooth_budget_recovery_skip_high_cpu(
+            &o.snap,
+            o.decode_fps,
+            o.process_cpu_frac,
+            RECOVER_CPU_SHARE_HARD_MAX_FRAC,
+        );
+        return;
+    }
+    maybe_raise_budget(video_pref, player, o);
 }
 
 fn maybe_raise_budget(
@@ -114,7 +145,7 @@ fn eprintln_smooth_budget_hold_line(o: &TransportBudgetOutcome) {
     let src_explain =
         "rolling_strain_recovery<10pct_30ticks strict_overload_tail>40pct_5ticks";
     eprintln!(
-        "[rhino] smooth: decision hold signal={} primary_total={} mistimed={:?} vo_drop={:?} decoder_drop={:?} overload_window_rate_opt={} overload_window_ready={} recovery_window_rate_opt={} recovery_window_ready={} recovery_streak={}/{}({src_explain}) overload_streak={}/{}(>{} strict_tail strain need {} ticks) allow_raise={} decode_px²={:?} ME_budget_px²={me_budget_px} denom_hz={:.1}",
+        "[rhino] smooth: decision hold signal={} primary_total={} mistimed={:?} vo_drop={:?} decoder_drop={:?} overload_window_rate_opt={} overload_window_ready={} recovery_window_rate_opt={} recovery_window_ready={} recovery_streak={}/{}({src_explain}) overload_streak={}/{}(>{} strict_tail strain need {} ticks) allow_raise={} overload_session_block={} process_cpu_share={:?} decode_px²={:?} ME_budget_px²={me_budget_px} denom_hz={:.1}",
         o.snap.src.as_str(),
         o.snap.primary,
         o.snap.mistimed,
@@ -131,6 +162,8 @@ fn eprintln_smooth_budget_hold_line(o: &TransportBudgetOutcome) {
         OVERLOAD_STRAIN_GT_FRAC,
         OVERLOAD_FIRE_STREAK_TICKS,
         o.allow_recovery_raise,
+        o.recovery_blocked_after_overload_this_open,
+        o.process_cpu_frac,
         o.decode_px,
         hz,
     );

@@ -114,3 +114,48 @@ fn eprintln_smooth_budget_recovery_at_ceiling(
         recovery_ceiling_px(decode_px),
     );
 }
+
+fn eprintln_smooth_budget_recovery_skip_after_overload_session(
+    snap: &SmoothBudgetSignalSnap,
+    decode_fps: f64,
+    rate_opt: Option<f64>,
+    decode_px: Option<u64>,
+) {
+    let hz = budget_signal_hz_for_comparison(decode_fps, snap.src);
+    eprintln!(
+        "[rhino] smooth: decision raise_skipped overload_already_shrank_ME_this_open_media signal={} primary_total={} mistimed={:?} vo_drop={:?} decoder_drop={:?} quiet_window_rate_opt={} decode_px²={:?} {:.1} Hz denom",
+        snap.src.as_str(),
+        snap.primary,
+        snap.mistimed,
+        snap.vo_drop,
+        snap.decoder_drop,
+        fmt_window_rate(rate_opt),
+        decode_px,
+        hz,
+    );
+}
+
+fn eprintln_smooth_budget_recovery_skip_high_cpu(
+    snap: &SmoothBudgetSignalSnap,
+    decode_fps: f64,
+    process_cpu_frac: Option<f64>,
+    max_frac: f64,
+) {
+    let hz = budget_signal_hz_for_comparison(decode_fps, snap.src);
+    let cpu_s = process_cpu_frac
+        .filter(|v| v.is_finite())
+        .map(|v| format!("{:.3}", v))
+        .unwrap_or_else(|| String::from("n/a"));
+    eprintln!(
+        "[rhino] smooth: decision raise_skipped process_cpu_share_over_{:.0}%_parallel_cap signal={} primary_total={} mistimed={:?} vo_drop={:?} decoder_drop={:?} process_cpu_share={} threshold={:.3} {:.1} Hz denom",
+        max_frac * 100.0,
+        snap.src.as_str(),
+        snap.primary,
+        snap.mistimed,
+        snap.vo_drop,
+        snap.decoder_drop,
+        cpu_s,
+        max_frac,
+        hz,
+    );
+}
