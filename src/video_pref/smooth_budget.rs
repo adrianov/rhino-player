@@ -8,16 +8,7 @@ use std::time::{Duration, Instant};
 /// Sliding window length for decoding-stress (**seconds**).
 const DROP_WINDOW_SECS: u64 = 5;
 
-/// **`2`%** floor used **inside** **`budget_after_decoder_overload`** (**`saved ×`** this **/** measured rate**); **not** the transport **overload fire** threshold (**`OVERLOAD_STRAIN_GT_FRAC`**).
-const DROP_OVERLOAD_FRAC: f64 = 0.02;
-
-/// Clamp pathological **`rate`** before **`saved × 2% / rate`** (VO / mistimed counters can spike vs decode-only math).
-const OVERLOAD_EFFECTIVE_RATE_CAP: f64 = 0.10_f64;
-
-/// Proportional overload never removes more than **half** the prior **ME** px² in **one** firing (before SQLite **MIN** clamp).
-const OVERLOAD_MIN_KEEP_PERCENT_OF_PREV: u64 = 50;
-
-/// Strict **≈5 s** tail: rolling strain must **exceed** this **fraction** for **`OVERLOAD_FIRE_STREAK_TICKS`** successive **`1 Hz`** ticks before ME shrink.
+/// Overload fires when rolling strain **>** this fraction (**strict tail**, **`OVERLOAD_FIRE_STREAK_TICKS`** successive ticks).
 const OVERLOAD_STRAIN_GT_FRAC: f64 = 0.40;
 
 /// Consecutive overload ticks (**~seconds**) before persisting a lower ME budget.
@@ -90,22 +81,22 @@ pub(crate) fn recovery_candidate(saved_px: u64, decode_area_px: Option<u64>) -> 
 
 include!("smooth_budget_decision_log.rs");
 
-/// Proportional **`× 2% / rate`**, with **`rate`** ceiling and a **≥ ~50 %** retain floor so one spike cannot hit **`MIN`**.
+/// **−10%** step (integer half-up **`⌊saved×90+50⌋/100`**), at least **`saved−1`**, floored at **`MIN_SMOOTH_MAX_AREA`** — mirrors **[`recovery_candidate`]** step shape.
+/// **`strain_rate`** is kept for overload stderr logs only.
 #[must_use]
-pub(crate) fn budget_after_decoder_overload(current_budget_px: u64, rate: f64) -> u64 {
-    let base = current_budget_px.max(crate::db::MIN_SMOOTH_MAX_AREA);
-    let t = DROP_OVERLOAD_FRAC;
-    let eps = t * 1.0000001;
-    let effective = rate.max(eps).min(OVERLOAD_EFFECTIVE_RATE_CAP);
-    let proportional = (base as f64 * t / effective).round() as u64;
-
-    let min_keep = base
-        .saturating_mul(OVERLOAD_MIN_KEEP_PERCENT_OF_PREV)
-        .saturating_div(100)
-        .max(crate::db::MIN_SMOOTH_MAX_AREA);
-
-    let shrunk = proportional.max(min_keep).min(base.saturating_sub(1));
-    clamp_smooth_area(shrunk.max(crate::db::MIN_SMOOTH_MAX_AREA))
+pub(crate) fn budget_after_decoder_overload(current_budget_px: u64, _strain_rate: f64) -> u64 {
+    let base = clamp_smooth_area(current_budget_px);
+    let floor_px = crate::db::MIN_SMOOTH_MAX_AREA;
+    if base <= floor_px {
+        return base;
+    }
+    let scaled = base
+        .checked_mul(90)
+        .and_then(|x| x.checked_add(50))
+        .map(|x| x / 100)
+        .unwrap_or(floor_px);
+    let shrunk = scaled.min(base.saturating_sub(1));
+    clamp_smooth_area(shrunk.max(floor_px))
 }
 
 /// Prefer raising only when **`decode_px` exceeds the clamped persisted cap** (same **`decode ≤ cap`** gate as **`bundled_me_vf_out_wh`** before ME downscale).

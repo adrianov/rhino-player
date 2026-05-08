@@ -34,28 +34,24 @@ mod budget_tests {
     }
 
     #[test]
-    fn drop_rate_four_percent_budget_halves_about() {
-        let r = 0.04_f64;
-        assert!(r > DROP_OVERLOAD_FRAC + 1e-6);
+    fn overload_step_down_matches_recovery_step_ratio() {
         assert_eq!(
-            budget_after_decoder_overload(800_000, r),
-            clamp_smooth_area(400_000)
+            budget_after_decoder_overload(800_000, 0.04),
+            clamp_smooth_area(720_000)
         );
-    }
-
-    #[test]
-    fn budget_decoder_overload_clamps_near_min() {
-        let x =
-            budget_after_decoder_overload(crate::db::MIN_SMOOTH_MAX_AREA + 9_999, DROP_OVERLOAD_FRAC * 3.0);
-        assert!(x >= crate::db::MIN_SMOOTH_MAX_AREA);
-    }
-
-    #[test]
-    fn overload_spike_rate_cap_and_half_floor() {
         assert_eq!(
             budget_after_decoder_overload(800_000, 10.0),
-            clamp_smooth_area(400_000)
+            clamp_smooth_area(720_000)
         );
+    }
+
+    #[test]
+    fn overload_down_clamps_at_min_area() {
+        let floor = crate::db::MIN_SMOOTH_MAX_AREA;
+        assert_eq!(budget_after_decoder_overload(floor, 1.0), floor);
+        let hi = floor.saturating_add(99_999);
+        let x = budget_after_decoder_overload(hi, 1.0);
+        assert!(x >= floor && x < hi);
     }
 
     #[test]
