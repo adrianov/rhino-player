@@ -20,8 +20,9 @@ if [[ -z "${VS}" || -z "${FILE}" || ! -f "$FILE" ]]; then
 fi
 SOCK="/tmp/mpv-observe-$$.sock"
 rm -f "$SOCK"
+# `buffered-frames` matches Rhino `SMOOTH_VF_BUFFERED_FRAMES` (`src/video_pref/smooth_motion_tier.rs`).
 "$MPV" "$FILE" --no-terminal --really-quiet --length="$((DURATION + 2))" \
-  --vf-add="vapoursynth:file=$VS:buffered-frames=8:concurrent-frames=auto" \
+  --vf-add="vapoursynth:file=$VS:buffered-frames=4:concurrent-frames=auto" \
   --input-ipc-server="$SOCK" &
 M=$!
 for _ in $(seq 1 100); do [[ -S "$SOCK" ]] && break; sleep 0.05; done

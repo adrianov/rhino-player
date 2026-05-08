@@ -24,18 +24,23 @@ _TARGET_NUM = 60
 _TARGET_DEN = 1
 _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (extra ME path)
-# MVTools ``Analyse``: ``blksize`` / ``overlap`` match upstream defaults (**8** / **0**). ``overlap`` must be **< blksize**.
-# Smaller blocks ⇒ **more** motion blocks per frame (heavier ``Analyse``, finer spatial sampling vs large-block presets).
-# **Decode-area policy**: [mpv] ``vapoursynth:user-data`` passes the pixel budget (**decimal string**) as Python
-# global ``user_data``; Rhino also sets ``RHINO_SMOOTH_MAX_AREA`` for tooling. Prefer ``user_data`` when it is digits.
+# MVTools ``Analyse``: ``blksize`` / ``overlap`` are ``_MV_BLK_SIZE`` / ``_MV_BLK_OVERLAP`` (``overlap`` < ``blksize``).
+# Block grid cost scales with ``blksize`` (smaller ⇒ usually more blocks per frame).
+# **Decode-area budget**: ``RHINO_SMOOTH_MAX_AREA`` (Rhino sets before every bundled ``vf`` attach) — read first in
+# ``_smooth_max_area_px``; mpv ``user_data`` digits when env is unset (optional shell ``user-data=``).
+# mpv ``buffered-frames`` is **not** set here — Rhino passes **N** via ``SMOOTH_VF_BUFFERED_FRAMES`` (``smooth_motion_tier.rs``).
 # If **decode** ``width × height`` exceeds that budget, **both** dimensions scale by ``√(budget/decode_px)``
 # so MVTools runs at **≤ budget** pixels (**stderr ``path=scaled``**); otherwise **native** (**``path=full``**).
 # **FlowFPS** runs on that ME raster; **set_output** uses **FlowFPS** dimensions (ME raster size — may be smaller
 # than decode when ``path=scaled``). mpv scales to the window; geometry may **diverge** from ``video_in``.
-# ``tier=uhd`` stderr tag when **decode** ``width × height >= _MV_DECODE_TAG_AREA`` (**2560×1440**); ``tier=hd`` otherwise (logging only).
+# ``tier=uhd`` / ``tier=hd`` stderr tags use decode area vs ``_MV_DECODE_TAG_AREA`` (logging).
 # **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse`` (luma-only ME yields bad chroma — green tint).
-_MV_BLK_SIZE = 8
-_MV_BLK_OVERLAP = 0
+_MV_BLK_SIZE = 64
+_MV_BLK_OVERLAP = 16
+# ME **width/height** crop/scale alignment (``_me_wh_aligned``). Independent of MVTools ``blksize`` (here **64**):
+# aligning to **8** instead of **64** trims less from decode / scaled ME and still validates in practice — **mpv** +
+# **mv.Super/Analyse/FlowFPS** at ``blksize=64``.
+_ME_GEOMETRY_ALIGN_PX = 8
 # ``Super`` **`levels`**: **0** = MVTools **automatic** pyramid depth from frame size (upstream default).
 _MV_SUPER_LEVELS = 0
 _MV_DECODE_TAG_AREA = 2560 * 1440
@@ -44,16 +49,26 @@ _MV_SUPER_PAD = 16
 
 
 def _me_wh_aligned(width_px: int, height_px: int) -> tuple[int, int]:
-    """Floor to multiples of ``_MV_BLK_SIZE`` (min ``_MV_BLK_SIZE`` per side) for MVTools block grid / chroma."""
-    b = _MV_BLK_SIZE
+    """Floor to multiples of ``_ME_GEOMETRY_ALIGN_PX`` (min that per side) before **Super** / scaled ME path."""
+    b = _ME_GEOMETRY_ALIGN_PX
     w = max(b, width_px - (width_px % b))
     h = max(b, height_px - (height_px % b))
     return w, h
 
 
 def _smooth_max_area_px() -> int:
-    """ME pixel budget: [mpv] ``user_data`` (digits), else ``RHINO_SMOOTH_MAX_AREA``, else **1920×1080**."""
+    """ME pixel budget (px² clamped).
+
+    Rhino sets ``RHINO_SMOOTH_MAX_AREA`` before attaching the vf; honor it ahead of stale ``user_data``
+    globals from prior VSScript attaches. Otherwise accept ``user_data`` (digits) for shellmpv.
+    """
     min_budget = 320 * 180
+    raw = (os.environ.get("RHINO_SMOOTH_MAX_AREA") or "").strip()
+    if raw.isdigit():
+        try:
+            return max(min_budget, int(raw))
+        except ValueError:
+            pass
     ud = globals().get("user_data")
     if ud is not None:
         if isinstance(ud, (bytes, bytearray)):
@@ -65,7 +80,6 @@ def _smooth_max_area_px() -> int:
                 return max(min_budget, int(ud_s))
             except ValueError:
                 pass
-    raw = (os.environ.get("RHINO_SMOOTH_MAX_AREA") or "").strip()
     if not raw:
         return max(min_budget, 1920 * 1080)
     try:
@@ -84,9 +98,8 @@ def _mv_graph_for_frame_size(
     truemotion, chroma)``.
     ``tier`` is **uhd** when **decode** ``width × height >= _MV_DECODE_TAG_AREA``, else **hd** (stderr tag only).
     ME raster may be **proportionally** smaller than decode when ``RHINO_SMOOTH_MAX_AREA`` < decode pixels.
-    ME **width** / **height** are floored to multiples of ``_MV_BLK_SIZE`` (crop right/bottom on **full** path when
-    possible; else **Bicubic** — e.g. tiny frames).
-    Shared ``blksize`` / ``overlap`` **8** / **0** (MVTools upstream defaults).
+    ME **width** / **height** are floored to multiples of ``_ME_GEOMETRY_ALIGN_PX`` (crop right/bottom on **full** path when
+    possible; else **Bicubic** — e.g. tiny frames). ``blksize`` / ``overlap`` for filters come from (**``_MV_BLK_SIZE``**, **``_MV_BLK_OVERLAP``**).
     ``mv.Super`` ``levels=0`` (automatic pyramid) on the MVTools raster; **FlowFPS** output keeps **ME** frame size
     (may differ from decode when ``RHINO_SMOOTH_MAX_AREA`` constrained the ME raster).
     **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse``.

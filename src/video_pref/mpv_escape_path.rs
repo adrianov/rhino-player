@@ -1,8 +1,3 @@
-/// mpv “fixed-length quoting” for `vf` sub-options: `%n%` + `n` UTF-8 bytes (`man mpv`, **Escaping…**).
-pub(crate) fn mpv_fixed_len_quote(s: &str) -> String {
-    format!("%{}%{}", s.len(), s)
-}
-
 /// Wrap paths for mpv `vf` / `vapoursynth:file=` when they contain characters that split sub-options
 /// (`:`, `,`, `=`) or start a bracket string (`[`, `]`, space). Inside `[…]`, `\` and `]` are escaped
 /// per mpv’s string rules so a trailing `]` in a path does not truncate the filter.
@@ -30,12 +25,7 @@ pub(crate) fn mpv_escape_path(p: &str) -> String {
 
 #[cfg(test)]
 mod mpv_escape_path_tests {
-    use super::{mpv_escape_path, mpv_fixed_len_quote};
-
-    #[test]
-    fn fixed_len_quote_ascii() {
-        assert_eq!(mpv_fixed_len_quote("1354637"), "%7%1354637");
-    }
+    use super::mpv_escape_path;
 
     #[test]
     fn unix_path_without_meta_is_unchanged() {

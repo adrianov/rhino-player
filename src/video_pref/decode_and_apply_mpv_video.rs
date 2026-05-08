@@ -72,6 +72,7 @@ fn apply_smooth_vf_present_opts(mpv: &Mpv) {
 
 fn clear_vf(mpv: &Mpv, bundle: Option<&MpvBundle>, vlog: bool) {
     let inner = || {
+        forget_bundled_me_budget_vf_apply();
         if let Err(e) = mpv.command("vf", &["clr", ""]) {
             eprintln!("[rhino] video: vf clr failed: {e:?}; trying set_property vf");
             if let Err(e2) = mpv.set_property("vf", "") {
@@ -258,9 +259,8 @@ fn apply_mpv_video_impl(
         set_source_fps_env_from_mpv(mpv);
         let fps_env_after = std::env::var(crate::paths::RHINO_SOURCE_FPS_VAR).ok();
         // `RHINO_SOURCE_FPS` is read when the `.vpy` graph starts; refreshing env alone does not
-        // re-run the script after `vf add`. ME budget is wired through `vapoursynth:user-data=` as well
-        // so the vf string changes when SQLite `video_smooth_max_area` changes — still rebuild when
-        // cadence becomes known or changes (e.g. `container-fps` lagged behind the first attach).
+        // re-run the script after `vf add`. Still rebuild when cadence becomes known or changes (e.g. `container-fps`
+        // lagged behind the first attach); **`RHINO_SOURCE_FPS`** is what the bundled `.vpy` reads for that.
         if fps_env_before == fps_env_after {
             apply_smooth_vf_present_opts(mpv);
             post_smooth_60_state(mpv, v, want_60, false, vlog);
