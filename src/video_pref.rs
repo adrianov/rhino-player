@@ -8,7 +8,7 @@
 //! clears the pref at apply time; a script that dies *after* add is a rare install issue (toggle off in
 //! **Preferences** or fix mvtools).
 //! Set `RHINO_VIDEO_LOG=1` for per-step mpv result lines on stderr.
-//! **`RHINO_SMOOTH_DROP_STATS=1`** stderr **≈every 5 s** **mistimed-frame-count** / VO / decoder tallies while bundled Smooth **`vf`** is active (**`smooth_budget`**); **`[rhino] smooth: decision …`** **~1 Hz** (**hold**/overload/raise/skip **`persist_skip`**, **`smooth_budget_*`** modules).
+//! **`RHINO_SMOOTH_DROP_STATS=1`** stderr **≈every 5 s** **`[rhino] smooth: stats`** (mistimed / VO / decoder) while bundled Smooth **`vf`** is active—**suppressed** after overload shrank ME this open media when strict-window strain **\< ~40%**; **`[rhino] smooth: decision …`** **~1 Hz** — **`decision hold`** only when strict-window strain **≥ ~40%**; overload/raise/skip **`persist_skip`**, **`smooth_budget_*`** modules.
 //!
 //! If the VapourSynth `vf` cannot be added (no script, or mpv reports error — missing filter, plugin,
 //! Python), [apply_mpv_video] sets `smooth_60` to `false`, saves settings, and returns `true` so the UI
