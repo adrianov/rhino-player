@@ -35,11 +35,11 @@ _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (ex
 # than decode when ``path=scaled``). mpv scales to the window; geometry may **diverge** from ``video_in``.
 # ``tier=uhd`` / ``tier=hd`` stderr tags use decode area vs ``_MV_DECODE_TAG_AREA`` (logging).
 # **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse`` (luma-only ME yields bad chroma — green tint).
-_MV_BLK_SIZE = 64
-_MV_BLK_OVERLAP = 16
-# ME **width/height** crop/scale alignment (``_me_wh_aligned``). Independent of MVTools ``blksize`` (here **64**):
-# aligning to **8** instead of **64** trims less from decode / scaled ME and still validates in practice — **mpv** +
-# **mv.Super/Analyse/FlowFPS** at ``blksize=64``.
+_MV_BLK_SIZE = 128
+_MV_BLK_OVERLAP = 64
+# ME **width/height** crop/scale alignment (``_me_wh_aligned``). Independent of MVTools ``blksize`` (``_MV_BLK_SIZE``):
+# aligning to **8** rather than snapping dimensions to ``blksize`` trims less from decode / scaled ME and still validates in practice — **mpv** +
+# **mv.Super/Analyse/FlowFPS** use ``blksize`` / ``overlap`` above.
 _ME_GEOMETRY_ALIGN_PX = 8
 # ``Super`` **`levels`**: **0** = MVTools **automatic** pyramid depth from frame size (upstream default).
 _MV_SUPER_LEVELS = 0
