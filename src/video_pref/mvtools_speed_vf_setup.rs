@@ -1,11 +1,8 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use libmpv2::Mpv;
-
 use crate::db;
 use crate::db::VideoPrefs;
-use crate::db::MIN_SMOOTH_MAX_AREA;
 use crate::paths;
 use crate::paths::{
     RHINO_PLAYBACK_SPEED_VAR, RHINO_SMOOTH_MAX_AREA_VAR, RHINO_VPY_LOG_EPOCH_VAR,
@@ -161,14 +158,14 @@ pub(crate) fn vf_smooth_matches_prefs(mpv: &Mpv, v: &VideoPrefs) -> bool {
     if !vf_smooth_queue_chain_ok(&vf) {
         return false;
     }
-    let me_cap = v.smooth_max_area.max(MIN_SMOOTH_MAX_AREA);
+    let me_cap = effective_smooth_me_budget_px(mpv, v);
     if v.vs_path.trim().is_empty() && !vf_bundled_user_data_budget_ok(&vf, me_cap) {
         return false;
     }
-    if !bundled_me_budget_vf_matches_prefs(v) {
+    if !bundled_me_budget_vf_matches_prefs(mpv, v) {
         return false;
     }
-    smooth_max_area_env_matches(v)
+    smooth_max_area_env_matches(mpv, v)
 }
 
 /// True when **`vf`** carries the fixed **`buffered-frames`** depth (**[SMOOTH_VF_BUFFERED_FRAMES]**).
@@ -195,8 +192,8 @@ fn vf_bundled_user_data_budget_ok(vf: &str, me_cap: u64) -> bool {
     false
 }
 
-fn smooth_max_area_env_matches(v: &VideoPrefs) -> bool {
-    let want = v.smooth_max_area.max(MIN_SMOOTH_MAX_AREA);
+fn smooth_max_area_env_matches(mpv: &Mpv, v: &VideoPrefs) -> bool {
+    let want = effective_smooth_me_budget_px(mpv, v);
     std::env::var(RHINO_SMOOTH_MAX_AREA_VAR)
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
@@ -250,7 +247,7 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
     }
     std::env::set_var(
         RHINO_SMOOTH_MAX_AREA_VAR,
-        format!("{}", v.smooth_max_area.max(MIN_SMOOTH_MAX_AREA)),
+        format!("{}", effective_smooth_me_budget_px(mpv, v)),
     );
     set_source_fps_env_from_mpv(mpv);
     if video_log() {
@@ -274,7 +271,7 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
     };
     eprintln!("[rhino] video: VapourSynth script = {p}");
     let p_esc = mpv_escape_path(&p);
-    let me_cap = v.smooth_max_area.max(MIN_SMOOTH_MAX_AREA);
+    let me_cap = effective_smooth_me_budget_px(mpv, v);
     let budget_for_vf = v.vs_path.trim().is_empty().then_some(me_cap);
     if !smooth_vapoursynth_vf_try_attach(mpv, &p_esc, budget_for_vf) {
         turn_off_smooth_60_in_prefs(v);

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 const DROP_WINDOW_SECS: u64 = 5;
 
 /// Overload fires when rolling strain **>** this fraction (**strict tail**, **`OVERLOAD_FIRE_STREAK_TICKS`** successive ticks).
-const OVERLOAD_STRAIN_GT_FRAC: f64 = 0.40;
+const OVERLOAD_STRAIN_GT_FRAC: f64 = 0.20;
 
 /// Consecutive overload ticks (**~seconds**) before persisting a lower ME budget.
 const OVERLOAD_FIRE_STREAK_TICKS: u32 = 5;
@@ -138,6 +138,14 @@ fn persist_budget_and_maybe_rebuild_vf(
         crate::db::save_video(&vp);
     }
 
+    if let Ok(g) = player.try_borrow() {
+        if let Some(b) = g.as_ref() {
+            if let Some(p) = crate::media_probe::local_file_from_mpv(&b.mpv) {
+                crate::db::media_save_smooth_me_budget(&p, new_budget_px);
+            }
+        }
+    }
+
     let mut vp = video_pref.borrow_mut();
     let Ok(mut g) = player.try_borrow_mut() else {
         return true;
@@ -187,10 +195,12 @@ pub(crate) fn smooth_budget_on_transport_tick(
     let cur_count = snap.primary;
     let fps = playback_fps_for_decode_budget(&b.mpv);
     let decode_px = decode_pixel_area_for_me_budget(&b.mpv);
+    let current_budget_px = {
+        let vp = video_pref.borrow();
+        effective_smooth_me_budget_px(&b.mpv, &vp)
+    };
     drop(g);
-
     let now = Instant::now();
-    let current_budget_px = video_pref.borrow().smooth_max_area;
     let allow_recovery_raise = raised_me_budget_can_reduce_downscale(decode_px, current_budget_px);
     let recovery_blocked_after_overload_snapshot =
         state_cell.borrow().recovery_blocked_after_overload_this_open;

@@ -39,7 +39,7 @@ pub fn record_history(path: &Path) {
     });
 }
 
-fn history_key(path: &Path) -> Option<String> {
+pub(crate) fn history_key(path: &Path) -> Option<String> {
     std::fs::canonicalize(path)
         .ok()
         .and_then(|p| p.to_str().map(str::to_string))

@@ -8,7 +8,7 @@
 //! clears the pref at apply time; a script that dies *after* add is a rare install issue (toggle off in
 //! **Preferences** or fix mvtools).
 //! Set `RHINO_VIDEO_LOG=1` for per-step mpv result lines on stderr.
-//! **`RHINO_SMOOTH_DROP_STATS=1`** stderr **≈every 5 s** **`[rhino] smooth: stats`** (mistimed / VO / decoder) while bundled Smooth **`vf`** is active—**suppressed** after overload shrank ME this open media when strict-window strain **\< ~40%**; **`[rhino] smooth: decision …`** **~1 Hz** — **`decision hold`** only when strict-window strain **≥ ~40%**; **`decision raise`** only on widen; no **`raise_skipped`** stderr; **`persist_skip`**, **`smooth_budget_*`** modules.
+//! **`RHINO_SMOOTH_DROP_STATS=1`** stderr **≈every 5 s** **`[rhino] smooth: stats`** (mistimed / VO / decoder) while bundled Smooth **`vf`** is active—**suppressed** after overload shrank ME this open media when strict-window strain **\< ~20%**; **`[rhino] smooth: decision …`** **~1 Hz** — **`decision hold`** only when strict-window strain **≥ ~20%**; **`decision raise`** only on widen; no **`raise_skipped`** stderr; **`persist_skip`**, **`smooth_budget_*`** modules.
 //!
 //! If the VapourSynth `vf` cannot be added (no script, or mpv reports error — missing filter, plugin,
 //! Python), [apply_mpv_video] sets `smooth_60` to `false`, saves settings, and returns `true` so the UI
@@ -22,7 +22,7 @@
 //! With the bundled script, **`smooth_budget_on_transport_tick`** may **raise or lower** **`video_smooth_max_area`** on the
 //! **1 Hz** transport tick using **mpv** **presentation strain** tallies (**`mistimed-frame-count`**, else **`frame-drop-count`**, else **`decoder-frame-drop-count`**): a trailing **≈5 s** sliding window whose
 //! **strain rate** (**Δ** ÷ (wall × denominator Hz); **mistimed**/VO denominator **≥ ~60 Hz**, **decoder** path uses **`container-fps`×`speed`** or **`estimated-vf-fps`**) **> ~2%**
-//! for **five successive** ticks with strict-window strain **>** **~40%** shrinks the saved ME budget by ~**10%** per firing (**`budget_after_decoder_overload`** — symmetric integer half-up step to recovery raise); **30 successive** ticks (~**30 s**) with relaxed-window strain **\<** **~10%** step **up** ~**10%** toward the **recovery ceiling** (decoded width×height when known, else **`DEFAULT_SMOOTH_MAX_AREA`**)
+//! for **five successive** ticks with strict-window strain **>** **~20%** shrinks the saved ME budget by ~**10%** per firing (**`budget_after_decoder_overload`** — symmetric integer half-up step to recovery raise); **30 successive** ticks (~**30 s**) with relaxed-window strain **\<** **~10%** step **up** ~**10%** toward the **recovery ceiling** (decoded width×height when known, else **`DEFAULT_SMOOTH_MAX_AREA`**)
 //! when **`decode_px` exceeds the persisted ME clamp** (same condition as **`smooth_me_geometry`** downscale branch); recovery is **skipped** when decode already fits the cap (**native ME** path). Then **`apply_mpv_video`** on each persisted change (**`smooth_me_geometry.rs`** tests only).
 //! When **`FileLoaded`** or **`path`** fires (transport coalesced idle), **if** **`vf_smooth_matches_prefs`**
 //! is true (resolved script · mpv **`buffered-frames=`** · bundled **`user-data=`** vs SQLite · env match ·
@@ -42,6 +42,7 @@
 //! when **`vapoursynth`** is missing (e.g. after a seek while paused).
 
 include!("video_pref/smooth_motion_tier.rs");
+include!("video_pref/smooth_me_budget_resolve.rs");
 include!("video_pref/smooth_vf_me_budget_applied.rs");
 include!("video_pref/mvtools_video_log_env.rs");
 include!("video_pref/smooth_vf_swap_timing.rs");

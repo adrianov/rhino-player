@@ -56,12 +56,24 @@ pub fn init() {
         eprintln!("[rhino] db: schema: {e}");
         return;
     }
+    migrate_media_decode_columns(&conn);
     if DB.set(Mutex::new(conn)).is_err() {
         eprintln!("[rhino] db: already initialized");
     }
 }
 
-fn with_conn<T, F>(f: F) -> Option<T>
+/// Add per-file decode size + ME budget columns (idempotent on existing DBs).
+fn migrate_media_decode_columns(conn: &Connection) {
+    for sql in [
+        "ALTER TABLE media ADD COLUMN decode_w INTEGER",
+        "ALTER TABLE media ADD COLUMN decode_h INTEGER",
+        "ALTER TABLE media ADD COLUMN smooth_me_budget_px2 INTEGER",
+    ] {
+        let _ = conn.execute(sql, rusqlite::params![]);
+    }
+}
+
+pub(crate) fn with_conn<T, F>(f: F) -> Option<T>
 where
     F: FnOnce(&Connection) -> rusqlite::Result<T>,
 {

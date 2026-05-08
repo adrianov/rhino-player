@@ -65,6 +65,15 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     if bar_visible {
         sync_seek_pos(&ctx.widgets, pos, dur);
     }
+    if let Ok(g) = ctx.player.try_borrow() {
+        if let Some(b) = g.as_ref() {
+            if let Some(p) = crate::media_probe::local_file_from_mpv(&b.mpv) {
+                if let Some((w, h)) = crate::video_pref::decode_wh_from_mpv(&b.mpv) {
+                    crate::db::media_sync_decode_size(&p, w, h);
+                }
+            }
+        }
+    }
     if core_idle && dur > 0.0 && (dur - pos) <= TICK_EOF_TAIL_SEC {
         run_sibling_eof(ctx);
     }

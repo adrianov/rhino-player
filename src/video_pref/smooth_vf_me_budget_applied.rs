@@ -21,12 +21,17 @@ pub(crate) fn note_bundled_me_budget_vf_applied(px: u64) {
     LAST_BUNDLED_ME_BUDGET_APPLIED.store(px, std::sync::atomic::Ordering::Release);
 }
 
-pub(crate) fn bundled_me_budget_vf_matches_prefs(v: &crate::db::VideoPrefs) -> bool {
+pub(crate) fn bundled_me_budget_vf_matches_noted_px(effective_px: u64, v: &crate::db::VideoPrefs) -> bool {
     if !v.vs_path.trim().is_empty() {
         return true;
     }
-    let want = v.smooth_max_area.max(crate::db::MIN_SMOOTH_MAX_AREA);
+    let want = effective_px.max(crate::db::MIN_SMOOTH_MAX_AREA);
     LAST_BUNDLED_ME_BUDGET_APPLIED.load(std::sync::atomic::Ordering::Acquire) == want
+}
+
+pub(crate) fn bundled_me_budget_vf_matches_prefs(mpv: &libmpv2::Mpv, v: &crate::db::VideoPrefs) -> bool {
+    let eff = effective_smooth_me_budget_px(mpv, v);
+    bundled_me_budget_vf_matches_noted_px(eff, v)
 }
 
 #[cfg(test)]
@@ -40,17 +45,26 @@ mod smooth_vf_me_budget_applied_tests {
         v.smooth_max_area = 1_059_297;
         super::forget_bundled_me_budget_vf_apply();
         assert!(
-            !super::bundled_me_budget_vf_matches_prefs(&v),
+            !super::bundled_me_budget_vf_matches_noted_px(
+                v.smooth_max_area.max(crate::db::MIN_SMOOTH_MAX_AREA),
+                &v
+            ),
             "UNSET sentinel must demand a vf rebuild for bundled ME budget"
         );
         super::note_bundled_me_budget_vf_applied(v.smooth_max_area.max(crate::db::MIN_SMOOTH_MAX_AREA));
         assert!(
-            super::bundled_me_budget_vf_matches_prefs(&v),
+            super::bundled_me_budget_vf_matches_noted_px(
+                v.smooth_max_area.max(crate::db::MIN_SMOOTH_MAX_AREA),
+                &v
+            ),
             "same prefs + noted px² should satisfy skip-fast-path check"
         );
         v.smooth_max_area = 998_096;
         assert!(
-            !super::bundled_me_budget_vf_matches_prefs(&v),
+            !super::bundled_me_budget_vf_matches_noted_px(
+                v.smooth_max_area.max(crate::db::MIN_SMOOTH_MAX_AREA),
+                &v
+            ),
             "adapted SQLite row must invalidate skip until vf reattach"
         );
     }
@@ -62,6 +76,9 @@ mod smooth_vf_me_budget_applied_tests {
             ..Default::default()
         };
         super::forget_bundled_me_budget_vf_apply();
-        assert!(super::bundled_me_budget_vf_matches_prefs(&v));
+        assert!(super::bundled_me_budget_vf_matches_noted_px(
+            v.smooth_max_area.max(crate::db::MIN_SMOOTH_MAX_AREA),
+            &v
+        ));
     }
 }
