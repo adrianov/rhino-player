@@ -79,31 +79,12 @@ fn maybe_handle_recovery_raise(
     o: &TransportBudgetOutcome,
 ) {
     if !o.allow_recovery_raise {
-        eprintln_smooth_budget_recovery_skip_decode_fits_cap(
-            &o.snap,
-            o.decode_fps,
-            o.rate_opt,
-            o.decode_px,
-            o.current_budget_px.max(crate::db::MIN_SMOOTH_MAX_AREA),
-        );
         return;
     }
     if o.recovery_blocked_after_overload_this_open {
-        eprintln_smooth_budget_recovery_skip_after_overload_session(
-            &o.snap,
-            o.decode_fps,
-            o.recovery_rate_opt,
-            o.decode_px,
-        );
         return;
     }
     if o.process_cpu_frac.is_some_and(|f| f > RECOVER_CPU_SHARE_HARD_MAX_FRAC) {
-        eprintln_smooth_budget_recovery_skip_high_cpu(
-            &o.snap,
-            o.decode_fps,
-            o.process_cpu_frac,
-            RECOVER_CPU_SHARE_HARD_MAX_FRAC,
-        );
         return;
     }
     maybe_raise_budget(video_pref, player, o);
@@ -115,17 +96,9 @@ fn maybe_raise_budget(
     o: &TransportBudgetOutcome,
 ) {
     let Some(recover_to) = recovery_candidate(o.current_budget_px, o.decode_px) else {
-        eprintln_smooth_budget_recovery_at_ceiling(&o.snap, o.current_budget_px, o.decode_px);
         return;
     };
     if recover_to <= o.current_budget_px {
-        eprintln_smooth_budget_recovery_raise_no_step(
-            &o.snap,
-            o.decode_fps,
-            o.rate_opt,
-            recover_to,
-            o.current_budget_px,
-        );
         return;
     }
     eprintln_smooth_budget_recovery_raise(
