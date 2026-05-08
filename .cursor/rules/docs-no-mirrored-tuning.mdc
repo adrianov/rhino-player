@@ -1,0 +1,34 @@
+---
+description: >-
+  Markdown docs cite source files/symbols for tunables instead of repeating current numeric presets.
+globs:
+  - docs/**/*.md
+  - data/**/README.md
+alwaysApply: false
+---
+
+# Docs: avoid mirroring changeable presets
+
+**Goals:** `## Behavior` stays portable (`document-first.mdc`). **`## Notes`**, **`data/*/README.md`**, and **`docs/references-*.md`** describe **meaning** and **where values live**, not copies of Rust/Python constants that drift.
+
+## Prefer
+
+- **Semantics + constraints**: e.g. “fixed mpv buffered depth”, “MVTools `overlap` \< `blksize`”.
+- **`path` + symbol**: `SMOOTH_VF_BUFFERED_FRAMES` (`src/video_pref/smooth_motion_tier.rs`), `_MV_BLK_SIZE` (`data/vs/rhino_60_mvtools.vpy`), overload logic (`src/video_pref/smooth_budget.rs`).
+- **Shell examples**: derive **N** from the repo (see `data/vs/README.md` **mpv** section) or say “substitute **N** from …” — avoid hard-coding **N** in multiple markdown files.
+
+## Avoid
+
+- Re-stating **`blksize=`**, **`buffered-frames=`**, **`max_cache_size`**, **`tier`** pixel cutoffs, or full MVTools flag lists identically here and in `.vpy` / Rust.
+
+## Allowed duplicates
+
+- **Schema / persisted defaults** tied to SQLite migrations or user-visible contract (**only** when the number is intentionally part of stability guarantees — otherwise cite `db`/code).
+- **`## Behavior`** must stay free of binding numbers (existing portable rule).
+
+## After changing presets in code
+
+- Update the defining **Rust** / **`.vpy`** lines first.
+- Grep **`docs/`** + **`data/vs/README.md`** for literals you just edited; refactor prose back to **citations**.
+
+

@@ -148,6 +148,7 @@ When creating or editing a feature doc, an agent must verify:
 6. Tags use only the controlled vocabulary.
 7. `related` numbers correspond to existing feature files.
 8. `docs/README.md` index row exists for this feature with matching status.
+9. **`Notes` prose does not duplicate changeable presets** mirrored in Rust/Python (buffer depth, MVTools **`blksize`/`overlap`**, cache sizes, stderr tier cutoffs — cite **`path`/symbol** instead). See [docs-no-mirrored-tuning](docs-no-mirrored-tuning.mdc).
 
 ## Workflow for changes
 

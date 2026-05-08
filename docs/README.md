@@ -9,7 +9,9 @@ Each file in `docs/features/` follows the strict template defined in [`.cursor/r
 3. `## Use cases` (one-line bullets)
 4. `## Description` (1–2 short paragraphs)
 5. `## Behavior` (the **Gherkin** `Feature:` block — the **single source of truth** for acceptance, in domain language only)
-6. `## Notes` (optional, non-binding implementation hints — the only place engine APIs, UI-toolkit widgets, OS paths, and language types may appear)
+6. `## Notes` (optional, non-binding implementation hints — the only place engine APIs, UI-toolkit widgets, OS paths, and language types may appear).
+
+**Preset literals** (mpv buffer depth, MVTools **`blksize`**, cache caps, stderr tier thresholds, …): describe behavior and **point to `src/` or `data/vs/` — do not paste the same numbers everywhere**. See [`.cursor/rules/docs-no-mirrored-tuning.mdc`](../.cursor/rules/docs-no-mirrored-tuning.mdc).
 
 Scenarios use **Given / When / Then**. Tags, step comments, tables under **Then**, and doc strings are allowed for technical metadata; the rule file lists the controlled vocabulary and forbidden patterns.
 
