@@ -27,7 +27,7 @@ _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (ex
 # MVTools ``Analyse``: ``blksize`` / ``overlap`` are ``_MV_BLK_SIZE`` / ``_MV_BLK_OVERLAP`` (``overlap`` < ``blksize``).
 # Block grid cost scales with ``blksize`` (smaller ⇒ usually more blocks per frame).
 # **Decode-area budget**: Rhino passes **`user-data=<px²>`** when libmpv supports it; always sets ``RHINO_SMOOTH_MAX_AREA``
-# (`getenv`-first helpers so embedded ``os.environ`` cannot hide Rust ``set_var`` updates).
+# (bundled script: **robust host env** — Linux ``/proc/self/environ``, macOS libc ``getenv`` — so embedded ``os.environ`` cannot hide Rust ``set_var`` updates).
 # mpv ``buffered-frames`` is **not** set here — Rhino passes **N** via ``SMOOTH_VF_BUFFERED_FRAMES`` (``smooth_motion_tier.rs``).
 # If **decode** ``width × height`` exceeds that budget, **both** dimensions scale by ``√(budget/decode_px)``
 # so MVTools runs at **≤ budget** pixels (**stderr ``path=scaled``**); otherwise **native** (**``path=full``**).
@@ -52,12 +52,11 @@ _MV_DECODE_TAG_AREA = 2560 * 1440
 _MV_SUPER_PAD = 16
 
 
-def _host_c_environ_from_proc() -> dict[str, str] | None:
-    """Linux: full C environ from ``/proc/self/environ`` (one read per script run).
+def _robust_proc_environ_snapshot() -> dict[str, str] | None:
+    """Linux: one read of the process C environment from ``/proc/self/environ`` (per script run).
 
-    Avoids ``ctypes.CDLL(None)`` (would load the **host binary**, e.g. **rhino-player**) and any
-    ``getenv`` binding bugs inside embedded **mpv**/**VapourSynth** — both have been associated with
-    ``free(): invalid pointer`` in practice.
+    No **ctypes** — avoids loading the host binary as ``CDLL(None)`` and any ``getenv`` wrapper quirks
+    in embedded **mpv**/**VapourSynth**. Returns ``None`` on macOS (no ``/proc``) or if the file is unreadable.
     """
     if _IS_DARWIN:
         return None
@@ -80,45 +79,29 @@ def _host_c_environ_from_proc() -> dict[str, str] | None:
     return out
 
 
-# Fresh each time **mpv** runs this script (not a long-lived import cache).
-_HOST_C_ENVIRON = _host_c_environ_from_proc()
+_ROBUST_PROC_ENVIRON = _robust_proc_environ_snapshot()
 
 
-def _host_env_strip(var: str) -> str:
-    """Prefer **C** environ (Rhino ``set_var``) over a stale ``os.environ`` snapshot.
-
-    **Linux:** ``/proc/self/environ`` when available. **macOS** / fallback: **libc** ``getenv`` only
-    (never ``CDLL(None)``); copy with ``string_at`` — **never** ``restype=c_char_p`` (can ``free`` env storage).
-    """
-    if _HOST_C_ENVIRON is not None:
-        v = _HOST_C_ENVIRON.get(var)
-        if v is not None:
-            return v.strip()
-        return (os.environ.get(var) or "").strip()
-
+def _robust_host_env_libc(var: str) -> str:
+    """macOS only (no ``/proc``): one ``getenv`` via **libc**; copy with ``string_at`` — never ``restype=c_char_p``."""
     try:
         import ctypes
     except ImportError:
         return (os.environ.get(var) or "").strip()
 
-    libc_getenv = getattr(_host_env_strip, "_libc_getenv", None)
+    libc_getenv = getattr(_robust_host_env_libc, "_libc_getenv_fn", None)
     if libc_getenv is False:
         return (os.environ.get(var) or "").strip()
     if libc_getenv is None:
-        libc = None
-        for name in ("libc.dylib", "libc.so.6"):
-            try:
-                libc = ctypes.CDLL(name)
-                break
-            except OSError:
-                continue
-        if libc is None:
-            setattr(_host_env_strip, "_libc_getenv", False)
+        try:
+            libc = ctypes.CDLL("libc.dylib")
+        except OSError:
+            setattr(_robust_host_env_libc, "_libc_getenv_fn", False)
             return (os.environ.get(var) or "").strip()
         g = libc.getenv
         g.argtypes = [ctypes.c_char_p]
         g.restype = ctypes.c_void_p
-        setattr(_host_env_strip, "_libc_getenv", g)
+        setattr(_robust_host_env_libc, "_libc_getenv_fn", g)
         libc_getenv = g
 
     raw = libc_getenv(var.encode("utf-8"))
@@ -130,6 +113,18 @@ def _host_env_strip(var: str) -> str:
         return (os.environ.get(var) or "").strip()
     if out:
         return out
+    return (os.environ.get(var) or "").strip()
+
+
+def _robust_host_env(var: str) -> str:
+    """Process **C** environment visible to **Rhino** ``set_var``: not the lag-prone ``os.environ`` snapshot alone."""
+    if _ROBUST_PROC_ENVIRON is not None:
+        v = _ROBUST_PROC_ENVIRON.get(var)
+        if v is not None:
+            return v.strip()
+        return (os.environ.get(var) or "").strip()
+    if _IS_DARWIN:
+        return _robust_host_env_libc(var)
     return (os.environ.get(var) or "").strip()
 
 
@@ -152,7 +147,7 @@ def _smooth_max_area_px() -> int:
     """
     min_budget = 320 * 180
 
-    raw = _host_env_strip("RHINO_SMOOTH_MAX_AREA")
+    raw = _robust_host_env("RHINO_SMOOTH_MAX_AREA")
     if raw.isdigit():
         try:
             return max(min_budget, int(raw))
@@ -234,7 +229,7 @@ _logged_stderr_epoch = None
 def _stderr_banner_once_per_rhino_attach(msg: str) -> bool:
     """Return True the first time (this interpreter, per Rhino vf epoch) we print `msg` to stderr."""
     global _logged_stderr_epoch
-    epoch = _host_env_strip("RHINO_VPY_LOG_EPOCH")
+    epoch = _robust_host_env("RHINO_VPY_LOG_EPOCH")
     if epoch:
         if _logged_stderr_epoch == epoch:
             return False
@@ -243,7 +238,7 @@ def _stderr_banner_once_per_rhino_attach(msg: str) -> bool:
     return True
 
 def _mvtools_paths():
-    p = _host_env_strip("RHINO_MVTOOLS_LIB")
+    p = _robust_host_env("RHINO_MVTOOLS_LIB")
     if p:
         yield os.path.expanduser(p)
     if _IS_DARWIN:
@@ -348,7 +343,7 @@ def _load_mvtools(core):
 
 def _speed_frac_from_env() -> Fraction:
     """Exact 1, 1.5, 2 — avoids float/Fraction drift that can skew FlowFPS timebase (A/V at 1×)."""
-    t = (_host_env_strip("RHINO_PLAYBACK_SPEED") or "1").strip() or "1"
+    t = (_robust_host_env("RHINO_PLAYBACK_SPEED") or "1").strip() or "1"
     if t in ("1", "1.0", "1.00"):
         return Fraction(1, 1)
     if t in ("1.5", "1.50"):
@@ -371,7 +366,7 @@ def _src_fps_from_env() -> tuple[int, int] | None:
     to NTSC rationals (e.g. ``30000/1001``) without binary-float noise. Wrong rationals from vf forwarding
     would skew FlowFPS output-vs-input frame quotients.
     """
-    t = _host_env_strip("RHINO_SOURCE_FPS")
+    t = _robust_host_env("RHINO_SOURCE_FPS")
     if not t:
         return None
     try:
