@@ -37,6 +37,10 @@ _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (ex
 # **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse`` (luma-only ME yields bad chroma — green tint).
 _MV_BLK_SIZE = 128
 _MV_BLK_OVERLAP = 64
+# ME shorter side **below** this → **64×64** / **overlap 32** and **``Super`` levels ≥ 1** (never auto-0).
+# **128×128** on e.g. **320×240** has hit **``free(): invalid pointer``** inside **vsrepo** mvtools when
+# **``levels``** auto-collapses — treat as marginal grid / pyramid edge case.
+_MV_SMALL_ME_SIDE = 480
 # ME **width/height** crop/scale alignment (``_me_wh_aligned``). Independent of MVTools ``blksize`` (``_MV_BLK_SIZE``):
 # aligning to **8** rather than snapping dimensions to ``blksize`` trims less from decode / scaled ME and still validates in practice — **mpv** +
 # **mv.Super/Analyse/FlowFPS** use ``blksize`` / ``overlap`` above.
@@ -48,13 +52,50 @@ _MV_DECODE_TAG_AREA = 2560 * 1440
 _MV_SUPER_PAD = 16
 
 
-def _host_env_strip(var: str) -> str:
-    """Read ``getenv(3)`` so host ``setenv`` (Rhino Rust) wins over a stale ``os.environ`` snapshot.
+def _host_c_environ_from_proc() -> dict[str, str] | None:
+    """Linux: full C environ from ``/proc/self/environ`` (one read per script run).
 
-    VapourSynth often runs embedded in-process; repeated ``vf`` reloads refresh C environ while
-    Python's ``os.environ`` mapping can lag, so numeric ``RHINO_*`` knobs use libc first with
-    ``os.environ`` fallback.
+    Avoids ``ctypes.CDLL(None)`` (would load the **host binary**, e.g. **rhino-player**) and any
+    ``getenv`` binding bugs inside embedded **mpv**/**VapourSynth** — both have been associated with
+    ``free(): invalid pointer`` in practice.
     """
+    if _IS_DARWIN:
+        return None
+    try:
+        with open("/proc/self/environ", "rb") as envf:
+            blob = envf.read()
+    except OSError:
+        return None
+    out: dict[str, str] = {}
+    for entry in blob.split(b"\0"):
+        if not entry or b"=" not in entry:
+            continue
+        key_b, _, val_b = entry.partition(b"=")
+        try:
+            key = key_b.decode("utf-8", "surrogateescape")
+            val = val_b.decode("utf-8", "surrogateescape")
+        except (UnicodeDecodeError, ValueError):
+            continue
+        out[key] = val
+    return out
+
+
+# Fresh each time **mpv** runs this script (not a long-lived import cache).
+_HOST_C_ENVIRON = _host_c_environ_from_proc()
+
+
+def _host_env_strip(var: str) -> str:
+    """Prefer **C** environ (Rhino ``set_var``) over a stale ``os.environ`` snapshot.
+
+    **Linux:** ``/proc/self/environ`` when available. **macOS** / fallback: **libc** ``getenv`` only
+    (never ``CDLL(None)``); copy with ``string_at`` — **never** ``restype=c_char_p`` (can ``free`` env storage).
+    """
+    if _HOST_C_ENVIRON is not None:
+        v = _HOST_C_ENVIRON.get(var)
+        if v is not None:
+            return v.strip()
+        return (os.environ.get(var) or "").strip()
+
     try:
         import ctypes
     except ImportError:
@@ -65,13 +106,9 @@ def _host_env_strip(var: str) -> str:
         return (os.environ.get(var) or "").strip()
     if libc_getenv is None:
         libc = None
-        for ctor in (
-            lambda: ctypes.CDLL(None),
-            lambda: ctypes.CDLL("libc.so.6"),
-            lambda: ctypes.CDLL("libc.dylib"),
-        ):
+        for name in ("libc.dylib", "libc.so.6"):
             try:
-                libc = ctor()
+                libc = ctypes.CDLL(name)
                 break
             except OSError:
                 continue
@@ -80,17 +117,17 @@ def _host_env_strip(var: str) -> str:
             return (os.environ.get(var) or "").strip()
         g = libc.getenv
         g.argtypes = [ctypes.c_char_p]
-        g.restype = ctypes.c_char_p
+        g.restype = ctypes.c_void_p
         setattr(_host_env_strip, "_libc_getenv", g)
         libc_getenv = g
 
     raw = libc_getenv(var.encode("utf-8"))
-    if raw is None:
+    if not raw:
         return (os.environ.get(var) or "").strip()
-    if isinstance(raw, bytes):
-        out = raw.decode("utf-8", errors="replace").strip()
-    else:
-        out = str(raw).strip()
+    try:
+        out = ctypes.string_at(raw).decode("utf-8", errors="replace").strip()
+    except (TypeError, ValueError, OSError):
+        return (os.environ.get(var) or "").strip()
     if out:
         return out
     return (os.environ.get(var) or "").strip()
@@ -142,26 +179,26 @@ def _smooth_max_area_px() -> int:
 
 
 def _mv_graph_for_frame_size(
-    width_px: int,
-    height_px: int,
+    me_w_px: int,
+    me_h_px: int,
+    decode_px: int,
 ) -> tuple[str, int, int, int, int, int, int, bool, bool, bool]:
     """Tier tag + MVTools params.
 
     Returns ``(tier, blksize, overlap, pel, sharp, search, flow_mask, flow_blend,
     truemotion, chroma)``.
-    ``tier`` is **uhd** when **decode** ``width × height >= _MV_DECODE_TAG_AREA``, else **hd** (stderr tag only).
-    ME raster may be **proportionally** smaller than decode when ``RHINO_SMOOTH_MAX_AREA`` < decode pixels.
-    ME **width** / **height** are floored to multiples of ``_ME_GEOMETRY_ALIGN_PX`` (crop right/bottom on **full** path when
-    possible; else **Bicubic** — e.g. tiny frames). ``blksize`` / ``overlap`` for filters come from (**``_MV_BLK_SIZE``**, **``_MV_BLK_OVERLAP``**).
-    ``mv.Super`` ``levels=0`` (automatic pyramid) on the MVTools raster; **FlowFPS** output keeps **ME** frame size
-    (may differ from decode when ``RHINO_SMOOTH_MAX_AREA`` constrained the ME raster).
+    ``tier`` uses **decode** pixel count (``decode_px``) vs ``_MV_DECODE_TAG_AREA`` (**hd**/**uhd** tag only).
+    **Block** preset uses the **ME** raster (``me_w_px``×``me_h_px``): small ME clips use **64**/**32** — see ``_MV_SMALL_ME_SIDE``.
     **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse``.
     Shared: ``pel=1``, ``sharp=1``, ``search=4`` (hex), ``truemotion=True``, ``FlowFPS(mask=2, blend=True)``, ``global=True``.
     """
-    w = max(1, width_px)
-    h = max(1, height_px)
-    tier = "uhd" if w * h >= _MV_DECODE_TAG_AREA else "hd"
-    blk, ov = _MV_BLK_SIZE, _MV_BLK_OVERLAP
+    w = max(1, me_w_px)
+    h = max(1, me_h_px)
+    tier = "uhd" if max(1, decode_px) >= _MV_DECODE_TAG_AREA else "hd"
+    if min(w, h) < _MV_SMALL_ME_SIDE:
+        blk, ov = 64, 32
+    else:
+        blk, ov = _MV_BLK_SIZE, _MV_BLK_OVERLAP
     return (
         tier,
         blk,
@@ -174,6 +211,18 @@ def _mv_graph_for_frame_size(
         True,  # Analyse truemotion
         True,
     )
+
+
+def _super_levels_effective(me_w_px: int, me_h_px: int) -> int:
+    """``mv.Super`` ``levels`` passed to the filter: **>0** fixed, **0** = MVTools automatic count.
+
+    Automatic **0** on very small ME frames can yield **no** pyramid (**``nLevels`` == 0**) upstream → crashes.
+    """
+    if _MV_SUPER_LEVELS > 0:
+        return _MV_SUPER_LEVELS
+    if min(max(1, me_w_px), max(1, me_h_px)) < _MV_SMALL_ME_SIDE:
+        return 1
+    return 0
 
 
 # mpv may run this script multiple times per single `vf` attach; Rhino sets `RHINO_VPY_LOG_EPOCH`
@@ -510,17 +559,18 @@ else:
             work_me = core.resize.Bicubic(work, width=_aw, height=_ah)
             _me_path = "scaled"
         _tier, _blk, _ov, _pel, _sharp, _search, _fmask, _fblend, _tm, _mv_chroma = (
-            _mv_graph_for_frame_size(_decode_w, _decode_h)
+            _mv_graph_for_frame_size(work_me.width, work_me.height, _decode_px)
         )
+        _eff_super_lv = _super_levels_effective(work_me.width, work_me.height)
         _super_kw = {
             "pel": _pel,
             "sharp": _sharp,
             "chroma": _mv_chroma,
-            "levels": _MV_SUPER_LEVELS,
+            "levels": _eff_super_lv,
             "hpad": _MV_SUPER_PAD,
             "vpad": _MV_SUPER_PAD,
         }
-        _super_lvl_log = "auto" if _MV_SUPER_LEVELS == 0 else str(_MV_SUPER_LEVELS)
+        _super_lvl_log = "auto" if _eff_super_lv == 0 else str(_eff_super_lv)
         print(
             f"[rhino_60_mvtools] mvtools preset tier={_tier} "
             f"(decode_px={_decode_px}, smooth_cap={_smooth_cap}) "
