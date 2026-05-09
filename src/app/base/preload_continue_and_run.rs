@@ -20,6 +20,14 @@ fn preload_first_continue(
 }
 
 pub fn run() -> i32 {
+    if std::env::args()
+        .skip(1)
+        .any(|a| matches!(a.as_str(), "--version" | "-V"))
+    {
+        println!("rhino-player {}", env!("CARGO_PKG_VERSION"));
+        return 0;
+    }
+
     crate::glib_log_filter::install();
 
     unsafe {
