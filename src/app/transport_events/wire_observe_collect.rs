@@ -59,6 +59,7 @@ struct TransportWidgets {
     vol_mute: gtk::ToggleButton,
     vol_sync: Rc<Cell<bool>>,
     sub_readout: gtk::Label,
+    smooth_toolbar_status: gtk::Label,
 }
 
 #[derive(Default)]

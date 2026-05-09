@@ -28,6 +28,7 @@
             vol_adj: w.vol_adj.clone(), vol_mute: w.vol_mute_btn.clone(),
             vol_sync: vol_sync.clone(),
             sub_readout: w.sub_readout.clone(),
+            smooth_toolbar_status: w.smooth_status.clone(),
         },
     });
 

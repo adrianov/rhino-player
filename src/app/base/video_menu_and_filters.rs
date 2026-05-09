@@ -114,7 +114,7 @@ fn register_video_app_actions(
                 a.set_state(&false.to_variant());
                 show_smooth_setup_dialog(&app_s);
                 gla.queue_render();
-                stamp_smooth_toolbar_status(smooth_lbl.as_ref(), false);
+                stamp_smooth_toolbar_readout(smooth_lbl.as_ref(), &pl);
                 return;
             }
             a.set_state(s);
@@ -134,14 +134,11 @@ fn register_video_app_actions(
                 }
             }
             gla.queue_render();
-            stamp_smooth_toolbar_status(
-                smooth_lbl.as_ref(),
-                a.state().and_then(|v| v.get::<bool>()).unwrap_or(false),
-            );
+            stamp_smooth_toolbar_readout(smooth_lbl.as_ref(), &pl);
         });
     }
     app.add_action(&smooth_60);
-    stamp_smooth_toolbar_status(smooth_toolbar_status.as_ref(), v0.smooth_60);
+    stamp_smooth_toolbar_readout(smooth_toolbar_status.as_ref(), player);
 
     let seek_bar_preview =
         gio::SimpleAction::new_stateful("seek-bar-preview", None, &seek_bar_on.get().to_variant());
@@ -245,7 +242,7 @@ fn register_video_app_actions(
                     db::save_video(&p2.borrow());
                     sync_smooth_60_to_off(&app3);
                     show_smooth_setup_dialog(&app3);
-                    sync_smooth_toolbar_from_action(&app3, smooth_pick.as_ref());
+                    stamp_smooth_toolbar_readout(smooth_pick.as_ref(), &pl2);
                     return;
                 }
                 {
@@ -284,10 +281,10 @@ fn apply_vs_path_chosen(
         } else if let Some(sa) = smooth_60_action(app) {
             sa.set_state(&p.borrow().smooth_60.to_variant());
         }
-        sync_smooth_toolbar_from_action(app, smooth_toolbar_status);
+        stamp_smooth_toolbar_readout(smooth_toolbar_status, pl);
     } else if let Some(sa) = smooth_60_action(app) {
         sa.set_state(&true.to_variant());
-        sync_smooth_toolbar_from_action(app, smooth_toolbar_status);
+        stamp_smooth_toolbar_readout(smooth_toolbar_status, pl);
     }
 }
 

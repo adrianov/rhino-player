@@ -3,7 +3,7 @@ struct SmoothToolbarWidgets {
     smooth_status: gtk::Label,
 }
 
-/// Header toolbar control: icon + **On** / **Off** readout; full title lives in the tooltip only.
+/// Header toolbar control: icon + rounded **playing FPS** readout; full title lives in the tooltip.
 fn build_smooth_video_toolbar(app: &adw::Application) -> SmoothToolbarWidgets {
     let smooth_btn = gtk::Button::new();
     smooth_btn.add_css_class("flat");
@@ -15,7 +15,7 @@ fn build_smooth_video_toolbar(app: &adw::Application) -> SmoothToolbarWidgets {
     let img = gtk::Image::from_icon_name("camera-video-symbolic");
     img.set_valign(gtk::Align::Center);
 
-    let smooth_status = gtk::Label::new(Some("Off"));
+    let smooth_status = gtk::Label::new(Some("—"));
     smooth_status.add_css_class("rp-smooth-readout");
     smooth_status.set_xalign(0.0);
     smooth_status.set_valign(gtk::Align::Center);
