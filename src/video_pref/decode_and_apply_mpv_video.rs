@@ -256,7 +256,9 @@ fn apply_mpv_video_impl(
             None => set_playback_speed_env_from_mpv(mpv),
         }
         let smooth_cap = effective_smooth_me_budget_px(mpv, v);
-        std::env::set_var(crate::paths::RHINO_SMOOTH_MAX_AREA_VAR, format!("{smooth_cap}"));
+        if v.vs_path.trim().is_empty() {
+            crate::paths::publish_smooth_me_cap_snap(smooth_cap);
+        }
         let fps_env_before = std::env::var(crate::paths::RHINO_SOURCE_FPS_VAR).ok();
         set_source_fps_env_from_mpv(mpv);
         let fps_env_after = std::env::var(crate::paths::RHINO_SOURCE_FPS_VAR).ok();

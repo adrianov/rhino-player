@@ -1,13 +1,16 @@
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 
 use crate::db;
 use crate::db::VideoPrefs;
 use crate::paths;
 use crate::paths::{
-    RHINO_PLAYBACK_SPEED_VAR, RHINO_SMOOTH_MAX_AREA_VAR, RHINO_VPY_LOG_EPOCH_VAR,
+    publish_smooth_me_cap_snap, smooth_me_cap_snap_content_equals,
+    RHINO_PLAYBACK_SPEED_VAR, RHINO_SMOOTH_CAP_FILE_VAR, RHINO_VPY_LOG_EPOCH_VAR,
 };
 use crate::playback_speed::MAX_FIXED_SPEED;
+
+include!("mvtools_vf_substring_checks.rs");
 
 /// [apply_mpv_video] result (replaces a bare `bool` for "smooth was auto-off" on older call sites).
 #[derive(Debug, Default)]
@@ -124,10 +127,9 @@ pub fn refresh_smooth_for_playback_speed(
 }
 
 /// True when mpv's `vf` chain already matches what [add_smooth_60] would install for current prefs
-/// (resolved script · **`buffered-frames`** · bundled **`user-data=`** equals SQLite **when mpv attaches it**
-/// (**mpv 0.38** lacks this option — **Rhino** falls back · **`vf`** omits **`user-data=`**) · env ·
-/// **`smooth_vf_me_budget_applied`**). Used to skip redundant **`vf clr`**/**`vf add`** on duplicate idle after
-/// **FileLoaded** / **`path`** — **seek** never reaches [apply_mpv_video_impl].
+/// (resolved script · **`buffered-frames`** · **`concurrent-frames=auto`** · bundled snapfile ME px² ·
+/// **`smooth_vf_me_budget_applied`**). Used to skip redundant **`vf clr`**/**`vf add`** on duplicate idle
+/// after **FileLoaded** / **`path`** — **seek** never reaches [apply_mpv_video_impl].
 pub(crate) fn vf_smooth_matches_prefs(mpv: &Mpv, v: &VideoPrefs) -> bool {
     if !v.smooth_60 {
         return false;
@@ -140,9 +142,6 @@ pub(crate) fn vf_smooth_matches_prefs(mpv: &Mpv, v: &VideoPrefs) -> bool {
     };
     let vfl = vf.to_lowercase();
     if !vfl.contains("vapoursynth") {
-        return false;
-    }
-    if !vf.contains("concurrent-frames=auto") {
         return false;
     }
     let script = script.trim();
@@ -158,46 +157,19 @@ pub(crate) fn vf_smooth_matches_prefs(mpv: &Mpv, v: &VideoPrefs) -> bool {
     if !vf_smooth_queue_chain_ok(&vf) {
         return false;
     }
+    if !vf_concurrent_frames_matches(&vf, "auto") {
+        return false;
+    }
     let me_cap = effective_smooth_me_budget_px(mpv, v);
-    if v.vs_path.trim().is_empty() && !vf_bundled_user_data_budget_ok(&vf, me_cap) {
+    if v.vs_path.trim().is_empty() && !smooth_me_cap_snap_content_equals(me_cap) {
         return false;
     }
-    if !bundled_me_budget_vf_matches_prefs(mpv, v) {
-        return false;
-    }
-    smooth_max_area_env_matches(mpv, v)
+    bundled_me_budget_vf_matches_prefs(mpv, v)
 }
 
 /// True when **`vf`** carries the fixed **`buffered-frames`** depth (**[SMOOTH_VF_BUFFERED_FRAMES]**).
-/// Newer **mpv** also passes ME px² in **`user-data=`**; env vs SQLite uses [smooth_max_area_env_matches].
 pub(crate) fn vf_smooth_queue_chain_ok(vf: &str) -> bool {
     vf.contains(&format!("buffered-frames={}", SMOOTH_VF_BUFFERED_FRAMES))
-}
-
-/// When **`vf`** has no **`user-data=`** (older **mpv**), skip; else require exact cap (avoid `user-data=72`
-/// matching **`723100`**).
-fn vf_bundled_user_data_budget_ok(vf: &str, me_cap: u64) -> bool {
-    if !vf.contains("user-data=") {
-        return true;
-    }
-    let needle = format!("user-data={me_cap}");
-    for (idx, _) in vf.match_indices(&needle) {
-        let tail = &vf[idx + needle.len()..];
-        let next = tail.chars().next();
-        if matches!(next, Some(c) if c.is_ascii_digit()) {
-            continue;
-        }
-        return true;
-    }
-    false
-}
-
-fn smooth_max_area_env_matches(mpv: &Mpv, v: &VideoPrefs) -> bool {
-    let want = effective_smooth_me_budget_px(mpv, v);
-    std::env::var(RHINO_SMOOTH_MAX_AREA_VAR)
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        == Some(want)
 }
 
 fn resolve_vs_script_path(v: &VideoPrefs) -> Option<String> {
@@ -245,10 +217,16 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
         Some(s) => set_playback_speed_env(s),
         None => set_playback_speed_env_from_mpv(mpv),
     }
-    std::env::set_var(
-        RHINO_SMOOTH_MAX_AREA_VAR,
-        format!("{}", effective_smooth_me_budget_px(mpv, v)),
-    );
+    let cap_px = effective_smooth_me_budget_px(mpv, v);
+    if v.vs_path.trim().is_empty() {
+        publish_smooth_me_cap_snap(cap_px);
+        if video_log() {
+            eprintln!(
+                "[rhino] video: (verbose) bundled ME px²={cap_px} ({} snap)",
+                RHINO_SMOOTH_CAP_FILE_VAR
+            );
+        }
+    }
     set_source_fps_env_from_mpv(mpv);
     if video_log() {
         eprintln!(
@@ -256,7 +234,7 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
             SMOOTH_VF_BUFFERED_FRAMES
         );
     }
-    let epoch = VPY_LOG_EPOCH.fetch_add(1, Ordering::Relaxed);
+    let epoch = VPY_LOG_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     std::env::set_var(RHINO_VPY_LOG_EPOCH_VAR, format!("{epoch}"));
     if !apply_mvtools_env(v) {
         turn_off_smooth_60_in_prefs(v);
@@ -271,9 +249,8 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
     };
     eprintln!("[rhino] video: VapourSynth script = {p}");
     let p_esc = mpv_escape_path(&p);
-    let me_cap = effective_smooth_me_budget_px(mpv, v);
-    let budget_for_vf = v.vs_path.trim().is_empty().then_some(me_cap);
-    if !smooth_vapoursynth_vf_try_attach(mpv, &p_esc, budget_for_vf) {
+    let me_cap = cap_px;
+    if !smooth_vapoursynth_vf_try_attach(mpv, &p_esc) {
         turn_off_smooth_60_in_prefs(v);
         return true;
     }

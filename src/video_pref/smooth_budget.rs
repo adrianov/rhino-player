@@ -112,8 +112,8 @@ pub(crate) fn raised_me_budget_can_reduce_downscale(decode_px: Option<u64>, smoo
     decode_px.map_or(true, |px| px > cap)
 }
 
-/// Persist a new **`video_smooth_max_area`** and run **`apply_mpv_video`** so **`RHINO_SMOOTH_MAX_AREA`** and the bundled
-/// graph match SQLite.
+/// Persist a new **`video_smooth_max_area`** and run **`apply_mpv_video`** so the **`RHINO_SMOOTH_CAP_FILE`** snapfile
+/// and bundled graph match SQLite.
 #[must_use]
 fn persist_budget_and_maybe_rebuild_vf(
     player: &Rc<RefCell<Option<crate::mpv_embed::MpvBundle>>>,
@@ -138,23 +138,45 @@ fn persist_budget_and_maybe_rebuild_vf(
         crate::db::save_video(&vp);
     }
 
-    if let Ok(g) = player.try_borrow() {
-        if let Some(b) = g.as_ref() {
+    // Adaptive overload/recovery updates SQLite prefs + `media`; ME px² flows through **`RHINO_SMOOTH_CAP_FILE`** after **`vf clr`/`vf add`**.
+    // Invalidate **`smooth_vf_me_budget_applied`** so **`vf_smooth_matches_prefs`** fails until rebuild matches prefs.
+    forget_bundled_me_budget_vf_apply();
+
+    let mut vp = video_pref.borrow_mut();
+    match player.try_borrow_mut() {
+        Ok(mut g) => {
+            let Some(b) = g.as_mut() else {
+                return true;
+            };
+            // Same `borrow_mut` as `apply_mpv_video`: a failing `try_borrow()` before `try_borrow_mut()`
+            // used to skip `media_save_smooth_me_budget` while vf still rebuilt — then `resolve_media_smooth_me_budget`
+            // fell through to another file's lower neighbor px² and **`smooth_cap`** lagged prefs.
             if let Some(p) = crate::media_probe::local_file_from_mpv(&b.mpv) {
                 crate::db::media_save_smooth_me_budget(&p, new_budget_px);
+                if video_log() {
+                    let key_ok = crate::db::history_key(&p).is_some();
+                    eprintln!(
+                        "[rhino] video: (verbose) persist_budget media_save px²={new_budget_px} history_key_ok={key_ok}",
+                    );
+                }
+            }
+            let _ = apply_mpv_video(b, &mut vp, None);
+        }
+        Err(_) => {
+            if video_log() {
+                eprintln!(
+                    "[rhino] video: (verbose) persist_budget px²={new_budget_px} could_not_borrow_player_mut_for_vf_apply (best-effort media_save via imm borrow)",
+                );
+            }
+            if let Ok(g) = player.try_borrow() {
+                if let Some(b) = g.as_ref() {
+                    if let Some(p) = crate::media_probe::local_file_from_mpv(&b.mpv) {
+                        crate::db::media_save_smooth_me_budget(&p, new_budget_px);
+                    }
+                }
             }
         }
     }
-
-    let mut vp = video_pref.borrow_mut();
-    let Ok(mut g) = player.try_borrow_mut() else {
-        return true;
-    };
-    let Some(b) = g.as_mut() else {
-        return true;
-    };
-
-    let _ = apply_mpv_video(b, &mut vp, None);
     true
 }
 

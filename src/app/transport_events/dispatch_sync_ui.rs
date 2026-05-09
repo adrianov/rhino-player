@@ -89,7 +89,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
         TransportEv::FileLoaded => {
             // Invalidate bundled ME budget fast-path (`vf_smooth_matches_prefs`) so **`apply_mpv_video`**
             // reinstalls vapoursynth: a warm VapourSynth interpreter reused across **`loadfile`** does not adopt
-            // a newer **`RHINO_SMOOTH_MAX_AREA`** unless **`vf clr`/`vf add`** runs (**`smooth_vf_me_budget_applied`**).
+            // a newer ME px² budget (**`RHINO_SMOOTH_CAP_FILE`**) unless **`vf clr`/`vf add`** runs (**`smooth_vf_me_budget_applied`**).
             crate::video_pref::forget_bundled_me_budget_vf_apply_on_new_media();
             crate::video_pref::smooth_budget_reset_session_on_new_media(&ctx.smooth_budget_decoder);
             // New file: apply the SQLite-driven resume, restore the saved audio track *before*

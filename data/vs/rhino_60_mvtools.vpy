@@ -26,8 +26,8 @@ _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (extra ME path)
 # MVTools ``Analyse``: ``blksize`` / ``overlap`` are ``_MV_BLK_SIZE`` / ``_MV_BLK_OVERLAP`` (``overlap`` < ``blksize``).
 # Block grid cost scales with ``blksize`` (smaller ⇒ usually more blocks per frame).
-# **Decode-area budget**: Rhino passes **`user-data=<px²>`** when libmpv supports it; always sets ``RHINO_SMOOTH_MAX_AREA``
-# (bundled script: **robust host env** — Linux ``/proc/self/environ``, macOS libc ``getenv`` — so embedded ``os.environ`` cannot hide Rust ``set_var`` updates).
+# **Decode-area budget**: Rhino writes **`RHINO_SMOOTH_CAP_FILE`** (single-line px²) before **`vf add`**; the script reads that file.
+# Standalone **mpv** + this script may set **`RHINO_SMOOTH_MAX_AREA`** instead when no snap path exists.
 # mpv ``buffered-frames`` is **not** set here — Rhino passes **N** via ``SMOOTH_VF_BUFFERED_FRAMES`` (``smooth_motion_tier.rs``).
 # If **decode** ``width × height`` exceeds that budget, **both** dimensions scale by ``√(budget/decode_px)``
 # so MVTools runs at **≤ budget** pixels (**stderr ``path=scaled``**); otherwise **native** (**``path=full``**).
@@ -53,7 +53,11 @@ _MV_SUPER_PAD = 16
 
 
 def _robust_proc_environ_snapshot() -> dict[str, str] | None:
-    """Linux: one read of the process C environment from ``/proc/self/environ`` (per script run).
+    """Linux: read the process C environment from ``/proc/self/environ``.
+
+    Used from `_robust_host_env` **on each lookup** — embedded mpv+VapourSynth may reuse this module
+    across ``vf clr``/``vf add`` without reloading; a single import-time snapshot would freeze the first
+    ``RHINO_*`` values while Rust ``set_var`` updates the live process environ.
 
     No **ctypes** — avoids loading the host binary as ``CDLL(None)`` and any ``getenv`` wrapper quirks
     in embedded **mpv**/**VapourSynth**. Returns ``None`` on macOS (no ``/proc``) or if the file is unreadable.
@@ -77,9 +81,6 @@ def _robust_proc_environ_snapshot() -> dict[str, str] | None:
             continue
         out[key] = val
     return out
-
-
-_ROBUST_PROC_ENVIRON = _robust_proc_environ_snapshot()
 
 
 def _robust_host_env_libc(var: str) -> str:
@@ -118,11 +119,13 @@ def _robust_host_env_libc(var: str) -> str:
 
 def _robust_host_env(var: str) -> str:
     """Process **C** environment visible to **Rhino** ``set_var``: not the lag-prone ``os.environ`` snapshot alone."""
-    if _ROBUST_PROC_ENVIRON is not None:
-        v = _ROBUST_PROC_ENVIRON.get(var)
-        if v is not None:
-            return v.strip()
-        return (os.environ.get(var) or "").strip()
+    if not _IS_DARWIN:
+        snap = _robust_proc_environ_snapshot()
+        if snap is not None:
+            v = snap.get(var)
+            if v is not None:
+                return v.strip()
+            return (os.environ.get(var) or "").strip()
     if _IS_DARWIN:
         return _robust_host_env_libc(var)
     return (os.environ.get(var) or "").strip()
@@ -136,16 +139,35 @@ def _me_wh_aligned(width_px: int, height_px: int) -> tuple[int, int]:
     return w, h
 
 
+def _smooth_cap_from_snapfile() -> int | None:
+    """Read px² from the path in **`RHINO_SMOOTH_CAP_FILE`** (Rhino publishes before **`vf add`**)."""
+    raw_path = _robust_host_env("RHINO_SMOOTH_CAP_FILE")
+    if not raw_path:
+        return None
+    try:
+        with open(raw_path, encoding="utf-8") as capf:
+            line = capf.readline().strip()
+    except OSError:
+        return None
+    if line.isdigit():
+        try:
+            return max(320 * 180, int(line))
+        except ValueError:
+            return None
+    return None
+
+
 def _smooth_max_area_px() -> int:
     """ME pixel budget (px² clamped).
 
-    **Rhino** always sets ``RHINO_SMOOTH_MAX_AREA`` before ``vf add``. Read that **first** so a stale
-    mpv ``user_data`` global from a reused scripting context cannot override a lowered SQLite cap
-    (especially when ``user-data=`` is unsupported and the ``vf`` text is unchanged).
-
-    Shell **mpv** without that env still uses ``user_data`` digits, then defaults.
+    **Rhino** passes px² through **`RHINO_SMOOTH_CAP_FILE`** (read first). Without that path (e.g. shell **mpv**),
+    use **`RHINO_SMOOTH_MAX_AREA`** from robust host env, then defaults.
     """
     min_budget = 320 * 180
+
+    snap = _smooth_cap_from_snapfile()
+    if snap is not None:
+        return snap
 
     raw = _robust_host_env("RHINO_SMOOTH_MAX_AREA")
     if raw.isdigit():
@@ -154,17 +176,6 @@ def _smooth_max_area_px() -> int:
         except ValueError:
             pass
 
-    ud = globals().get("user_data")
-    if ud is not None:
-        if isinstance(ud, (bytes, bytearray)):
-            ud_s = ud.decode("utf-8", errors="ignore").strip()
-        else:
-            ud_s = str(ud).strip()
-        if ud_s.isdigit():
-            try:
-                return max(min_budget, int(ud_s))
-            except ValueError:
-                pass
     if not raw:
         return max(min_budget, 1920 * 1080)
     try:

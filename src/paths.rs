@@ -108,9 +108,9 @@ const MVTOOLS_FILE: &str = "libmvtools.so";
 /// `.vpy` `LoadPlugin`). The basename differs per OS — see [MVTOOLS_FILE].
 pub const RHINO_MVTOOLS_LIB_VAR: &str = "RHINO_MVTOOLS_LIB";
 
-/// Rhino passes the persisted ME/output pixel budget before **`vf add vapoursynth`** so the bundled
-/// `.vpy` can proportionally downscale large decodes (see **`video_smooth_max_area`** in SQLite).
-pub const RHINO_SMOOTH_MAX_AREA_VAR: &str = "RHINO_SMOOTH_MAX_AREA";
+// Bundled ME px²: `RHINO_SMOOTH_CAP_FILE` snapfile (see `paths_smooth_me_cap`). Standalone `mpv` may use `RHINO_SMOOTH_MAX_AREA` when no snap path.
+
+include!("paths_smooth_me_cap.rs");
 
 /// Playback speed (e.g. `1.0`, `1.5`, `2.0`, `8.0`) for the bundled `rhino_60_mvtools.vpy` so **FlowFPS** only fills
 /// frames to **~60** against **(source fps × speed)**. Set with [crate::video_pref::set_playback_speed_env_from_mpv] or [crate::video_pref::set_playback_speed_env] (known UI value) before the vf is built.

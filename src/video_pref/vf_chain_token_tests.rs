@@ -1,22 +1,18 @@
 #[cfg(test)]
-mod vf_user_data_budget_match_tests {
-    use super::vf_bundled_user_data_budget_ok;
+mod vf_chain_token_tests {
+    use super::vf_concurrent_frames_matches;
 
     #[test]
-    fn user_data_budget_ok_legacy_vf_without_key() {
-        assert!(
-            vf_bundled_user_data_budget_ok("vapoursynth:file=/x.vpy:buffered-frames=4", 723_100)
-        );
+    fn concurrent_frames_auto_ok() {
+        let vf = "vapoursynth:file=/x.vpy:buffered-frames=4:concurrent-frames=auto";
+        assert!(vf_concurrent_frames_matches(vf, "auto"));
     }
 
     #[test]
-    fn user_data_exact_cap_matches() {
-        let vf = "...:buffered-frames=4:concurrent-frames=auto:user-data=723100";
-        assert!(vf_bundled_user_data_budget_ok(vf, 723_100));
-    }
-
-    #[test]
-    fn user_data_must_not_partial_match_prefix_digit() {
-        assert!(!vf_bundled_user_data_budget_ok(":user-data=723100", 72));
+    fn concurrent_frames_prefix_digit_not_confused() {
+        assert!(!vf_concurrent_frames_matches(
+            "concurrent-frames=120",
+            "12"
+        ));
     }
 }

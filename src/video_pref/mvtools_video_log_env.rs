@@ -1,6 +1,6 @@
 // RHINO_VIDEO_LOG, libmvtools resolution into RHINO_MVTOOLS_LIB, and RHINO_SOURCE_FPS from mpv.
 
-fn video_log() -> bool {
+pub(crate) fn video_log() -> bool {
     std::env::var("RHINO_VIDEO_LOG")
         .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
         .unwrap_or(false)

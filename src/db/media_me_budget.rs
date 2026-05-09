@@ -37,7 +37,7 @@ pub(crate) fn media_save_smooth_me_budget(path: &std::path::Path, px: u64) {
     });
 }
 
-/// Effective ME budget: this file's stored px² if set, else closest other file with dims+budget, else [global_px].
+/// Effective ME budget: **`global_px`** (prefs **`video_smooth_max_area`**) when this path has a **`media`** row with **`smooth_me_budget_px2`** set — adaptive overload/recovery always persist prefs **and** per-file px² together; an outdated **high** row must not defeat a lowered global (**`max(own, global)`** did). Else closest other file with dims+budget, else [global_px].
 #[must_use]
 pub(crate) fn resolve_media_smooth_me_budget(
     path: Option<&std::path::Path>,
@@ -70,8 +70,11 @@ fn resolve_media_smooth_me_budget_conn(
         .flatten()
         .filter(|&px| px > 0)
         .map(|px| px as u64);
-    if let Some(px) = own {
-        return Ok(px.max(MIN_SMOOTH_MAX_AREA));
+    if own.is_some() {
+        // Prefs row drives bundled ME cap for known media: overload lowers **`video_smooth_max_area`**
+        // while **`smooth_me_budget_px2`** can lag one stale write or duplicate keys — never keep **`max(own, global)`**
+        // or a **high** DB column blocks shrink (recovery raises already lift **`global`** above stale lows).
+        return Ok(global.max(MIN_SMOOTH_MAX_AREA));
     }
 
     let (dw, dh) = match decode_wh {
@@ -138,6 +141,15 @@ mod media_me_budget_tests {
 
         let g = 2_000_000_u64;
         let r = resolve_media_smooth_me_budget_conn(&c, "/a.mkv", Some((1920, 1080)), g).unwrap();
+        assert_eq!(r, 2_000_000);
+
+        let r = resolve_media_smooth_me_budget_conn(
+            &c,
+            "/a.mkv",
+            Some((1920, 1080)),
+            800_000_u64,
+        )
+        .unwrap();
         assert_eq!(r, 800_000);
 
         let r = resolve_media_smooth_me_budget_conn(&c, "/new.mkv", Some((3840, 2160)), g).unwrap();
@@ -148,6 +160,60 @@ mod media_me_budget_tests {
 
         let r = resolve_media_smooth_me_budget_conn(&c, "/solo.mkv", Some((640, 480)), g).unwrap();
         assert_eq!(r, 800_000);
+    }
+
+    #[test]
+    fn own_row_never_below_global_after_recovery_or_prefs() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE media (
+                path TEXT PRIMARY KEY NOT NULL,
+                decode_w INTEGER,
+                decode_h INTEGER,
+                smooth_me_budget_px2 INTEGER
+            );",
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO media (path, decode_w, decode_h, smooth_me_budget_px2) VALUES (?, ?, ?, ?)",
+            rusqlite::params!["/stale.mkv", 1920, 1080, 1_085_325_i64],
+        )
+        .unwrap();
+        let r = resolve_media_smooth_me_budget_conn(
+            &c,
+            "/stale.mkv",
+            Some((1920, 1080)),
+            1_193_858_u64,
+        )
+        .unwrap();
+        assert_eq!(r, 1_193_858);
+    }
+
+    #[test]
+    fn own_high_row_follows_lower_global_after_overload() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE media (
+                path TEXT PRIMARY KEY NOT NULL,
+                decode_w INTEGER,
+                decode_h INTEGER,
+                smooth_me_budget_px2 INTEGER
+            );",
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO media (path, decode_w, decode_h, smooth_me_budget_px2) VALUES (?, ?, ?, ?)",
+            rusqlite::params!["/heavy.mkv", 1920, 1080, 543_036_i64],
+        )
+        .unwrap();
+        let r = resolve_media_smooth_me_budget_conn(
+            &c,
+            "/heavy.mkv",
+            Some((1920, 1080)),
+            488_732_u64,
+        )
+        .unwrap();
+        assert_eq!(r, 488_732);
     }
 
     #[test]

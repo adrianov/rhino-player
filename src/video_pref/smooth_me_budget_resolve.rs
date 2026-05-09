@@ -20,5 +20,20 @@ pub(crate) fn effective_smooth_me_budget_px(mpv: &Mpv, v: &crate::db::VideoPrefs
     let global = v.smooth_max_area.max(crate::db::MIN_SMOOTH_MAX_AREA);
     let path = local_file_from_mpv(mpv);
     let wh = decode_wh_from_mpv(mpv);
-    crate::db::resolve_media_smooth_me_budget(path.as_deref(), wh, global)
+    let eff = crate::db::resolve_media_smooth_me_budget(path.as_deref(), wh, global);
+    if video_log() {
+        let key = path
+            .as_deref()
+            .and_then(crate::db::history_key)
+            .map(|s| s.len())
+            .unwrap_or(0);
+        let snap_path = std::env::var(crate::paths::RHINO_SMOOTH_CAP_FILE_VAR).ok();
+        let snap_matches = crate::paths::smooth_me_cap_snap_content_equals(eff);
+        eprintln!(
+            "[rhino] video: (verbose) ME resolve effective_px²={eff} prefs.smooth_max_area={} decode_wh={wh:?} history_key_len={key} {}={snap_path:?} snap_matches={snap_matches}",
+            v.smooth_max_area,
+            crate::paths::RHINO_SMOOTH_CAP_FILE_VAR,
+        );
+    }
+    eff
 }
