@@ -128,7 +128,13 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
             || key == gtk::gdk::Key::f
             || key == gtk::gdk::Key::F
         {
-            toggle_fullscreen(&win_key, &fr_key, &lu_key, &skip_key, fs_esc_busy.as_ref());
+            toggle_fullscreen(
+                &win_key,
+                &fr_key,
+                &lu_key,
+                &skip_key,
+                fs_esc_busy.as_ref(),
+            );
             return glib::Propagation::Stop;
         }
         if key == gtk::gdk::Key::m || key == gtk::gdk::Key::M {

@@ -97,29 +97,29 @@ fn build_window(
         sub_scale_adj: w.sub_scale_adj.clone(), sub_color_btn: w.sub_color_btn.clone(),
     });
 
+    let fs_toggle = FullscreenToggleRefs {
+        fs_restore: Rc::clone(&fs_restore),
+        last_unmax: Rc::clone(&last_unmax),
+        skip_max_to_fs: Rc::clone(&skip_max_to_fs),
+        fs_transition_busy: Rc::clone(&fs_transition_busy),
+    };
+
     wire_gl_double_click_fullscreen(
         &w.gl_area,
         &w.win,
-        &fs_restore,
-        &last_unmax,
-        &skip_max_to_fs,
-        &fs_transition_busy,
+        &fs_toggle,
         &w.recent_scrl,
     );
 
     wire_header_fullscreen_toggle(
         &w.header,
         &w.win,
-        &fs_restore,
-        &last_unmax,
-        &skip_max_to_fs,
-        &fs_transition_busy,
+        &fs_toggle,
         &w.recent_scrl,
     );
 
     wire_recent_spacer_fullscreen(
-        w.recent_spacers, &w.win, &fs_restore, &last_unmax, &skip_max_to_fs, &fs_transition_busy,
-        &w.recent_scrl,
+        w.recent_spacers, &w.win, &fs_toggle, &w.recent_scrl,
     );
 
     let want_recent = file_boot.borrow().is_none();

@@ -1,6 +1,14 @@
 include!("chrome_fs_transition_gate.rs");
 include!("chrome_macos_unfullscreen_defer.rs");
 
+/// Refs shared by menu / gesture fullscreen toggles (one bundle keeps wiring arity small).
+struct FullscreenToggleRefs {
+    fs_restore: Rc<RefCell<Option<(i32, i32)>>>,
+    last_unmax: Rc<RefCell<(i32, i32)>>,
+    skip_max_to_fs: Rc<Cell<bool>>,
+    fs_transition_busy: Rc<Cell<bool>>,
+}
+
 fn unfullscreen_safe_inner(win: &adw::ApplicationWindow) {
     #[cfg(target_os = "macos")]
     macos_schedule_unfullscreen(win.clone());

@@ -2,10 +2,7 @@
 fn wire_gl_double_click_fullscreen(
     gl_area: &gtk::GLArea,
     win: &adw::ApplicationWindow,
-    fs_restore: &Rc<RefCell<Option<(i32, i32)>>>,
-    last_unmax: &Rc<RefCell<(i32, i32)>>,
-    skip_max_to_fs: &Rc<Cell<bool>>,
-    fs_transition_busy: &Rc<Cell<bool>>,
+    fs: &FullscreenToggleRefs,
     recent: &gtk::Box,
 ) {
     // **connect_pressed** with `n_press == 2` — on some stacks `connect_released` does not report
@@ -14,10 +11,10 @@ fn wire_gl_double_click_fullscreen(
     dbl.set_button(gtk::gdk::BUTTON_PRIMARY);
     let (win_fs, fr, lu, skip_dbl, fb_dbl, rec_dbl) = (
         win.clone(),
-        Rc::clone(fs_restore),
-        Rc::clone(last_unmax),
-        Rc::clone(skip_max_to_fs),
-        Rc::clone(fs_transition_busy),
+        Rc::clone(&fs.fs_restore),
+        Rc::clone(&fs.last_unmax),
+        Rc::clone(&fs.skip_max_to_fs),
+        Rc::clone(&fs.fs_transition_busy),
         recent.clone(),
     );
     dbl.connect_pressed(move |_, n_press, _, _| {
@@ -36,10 +33,7 @@ fn wire_gl_double_click_fullscreen(
 fn wire_header_fullscreen_toggle(
     header: &adw::HeaderBar,
     win: &adw::ApplicationWindow,
-    fs_restore: &Rc<RefCell<Option<(i32, i32)>>>,
-    last_unmax: &Rc<RefCell<(i32, i32)>>,
-    skip_max_to_fs: &Rc<Cell<bool>>,
-    fs_transition_busy: &Rc<Cell<bool>>,
+    fs: &FullscreenToggleRefs,
     recent: &gtk::Box,
 ) {
     let hdr_dbl = gtk::GestureClick::new();
@@ -48,10 +42,10 @@ fn wire_header_fullscreen_toggle(
     hdr_dbl.set_propagation_limit(gtk::PropagationLimit::None);
     let (win_hdr, fr_hdr, lu_hdr, skip_hdr, fb_hdr, rec_hdr) = (
         win.clone(),
-        Rc::clone(fs_restore),
-        Rc::clone(last_unmax),
-        Rc::clone(skip_max_to_fs),
-        Rc::clone(fs_transition_busy),
+        Rc::clone(&fs.fs_restore),
+        Rc::clone(&fs.last_unmax),
+        Rc::clone(&fs.skip_max_to_fs),
+        Rc::clone(&fs.fs_transition_busy),
         recent.clone(),
     );
     hdr_dbl.connect_pressed(move |_, n_press, _, _| {

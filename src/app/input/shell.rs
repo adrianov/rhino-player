@@ -55,10 +55,7 @@ fn linux_fs_notify_maximize_now(fr: &Rc<RefCell<Option<(i32, i32)>>>, win: &adw:
 }
 
 #[cfg(target_os = "macos")]
-fn macos_fs_notify_defer_maximize(
-    fr: &Rc<RefCell<Option<(i32, i32)>>>,
-    win: &adw::ApplicationWindow,
-) {
+fn macos_fs_notify_defer_maximize(fr: &Rc<RefCell<Option<(i32, i32)>>>, win: &adw::ApplicationWindow) {
     let fr_mx = Rc::clone(fr);
     let w_mx = win.clone();
     let _ = glib::source::idle_add_local_once(move || {
@@ -117,6 +114,7 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
         let lgl = ctx.last_gl_xy.clone();
         let fr = ctx.fs_restore.clone();
         let skip_fs = ctx.skip_max_to_fs.clone();
+        let lu_ntf = ctx.last_unmax.clone();
         let fs_busy_ntf = Rc::clone(&ctx.fs_transition_busy);
         let fs_settle_ntf = Rc::clone(&ctx.fs_transition_settle);
         let win_sig = ctx.shell.win.clone();
@@ -171,6 +169,7 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                 // Defer restore + chrome with [`crate::fullscreen_timing::TRANSITION_SETTLE`].
                 //
                 let fr_leave = Rc::clone(&fr);
+                let lu_leave = Rc::clone(&lu_ntf);
                 let w_leave = w.clone();
                 let skip_leave = skip_fs.clone();
                 let tch_leave = Rc::clone(&tch_fs);
@@ -180,12 +179,13 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                     crate::fullscreen_timing::TRANSITION_SETTLE,
                     fs_leave_gen.get(),
                     fr_leave,
+                    lu_leave,
                     w_leave,
                     skip_leave,
                     tch_leave,
                 );
                 #[cfg(not(target_os = "macos"))]
-                schedule_leave_fs_idle_linux(fr_leave, w_leave, skip_leave, tch_leave);
+                schedule_leave_fs_idle_linux(fr_leave, lu_leave, w_leave, skip_leave, tch_leave);
             }
             if !w.is_fullscreen() {
                 let gl2 = gl_fs.clone();
@@ -212,7 +212,9 @@ fn w_in_max_mode(ctx: &WindowInputCtx) {
     let win = ctx.shell.win.clone();
     win.connect_maximized_notify(move |w| {
         if !w.is_maximized() && !w.is_fullscreen() {
-            *lu.borrow_mut() = win_normal_size(w);
+            if !skip_fs.get() {
+                *lu.borrow_mut() = win_normal_size(w);
+            }
         } else if !w.is_maximized() && w.is_fullscreen() {
             // Linux: user un-maximizes while fullscreen → leave fullscreen. macOS: GDK often reports
             // `!maximized && fullscreen` during normal fullscreen entry; treating that as demaximize
@@ -226,31 +228,19 @@ fn w_in_max_mode(ctx: &WindowInputCtx) {
             if fr.borrow().is_none() {
                 *fr.borrow_mut() = Some(*lu.borrow());
             }
-            w.fullscreen();
+            let w_idle = w.clone();
+            let skip_idle = skip_fs.clone();
+            let _ = glib::source::idle_add_local_once(move || {
+                if skip_idle.get() || !w_idle.is_maximized() || w_idle.is_fullscreen() {
+                    return;
+                }
+                w_idle.fullscreen();
+            });
         }
     });
 }
 
-fn restore_windowed_size(fr: &Rc<RefCell<Option<(i32, i32)>>>, w: &adw::ApplicationWindow) {
-    if let Some((gw, gh)) = fr.borrow_mut().take() {
-        if w.is_maximized() { w.unmaximize(); }
-        w.set_default_size(gw, gh);
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn schedule_leave_fs_idle_linux(
-    fr_leave: Rc<RefCell<Option<(i32, i32)>>>,
-    w_leave: adw::ApplicationWindow,
-    skip_leave: Rc<Cell<bool>>,
-    tch_leave: Rc<dyn Fn(&adw::ApplicationWindow)>,
-) {
-    let _ = glib::source::idle_add_local_once(move || {
-        restore_windowed_size(&fr_leave, &w_leave);
-        skip_leave.set(false);
-        tch_leave(&w_leave);
-    });
-}
+include!("shell_fs_restore.rs");
 
 fn schedule_sub_pos(
     gl: &gtk::GLArea,
@@ -262,26 +252,4 @@ fn schedule_sub_pos(
     if let Some(bundle) = player.borrow().as_ref() {
         sub_prefs::apply_sub_pos_for_toolbar(&bundle.mpv, show, bot_h, gl.height());
     }
-}
-
-#[cfg(target_os = "macos")]
-fn macos_schedule_leave_fs_restore_chrome(
-    gen: &Rc<Cell<u32>>,
-    delay: std::time::Duration,
-    want_gen: u32,
-    fr_leave: Rc<RefCell<Option<(i32, i32)>>>,
-    w_leave: adw::ApplicationWindow,
-    skip_leave: Rc<Cell<bool>>,
-    tch_leave: Rc<dyn Fn(&adw::ApplicationWindow)>,
-) {
-    let gen_rc = Rc::clone(gen);
-    let _ = glib::timeout_add_local_once(delay, move || {
-        if gen_rc.get() != want_gen || w_leave.is_fullscreen() {
-            skip_leave.set(false);
-            return;
-        }
-        restore_windowed_size(&fr_leave, &w_leave);
-        skip_leave.set(false);
-        tch_leave(&w_leave);
-    });
 }

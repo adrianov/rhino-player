@@ -1,20 +1,17 @@
 fn wire_recent_spacer_fullscreen(
     sp_empty: [gtk::Box; 4],
     win: &adw::ApplicationWindow,
-    fs_restore: &Rc<RefCell<Option<(i32, i32)>>>,
-    last_unmax: &Rc<RefCell<(i32, i32)>>,
-    skip_max_to_fs: &Rc<Cell<bool>>,
-    fs_transition_busy: &Rc<Cell<bool>>,
+    fs: &FullscreenToggleRefs,
     recent: &gtk::Box,
 ) {
     for sp in sp_empty {
         let d2 = gtk::GestureClick::new();
         d2.set_button(gtk::gdk::BUTTON_PRIMARY);
         let w2 = win.clone();
-        let fr2 = fs_restore.clone();
-        let lu2 = last_unmax.clone();
-        let sk2 = skip_max_to_fs.clone();
-        let fb2 = fs_transition_busy.clone();
+        let fr2 = Rc::clone(&fs.fs_restore);
+        let lu2 = Rc::clone(&fs.last_unmax);
+        let sk2 = Rc::clone(&fs.skip_max_to_fs);
+        let fb2 = Rc::clone(&fs.fs_transition_busy);
         let rec2 = recent.clone();
         d2.connect_pressed(move |_, n_press, _, _| {
             if n_press != 2 || !rec2.is_visible() {
