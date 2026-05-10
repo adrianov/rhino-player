@@ -20,24 +20,34 @@ pub(crate) fn media_sync_decode_size(path: &std::path::Path, w: i32, h: i32) {
     });
 }
 
+/// Unix millis ([`std::time::UNIX_EPOCH`]) for [media_save_smooth_me_budget] (tie-break among exact-dimension rows).
+fn smooth_me_budget_updated_at_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis().min(i64::MAX as u128) as i64)
+        .unwrap_or(0)
+}
+
 /// Save per-file ME budget px² after adaptive overload (or future explicit per-file edits).
 pub(crate) fn media_save_smooth_me_budget(path: &std::path::Path, px: u64) {
     let Some(key) = history_key(path) else {
         return;
     };
     let px = px.max(MIN_SMOOTH_MAX_AREA).min(i64::MAX as u64) as i64;
+    let updated_at = smooth_me_budget_updated_at_now();
     let _ = with_conn(|c| {
         c.execute(
-            "INSERT INTO media (path, smooth_me_budget_px2) VALUES (?1, ?2)
+            "INSERT INTO media (path, smooth_me_budget_px2, smooth_me_budget_updated_at) VALUES (?1, ?2, ?3)
              ON CONFLICT(path) DO UPDATE SET
-               smooth_me_budget_px2 = excluded.smooth_me_budget_px2",
-            params![&key, px],
+               smooth_me_budget_px2 = excluded.smooth_me_budget_px2,
+               smooth_me_budget_updated_at = excluded.smooth_me_budget_updated_at",
+            params![&key, px, updated_at],
         )?;
         Ok(())
     });
 }
 
-/// Effective ME budget: **`global_px`** (prefs **`video_smooth_max_area`**) when this path has a **`media`** row with **`smooth_me_budget_px2`** set — adaptive overload/recovery always persist prefs **and** per-file px² together; an outdated **high** row must not defeat a lowered global (**`max(own, global)`** did). Else closest other file with dims+budget, else [global_px].
+/// Effective ME budget: **`global_px`** (prefs **`video_smooth_max_area`**, clamped) alone when this path's **`media`** row stores **`smooth_me_budget_px2`** (prefs stay authoritative; per-file column mirrors adaptive persist). Otherwise **`smooth_me_budget_px2`** from **another** row whose **`decode_w`**×**`decode_h`** **exactly** matches the current decode size; ties use **`smooth_me_budget_updated_at`** then **`rowid`**. The chosen row may be **below or above** **`global_px`**. **`global_px`** applies when decode size is unknown or **no** other row shares those dimensions with a saved budget.
 #[must_use]
 pub(crate) fn resolve_media_smooth_me_budget(
     path: Option<&std::path::Path>,
@@ -54,7 +64,7 @@ pub(crate) fn resolve_media_smooth_me_budget(
     with_conn(|c| resolve_media_smooth_me_budget_conn(c, &key, decode_wh, global)).unwrap_or(global)
 }
 
-fn resolve_media_smooth_me_budget_conn(
+pub(super) fn resolve_media_smooth_me_budget_conn(
     c: &rusqlite::Connection,
     path_key: &str,
     decode_wh: Option<(i32, i32)>,
@@ -82,159 +92,21 @@ fn resolve_media_smooth_me_budget_conn(
         _ => return Ok(global),
     };
 
-    let mut stmt = c.prepare(
-        "SELECT smooth_me_budget_px2, decode_w, decode_h FROM media
-         WHERE path != ?1
-           AND smooth_me_budget_px2 IS NOT NULL AND smooth_me_budget_px2 > 0
-           AND decode_w IS NOT NULL AND decode_h IS NOT NULL
-           AND decode_w > 0 AND decode_h > 0",
-    )?;
-    let mut best: Option<(i64, u64)> = None;
-    let mut rows = stmt.query(params![path_key])?;
-    while let Some(row) = rows.next()? {
-        let px2: i64 = row.get(0)?;
-        let ow: i64 = row.get(1)?;
-        let oh: i64 = row.get(2)?;
-        if px2 <= 0 {
-            continue;
-        }
-        let d = (ow - i64::from(dw)).pow(2) + (oh - i64::from(dh)).pow(2);
-        best = match best {
-            None => Some((d, px2 as u64)),
-            Some((bd, _)) if d < bd => Some((d, px2 as u64)),
-            Some(b) => Some(b),
-        };
-    }
-    Ok(best
-        .map(|(_, px)| px)
+    let neighbor_px = c
+        .query_row(
+            "SELECT smooth_me_budget_px2 FROM media
+             WHERE path != ?1
+               AND decode_w = ?2 AND decode_h = ?3
+               AND smooth_me_budget_px2 IS NOT NULL AND smooth_me_budget_px2 > 0
+             ORDER BY COALESCE(smooth_me_budget_updated_at, 0) DESC, rowid DESC
+             LIMIT 1",
+            params![path_key, dw, dh],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?;
+
+    Ok(neighbor_px
+        .map(|px| px as u64)
         .unwrap_or(global)
         .max(MIN_SMOOTH_MAX_AREA))
-}
-
-#[cfg(test)]
-mod media_me_budget_tests {
-    use super::resolve_media_smooth_me_budget_conn;
-    use rusqlite::Connection;
-
-    #[test]
-    fn own_row_wins_then_neighbor_then_global() {
-        let c = Connection::open_in_memory().unwrap();
-        c.execute_batch(
-            "CREATE TABLE media (
-                path TEXT PRIMARY KEY NOT NULL,
-                decode_w INTEGER,
-                decode_h INTEGER,
-                smooth_me_budget_px2 INTEGER
-            );",
-        )
-        .unwrap();
-        c.execute(
-            "INSERT INTO media (path, decode_w, decode_h, smooth_me_budget_px2) VALUES (?, ?, ?, ?)",
-            rusqlite::params!["/a.mkv", 1920, 1080, 800_000_i64],
-        )
-        .unwrap();
-        c.execute(
-            "INSERT INTO media (path, decode_w, decode_h, smooth_me_budget_px2) VALUES (?, ?, ?, ?)",
-            rusqlite::params!["/b.mkv", 3840, 2160, 600_000_i64],
-        )
-        .unwrap();
-
-        let g = 2_000_000_u64;
-        let r = resolve_media_smooth_me_budget_conn(&c, "/a.mkv", Some((1920, 1080)), g).unwrap();
-        assert_eq!(r, 2_000_000);
-
-        let r = resolve_media_smooth_me_budget_conn(
-            &c,
-            "/a.mkv",
-            Some((1920, 1080)),
-            800_000_u64,
-        )
-        .unwrap();
-        assert_eq!(r, 800_000);
-
-        let r = resolve_media_smooth_me_budget_conn(&c, "/new.mkv", Some((3840, 2160)), g).unwrap();
-        assert_eq!(r, 600_000);
-
-        let r = resolve_media_smooth_me_budget_conn(&c, "/new.mkv", Some((1920, 1080)), g).unwrap();
-        assert_eq!(r, 800_000);
-
-        let r = resolve_media_smooth_me_budget_conn(&c, "/solo.mkv", Some((640, 480)), g).unwrap();
-        assert_eq!(r, 800_000);
-    }
-
-    #[test]
-    fn own_row_never_below_global_after_recovery_or_prefs() {
-        let c = Connection::open_in_memory().unwrap();
-        c.execute_batch(
-            "CREATE TABLE media (
-                path TEXT PRIMARY KEY NOT NULL,
-                decode_w INTEGER,
-                decode_h INTEGER,
-                smooth_me_budget_px2 INTEGER
-            );",
-        )
-        .unwrap();
-        c.execute(
-            "INSERT INTO media (path, decode_w, decode_h, smooth_me_budget_px2) VALUES (?, ?, ?, ?)",
-            rusqlite::params!["/stale.mkv", 1920, 1080, 1_085_325_i64],
-        )
-        .unwrap();
-        let r = resolve_media_smooth_me_budget_conn(
-            &c,
-            "/stale.mkv",
-            Some((1920, 1080)),
-            1_193_858_u64,
-        )
-        .unwrap();
-        assert_eq!(r, 1_193_858);
-    }
-
-    #[test]
-    fn own_high_row_follows_lower_global_after_overload() {
-        let c = Connection::open_in_memory().unwrap();
-        c.execute_batch(
-            "CREATE TABLE media (
-                path TEXT PRIMARY KEY NOT NULL,
-                decode_w INTEGER,
-                decode_h INTEGER,
-                smooth_me_budget_px2 INTEGER
-            );",
-        )
-        .unwrap();
-        c.execute(
-            "INSERT INTO media (path, decode_w, decode_h, smooth_me_budget_px2) VALUES (?, ?, ?, ?)",
-            rusqlite::params!["/heavy.mkv", 1920, 1080, 543_036_i64],
-        )
-        .unwrap();
-        let r = resolve_media_smooth_me_budget_conn(
-            &c,
-            "/heavy.mkv",
-            Some((1920, 1080)),
-            488_732_u64,
-        )
-        .unwrap();
-        assert_eq!(r, 488_732);
-    }
-
-    #[test]
-    fn global_when_no_other_row_has_saved_budget() {
-        let c = Connection::open_in_memory().unwrap();
-        c.execute_batch(
-            "CREATE TABLE media (
-                path TEXT PRIMARY KEY NOT NULL,
-                decode_w INTEGER,
-                decode_h INTEGER,
-                smooth_me_budget_px2 INTEGER
-            );",
-        )
-        .unwrap();
-        c.execute(
-            "INSERT INTO media (path, decode_w, decode_h) VALUES (?, ?, ?)",
-            rusqlite::params!["/dims_only.mkv", 1280, 720],
-        )
-        .unwrap();
-        let g = 2_000_000_u64;
-        let r = resolve_media_smooth_me_budget_conn(&c, "/new.mkv", Some((1920, 1080)), g).unwrap();
-        assert_eq!(r, g);
-    }
 }

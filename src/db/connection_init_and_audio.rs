@@ -71,6 +71,14 @@ fn migrate_media_decode_columns(conn: &Connection) {
     ] {
         let _ = conn.execute(sql, rusqlite::params![]);
     }
+    let _ = conn.execute(
+        "ALTER TABLE media RENAME COLUMN smooth_me_budget_saved_ms TO smooth_me_budget_updated_at",
+        rusqlite::params![],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE media ADD COLUMN smooth_me_budget_updated_at INTEGER",
+        rusqlite::params![],
+    );
 }
 
 pub(crate) fn with_conn<T, F>(f: F) -> Option<T>
