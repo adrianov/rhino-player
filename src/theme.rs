@@ -273,4 +273,10 @@ pub fn apply() {
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
     }
+    // GTK's default title-bar double-click toggles maximize after our HeaderBar gesture runs,
+    // undoing `maximize()` before `fullscreen()` (first double-click looks maximized then snaps small).
+    // Enter / menu use `toggle_fullscreen` only; disabling GDK's built-in action keeps parity.
+    if let Some(settings) = gtk::Settings::default() {
+        settings.set_gtk_titlebar_double_click(Some("none"));
+    }
 }
