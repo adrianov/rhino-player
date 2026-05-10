@@ -18,7 +18,7 @@ Rhino Player is a desktop video player for Linux (GNOME, Ubuntu, and similar sys
 
 - **mpv-powered format support:** play the local video formats supported by your installed mpv/libmpv, including common containers such as MKV, MP4, WebM, AVI, MOV, MPEG-TS, and more.
 - **Continue where you left off:** start on a recent-video grid with thumbnails, progress, and one-click resume.
-- **TV-series friendly playback:** continue through episodes in a folder, then move into the next sibling folder, making season-by-season watching easier.
+- **TV-series friendly playback:** continue through episodes in a folder, then into the next sibling folder at the same level (e.g. next season beside the current one), without jumping to unrelated folders that only share a higher folder.
 - **Optional Smooth Video (~60 FPS):** smoother motion with VapourSynth + MVTools when your setup supports it. Rhino **adapts how hard this runs while you watch** so it stays closer to what your PC can handle, instead of one fixed load for everyone.
 - **Subtitles:** pick subtitle tracks, remember subtitle style preferences, and auto-pick matching subtitle tracks when possible.
 - **Audio track switching:** choose between available audio tracks while watching a video.

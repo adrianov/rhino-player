@@ -53,8 +53,11 @@ fn last_video_in_dir(dir: &Path) -> Option<PathBuf> {
     list_videos_in_dir(dir).and_then(|v| v.into_iter().last())
 }
 
-/// Local file that follows `current` in the same **sorted** folder, then the same sibling-folder
-/// rules as on EOF. Used for both automatic advance at end and the **Next** control.
+/// Local file that follows `current` in the same **sorted** folder, then—if that folder is
+/// exhausted—the first video in the next sibling directory under the **same** enclosing directory
+/// only (e.g. next season next to the current season). There is **no** walk further up the tree, so
+/// unrelated directories beside that grouping are never queued (e.g. another series under a shared
+/// library folder). Used for EOF advance and the **Next** control.
 pub(crate) fn next_after_eof(current: &Path) -> Option<PathBuf> {
     let current = fs::canonicalize(current).ok()?;
     if !current.is_file() {
@@ -70,23 +73,20 @@ pub(crate) fn next_after_eof(current: &Path) -> Option<PathBuf> {
         }
     }
 
-    let mut folder = dir.to_path_buf();
-    loop {
-        let parent = folder.parent()?;
-        let my = folder.file_name()?;
-        let subs = child_dirs_sorted(parent);
-        let idx = subs.iter().position(|s| s.file_name() == Some(my))?;
-        for sdir in subs.iter().skip(idx + 1) {
-            if let Some(f) = first_video_in_dir(sdir) {
-                return Some(f);
-            }
+    let parent = dir.parent()?;
+    let my = dir.file_name()?;
+    let subs = child_dirs_sorted(parent);
+    let idx = subs.iter().position(|s| s.file_name() == Some(my))?;
+    for sdir in subs.iter().skip(idx + 1) {
+        if let Some(f) = first_video_in_dir(sdir) {
+            return Some(f);
         }
-        folder = parent.to_path_buf();
     }
+    None
 }
 
-/// Symmetric to [next_after_eof]: the previous file in the same folder, or the **last** video in the
-/// **previous** sibling subfolder, walking up like forward navigation.
+/// Symmetric to [next_after_eof]: the previous file in the same folder, or the **last** video in
+/// the **previous** sibling subfolder under the same enclosing directory only (no extra walk-up).
 pub(crate) fn prev_before_current(current: &Path) -> Option<PathBuf> {
     let current = fs::canonicalize(current).ok()?;
     if !current.is_file() {
@@ -106,19 +106,16 @@ pub(crate) fn prev_before_current(current: &Path) -> Option<PathBuf> {
         return None;
     }
 
-    let mut folder = dir.to_path_buf();
-    loop {
-        let parent = folder.parent()?;
-        let my = folder.file_name()?;
-        let subs = child_dirs_sorted(parent);
-        let idx = subs.iter().position(|s| s.file_name() == Some(my))?;
-        for sdir in subs.iter().take(idx).rev() {
-            if let Some(f) = last_video_in_dir(sdir) {
-                return Some(f);
-            }
+    let parent = dir.parent()?;
+    let my = dir.file_name()?;
+    let subs = child_dirs_sorted(parent);
+    let idx = subs.iter().position(|s| s.file_name() == Some(my))?;
+    for sdir in subs.iter().take(idx).rev() {
+        if let Some(f) = last_video_in_dir(sdir) {
+            return Some(f);
         }
-        folder = parent.to_path_buf();
     }
+    None
 }
 
 #[cfg(test)]
@@ -266,6 +263,23 @@ mod tests {
         fs::write(&vc, b"x").unwrap();
         let n = next_after_eof(&va).unwrap();
         assert_eq!(fs::canonicalize(n).unwrap(), fs::canonicalize(&vc).unwrap());
+        let _ = fs::remove_dir_all(island);
+    }
+
+    #[test]
+    fn does_not_jump_to_parallel_folder_under_grandparent() {
+        let island = scratch_island("para_show", ScratchTmpOrder::First);
+        let show_a = island.join("ShowA");
+        let show_b = island.join("ShowB");
+        let s1a = show_a.join("S01");
+        let s1b = show_b.join("S01");
+        fs::create_dir_all(&s1a).unwrap();
+        fs::create_dir_all(&s1b).unwrap();
+        let va = s1a.join("only.mkv");
+        let vb = s1b.join("other.mkv");
+        fs::write(&va, b"x").unwrap();
+        fs::write(&vb, b"x").unwrap();
+        assert!(next_after_eof(&va).is_none());
         let _ = fs::remove_dir_all(island);
     }
 

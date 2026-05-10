@@ -14,7 +14,7 @@ mpv_props: [eof-reached, time-pos, duration, path]
 - Browse a folder tree without going back to **Open** between files.
 
 ## Description
-On natural EOF, the next file in **sorted** order in the current directory loads automatically. If the current file was the last in its directory, the app walks up one level, finds the next sibling directory in sorted order, and loads the first sorted video there; empty siblings are skipped. With no further sibling at any level, playback stops (no wrap).
+On natural EOF, the next file in **sorted** order in the current directory loads automatically. If the current file was the last in its directory, the app looks only among **sibling directories that share the same immediate enclosing directory** (e.g. next season folder beside the current season); the first sorted video in the next such directory loads, and empty siblings are skipped. The queue **does not** walk further up the tree to other directory groups (e.g. it does not jump from one show folder to an unrelated show folder that lives beside it under a shared library folder). With no next file in-folder and no later sibling directory with a video, playback stops (no wrap).
 
 Sibling videos use the shared extension list from `src/video_ext.rs` (same as **Open Video**); the listing is non-recursive per directory and ordering uses `lexical_sort::natural_lexical_cmp` (case-insensitive, with natural digit runs). Bottom-bar **Previous** / **Next** use the same ordering when a local file with duration is loaded.
 
@@ -43,9 +43,15 @@ Feature: Sibling folder queue
     And empty sibling subdirectories are skipped
 
   Scenario: No further sibling stops playback
-    Given no next file or sibling folder exists at any level up to the configured walk-up limit
+    Given there is no next sorted file in the current directory
+    And no later sibling directory under the same immediate enclosing directory holds a next playable file
     When end-of-playback occurs
     Then playback stops without wrapping back to the first folder
+
+  Scenario: Queue does not leave the sibling group for another folder beside it
+    Given the current file is last in its directory and playable files exist only under a different directory that is a sibling of the directory that contains the current directory
+    When end-of-playback occurs
+    Then playback stops without loading those files
 
   Scenario: Exit After Current Video overrides advance
     Given the session-only Exit After Current Video option is enabled
