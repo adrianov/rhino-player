@@ -14,7 +14,7 @@ actions: [app.quit, app.open, app.close-video, app.move-to-trash, app.exit-after
 - Mouse maps match typical player expectations.
 
 ## Description
-GTK accelerators handle window-scope shortcuts in capture phase. Application accelerators are not forwarded to mpv to avoid double-handling. Mouse maps cover primary double-click (toggle fullscreen), right-click (toggle pause), and scroll on the video surface (volume). **Enter**, **KP_Enter**, **f**, and **F** share one fullscreen toggle like typical players.
+GTK accelerators handle window-scope shortcuts in capture phase. Application accelerators are not forwarded to mpv to avoid double-handling. Mouse maps cover primary double-click (toggle fullscreen), right-click (toggle pause), and scroll on the video surface (volume). **Enter**, **KP_Enter**, **f**, and **F** share one fullscreen toggle like typical players. **Escape** returns to the continue grid during playback and does **not** exit fullscreen (use Enter, **f**, **F**, or double-click for that).
 
 ## Behavior
 
@@ -47,11 +47,19 @@ Feature: Keyboard and pointer input
     And the continue / recent grid appears
     And the application process keeps running
 
-  Scenario: Escape pauses then returns to grid
-    Given playback is active and the app is windowed
-    When the user presses Escape twice per the documented sequence
-    Then the first Escape pauses (so audio stops promptly)
-    And the second Escape returns to the recent grid via the idle stop chain when history exists
+  Scenario: Escape returns to continue grid during playback
+    Given playback is active and the continue grid is hidden
+    When the user presses Escape once
+    Then playback pauses promptly
+    And the continue grid appears via the browse-back path when history supports it
+
+  Scenario: Escape shows continue grid without leaving fullscreen
+    Given playback is active and the continue grid is hidden
+    And the viewing layout uses fullscreen presentation
+    When the user presses Escape once
+    Then playback pauses promptly
+    And the continue grid appears via the browse-back path when history supports it
+    And the viewing layout stays fullscreen until the user exits fullscreen another way
 
   Scenario: Delete moves a local file to trash
     Given a local regular file is playing and the grid is hidden
@@ -123,6 +131,7 @@ Feature: Keyboard and pointer input
 - Default bindings load from a memory `input.conf`; an optional user `input.conf` under `~/.config/rhino/` is reserved for later (TBD).
 - Empty-area double-click on the recent grid spacers also toggles fullscreen (see [21-recent-videos-launch](21-recent-videos-launch.md)). Double-click primary on the top toolbar exits fullscreen anytime, or enters fullscreen during playback while the overlay is hidden (same rules as GL double-click).
 - **f** / **F** toggles fullscreen like Enter or KP_Enter.
+- **Escape** opens the continue grid (browse-back) during playback and is swallowed when the grid is already visible; it does **not** exit fullscreen.
 - Tab focuses chrome temporarily.
 - Arrow Left / Right (and keypad arrows) step **playback position** five seconds when the seek bar is enabled and the continue grid is hidden; implementation shares the transport seek path ([04-transport-and-progress](04-transport-and-progress.md)).
 - Ctrl+Left / Ctrl+Right load the previous / next sibling file like the bottom bar ([07-sibling-folder-queue](07-sibling-folder-queue.md)).

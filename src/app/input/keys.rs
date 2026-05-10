@@ -93,15 +93,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
     // navigation defaults.
     k.set_propagation_phase(gtk::PropagationPhase::Capture);
     k.connect_key_pressed(move |_c, key, _code, m| {
-        if let Some(r) = propagation_escape_key(
-            key,
-            &win_key,
-            &skip_key,
-            &fs_esc_busy,
-            &recent_esc,
-            &p,
-            &browse_back,
-        ) {
+        if let Some(r) = propagation_escape_key(key, &recent_esc, &p, &browse_back) {
             return r;
         }
         let nav = SiblingNavTryRefs {
