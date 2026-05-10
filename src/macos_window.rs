@@ -4,6 +4,7 @@
 //! and exposes helpers used by the GTK shell: hide / show traffic lights,
 //! optional native fullscreen exit (see [`macos_native_unfullscreen`]), and layer invalidation.
 
+use dispatch::Queue;
 use gdk4_macos::prelude::Cast;
 use gdk4_macos::MacosSurface;
 use glib::object::IsA;
@@ -12,17 +13,6 @@ use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSCursor, NSView, NSWindow, NSWindowButton, NSWindowStyleMask};
 use std::cell::Cell;
-
-mod gtk_idle_defer {
-    //! Run `f` after at least one GTK main-context idle pass (nested [`idle_add_local_once`]).
-    //! Avoids extra dylib links (`libdispatch` is not always exposed as `-ldispatch` on the linker path).
-
-    pub(super) fn after_idle_turn(f: impl FnOnce() + 'static) {
-        let _ = glib::source::idle_add_local_once(move || {
-            let _ = glib::source::idle_add_local_once(f);
-        });
-    }
-}
 
 /// Resolve the underlying [`NSWindow`] for a realized GTK widget on macOS.
 ///
@@ -48,8 +38,10 @@ pub fn nswindow_for_widget<W: IsA<gtk::Widget>>(w: &W) -> Option<Retained<NSWind
 ///
 /// **Scheduling:** calling `-toggleFullScreen:` synchronously still hit the same AppKit recursion on
 /// macOS 26.x during exit fullscreen (stack overflow in `_NSThemeZoomWidgetCell` / titlebar layout).
-/// We defer with **two** GTK main-context idle callbacks so AppKit/GTK finish the current geometry
-/// burst before `-toggleFullScreen:` runs (no standalone `-ldispatch` link — unreliable on some SDKs).
+/// Double GTK [`idle_add_local_once`] also reproduced that recursion: GLib idle can fire mid
+/// `_NSExitFullScreenTransitionController` while AppKit is still tiling the titlebar / toolbar.
+/// We chain **two** [`Queue::main`] `exec_async` hops (libdispatch) so `-toggleFullScreen:` runs only
+/// after the current CoreFoundation / AppKit pass drains — same main thread, later run-loop turn.
 ///
 /// Returns `true` if AppKit fullscreen was active and exit was **scheduled** (may still be animating).
 pub fn macos_native_unfullscreen<W: IsA<gtk::Widget>>(widget: &W) -> bool {
@@ -59,12 +51,17 @@ pub fn macos_native_unfullscreen<W: IsA<gtk::Widget>>(widget: &W) -> bool {
     if !win.styleMask().contains(NSWindowStyleMask::FullScreen) {
         return false;
     }
-    let win = win.clone();
-    gtk_idle_defer::after_idle_turn(move || {
-        if !win.styleMask().contains(NSWindowStyleMask::FullScreen) {
-            return;
-        }
-        win.toggleFullScreen(None);
+    let ptr = Retained::into_raw(win) as usize;
+    Queue::main().exec_async(move || {
+        Queue::main().exec_async(move || {
+            let Some(win) = (unsafe { Retained::from_raw(ptr as *mut NSWindow) }) else {
+                return;
+            };
+            if !win.styleMask().contains(NSWindowStyleMask::FullScreen) {
+                return;
+            }
+            win.toggleFullScreen(None);
+        });
     });
     true
 }
