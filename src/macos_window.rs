@@ -1,17 +1,19 @@
 //! macOS-only helpers around the native [`NSWindow`] hosting a [`gtk::Window`].
 //!
 //! Resolves the underlying NSWindow via `gdk4_macos::MacosSurface::native()` (GTK 4.8+)
-//! and exposes helpers used by the GTK shell: hide / show traffic lights,
-//! optional native fullscreen exit (see [`macos_native_unfullscreen`]), and layer invalidation.
+//! and exposes helpers used by the GTK shell: hide / show traffic lights and layer invalidation.
+//!
+//! Fullscreen **exit** uses GTK [`GtkWindowExt::unfullscreen`] after [`crate::fullscreen_timing`]
+//! delay — `-toggleFullScreen:` reproduced stack overflow (74k+ AppKit frames) on macOS 26.x during
+//! `_NSExitFullScreenTransitionController`.
 
-use dispatch::Queue;
 use gdk4_macos::prelude::Cast;
 use gdk4_macos::MacosSurface;
 use glib::object::IsA;
 use gtk::prelude::{NativeExt, WidgetExt};
 use objc2::msg_send;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSCursor, NSView, NSWindow, NSWindowButton, NSWindowStyleMask};
+use objc2_app_kit::{NSCursor, NSView, NSWindow, NSWindowButton};
 use std::cell::Cell;
 
 /// Resolve the underlying [`NSWindow`] for a realized GTK widget on macOS.
@@ -27,43 +29,6 @@ pub fn nswindow_for_widget<W: IsA<gtk::Widget>>(w: &W) -> Option<Retained<NSWind
         return None;
     }
     unsafe { Retained::retain(ptr) }
-}
-
-/// Leave native fullscreen via AppKit instead of GTK `unfullscreen()` when possible.
-///
-/// gtk4-macos routes `GtkWindow::unfullscreen` through `_gdk_macos_toplevel_surface_present`,
-/// which has reproduced unbounded `_syncToolbarPosition` ↔ `_updateTitlebarContainerViewFrameIfNecessary`
-/// recursion (Rust stack overflow) on recent macOS during `_NSExitFullScreenTransitionController`.
-/// `-toggleFullScreen:` skips that GDK entry point; GTK usually catches up via surface updates.
-///
-/// **Scheduling:** calling `-toggleFullScreen:` synchronously still hit the same AppKit recursion on
-/// macOS 26.x during exit fullscreen (stack overflow in `_NSThemeZoomWidgetCell` / titlebar layout).
-/// Double GTK [`idle_add_local_once`] also reproduced that recursion: GLib idle can fire mid
-/// `_NSExitFullScreenTransitionController` while AppKit is still tiling the titlebar / toolbar.
-/// We chain **two** [`Queue::main`] `exec_async` hops (libdispatch) so `-toggleFullScreen:` runs only
-/// after the current CoreFoundation / AppKit pass drains — same main thread, later run-loop turn.
-///
-/// Returns `true` if AppKit fullscreen was active and exit was **scheduled** (may still be animating).
-pub fn macos_native_unfullscreen<W: IsA<gtk::Widget>>(widget: &W) -> bool {
-    let Some(win) = nswindow_for_widget(widget) else {
-        return false;
-    };
-    if !win.styleMask().contains(NSWindowStyleMask::FullScreen) {
-        return false;
-    }
-    let ptr = Retained::into_raw(win) as usize;
-    Queue::main().exec_async(move || {
-        Queue::main().exec_async(move || {
-            let Some(win) = (unsafe { Retained::from_raw(ptr as *mut NSWindow) }) else {
-                return;
-            };
-            if !win.styleMask().contains(NSWindowStyleMask::FullScreen) {
-                return;
-            }
-            win.toggleFullScreen(None);
-        });
-    });
-    true
 }
 
 /// Invalidate the contentView's layer tree and force an immediate redraw.

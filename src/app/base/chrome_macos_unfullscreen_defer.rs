@@ -20,10 +20,6 @@ fn macos_schedule_unfullscreen(win: adw::ApplicationWindow) {
                     if !win2.is_fullscreen() {
                         return;
                     }
-                    if crate::macos_window::macos_native_unfullscreen(win2.upcast_ref::<gtk::Widget>())
-                    {
-                        return;
-                    }
                     win2.unfullscreen();
                 });
             },
