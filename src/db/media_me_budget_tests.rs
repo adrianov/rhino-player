@@ -2,7 +2,7 @@
 
 use rusqlite::Connection;
 
-use super::resolve_media_smooth_me_budget_conn;
+use super::{resolve_media_smooth_me_budget_conn, DEFAULT_SMOOTH_MAX_AREA};
 
 #[test]
 fn own_row_uses_global_else_exact_dimension_neighbor() {
@@ -28,9 +28,9 @@ fn own_row_uses_global_else_exact_dimension_neighbor() {
     )
     .unwrap();
 
-    let g = 2_000_000_u64;
+    let g = DEFAULT_SMOOTH_MAX_AREA;
     let r = resolve_media_smooth_me_budget_conn(&c, "/a.mkv", Some((1920, 1080)), g).unwrap();
-    assert_eq!(r, 2_000_000);
+    assert_eq!(r, DEFAULT_SMOOTH_MAX_AREA);
 
     let r = resolve_media_smooth_me_budget_conn(
         &c,
@@ -76,7 +76,7 @@ fn exact_dims_tie_prefers_latest_updated_at_over_rowid() {
         rusqlite::params!["/b.ms_lo.mkv", 1920, 1080, 900_000_i64, 100_i64],
     )
     .unwrap();
-    let g = 2_073_600_u64;
+    let g = DEFAULT_SMOOTH_MAX_AREA;
     let r = resolve_media_smooth_me_budget_conn(&c, "/brand.mkv", Some((1920, 1080)), g).unwrap();
     assert_eq!(r, 1_200_000);
 }
@@ -104,7 +104,7 @@ fn exact_dims_tie_uses_rowid_when_updated_at_equal() {
         rusqlite::params!["/newer.mkv", 1920, 1080, 1_267_644_i64],
     )
     .unwrap();
-    let g = 2_073_600_u64;
+    let g = DEFAULT_SMOOTH_MAX_AREA;
     let r = resolve_media_smooth_me_budget_conn(&c, "/brand.mkv", Some((1920, 1080)), g).unwrap();
     assert_eq!(r, 1_267_644);
 }
@@ -206,7 +206,7 @@ fn global_when_no_other_row_has_saved_budget() {
         rusqlite::params!["/dims_only.mkv", 1280, 720],
     )
     .unwrap();
-    let g = 2_000_000_u64;
+    let g = DEFAULT_SMOOTH_MAX_AREA;
     let r = resolve_media_smooth_me_budget_conn(&c, "/new.mkv", Some((1920, 1080)), g).unwrap();
     assert_eq!(r, g);
 }

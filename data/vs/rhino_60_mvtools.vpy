@@ -51,6 +51,12 @@ _MV_DECODE_TAG_AREA = 2560 * 1440
 # Explicit ``Super`` edge padding (MVTools default is **16**).
 _MV_SUPER_PAD = 16
 
+# Default ME px² when Rhino/env omit **`RHINO_SMOOTH_MAX_AREA`** (**exact 1920×1080** — **`DEFAULT_SMOOTH_MAX_AREA`** /
+# **`DEFAULT_SMOOTH_ME_*`** in **`src/db/connection_init_and_audio.rs`**).
+_DEFAULT_ME_W = 1920
+_DEFAULT_ME_H = 1080
+_DEFAULT_ME_AREA_PX2 = _DEFAULT_ME_W * _DEFAULT_ME_H
+
 
 def _robust_proc_environ_snapshot() -> dict[str, str] | None:
     """Linux: read the process C environment from ``/proc/self/environ``.
@@ -177,11 +183,11 @@ def _smooth_max_area_px() -> int:
             pass
 
     if not raw:
-        return max(min_budget, 1920 * 1080)
+        return max(min_budget, _DEFAULT_ME_AREA_PX2)
     try:
         return max(min_budget, int(raw))
     except ValueError:
-        return max(min_budget, 1920 * 1080)
+        return max(min_budget, _DEFAULT_ME_AREA_PX2)
 
 
 def _mv_graph_for_frame_size(

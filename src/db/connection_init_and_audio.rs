@@ -57,6 +57,7 @@ pub fn init() {
         return;
     }
     migrate_media_decode_columns(&conn);
+    migrate_legacy_smooth_max_area_round_mil(&conn);
     if DB.set(Mutex::new(conn)).is_err() {
         eprintln!("[rhino] db: already initialized");
     }
@@ -216,8 +217,12 @@ const K_VIDEO_MVTOOLS_LIB: &str = "video_mvtools_lib";
 const K_VIDEO_MANIPMV_LIB: &str = "video_manipmv_lib";
 const K_VIDEO_SMOOTH_MAX_AREA: &str = "video_smooth_max_area";
 
-/// Default ME/output pixel budget when the persistent store has no row (**1920×1080**).
-pub const DEFAULT_SMOOTH_MAX_AREA: u64 = 1920 * 1080;
+/// Width component of [`DEFAULT_SMOOTH_MAX_AREA`] (exact **1920×1080** ME raster).
+pub const DEFAULT_SMOOTH_ME_WIDTH: u64 = 1920;
+/// Height component of [`DEFAULT_SMOOTH_MAX_AREA`] (exact **1920×1080** ME raster).
+pub const DEFAULT_SMOOTH_ME_HEIGHT: u64 = 1080;
+/// Default ME/output pixel budget when the persistent store has no row (**exactly** **1920×1080** px²).
+pub const DEFAULT_SMOOTH_MAX_AREA: u64 = DEFAULT_SMOOTH_ME_WIDTH * DEFAULT_SMOOTH_ME_HEIGHT;
 /// Clamp loaded/saved smooth pixel budgets below this floor (**320×180**).
 pub const MIN_SMOOTH_MAX_AREA: u64 = 320 * 180;
 
@@ -247,5 +252,29 @@ impl Default for VideoPrefs {
             smooth_max_area: DEFAULT_SMOOTH_MAX_AREA,
         }
     }
+}
+
+/// Normalize legacy **`video_smooth_max_area`** values stored as round **2_000_000** px² (~HD) to exact **1920×1080**.
+fn migrate_legacy_smooth_max_area_round_mil(conn: &Connection) {
+    let Ok(Some(v)) = conn
+        .query_row(
+            "SELECT v FROM settings WHERE k = ?1",
+            params![K_VIDEO_SMOOTH_MAX_AREA],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+    else {
+        return;
+    };
+    if v.trim() != "2000000" {
+        return;
+    }
+    let _ = conn.execute(
+        "UPDATE settings SET v = ?2 WHERE k = ?1",
+        params![
+            K_VIDEO_SMOOTH_MAX_AREA,
+            DEFAULT_SMOOTH_MAX_AREA.to_string(),
+        ],
+    );
 }
 
