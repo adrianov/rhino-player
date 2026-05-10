@@ -50,7 +50,11 @@ fn show_fs_wall_clock_fullscreen(
 
 #[cfg(not(target_os = "macos"))]
 fn linux_fs_notify_maximize_now(fr: &Rc<RefCell<Option<(i32, i32)>>>, win: &adw::ApplicationWindow) {
-    *fr.borrow_mut() = Some(win_normal_size(win));
+    // [`toggle_fullscreen`] already saved geometry before `maximize()`; do not replace it here with
+    // sizes read mid-transition (wrong if fullscreen notify races ahead of `is_maximized`).
+    if fr.borrow().is_none() {
+        *fr.borrow_mut() = Some(win_normal_size(win));
+    }
     win.maximize();
 }
 
@@ -62,7 +66,13 @@ fn macos_fs_notify_defer_maximize(fr: &Rc<RefCell<Option<(i32, i32)>>>, win: &ad
         if !w_mx.is_fullscreen() || w_mx.is_maximized() {
             return;
         }
-        *fr_mx.borrow_mut() = Some(win_normal_size(&w_mx));
+        // Native fullscreen often keeps GDK `is_maximized` false while fullscreen is true, so this
+        // path runs after [`toggle_fullscreen`] already stashed pre-maximize (w, h). Replacing
+        // `fs_restore` with `win_normal_size` here used the fullscreen-stage dimensions → exit left
+        // a maximized / screen-sized window instead of the original floater.
+        if fr_mx.borrow().is_none() {
+            *fr_mx.borrow_mut() = Some(win_normal_size(&w_mx));
+        }
         w_mx.maximize();
     });
 }
