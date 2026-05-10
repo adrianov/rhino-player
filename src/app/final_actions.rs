@@ -25,7 +25,7 @@ struct FinalActionCtx {
     on_file_loaded: Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
     bar_show: Rc<Cell<bool>>,
-    idle_inhib: Rc<RefCell<Option<u32>>>,
+    idle_inhib: Rc<RefCell<Option<crate::idle_inhibit::Held>>>,
     exit_after_current: Rc<Cell<bool>>,
     mpv_teardown_after_draw: Rc<Cell<bool>>,
     hdr_csd_baseline: Rc<Cell<Option<(bool, bool)>>>,

@@ -51,7 +51,7 @@ fn build_window(
     let win_aspect = Rc::new(Cell::new(None::<f64>));
     let aspect_resize_end_deb = Rc::new(RefCell::new(None::<glib::SourceId>));
     let aspect_resize_wired = Rc::new(Cell::new(false));
-    let idle_inhib = Rc::new(RefCell::new(None::<u32>));
+    let idle_inhib = Rc::new(RefCell::new(None::<crate::idle_inhibit::Held>));
     let mpv_teardown_after_draw = Rc::new(Cell::new(false));
 
     #[cfg(target_os = "macos")]

@@ -164,7 +164,7 @@ fn schedule_quit_persist(
     gl: &gtk::GLArea,
     player: &Rc<RefCell<Option<MpvBundle>>>,
     sub: &Rc<RefCell<db::SubPrefs>>,
-    idle_inhib: &Rc<RefCell<Option<u32>>>,
+    idle_inhib: &Rc<RefCell<Option<crate::idle_inhibit::Held>>>,
     teardown_after_draw: &Rc<Cell<bool>>,
 ) {
     let p = player.clone();

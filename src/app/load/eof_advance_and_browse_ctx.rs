@@ -12,7 +12,7 @@ fn maybe_advance_sibling_on_eof(
     exit_after_current: &Rc<Cell<bool>>,
     app: &adw::Application,
     sub_pref: &Rc<RefCell<db::SubPrefs>>,
-    idle_inhib: &Rc<RefCell<Option<u32>>>,
+    idle_inhib: &Rc<RefCell<Option<crate::idle_inhibit::Held>>>,
     teardown_after_draw: &Rc<Cell<bool>>,
     on_start: &Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,

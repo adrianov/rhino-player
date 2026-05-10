@@ -4,7 +4,7 @@ fn wire_quit_close(
     gl: &gtk::GLArea,
     player: &Rc<RefCell<Option<MpvBundle>>>,
     sub_pref: &Rc<RefCell<db::SubPrefs>>,
-    idle_inhib: &Rc<RefCell<Option<u32>>>,
+    idle_inhib: &Rc<RefCell<Option<crate::idle_inhibit::Held>>>,
     mpv_teardown_after_draw: &Rc<Cell<bool>>,
 ) {
     let quit = gio::SimpleAction::new("quit", None);

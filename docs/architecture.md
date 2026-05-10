@@ -62,7 +62,7 @@ The columns below describe the **current Linux binding** in detail; macOS and Wi
 | Single instance | GIO single-instance + remote activation | `NSApplication` runs once per bundle | named pipe / single-instance mutex |
 | Audio output | PulseAudio / PipeWire (`ao=pulse`) | CoreAudio (`ao=coreaudio`) | WASAPI (`ao=wasapi`) |
 | Media keys / shell integration | MPRIS over D-Bus | `MPRemoteCommandCenter`, `MPNowPlayingInfoCenter` | `SystemMediaTransportControls` |
-| Idle / sleep inhibit | `gtk::Application::inhibit` (IDLE + SUSPEND) | `IOPMAssertion` | `SetThreadExecutionState` |
+| Idle / sleep inhibit | `gtk::Application::inhibit` (IDLE + SUSPEND) | `NSProcessInfo.beginActivity…` (`NSActivityOptions.idleDisplaySleepDisabled` + idle system sleep disabled) | `SetThreadExecutionState` |
 | Packaging | dynamic system libs; AppImage / distro packages | `.app` bundle (notarized) | MSIX / portable ZIP |
 | Build tooling | Cargo (Rust core; system libs from distro) | Cargo + Xcode toolchain for AppKit shim | Cargo + MSVC toolchain for WinUI shim |
 | Theme / dark mode | libadwaita `StyleManager` | `NSAppearance` | XAML theme resources |
