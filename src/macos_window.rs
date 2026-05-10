@@ -4,7 +4,8 @@
 //! and exposes helpers used by the GTK shell: hide / show traffic lights and layer invalidation.
 //!
 //! Fullscreen **exit** uses GTK [`GtkWindowExt::unfullscreen`] after [`crate::fullscreen_timing`]
-//! delay — `-toggleFullScreen:` reproduced stack overflow (74k+ AppKit frames) on macOS 26.x during
+//! settlement, scheduled via **`dispatch_async_f`** on the main queue (see `chrome_macos_unfullscreen_defer`) —
+//! `-toggleFullScreen:` and nested GLib timeouts reproduced stack overflow (74k+ AppKit frames) on macOS 26.x during
 //! `_NSExitFullScreenTransitionController`.
 
 use gdk4_macos::prelude::Cast;
