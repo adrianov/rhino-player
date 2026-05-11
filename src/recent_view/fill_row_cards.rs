@@ -186,7 +186,6 @@ pub fn fill_row(
             let path = c.clone();
             let rem = on_remove.clone();
             dismiss.connect_clicked(move |_| {
-                eprintln!("[rhino] recent: dismiss path={}", path.display());
                 rem(&path);
             });
         }
@@ -202,7 +201,6 @@ pub fn fill_row(
                 let path = c.clone();
                 let tr = on_trash.clone();
                 trash.connect_clicked(move |_| {
-                    eprintln!("[rhino] recent: trash path={}", path.display());
                     tr(&path);
                 });
             }
@@ -222,10 +220,6 @@ pub fn fill_row(
                 &card,
                 &c.display().to_string(),
                 Rc::new(move |()| {
-                    eprintln!(
-                        "[rhino] recent: stale remove callback path={}",
-                        path.display()
-                    );
                     rem(&path);
                 }),
                 &hover_btns,
@@ -237,7 +231,6 @@ pub fn fill_row(
                 &card,
                 &c.display().to_string(),
                 Rc::new(move |()| {
-                    eprintln!("[rhino] recent: open callback path={}", path.display());
                     op(&path);
                 }),
                 &hover_btns,

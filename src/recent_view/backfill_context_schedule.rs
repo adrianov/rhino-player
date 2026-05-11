@@ -79,7 +79,7 @@ pub fn schedule_thumb_backfill(ctx: Rc<RecentContext>, paths: Vec<std::path::Pat
 /// Uses [PropagationPhase::Target] so nested [gtk::Button]s receive the click first.
 fn add_click_and_pointer(
     card: &impl IsA<gtk::Widget>,
-    debug_path: &str,
+    _debug_path: &str,
     act: UnitFn,
     show_on_hover: &[gtk::Button],
 ) {
@@ -88,14 +88,9 @@ fn add_click_and_pointer(
     g.set_button(1);
     g.set_propagation_phase(gtk::PropagationPhase::Target);
     let act = act.clone();
-    let p = debug_path.to_string();
     g.connect_pressed(move |_, n, _x, _y| {
-        eprintln!("[rhino] recent: gesture pressed n={n} path={p}");
         if n == 1 {
-            eprintln!("[rhino] recent: invoking open/remove handler");
             act(());
-        } else {
-            eprintln!("[rhino] recent: ignored n!=1 (if stuck, n may be wrong for this GTK/WM)");
         }
     });
     card.as_ref().add_controller(g);

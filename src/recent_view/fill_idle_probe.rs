@@ -14,23 +14,8 @@ pub fn fill_idle(
     let r = on_remove;
     let t = on_trash;
     let _ = glib::idle_add_local(move || {
-        eprintln!(
-            "[rhino] recent: fill_idle build grid for {} path(s):",
-            paths.len()
-        );
-        for p in &paths {
-            eprintln!("[rhino] recent:   candidate {}", p.display());
-        }
         let n = ensure_recent_backfill(&backfill, &row, o.clone(), r.clone(), t.clone());
         let v: Vec<CardData> = card_data_list(&paths);
-        eprintln!("[rhino] recent: card_data done ({} cards)", v.len());
-        for cd in &v {
-            eprintln!(
-                "[rhino] recent:   card path={} missing={}",
-                cd.path.display(),
-                cd.missing
-            );
-        }
         fill_row(&row, v, o.clone(), r.clone(), t.clone());
         let paths_t = paths.clone();
         schedule_backfill(n, paths_t);
