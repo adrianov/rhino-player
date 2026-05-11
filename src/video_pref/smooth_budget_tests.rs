@@ -24,7 +24,7 @@ mod budget_tests {
 
     #[test]
     fn recovery_ceiling_follows_decode_when_wider_than_default() {
-        let decode = 6144000_u64;
+        let decode = 3840_u64 * 1600;
         assert_eq!(recovery_ceiling_px(Some(decode)), decode);
         assert_eq!(
             recovery_candidate(crate::db::DEFAULT_SMOOTH_MAX_AREA, Some(decode)),

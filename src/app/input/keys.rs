@@ -66,7 +66,6 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
     let seek_sync_sc = ctx.seek_sync.clone();
     let time_left_sc = ctx.time_left.clone();
     let gl_seek = ctx.shell.gl.clone();
-    let reapply_seek = ctx.reapply_60.clone();
     let smooth_seek_db = ctx.smooth_seek_debounce.clone();
     let resume_seek_idle = ctx.resume_after_seek_idle.clone();
     let play_seek_toggle = ctx.play_toggle.clone();
@@ -87,6 +86,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
     let on_loaded_nav = ctx.on_file_loaded.clone();
     let hdr_mirror_nav = ctx.hdr_title_mirror.clone();
     let playback_nav = Rc::clone(&ctx.playback_focus);
+    let video_pref_nav = ctx.video_pref.clone();
     let k = gtk::EventControllerKey::new();
     // Capture phase: run before the focused widget (e.g. bottom-bar buttons, scales) so Space /
     // Enter / arrows trigger playback shortcuts instead of GTK's button activation / focus
@@ -102,6 +102,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
             gl: gl_seek.clone(),
             recent: recent_esc.clone(),
             last_path: last_path_nav.clone(),
+            video_pref: video_pref_nav.clone(),
             on_video_chrome: on_vid_nav.clone(),
             win_aspect: win_aspect_nav.clone(),
             sibling_seof: seof_nav.clone(),
@@ -175,7 +176,6 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
             seek_sync: &seek_sync_sc,
             time_left: &time_left_sc,
             gl: &gl_seek,
-            reapply_60: &reapply_seek,
             smooth_seek_debounce: &smooth_seek_db,
             resume_after_seek_idle: &resume_seek_idle,
             play_toggle: &play_seek_toggle,

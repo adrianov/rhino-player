@@ -9,7 +9,7 @@ struct MprisLinuxWireCtx<'a> {
     last_path: &'a Rc<RefCell<Option<PathBuf>>>,
     win_aspect: &'a Rc<Cell<Option<f64>>>,
     sibling_seof: &'a Rc<SiblingEofState>,
-    reapply_60: VideoReapply60,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
     smooth_seek_debounce: Rc<RefCell<Option<glib::SourceId>>>,
     resume_after_seek_idle: Rc<Cell<bool>>,
     on_file_loaded: &'a Rc<dyn Fn()>,
@@ -30,7 +30,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
         last_path,
         win_aspect,
         sibling_seof,
-        reapply_60,
+        video_pref,
         smooth_seek_debounce,
         resume_after_seek_idle,
         on_file_loaded,
@@ -38,9 +38,9 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
         hdr_title_mirror,
         playback_focus,
     } = ctx;
+    let vp_seek = video_pref.clone();
     let p_seek = player.clone();
     let gl_seek = gl_area.clone();
-    let r_seek = reapply_60.clone();
     let deb_seek = smooth_seek_debounce.clone();
     let resume_seek = resume_after_seek_idle.clone();
     let toggle_seek = play_ctx.clone();
@@ -49,7 +49,6 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
             &SeekKeyframeParams {
                 player: &p_seek,
                 gl: &gl_seek,
-                reapply_60: &r_seek,
                 smooth_seek_debounce: &deb_seek,
                 resume_after_seek_idle: &resume_seek,
                 play_toggle: &toggle_seek,
@@ -70,6 +69,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
         let on_loaded = Rc::clone(on_file_loaded);
         let hm = hdr_title_mirror.clone();
         let pf = Rc::clone(playback_focus);
+        let vp = vp_seek.clone();
         move || {
             try_load_sibling_pick(sibling_advance::prev_before_current, "previous", &SiblingNavTryRefs {
                 player: player.clone(),
@@ -77,6 +77,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
                 gl: gl.clone(),
                 recent: rec.clone(),
                 last_path: last_path.clone(),
+                video_pref: vp.clone(),
                 on_video_chrome: on_video_chrome.clone(),
                 win_aspect: win_aspect.clone(),
                 sibling_seof: sibling_seof.clone(),
@@ -98,6 +99,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
         let on_loaded = Rc::clone(on_file_loaded);
         let hm = hdr_title_mirror.clone();
         let pf = Rc::clone(playback_focus);
+        let vp = vp_seek.clone();
         move || {
             try_load_sibling_pick(sibling_advance::next_after_eof, "next", &SiblingNavTryRefs {
                 player: player.clone(),
@@ -105,6 +107,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
                 gl: gl.clone(),
                 recent: rec.clone(),
                 last_path: last_path.clone(),
+                video_pref: vp.clone(),
                 on_video_chrome: on_video_chrome.clone(),
                 win_aspect: win_aspect.clone(),
                 sibling_seof: sibling_seof.clone(),

@@ -5,6 +5,7 @@ struct SiblingNavTryRefs {
     gl: gtk::GLArea,
     recent: gtk::Box,
     last_path: Rc<RefCell<Option<PathBuf>>>,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
     on_video_chrome: Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
     sibling_seof: Rc<SiblingEofState>,
@@ -33,15 +34,16 @@ fn try_load_sibling_pick(
     };
     r.sibling_seof.done.set(false);
     drop(g);
-    let mut o = LoadOpts::replace_media(
-        Rc::clone(&r.last_path),
-        Some(Rc::clone(&r.on_video_chrome)),
-        Rc::clone(&r.win_aspect),
-        Some(Rc::clone(&r.on_file_loaded)),
-        true,
-        false,
-        r.hdr_title_mirror.clone(),
-    );
+    let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
+        video_pref: Rc::clone(&r.video_pref),
+        last_path: Rc::clone(&r.last_path),
+        on_start: Some(Rc::clone(&r.on_video_chrome)),
+        win_aspect: Rc::clone(&r.win_aspect),
+        on_loaded: Some(Rc::clone(&r.on_file_loaded)),
+        play_on_start: true,
+        reset_speed_to_normal: false,
+        hdr_title_mirror: r.hdr_title_mirror.clone(),
+    });
     o.playback_focus = Some(Rc::clone(&r.playback_focus));
     if let Err(e) = try_load(&np, &r.player, &r.win, &r.gl, &r.recent, &o) {
         eprintln!("[rhino] {log_tag}: {e}");
@@ -65,6 +67,7 @@ struct SiblingNavCtx {
     gl: gtk::GLArea,
     recent: gtk::Box,
     last_path: Rc<RefCell<Option<PathBuf>>>,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
     on_video_chrome: Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
     sibling_seof: Rc<SiblingEofState>,
@@ -81,6 +84,7 @@ impl SiblingNavCtx {
             gl: self.gl.clone(),
             recent: self.recent.clone(),
             last_path: self.last_path.clone(),
+            video_pref: Rc::clone(&self.video_pref),
             on_video_chrome: self.on_video_chrome.clone(),
             win_aspect: self.win_aspect.clone(),
             sibling_seof: self.sibling_seof.clone(),

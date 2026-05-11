@@ -12,6 +12,7 @@ fn maybe_advance_sibling_on_eof(
     exit_after_current: &Rc<Cell<bool>>,
     app: &adw::Application,
     sub_pref: &Rc<RefCell<db::SubPrefs>>,
+    video_pref: &Rc<RefCell<db::VideoPrefs>>,
     idle_inhib: &Rc<RefCell<Option<crate::idle_inhibit::Held>>>,
     teardown_after_draw: &Rc<Cell<bool>>,
     on_start: &Rc<dyn Fn()>,
@@ -46,15 +47,16 @@ fn maybe_advance_sibling_on_eof(
     drop(g);
     seof.done.set(true);
     if let Some(np) = next {
-        let mut o = LoadOpts::replace_media(
-            Rc::clone(last_path),
-            Some(Rc::clone(on_start)),
-            Rc::clone(&win_aspect),
-            on_loaded.as_ref().map(Rc::clone),
-            true,
-            true,
+        let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
+            video_pref: Rc::clone(video_pref),
+            last_path: Rc::clone(last_path),
+            on_start: Some(Rc::clone(on_start)),
+            win_aspect: Rc::clone(&win_aspect),
+            on_loaded: on_loaded.as_ref().map(Rc::clone),
+            play_on_start: true,
+            reset_speed_to_normal: true,
             hdr_title_mirror,
-        );
+        });
         o.playback_focus = Some(Rc::clone(&playback_focus));
         if let Err(e) = try_load(&np, player, win, gl, recent, &o) {
             eprintln!("[rhino] sibling advance: {e}");

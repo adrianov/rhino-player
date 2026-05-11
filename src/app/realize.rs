@@ -113,15 +113,16 @@ fn gl_realize_bundle_ready(
     }
     trigger_transport_install();
     if let Some(p) = file_boot_rz.replace(None) {
-        let mut o = LoadOpts::replace_media(
-            r.last_rz.clone(),
-            Some(Rc::clone(&r.on_vid_rz)),
-            Rc::clone(&r.wa_st),
-            Some(Rc::clone(&r.ol_rz)),
-            false,
-            false,
-            r.hdr_title_mirror.clone(),
-        );
+        let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
+            video_pref: Rc::clone(&r.vp_realize),
+            last_path: r.last_rz.clone(),
+            on_start: Some(Rc::clone(&r.on_vid_rz)),
+            win_aspect: Rc::clone(&r.wa_st),
+            on_loaded: Some(Rc::clone(&r.ol_rz)),
+            play_on_start: false,
+            reset_speed_to_normal: false,
+            hdr_title_mirror: r.hdr_title_mirror.clone(),
+        });
         o.playback_focus = Some(Rc::clone(&r.playback_focus));
         if let Err(e) = try_load(
             &p,

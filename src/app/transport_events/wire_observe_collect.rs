@@ -104,8 +104,9 @@ struct TransportCtx {
     sibling_nav: SiblingNavUi,
     /// Coalesce [glib::idle_add_local_once] resyncs on `FileLoaded` / `path` churn.
     idle_resync_pending: Rc<Cell<bool>>,
-    /// One idle per burst for Smooth 60 `vf` rebuild (`FileLoaded` + `path` often arrive together).
-    smooth_60_resync_idle_pending: Rc<Cell<bool>>,
+    /// Debounced [glib::timeout_add_local] after `FileLoaded` / `VideoReconfig` / `path` / `container-fps`
+    /// so one [smooth_60_full_resync_after_media_change] runs when the burst settles.
+    smooth_60_resync_debounce: Rc<RefCell<Option<glib::SourceId>>>,
     /// 1 Hz timer source id (kept so it can be replaced if observers re-install).
     tick: Rc<RefCell<Option<glib::SourceId>>>,
     cache: Rc<RefCell<TransportCache>>,
@@ -171,7 +172,7 @@ fn wire_transport_events(s: TransportSetup) {
         recent_visible: s.recent_visible,
         sibling_nav: s.sibling_nav,
         idle_resync_pending: Rc::new(Cell::new(false)),
-        smooth_60_resync_idle_pending: Rc::new(Cell::new(false)),
+        smooth_60_resync_debounce: Rc::new(RefCell::new(None)),
         tick: Rc::new(RefCell::new(None)),
         cache: Rc::new(RefCell::new(TransportCache::default())),
         seek_chapters: s.seek_chapters.clone(),
@@ -181,6 +182,13 @@ fn wire_transport_events(s: TransportSetup) {
     TRANSPORT_DRAIN.with(|slot| {
         *slot.borrow_mut() = Some(Rc::new(move || {
             drain_into_main(&ctx_drain);
+        }));
+    });
+
+    let ctx_smooth = Rc::clone(&ctx);
+    REQUEST_SMOOTH_60_RESYNC.with(|slot| {
+        *slot.borrow_mut() = Some(Rc::new(move || {
+            schedule_smooth_60_resync_idle(&ctx_smooth);
         }));
     });
 
@@ -205,6 +213,21 @@ thread_local! {
     /// UI without waiting for the next libmpv wakeup (continue grid + **Previous** could otherwise leave
     /// the clock and seek bar on the old title until user interaction).
     static TRANSPORT_DRAIN: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+}
+
+thread_local! {
+    /// Set by [wire_transport_events]. Seek / keyframe tails and **unpause** schedule the same debounced
+    /// [schedule_smooth_60_resync_idle] as `FileLoaded` so Smooth is not applied twice in one interaction.
+    static REQUEST_SMOOTH_60_RESYNC: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+}
+
+/// Coalesce Smooth 60 / VapourSynth rebuild with transport (same timer as `FileLoaded` / `path` churn).
+fn request_smooth_60_transport_resync() {
+    REQUEST_SMOOTH_60_RESYNC.with(|slot| {
+        if let Some(f) = slot.borrow().as_ref() {
+            f();
+        }
+    });
 }
 
 /// Drain libmpv events into [dispatch_event] immediately. Safe no-op before the GL realize hook runs.

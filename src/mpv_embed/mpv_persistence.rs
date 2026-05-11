@@ -4,8 +4,14 @@
 
 impl MpvBundle {
 
+/// Remember [Path] the shell just opened for ME budget + **`media`** row lookup (not read from mpv).
+pub(crate) fn set_me_budget_shell_path(&self, path: &Path) {
+    *self.me_budget_shell_path.borrow_mut() = std::fs::canonicalize(path).ok();
+}
+
 /// End playback; call after the SQLite snapshot. Safe to skip before process exit.
 pub fn stop_playback(&self) {
+    *self.me_budget_shell_path.borrow_mut() = None;
     let _ = self.mpv.command("stop", &[]);
 }
 

@@ -29,23 +29,14 @@ fn bump_recovery_quiet_streak(st: &mut SmoothBudgetDecoderState, recovery_rate_o
     }
 }
 
-/// Record **`smooth_budget`** strain sample, trim **≈5 s** deque, return trailing rate and fire flags.
+/// Record **`smooth_budget`** strain sample, trim **≈5 s** deque, return strict overload rate and fire flags.
 fn sample_window_and_fire_flags(
     st: &mut SmoothBudgetDecoderState,
     cur_count: u64,
     now: Instant,
     fps: f64,
     signal_src: SmoothBudgetSignalSrc,
-) -> (
-    Option<f64>,
-    Option<f64>,
-    bool,
-    bool,
-    u32,
-    u32,
-    bool,
-    bool,
-) {
+) -> (Option<f64>, bool, bool) {
     if let Some(prev) = st.prev_signal_total {
         if cur_count < prev {
             st.samples.clear();
@@ -74,12 +65,7 @@ fn sample_window_and_fire_flags(
     let recover_fire = st.recovery_quiet_streak >= RECOVERY_FIRE_STREAK_TICKS;
     (
         overload_rate_opt,
-        recovery_rate_opt,
         overload_fire,
         recover_fire,
-        st.overload_streak,
-        st.recovery_quiet_streak,
-        overload_rate_opt.is_some(),
-        recovery_rate_opt.is_some(),
     )
 }

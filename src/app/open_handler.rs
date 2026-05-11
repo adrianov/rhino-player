@@ -5,6 +5,7 @@ struct OpenHandlerCtx {
     gl: gtk::GLArea,
     recent: gtk::Box,
     last_path: Rc<RefCell<Option<PathBuf>>>,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
     on_start: Rc<dyn Fn()>,
     on_loaded: Rc<dyn Fn()>,
     win_aspect: Rc<Cell<Option<f64>>>,
@@ -23,15 +24,16 @@ fn make_on_open_handler(ctx: OpenHandlerCtx) -> RcPathFn {
             &ctx.gl,
             &ctx.recent,
             &{
-                let mut o = LoadOpts::replace_media(
-                    ctx.last_path.clone(),
-                    Some(Rc::clone(&ctx.on_start)),
-                    ctx.win_aspect.clone(),
-                    Some(Rc::clone(&ctx.on_loaded)),
-                    true,
-                    false,
-                    ctx.hdr_title_mirror.clone(),
-                );
+                let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
+                    video_pref: Rc::clone(&ctx.video_pref),
+                    last_path: ctx.last_path.clone(),
+                    on_start: Some(Rc::clone(&ctx.on_start)),
+                    win_aspect: ctx.win_aspect.clone(),
+                    on_loaded: Some(Rc::clone(&ctx.on_loaded)),
+                    play_on_start: true,
+                    reset_speed_to_normal: false,
+                    hdr_title_mirror: ctx.hdr_title_mirror.clone(),
+                });
                 o.playback_focus = Some(Rc::clone(&ctx.playback_focus));
                 o
             },

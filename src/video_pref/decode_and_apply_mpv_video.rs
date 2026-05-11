@@ -1,5 +1,3 @@
-use crate::mpv_embed::MpvBundle;
-
 fn post_smooth_60_state(mpv: &Mpv, v: &VideoPrefs, want_60: bool, disabled_60: bool, vlog: bool) {
     if want_60 && !v.smooth_60 {
         if let Err(e) = mpv.set_property("hwdec", "auto") {
@@ -101,6 +99,15 @@ fn clear_vf(mpv: &Mpv, bundle: Option<&MpvBundle>, vlog: bool) {
     }
 }
 
+/// Clear **`vf vapoursynth`** before mpv **`loadfile`** replaces media so the new file is not decoded
+/// through the previous clip's warm script (avoids wrong **`RHINO_SOURCE_FPS`** / duplicate preset lines).
+pub fn strip_vapoursynth_before_replace_media(b: &MpvBundle) {
+    if !vf_string_has_vapoursynth(&b.mpv) {
+        return;
+    }
+    clear_vf(&b.mpv, Some(b), video_log());
+}
+
 fn log_vf_diagnostics(mpv: &Mpv, vlog: bool) {
     match mpv.get_property::<String>("vf") {
         Ok(s) if !s.is_empty() => eprintln!("[rhino] video: mpv property `vf` = {s:?}"),
@@ -119,22 +126,8 @@ fn log_vf_diagnostics(mpv: &Mpv, vlog: bool) {
 /// If Smooth 60 is on, **speed** is ~1.0×, and `vapoursynth` is still not in the `vf` list, run
 /// [apply_mpv_video] once (covers a rare missed attach).
 pub fn reapply_60_if_still_missing(b: &MpvBundle, v: &mut VideoPrefs) -> MpvVideoApply {
-    reapply_60_if_still_missing_impl(b, v, false)
-}
-
-/// Like [reapply_60_if_still_missing] but skips the mpv **`pause`** gate — use after transport
-/// **`Pause(false)`** when **`get_property("pause")`** may still read **paused**.
-pub fn reapply_60_after_transport_unpause(b: &MpvBundle, v: &mut VideoPrefs) -> MpvVideoApply {
-    reapply_60_if_still_missing_impl(b, v, true)
-}
-
-fn reapply_60_if_still_missing_impl(
-    b: &MpvBundle,
-    v: &mut VideoPrefs,
-    trust_playing_from_transport: bool,
-) -> MpvVideoApply {
     let mpv = &b.mpv;
-    if !trust_playing_from_transport && mpv.get_property::<bool>("pause").unwrap_or(true) {
+    if mpv.get_property::<bool>("pause").unwrap_or(true) {
         return MpvVideoApply::default();
     }
     if !v.smooth_60 || !mpv_has_open_media(mpv) {
@@ -147,11 +140,7 @@ fn reapply_60_if_still_missing_impl(
         return MpvVideoApply::default();
     }
     eprintln!("[rhino] video: reapply_60_if_still_missing → apply_mpv_video");
-    if trust_playing_from_transport {
-        apply_mpv_video_after_transport_unpause(b, v, None)
-    } else {
-        apply_mpv_video(b, v, None)
-    }
+    apply_mpv_video(b, v, None)
 }
 
 pub(crate) fn vf_chain_has_vapoursynth(mpv: &Mpv) -> bool {
@@ -178,13 +167,16 @@ pub fn unload_smooth_on_pause(mpv: &Mpv) -> bool {
     true
 }
 pub fn apply_mpv_video_init(mpv: &Mpv, v: &mut VideoPrefs) -> MpvVideoApply {
-    apply_mpv_video_impl(mpv, None, v, None, None)
+    apply_mpv_video_impl(mpv, None, v, None)
 }
 
 /// Normal playback is intentionally a no-op: leave mpv's timing, decode, and filter defaults alone.
 /// When Smooth 60 is active, replace the `vf` list and add VapourSynth at ~**1.0×** only.
 /// [speed_hint] is passed to [add_smooth_60] when set (e.g. header row) to match env before the [vf] add.
 fn log_apply(v: &VideoPrefs) {
+    if !video_log() {
+        return;
+    }
     eprintln!(
         "[rhino] video: apply_mpv_video smooth_60={} vs_path_len={}",
         v.smooth_60,
@@ -198,18 +190,7 @@ fn log_apply(v: &VideoPrefs) {
 }
 
 pub fn apply_mpv_video(b: &MpvBundle, v: &mut VideoPrefs, speed_hint: Option<f64>) -> MpvVideoApply {
-    apply_mpv_video_impl(&b.mpv, Some(b), v, speed_hint, None)
-}
-
-/// Runs [apply_mpv_video_impl] with **`pause=no`** assumed for MVTools eligibility — mpv's **`pause`**
-/// property can lag **`observe_property(`pause`)`** right after unpause, so the normal path would skip
-/// attaching Smooth even though playback has resumed.
-pub fn apply_mpv_video_after_transport_unpause(
-    b: &MpvBundle,
-    v: &mut VideoPrefs,
-    speed_hint: Option<f64>,
-) -> MpvVideoApply {
-    apply_mpv_video_impl(&b.mpv, Some(b), v, speed_hint, Some(false))
+    apply_mpv_video_impl(&b.mpv, Some(b), v, speed_hint)
 }
 
 fn apply_mpv_video_impl(
@@ -217,12 +198,10 @@ fn apply_mpv_video_impl(
     bundle: Option<&MpvBundle>,
     v: &mut VideoPrefs,
     speed_hint: Option<f64>,
-    pause_override: Option<bool>,
 ) -> MpvVideoApply {
     let vlog = video_log();
     log_apply(v);
-    let paused =
-        pause_override.unwrap_or_else(|| mpv.get_property::<bool>("pause").unwrap_or(true));
+    let paused = mpv.get_property::<bool>("pause").unwrap_or(true);
     let use_mvtools = v.smooth_60 && mvtools_vf_eligible(mpv, speed_hint) && !paused;
     let want_60 = v.smooth_60;
     let had_vapoursynth = vf_string_has_vapoursynth(mpv);
@@ -243,29 +222,38 @@ fn apply_mpv_video_impl(
         return MpvVideoApply::default();
     }
     if !mpv_has_open_media(mpv) {
-        let disabled_60 = add_smooth_60(mpv, v, speed_hint);
+        let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle);
         post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
         return MpvVideoApply {
             smooth_auto_off: disabled_60,
         };
     }
 
-    if had_vapoursynth && vf_smooth_matches_prefs(mpv, v) {
+    if had_vapoursynth && vf_smooth_matches_prefs(mpv, v, bundle) {
         match speed_hint {
             Some(s) => set_playback_speed_env(s),
             None => set_playback_speed_env_from_mpv(mpv),
         }
-        let smooth_cap = effective_smooth_me_budget_px(mpv, v);
+        let smooth_cap = effective_smooth_me_budget_px(mpv, v, bundle);
+        let fps_opt = source_fps_from_mpv(mpv);
         if v.vs_path.trim().is_empty() {
-            crate::paths::publish_smooth_me_cap_snap(smooth_cap);
+            crate::paths::publish_smooth_me_budget_env(smooth_cap);
         }
         let fps_env_before = std::env::var(crate::paths::RHINO_SOURCE_FPS_VAR).ok();
-        set_source_fps_env_from_mpv(mpv);
-        let fps_env_after = std::env::var(crate::paths::RHINO_SOURCE_FPS_VAR).ok();
+        let before_hz = fps_env_before
+            .as_deref()
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|x| x.is_finite());
+        let cadence_unchanged = match (fps_opt, before_hz) {
+            (Some(w), Some(b)) => (w - b).abs() < 1e-5,
+            (None, None) => true,
+            _ => false,
+        };
+        apply_source_fps_env(fps_opt);
         // `RHINO_SOURCE_FPS` is read when the `.vpy` graph starts; refreshing env alone does not
-        // re-run the script after `vf add`. Still rebuild when cadence becomes known or changes (e.g. `container-fps`
-        // lagged behind the first attach); **`RHINO_SOURCE_FPS`** is what the bundled `.vpy` reads for that.
-        if fps_env_before == fps_env_after {
+        // re-run the script after `vf add`. Rebuild when the **numeric** cadence changed — not when
+        // the var was empty and we only re-published the same Hz (warm reopen / redundant resync).
+        if cadence_unchanged {
             apply_smooth_vf_present_opts(mpv);
             post_smooth_60_state(mpv, v, want_60, false, vlog);
             return MpvVideoApply::default();
@@ -275,7 +263,7 @@ fn apply_mpv_video_impl(
             crate::paths::RHINO_SOURCE_FPS_VAR
         );
         clear_vf(mpv, bundle, vlog);
-        let disabled_60 = add_smooth_60(mpv, v, speed_hint);
+        let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle);
         post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
         return MpvVideoApply {
             smooth_auto_off: disabled_60,
@@ -284,7 +272,7 @@ fn apply_mpv_video_impl(
 
     // Smooth vf presentation + swap timing; stripping vf restores plain opts (clear_vf).
     clear_vf(mpv, bundle, vlog);
-    let disabled_60 = add_smooth_60(mpv, v, speed_hint);
+    let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle);
     post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
     MpvVideoApply {
         smooth_auto_off: disabled_60,

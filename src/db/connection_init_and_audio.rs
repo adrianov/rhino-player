@@ -58,6 +58,7 @@ pub fn init() {
     }
     migrate_media_decode_columns(&conn);
     migrate_legacy_smooth_max_area_round_mil(&conn);
+    migrate_smooth_max_area_legacy_adaptive_pollution(&conn);
     if DB.set(Mutex::new(conn)).is_err() {
         eprintln!("[rhino] db: already initialized");
     }
@@ -238,7 +239,9 @@ pub struct VideoPrefs {
     pub mvtools_lib: String,
     /// Legacy SQLite field (`video_manipmv_lib`); unused by the bundled `.vpy`.
     pub manipmv_lib: String,
-    /// Max decode width×height for bundled MVTools before proportional downscale; persisted when CPU overload shrinks it.
+    /// Preferences default ME pixel budget for paths without their own **`media.smooth_me_budget_px2`**
+    /// (exact **1920×1080** until the user changes it in **Preferences**). Adaptive overload/recovery updates the
+    /// **`media`** row for the open file, not this field.
     pub smooth_max_area: u64,
 }
 
@@ -252,6 +255,53 @@ impl Default for VideoPrefs {
             smooth_max_area: DEFAULT_SMOOTH_MAX_AREA,
         }
     }
+}
+
+/// Older builds wrote **adaptive overload** shrink into **`video_smooth_max_area`**, so new files inherited
+/// another clip’s ME cap. Per-file values live on **`media.smooth_me_budget_px2`** now; prefs hold the default
+/// for paths without a row. This migration runs **once** and clamps a polluted low pref back to [`DEFAULT_SMOOTH_MAX_AREA`].
+const K_SMOOTH_MAX_AREA_LEGACY_ADAPTIVE_RESET_V1: &str = "smooth_max_area_legacy_adaptive_reset_v1";
+
+fn migrate_smooth_max_area_legacy_adaptive_pollution(conn: &Connection) {
+    let done: Option<String> = conn
+        .query_row(
+            "SELECT v FROM settings WHERE k = ?1",
+            params![K_SMOOTH_MAX_AREA_LEGACY_ADAPTIVE_RESET_V1],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap_or(None);
+    if done.as_deref() == Some("1") {
+        return;
+    }
+    let cur_str: Option<String> = conn
+        .query_row(
+            "SELECT v FROM settings WHERE k = ?1",
+            params![K_VIDEO_SMOOTH_MAX_AREA],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap_or(None);
+    if let Some(s) = cur_str {
+        if let Ok(n) = s.trim().parse::<u64>() {
+            let n = n.max(MIN_SMOOTH_MAX_AREA);
+            if n < DEFAULT_SMOOTH_MAX_AREA {
+                let _ = conn.execute(
+                    "INSERT INTO settings (k, v) VALUES (?1, ?2)
+                     ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+                    params![
+                        K_VIDEO_SMOOTH_MAX_AREA,
+                        DEFAULT_SMOOTH_MAX_AREA.to_string(),
+                    ],
+                );
+            }
+        }
+    }
+    let _ = conn.execute(
+        "INSERT INTO settings (k, v) VALUES (?1, ?2)
+         ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+        params![K_SMOOTH_MAX_AREA_LEGACY_ADAPTIVE_RESET_V1, "1"],
+    );
 }
 
 /// Normalize legacy **`video_smooth_max_area`** values stored as round **2_000_000** px² (~HD) to exact **1920×1080**.

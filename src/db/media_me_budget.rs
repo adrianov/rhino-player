@@ -1,6 +1,24 @@
 // Per-file smooth ME pixel budget + decode dimensions on `media` rows (bundled script).
 
+/// Whether [media_sync_decode_size] should write **`decode_w/h`**: never shrink stored pixel area.
+#[must_use]
+pub(super) fn media_decode_size_update_allowed(prior: Option<(i32, i32)>, w: i32, h: i32) -> bool {
+    if w <= 0 || h <= 0 {
+        return false;
+    }
+    let new_a = (w as i64) * (h as i64);
+    match prior {
+        Some((ow, oh)) if ow > 0 && oh > 0 => new_a >= (ow as i64) * (oh as i64),
+        _ => true,
+    }
+}
+
 /// Persist decode width/height for [path] (canonical key). Upserts without touching other columns.
+///
+/// Skips updates that **shrink** the stored pixel area: after **`vf vapoursynth`** attaches, mpv’s
+/// **`video-params`** / **`width`×`height`** can briefly reflect **scaled vf output** while the
+/// bundled `.vpy` still uses full-frame decode. Shrinking **`decode_w`×`decode_h`** would change
+/// [resolve_media_smooth_me_budget] and force a redundant **`vf clr`/`vf add`**.
 pub(crate) fn media_sync_decode_size(path: &std::path::Path, w: i32, h: i32) {
     if w <= 0 || h <= 0 {
         return;
@@ -9,6 +27,24 @@ pub(crate) fn media_sync_decode_size(path: &std::path::Path, w: i32, h: i32) {
         return;
     };
     let _ = with_conn(|c| {
+        let prior: Option<(i32, i32)> = c
+            .query_row(
+                "SELECT decode_w, decode_h FROM media WHERE path = ?1",
+                params![&key],
+                |row| {
+                    let ow: Option<i32> = row.get(0)?;
+                    let oh: Option<i32> = row.get(1)?;
+                    Ok(match (ow, oh) {
+                        (Some(w), Some(h)) if w > 0 && h > 0 => Some((w, h)),
+                        _ => None,
+                    })
+                },
+            )
+            .optional()?
+            .flatten();
+        if !media_decode_size_update_allowed(prior, w, h) {
+            return Ok(());
+        }
         c.execute(
             "INSERT INTO media (path, decode_w, decode_h) VALUES (?1, ?2, ?3)
              ON CONFLICT(path) DO UPDATE SET
@@ -18,6 +54,23 @@ pub(crate) fn media_sync_decode_size(path: &std::path::Path, w: i32, h: i32) {
         )?;
         Ok(())
     });
+}
+
+#[cfg(test)]
+mod media_decode_size_update_tests {
+    use super::media_decode_size_update_allowed;
+
+    #[test]
+    fn rejects_smaller_decode_area() {
+        assert!(!media_decode_size_update_allowed(Some((1920, 1080)), 1696, 952));
+    }
+
+    #[test]
+    fn allows_fresh_insert_and_growth() {
+        assert!(media_decode_size_update_allowed(None, 1696, 952));
+        assert!(media_decode_size_update_allowed(Some((100, 100)), 200, 200));
+        assert!(media_decode_size_update_allowed(Some((1920, 1080)), 1920, 1080));
+    }
 }
 
 /// Unix millis ([`std::time::UNIX_EPOCH`]) for [media_save_smooth_me_budget] (tie-break among exact-dimension rows).
@@ -47,13 +100,11 @@ pub(crate) fn media_save_smooth_me_budget(path: &std::path::Path, px: u64) {
     });
 }
 
-/// Effective ME budget: **`global_px`** (prefs **`video_smooth_max_area`**, clamped) alone when this path's **`media`** row stores **`smooth_me_budget_px2`** (prefs stay authoritative; per-file column mirrors adaptive persist). Otherwise **`smooth_me_budget_px2`** from **another** row whose **`decode_w`**×**`decode_h`** **exactly** matches the current decode size; ties use **`smooth_me_budget_updated_at`** then **`rowid`**. The chosen row may be **below or above** **`global_px`**. **`global_px`** applies when decode size is unknown or **no** other row shares those dimensions with a saved budget.
+/// Effective ME px²: this row's **`smooth_me_budget_px2`** if set; else **`smooth_me_budget_px2`**
+/// from another row with the same stored **`decode_w`**×**`decode_h`** (latest **`smooth_me_budget_updated_at`**, then **`rowid`**);
+/// else **`global_px`**. Neighbor runs only after this file's decode size exists in **`media`** (avoids stale mpv size after a switch).
 #[must_use]
-pub(crate) fn resolve_media_smooth_me_budget(
-    path: Option<&std::path::Path>,
-    decode_wh: Option<(i32, i32)>,
-    global_px: u64,
-) -> u64 {
+pub(crate) fn resolve_media_smooth_me_budget(path: Option<&std::path::Path>, global_px: u64) -> u64 {
     let global = global_px.max(MIN_SMOOTH_MAX_AREA);
     let Some(path) = path else {
         return global;
@@ -61,13 +112,12 @@ pub(crate) fn resolve_media_smooth_me_budget(
     let Some(key) = history_key(path) else {
         return global;
     };
-    with_conn(|c| resolve_media_smooth_me_budget_conn(c, &key, decode_wh, global)).unwrap_or(global)
+    with_conn(|c| resolve_media_smooth_me_budget_conn(c, &key, global)).unwrap_or(global)
 }
 
 pub(super) fn resolve_media_smooth_me_budget_conn(
     c: &rusqlite::Connection,
     path_key: &str,
-    decode_wh: Option<(i32, i32)>,
     global: u64,
 ) -> rusqlite::Result<u64> {
     let own = c
@@ -80,16 +130,27 @@ pub(super) fn resolve_media_smooth_me_budget_conn(
         .flatten()
         .filter(|&px| px > 0)
         .map(|px| px as u64);
-    if own.is_some() {
-        // Prefs row drives bundled ME cap for known media: overload lowers **`video_smooth_max_area`**
-        // while **`smooth_me_budget_px2`** can lag one stale write or duplicate keys — never keep **`max(own, global)`**
-        // or a **high** DB column blocks shrink (recovery raises already lift **`global`** above stale lows).
-        return Ok(global.max(MIN_SMOOTH_MAX_AREA));
+    if let Some(px) = own {
+        return Ok(px.max(MIN_SMOOTH_MAX_AREA));
     }
 
-    let (dw, dh) = match decode_wh {
-        Some((w, h)) if w > 0 && h > 0 => (w, h),
-        _ => return Ok(global),
+    let Some((dw, dh)) = c
+        .query_row(
+            "SELECT decode_w, decode_h FROM media WHERE path = ?1",
+            params![path_key],
+            |row| {
+                let w: Option<i32> = row.get(0)?;
+                let h: Option<i32> = row.get(1)?;
+                Ok(match (w, h) {
+                    (Some(w), Some(h)) if w > 0 && h > 0 => Some((w, h)),
+                    _ => None,
+                })
+            },
+        )
+        .optional()?
+        .flatten()
+    else {
+        return Ok(global);
     };
 
     let neighbor_px = c

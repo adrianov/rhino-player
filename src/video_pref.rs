@@ -1,14 +1,15 @@
 //! Optional mpv VapourSynth `vf` from [crate::db::VideoPrefs].
 //! See `docs/features/26-sixty-fps-motion.md`. Sets [crate::paths::RHINO_PLAYBACK_SPEED_VAR] from mpv
 //! `speed` before the VapourSynth filter is built. The graph is **rebuilt on events**: after mpv
-//! reports new media (**`FileLoaded`** and **`path`** change — coalesced to one idle — covering Open,
+//! reports new media (**`FileLoaded`**, **`path`**, **`VideoReconfig`**, **`container-fps`** — debounced
+//! **~96 ms** so one rebuild covers the post-**`loadfile`** burst — covering Open,
 //! drag-drop, sibling EOF advance, **Previous** / **Next**, and `loadfile`), when the user picks
 //! **playback speed** in the header (deferred idle), and after unpause when **`vapoursynth`** was
 //! stripped for a **seek while paused** or similar. There is **no** periodic "watch" on `vf` for runtime plugin failures — `vf` add failure still
 //! clears the pref at apply time; a script that dies *after* add is a rare install issue (toggle off in
 //! **Preferences** or fix mvtools).
 //! Set `RHINO_VIDEO_LOG=1` for per-step mpv result lines on stderr.
-//! **`RHINO_SMOOTH_DROP_STATS=1`** stderr **≈every 5 s** **`[rhino] smooth: stats`** (mistimed / VO / decoder) while bundled Smooth **`vf`** is active—**suppressed** after overload shrank ME this open media when strict-window strain **\< ~20%**; **`[rhino] smooth: decision …`** **~1 Hz** — **`decision hold`** only when strict-window strain **≥ ~20%**; **`decision raise`** only on widen; no **`raise_skipped`** stderr; **`persist_skip`**, **`smooth_budget_*`** modules.
+//! **`RHINO_SMOOTH_DROP_STATS=1`** stderr **≈every 5 s** **`[rhino] smooth: stats`** (mistimed / VO / decoder) while bundled Smooth **`vf`** is active—**suppressed** after overload shrank ME this open media when strict-window strain **\< ~20%**; **`[rhino] smooth: decision …`** logs **overload** / **recovery raise** and rare **anomaly** lines only (**`smooth_budget_*`** modules).
 //!
 //! If the VapourSynth `vf` cannot be added (no script, or mpv reports error — missing filter, plugin,
 //! Python), [apply_mpv_video] sets `smooth_60` to `false`, saves settings, and returns `true` so the UI
@@ -18,15 +19,17 @@
 //! (usually **`hwdec=auto`**).
 //! **`buffered-frames=`** comes from **`SMOOTH_VF_BUFFERED_FRAMES`** (**`smooth_motion_tier.rs`**); **`mv.Super` /
 //! `mv.Analyse` / `mv.FlowFPS`** tunables live in the bundled `.vpy`. Persisted **`video_smooth_max_area`**
-//! is written to the **`RHINO_SMOOTH_CAP_FILE`** snapfile before **`vf add`** when bundled (`.vpy` reads that file).
-//! With the bundled script, **`smooth_budget_on_transport_tick`** may **raise or lower** **`video_smooth_max_area`** on the
+//! is published as **`RHINO_SMOOTH_MAX_AREA`** before **`vf add`** when bundled (`.vpy` reads via libc **`getenv`**).
+//! With the bundled script, **`smooth_budget_on_transport_tick`** may **raise or lower** the **open file’s**
+//! **`media.smooth_me_budget_px2`** (and rebuild **`vf`**) on the
 //! **1 Hz** transport tick using **mpv** **presentation strain** tallies (**`mistimed-frame-count`**, else **`frame-drop-count`**, else **`decoder-frame-drop-count`**): a trailing **≈5 s** sliding window whose
 //! **strain rate** (**Δ** ÷ (wall × denominator Hz); **mistimed**/VO denominator **≥ ~60 Hz**, **decoder** path uses **`container-fps`×`speed`** or **`estimated-vf-fps`**) **> ~2%**
 //! for **five successive** ticks with strict-window strain **>** **~20%** shrinks the saved ME budget by ~**10%** per firing (**`budget_after_decoder_overload`** — symmetric integer half-up step to recovery raise); **30 successive** ticks (~**30 s**) with relaxed-window strain **\<** **~10%** step **up** ~**10%** toward the **recovery ceiling** (decoded width×height when known, else **`DEFAULT_SMOOTH_MAX_AREA`**)
 //! when **`decode_px` exceeds the persisted ME clamp** (same condition as **`smooth_me_geometry`** downscale branch); recovery is **skipped** when decode already fits the cap (**native ME** path). Then **`apply_mpv_video`** on each persisted change (**`smooth_me_geometry.rs`** tests only).
-//! When **`FileLoaded`** or **`path`** fires (transport coalesced idle), **if** **`vf_smooth_matches_prefs`**
-//! is true (resolved script · mpv **`buffered-frames=`** · **`concurrent-frames=auto`** · bundled snapfile px² · last **successful**
-//! bundled ME rebuild in **`smooth_vf_me_budget_applied.rs`**), Rhino may refresh the snapfile without **`vf clr`/`vf add`**
+//! When **`FileLoaded`**, **`path`**, **`VideoReconfig`**, or **`container-fps`** triggers the debounced transport
+//! resync, **if** **`vf_smooth_matches_prefs`**
+//! is true (resolved script · mpv **`buffered-frames=`** · **`concurrent-frames=auto`** · bundled **`RHINO_SMOOTH_MAX_AREA`** · last **successful**
+//! bundled ME rebuild in **`smooth_vf_me_budget_applied.rs`**), Rhino may refresh **`RHINO_SMOOTH_MAX_AREA`** without **`vf clr`/`vf add`**
 //! unless **`RHINO_SOURCE_FPS`** moves (cadence **`vf`** rebuild).
 //! **mpv+VapourSynth** can keep a warm **Python** interpreter when **`vf`** text is unchanged; Rhino forces **`vf clr`/`vf add`**
 //! when the persisted ME budget differs from what the bundled graph last rebuilt with. Seek-only scrubbing never
@@ -36,12 +39,16 @@
 //! Successful **MVTools** plugin resolution (`libmvtools.so` on Linux, `libmvtools.dylib` on
 //! macOS) is stored in SQLite (`video_mvtools_lib`).
 //!
-//! [try_load] drains mpv so those transport events run; other hooks (speed, Preferences)
-//! call [apply_mpv_video] directly. Transport **`Pause(false)`** runs [smooth_vf_attach_if_playing]
-//! when **`vapoursynth`** is missing (e.g. after a seek while paused).
+//! [try_load] calls [publish_smooth_env_before_load] before **`loadfile`** or warm reopen (ME cap
+//! from prefs + `media`; **`RHINO_SOURCE_FPS`** cleared **only** when switching media so it is not
+//! inherited from another file) so bundled **`.vpy`** workers see the right cap, then drains mpv so
+//! transport events run; other hooks (speed, Preferences) call [apply_mpv_video] directly. Transport **`Pause(false)`** and seek tails schedule the same
+//! debounced **`schedule_smooth_60_resync_idle`** as **`FileLoaded`** / **`path`** so **`vapoursynth`**
+//! is not applied twice in one interaction.
 
 include!("video_pref/smooth_motion_tier.rs");
 include!("video_pref/mvtools_video_log_env.rs");
+include!("video_pref/open_media_env.rs");
 include!("video_pref/smooth_me_budget_resolve.rs");
 include!("video_pref/smooth_vf_me_budget_applied.rs");
 include!("video_pref/smooth_vf_swap_timing.rs");

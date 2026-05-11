@@ -195,7 +195,7 @@ fn build_window(
     });
     let on_open = make_on_open_handler(OpenHandlerCtx {
         player: player.clone(), win: w.win.clone(), gl: w.gl_area.clone(),
-        recent: w.recent_scrl.clone(), last_path: last_path.clone(),
+        recent: w.recent_scrl.clone(), last_path: last_path.clone(), video_pref: Rc::clone(&video_pref),
         on_start: on_video_chrome.clone(), on_loaded: Rc::clone(&on_file_loaded),
         win_aspect: Rc::clone(&win_aspect),
         sub_menu: w.sub_menu.clone(),
@@ -212,6 +212,7 @@ fn build_window(
         recent: w.recent_scrl.clone(),
         player: player.clone(),
         last_path: last_path.clone(),
+        video_pref: Rc::clone(&video_pref),
         on_video_chrome: on_video_chrome.clone(),
         win_aspect: win_aspect.clone(),
         sibling_seof: sibling_seof.clone(),

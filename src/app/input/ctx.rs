@@ -44,7 +44,6 @@ struct WindowInputCtx {
     time_left: gtk::Label,
     fs_clock: gtk::Label,
     fs_clock_tick: Rc<RefCell<Option<glib::SourceId>>>,
-    reapply_60: VideoReapply60,
     smooth_seek_debounce: Rc<RefCell<Option<glib::SourceId>>>,
     resume_after_seek_idle: Rc<Cell<bool>>,
     play_toggle: PlayToggleCtx,

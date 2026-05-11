@@ -1,7 +1,7 @@
 /// Attaches **`vf=vapoursynth`** with fixed **`buffered-frames`** and **`concurrent-frames=auto`**.
 ///
-/// Bundled ME px² is passed only via **`RHINO_SMOOTH_CAP_FILE`** (**[crate::paths::publish_smooth_me_cap_snap]**),
-/// which the `.vpy` reads — not via **`vf`** sub-options (mpv builds vary; forked workers may miss env).
+/// Bundled ME px² is passed via **`RHINO_SMOOTH_MAX_AREA`** (**[crate::paths::publish_smooth_me_budget_env]**),
+/// which the `.vpy` reads with libc **`getenv`** (same as other **`RHINO_*`** vars).
 pub(crate) fn smooth_vapoursynth_vf_try_attach(mpv: &libmpv2::Mpv, script_path_escaped: &str) -> bool {
     let bf = SMOOTH_VF_BUFFERED_FRAMES;
     let spec = format!(

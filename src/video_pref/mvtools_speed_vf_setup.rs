@@ -5,8 +5,8 @@ use crate::db;
 use crate::db::VideoPrefs;
 use crate::paths;
 use crate::paths::{
-    publish_smooth_me_cap_snap, smooth_me_cap_snap_content_equals,
-    RHINO_PLAYBACK_SPEED_VAR, RHINO_SMOOTH_CAP_FILE_VAR, RHINO_VPY_LOG_EPOCH_VAR,
+    publish_smooth_me_budget_env, smooth_max_area_env_matches, RHINO_PLAYBACK_SPEED_VAR,
+    RHINO_SMOOTH_MAX_AREA_VAR, RHINO_VPY_LOG_EPOCH_VAR,
 };
 use crate::playback_speed::MAX_FIXED_SPEED;
 
@@ -98,7 +98,7 @@ pub fn resync_smooth_if_speed_mismatch(
     }
     let want_mvtools = mvtools_vf_eligible(mpv, None);
     let has = vf_chain_has_vapoursynth(mpv);
-    let graph_ok = !has || vf_smooth_matches_prefs(mpv, v);
+    let graph_ok = !has || vf_smooth_matches_prefs(mpv, v, Some(b));
     if !needs_playback_speed_env_resync(mpv) && want_mvtools == has && graph_ok {
         return MpvVideoApply::default();
     }
@@ -127,10 +127,14 @@ pub fn refresh_smooth_for_playback_speed(
 }
 
 /// True when mpv's `vf` chain already matches what [add_smooth_60] would install for current prefs
-/// (resolved script · **`buffered-frames`** · **`concurrent-frames=auto`** · bundled snapfile ME px² ·
+/// (resolved script · **`buffered-frames`** · **`concurrent-frames=auto`** · bundled **`RHINO_SMOOTH_MAX_AREA`** env ·
 /// **`smooth_vf_me_budget_applied`**). Used to skip redundant **`vf clr`**/**`vf add`** on duplicate idle
 /// after **FileLoaded** / **`path`** — **seek** never reaches [apply_mpv_video_impl].
-pub(crate) fn vf_smooth_matches_prefs(mpv: &Mpv, v: &VideoPrefs) -> bool {
+pub(crate) fn vf_smooth_matches_prefs(
+    mpv: &Mpv,
+    v: &VideoPrefs,
+    bundle: Option<&crate::mpv_embed::MpvBundle>,
+) -> bool {
     if !v.smooth_60 {
         return false;
     }
@@ -160,11 +164,11 @@ pub(crate) fn vf_smooth_matches_prefs(mpv: &Mpv, v: &VideoPrefs) -> bool {
     if !vf_concurrent_frames_matches(&vf, "auto") {
         return false;
     }
-    let me_cap = effective_smooth_me_budget_px(mpv, v);
-    if v.vs_path.trim().is_empty() && !smooth_me_cap_snap_content_equals(me_cap) {
+    let me_cap = effective_smooth_me_budget_px(mpv, v, bundle);
+    if v.vs_path.trim().is_empty() && !smooth_max_area_env_matches(me_cap) {
         return false;
     }
-    bundled_me_budget_vf_matches_prefs(mpv, v)
+    bundled_me_budget_vf_matches_prefs(mpv, v, bundle)
 }
 
 /// True when **`vf`** carries the fixed **`buffered-frames`** depth (**[SMOOTH_VF_BUFFERED_FRAMES]**).
@@ -198,7 +202,12 @@ pub(crate) fn mpv_has_open_media(mpv: &Mpv) -> bool {
     matches!(mpv.get_property::<String>("path"), Ok(s) if !s.trim().is_empty())
 }
 
-fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool {
+fn add_smooth_60(
+    mpv: &Mpv,
+    v: &mut VideoPrefs,
+    speed_hint: Option<f64>,
+    bundle: Option<&crate::mpv_embed::MpvBundle>,
+) -> bool {
     if !v.smooth_60 {
         return false;
     }
@@ -217,17 +226,18 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
         Some(s) => set_playback_speed_env(s),
         None => set_playback_speed_env_from_mpv(mpv),
     }
-    let cap_px = effective_smooth_me_budget_px(mpv, v);
+    let cap_px = effective_smooth_me_budget_px(mpv, v, bundle);
+    let fps_opt = source_fps_from_mpv(mpv);
     if v.vs_path.trim().is_empty() {
-        publish_smooth_me_cap_snap(cap_px);
+        publish_smooth_me_budget_env(cap_px);
         if video_log() {
             eprintln!(
-                "[rhino] video: (verbose) bundled ME px²={cap_px} ({} snap)",
-                RHINO_SMOOTH_CAP_FILE_VAR
+                "[rhino] video: (verbose) bundled ME px²={cap_px} ({})",
+                RHINO_SMOOTH_MAX_AREA_VAR
             );
         }
     }
-    set_source_fps_env_from_mpv(mpv);
+    apply_source_fps_env(fps_opt);
     if video_log() {
         eprintln!(
             "[rhino] video: (verbose) vapoursynth buffered-frames={}",
@@ -255,7 +265,10 @@ fn add_smooth_60(mpv: &Mpv, v: &mut VideoPrefs, speed_hint: Option<f64>) -> bool
         return true;
     }
     if v.vs_path.trim().is_empty() {
-        note_bundled_me_budget_vf_applied(me_cap);
+        let media_key = me_budget_local_path(mpv, bundle)
+            .as_ref()
+            .and_then(|p| crate::db::history_key(p.as_path()));
+        note_bundled_me_budget_vf_applied(me_cap, media_key);
     }
     apply_smooth_vf_present_opts(mpv);
     false

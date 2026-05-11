@@ -4,7 +4,7 @@
 # Loads `libmvtools`: Rhino sets `RHINO_MVTOOLS_LIB` when it finds the .so, else paths below.
 #
 # libmpv provides global `video_in` (see mpv vf=vapoursynth). Requires: mvtools, VS R55+.
-# Source fps: ``RHINO_SOURCE_FPS`` when set (Rhino: mpv ``container-fps``), else ``video_in.fps_*``,
+# Source fps: ``RHINO_SOURCE_FPS`` (Rhino: mpv ``container-fps`` via libc ``getenv``), else ``video_in.fps_*``,
 # else CFR from frame props — vf-forwarded rationals can disagree with the container (~29.97 NTSC).
 # **mpv from a shell** does not set `RHINO_PLAYBACK_SPEED` (Rhino sets it from mpv `speed` when adding vf).
 import math
@@ -26,14 +26,12 @@ _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (extra ME path)
 # MVTools ``Analyse``: ``blksize`` / ``overlap`` are ``_MV_BLK_SIZE`` / ``_MV_BLK_OVERLAP`` (``overlap`` < ``blksize``).
 # Block grid cost scales with ``blksize`` (smaller ⇒ usually more blocks per frame).
-# **Decode-area budget**: Rhino writes **`RHINO_SMOOTH_CAP_FILE`** (single-line px²) before **`vf add`**; the script reads that file.
+# **Decode-area budget**: Rhino sets **`RHINO_SMOOTH_MAX_AREA`** (px²) before **`vf add`**; the script reads it via libc ``getenv``.
 # Standalone **mpv** + this script may set **`RHINO_SMOOTH_MAX_AREA`** instead when no snap path exists.
 # mpv ``buffered-frames`` is **not** set here — Rhino passes **N** via ``SMOOTH_VF_BUFFERED_FRAMES`` (``smooth_motion_tier.rs``).
 # If **decode** ``width × height`` exceeds that budget, **both** dimensions scale by ``√(budget/decode_px)``
 # so MVTools runs at **≤ budget** pixels (**stderr ``path=scaled``**); otherwise **native** (**``path=full``**).
-# **FlowFPS** runs on that ME raster; **set_output** uses **FlowFPS** dimensions (ME raster size — may be smaller
-# than decode when ``path=scaled``). mpv scales to the window; geometry may **diverge** from ``video_in``.
-# ``tier=uhd`` / ``tier=hd`` stderr tags use decode area vs ``_MV_DECODE_TAG_AREA`` (logging).
+# **FlowFPS** output is the ME raster (may be smaller than decode when ``path=scaled``); mpv scales to the window.
 # **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse`` (luma-only ME yields bad chroma — green tint).
 _MV_BLK_SIZE = 128
 _MV_BLK_OVERLAP = 64
@@ -47,7 +45,6 @@ _MV_SMALL_ME_SIDE = 480
 _ME_GEOMETRY_ALIGN_PX = 8
 # ``Super`` **`levels`**: **0** = MVTools **automatic** pyramid depth from frame size (upstream default).
 _MV_SUPER_LEVELS = 0
-_MV_DECODE_TAG_AREA = 2560 * 1440
 # Explicit ``Super`` edge padding (MVTools default is **16**).
 _MV_SUPER_PAD = 16
 
@@ -58,41 +55,11 @@ _DEFAULT_ME_H = 1080
 _DEFAULT_ME_AREA_PX2 = _DEFAULT_ME_W * _DEFAULT_ME_H
 
 
-def _robust_proc_environ_snapshot() -> dict[str, str] | None:
-    """Linux: read the process C environment from ``/proc/self/environ``.
-
-    Used from `_robust_host_env` **on each lookup** — embedded mpv+VapourSynth may reuse this module
-    across ``vf clr``/``vf add`` without reloading; a single import-time snapshot would freeze the first
-    ``RHINO_*`` values while Rust ``set_var`` updates the live process environ.
-
-    No **ctypes** — avoids loading the host binary as ``CDLL(None)`` and any ``getenv`` wrapper quirks
-    in embedded **mpv**/**VapourSynth**. Returns ``None`` on macOS (no ``/proc``) or if the file is unreadable.
-    """
-    if _IS_DARWIN:
-        return None
-    try:
-        with open("/proc/self/environ", "rb") as envf:
-            blob = envf.read()
-    except OSError:
-        return None
-    out: dict[str, str] = {}
-    for entry in blob.split(b"\0"):
-        if not entry or b"=" not in entry:
-            continue
-        key_b, _, val_b = entry.partition(b"=")
-        try:
-            key = key_b.decode("utf-8", "surrogateescape")
-            val = val_b.decode("utf-8", "surrogateescape")
-        except (UnicodeDecodeError, ValueError):
-            continue
-        out[key] = val
-    return out
-
-
 def _robust_host_env_libc(var: str) -> str:
-    """macOS only (no ``/proc``): one ``getenv`` via **libc**; copy with ``string_at`` — never ``restype=c_char_p``."""
+    """``getenv`` via **libc** on Linux and macOS (matches ``setenv`` / Rust ``set_var``); copy with ``string_at`` — never ``restype=c_char_p``."""
     try:
         import ctypes
+        import ctypes.util
     except ImportError:
         return (os.environ.get(var) or "").strip()
 
@@ -100,9 +67,21 @@ def _robust_host_env_libc(var: str) -> str:
     if libc_getenv is False:
         return (os.environ.get(var) or "").strip()
     if libc_getenv is None:
-        try:
-            libc = ctypes.CDLL("libc.dylib")
-        except OSError:
+        libc = None
+        libname = ctypes.util.find_library("c")
+        if libname:
+            try:
+                libc = ctypes.CDLL(libname)
+            except OSError:
+                libc = None
+        if libc is None:
+            for name in (("libc.dylib",) if _IS_DARWIN else ("libc.so.6", "libc.so")):
+                try:
+                    libc = ctypes.CDLL(name)
+                    break
+                except OSError:
+                    continue
+        if libc is None:
             setattr(_robust_host_env_libc, "_libc_getenv_fn", False)
             return (os.environ.get(var) or "").strip()
         g = libc.getenv
@@ -124,17 +103,8 @@ def _robust_host_env_libc(var: str) -> str:
 
 
 def _robust_host_env(var: str) -> str:
-    """Process **C** environment visible to **Rhino** ``set_var``: not the lag-prone ``os.environ`` snapshot alone."""
-    if not _IS_DARWIN:
-        snap = _robust_proc_environ_snapshot()
-        if snap is not None:
-            v = snap.get(var)
-            if v is not None:
-                return v.strip()
-            return (os.environ.get(var) or "").strip()
-    if _IS_DARWIN:
-        return _robust_host_env_libc(var)
-    return (os.environ.get(var) or "").strip()
+    """Host **C** environment: libc ``getenv`` first, then ``os.environ``."""
+    return _robust_host_env_libc(var)
 
 
 def _me_wh_aligned(width_px: int, height_px: int) -> tuple[int, int]:
@@ -145,35 +115,9 @@ def _me_wh_aligned(width_px: int, height_px: int) -> tuple[int, int]:
     return w, h
 
 
-def _smooth_cap_from_snapfile() -> int | None:
-    """Read px² from the path in **`RHINO_SMOOTH_CAP_FILE`** (Rhino publishes before **`vf add`**)."""
-    raw_path = _robust_host_env("RHINO_SMOOTH_CAP_FILE")
-    if not raw_path:
-        return None
-    try:
-        with open(raw_path, encoding="utf-8") as capf:
-            line = capf.readline().strip()
-    except OSError:
-        return None
-    if line.isdigit():
-        try:
-            return max(320 * 180, int(line))
-        except ValueError:
-            return None
-    return None
-
-
 def _smooth_max_area_px() -> int:
-    """ME pixel budget (px² clamped).
-
-    **Rhino** passes px² through **`RHINO_SMOOTH_CAP_FILE`** (read first). Without that path (e.g. shell **mpv**),
-    use **`RHINO_SMOOTH_MAX_AREA`** from robust host env, then defaults.
-    """
+    """ME pixel budget (px² clamped): **`RHINO_SMOOTH_MAX_AREA`** from host env, then default."""
     min_budget = 320 * 180
-
-    snap = _smooth_cap_from_snapfile()
-    if snap is not None:
-        return snap
 
     raw = _robust_host_env("RHINO_SMOOTH_MAX_AREA")
     if raw.isdigit():
@@ -193,26 +137,24 @@ def _smooth_max_area_px() -> int:
 def _mv_graph_for_frame_size(
     me_w_px: int,
     me_h_px: int,
-    decode_px: int,
-) -> tuple[str, int, int, int, int, int, int, bool, bool, bool]:
-    """Tier tag + MVTools params.
+) -> tuple[int, int, int, int, int, int, bool, bool, bool]:
+    """MVTools params from **ME** raster (``me_w_px``×``me_h_px``).
 
-    Returns ``(tier, blksize, overlap, pel, sharp, search, flow_mask, flow_blend,
-    truemotion, chroma)``.
-    ``tier`` uses **decode** pixel count (``decode_px``) vs ``_MV_DECODE_TAG_AREA`` (**hd**/**uhd** tag only).
-    **Block** preset uses the **ME** raster (``me_w_px``×``me_h_px``): small ME clips use **64**/**32** — see ``_MV_SMALL_ME_SIDE``.
+    Small ME clips use **64×64** / **overlap 32** — see ``_MV_SMALL_ME_SIDE``.
     **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse``.
-    Shared: ``pel=1``, ``sharp=1``, ``search=4`` (hex), ``truemotion=True``, ``FlowFPS(mask=2, blend=True)``, ``global=True``.
+    Shared: ``pel=1``, ``sharp=1``, ``search=4`` (hex), ``truemotion=True``,
+    ``FlowFPS(mask=2, blend=True)``, ``global=True``.
+
+    Returns ``(blksize, overlap, pel, sharp, search, flow_mask, flow_blend,
+    truemotion, chroma)``.
     """
     w = max(1, me_w_px)
     h = max(1, me_h_px)
-    tier = "uhd" if max(1, decode_px) >= _MV_DECODE_TAG_AREA else "hd"
     if min(w, h) < _MV_SMALL_ME_SIDE:
         blk, ov = 64, 32
     else:
         blk, ov = _MV_BLK_SIZE, _MV_BLK_OVERLAP
     return (
-        tier,
         blk,
         ov,
         1,
@@ -376,14 +318,9 @@ def _speed_frac_from_env() -> Fraction:
     return Fraction(x).limit_denominator(4)
 
 
-def _src_fps_from_env() -> tuple[int, int] | None:
-    """Recover cadence from ``RHINO_SOURCE_FPS`` (Rhino: mpv ``container-fps``).
-
-    Parse as ``Decimal`` → ``Fraction`` so decimals like ``29.970030`` snap via ``limit_denominator(1001)``
-    to NTSC rationals (e.g. ``30000/1001``) without binary-float noise. Wrong rationals from vf forwarding
-    would skew FlowFPS output-vs-input frame quotients.
-    """
-    t = _robust_host_env("RHINO_SOURCE_FPS")
+def _src_fps_tuple_from_decimal_str(t: str) -> tuple[int, int] | None:
+    """Parse fps text as ``Decimal`` → ``Fraction`` (``limit_denominator(1001)`` for NTSC tags)."""
+    t = t.strip()
     if not t:
         return None
     try:
@@ -397,6 +334,11 @@ def _src_fps_from_env() -> tuple[int, int] | None:
         return None
     f = Fraction(dec).limit_denominator(1001)
     return f.numerator, f.denominator
+
+
+def _src_fps_from_env() -> tuple[int, int] | None:
+    """Recover cadence from ``RHINO_SOURCE_FPS`` (shell **mpv** or **Rhino** before ``vf add``)."""
+    return _src_fps_tuple_from_decimal_str(_robust_host_env("RHINO_SOURCE_FPS"))
 
 
 def _int_frame_prop(props, *keys: str) -> int | None:
@@ -495,9 +437,7 @@ core.max_cache_size = 4096
 
 clip = video_in
 spd_frac = _speed_frac_from_env()
-# Prefer ``RHINO_SOURCE_FPS`` when Rhino/mpv publishes it: vapoursynth bridge often leaves
-# ``fps_num/fps_den`` at **0/0** **or** forwards a coarse rational that disagrees with the container
-# (~29.97 NTSC must match ``30000/1001`` for FlowFPS frame quotient math).
+# Prefer ``RHINO_SOURCE_FPS`` when Rhino sets it; else ``video_in``, then CFR frame props (props-first mis-tags telecine).
 fps_origin = "video_in"
 fb_env = _src_fps_from_env()
 if fb_env is not None:
@@ -519,7 +459,8 @@ if src_num <= 0 or src_den <= 0 or _as_float(src_num, src_den) <= 0:
     if _stderr_banner_once_per_rhino_attach(_banner):
         print(
             "[rhino_60_mvtools] source fps unknown (no video_in fps, no CFR frame props, "
-            "no RHINO_SOURCE_FPS) — passthrough, smoothing skipped to avoid A/V drift",
+            "no RHINO_SOURCE_FPS) — passthrough, smoothing skipped "
+            "to avoid A/V drift",
             file=sys.stderr,
             flush=True,
         )
@@ -570,8 +511,8 @@ else:
             _aw, _ah = _me_wh_aligned(_me_w, _me_h)
             work_me = core.resize.Bicubic(work, width=_aw, height=_ah)
             _me_path = "scaled"
-        _tier, _blk, _ov, _pel, _sharp, _search, _fmask, _fblend, _tm, _mv_chroma = (
-            _mv_graph_for_frame_size(work_me.width, work_me.height, _decode_px)
+        _blk, _ov, _pel, _sharp, _search, _fmask, _fblend, _tm, _mv_chroma = (
+            _mv_graph_for_frame_size(work_me.width, work_me.height)
         )
         _eff_super_lv = _super_levels_effective(work_me.width, work_me.height)
         _super_kw = {
@@ -584,7 +525,7 @@ else:
         }
         _super_lvl_log = "auto" if _eff_super_lv == 0 else str(_eff_super_lv)
         print(
-            f"[rhino_60_mvtools] mvtools preset tier={_tier} "
+            f"[rhino_60_mvtools] mvtools preset "
             f"(decode_px={_decode_px}, smooth_cap={_smooth_cap}) "
             f"path={_me_path} decode={_decode_w}x{_decode_h} vf_out={work_me.width}x{work_me.height} "
             f"blksize={_blk} overlap={_ov} chroma={_mv_chroma} "

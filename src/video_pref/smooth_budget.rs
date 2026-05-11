@@ -1,4 +1,6 @@
-// Bundled **`video_smooth_max_area`** tuning from mpv presentation / output strain properties (transport tick ≈ **1 Hz**).
+// Bundled **ME pixel-area** tuning from mpv presentation / output strain (transport tick ≈ **1 Hz**).
+// Overload / recovery persist **`media.smooth_me_budget_px2`** for the open file; **`VideoPrefs.smooth_max_area`**
+// stays the Preferences default used as **`resolve_media_smooth_me_budget`** fallback for new paths.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -112,73 +114,7 @@ pub(crate) fn raised_me_budget_can_reduce_downscale(decode_px: Option<u64>, smoo
     decode_px.map_or(true, |px| px > cap)
 }
 
-/// Persist a new **`video_smooth_max_area`** and run **`apply_mpv_video`** so the **`RHINO_SMOOTH_CAP_FILE`** snapfile
-/// and bundled graph match SQLite.
-#[must_use]
-fn persist_budget_and_maybe_rebuild_vf(
-    player: &Rc<RefCell<Option<crate::mpv_embed::MpvBundle>>>,
-    video_pref: &Rc<RefCell<crate::db::VideoPrefs>>,
-    new_budget_px: u64,
-    stderr_reason_suffix: &'static str,
-) -> bool {
-    {
-        let mut vp = video_pref.borrow_mut();
-        if new_budget_px == vp.smooth_max_area {
-            eprintln!(
-                "[rhino] smooth: persist_skip ME_budget_px² unchanged {} ({stderr_reason_suffix})",
-                vp.smooth_max_area
-            );
-            return false;
-        }
-        eprintln!(
-            "[rhino] video: smooth_max_area {} → {} px² {}",
-            vp.smooth_max_area, new_budget_px, stderr_reason_suffix
-        );
-        vp.smooth_max_area = new_budget_px;
-        crate::db::save_video(&vp);
-    }
-
-    // Adaptive overload/recovery updates SQLite prefs + `media`; ME px² flows through **`RHINO_SMOOTH_CAP_FILE`** after **`vf clr`/`vf add`**.
-    // Invalidate **`smooth_vf_me_budget_applied`** so **`vf_smooth_matches_prefs`** fails until rebuild matches prefs.
-    forget_bundled_me_budget_vf_apply();
-
-    let mut vp = video_pref.borrow_mut();
-    match player.try_borrow_mut() {
-        Ok(mut g) => {
-            let Some(b) = g.as_mut() else {
-                return true;
-            };
-            // Same `borrow_mut` as `apply_mpv_video`: a failing `try_borrow()` before `try_borrow_mut()`
-            // used to skip `media_save_smooth_me_budget` while vf still rebuilt — then `resolve_media_smooth_me_budget`
-            // fell through to another file's lower neighbor px² and **`smooth_cap`** lagged prefs.
-            if let Some(p) = crate::media_probe::local_file_from_mpv(&b.mpv) {
-                crate::db::media_save_smooth_me_budget(&p, new_budget_px);
-                if video_log() {
-                    let key_ok = crate::db::history_key(&p).is_some();
-                    eprintln!(
-                        "[rhino] video: (verbose) persist_budget media_save px²={new_budget_px} history_key_ok={key_ok}",
-                    );
-                }
-            }
-            let _ = apply_mpv_video(b, &mut vp, None);
-        }
-        Err(_) => {
-            if video_log() {
-                eprintln!(
-                    "[rhino] video: (verbose) persist_budget px²={new_budget_px} could_not_borrow_player_mut_for_vf_apply (best-effort media_save via imm borrow)",
-                );
-            }
-            if let Ok(g) = player.try_borrow() {
-                if let Some(b) = g.as_ref() {
-                    if let Some(p) = crate::media_probe::local_file_from_mpv(&b.mpv) {
-                        crate::db::media_save_smooth_me_budget(&p, new_budget_px);
-                    }
-                }
-            }
-        }
-    }
-    true
-}
+include!("smooth_budget_persist.rs");
 
 include!("smooth_budget_sample_window.rs");
 
@@ -219,23 +155,14 @@ pub(crate) fn smooth_budget_on_transport_tick(
     let decode_px = decode_pixel_area_for_me_budget(&b.mpv);
     let current_budget_px = {
         let vp = video_pref.borrow();
-        effective_smooth_me_budget_px(&b.mpv, &vp)
+        effective_smooth_me_budget_px(&b.mpv, &vp, Some(b))
     };
     drop(g);
     let now = Instant::now();
     let allow_recovery_raise = raised_me_budget_can_reduce_downscale(decode_px, current_budget_px);
     let recovery_blocked_after_overload_snapshot =
         state_cell.borrow().recovery_blocked_after_overload_this_open;
-    let (
-        rate_opt,
-        recovery_rate_opt,
-        overload_fire,
-        recover_fire,
-        overload_streak,
-        recovery_quiet_streak,
-        overload_window_ready,
-        recovery_window_ready,
-    ) = {
+    let (rate_opt, overload_fire, recover_fire) = {
         let mut st = state_cell.borrow_mut();
         let out = sample_window_and_fire_flags(&mut st, cur_count, now, fps, snap.src);
         maybe_emit_smooth_drop_stats_line(
@@ -261,7 +188,6 @@ pub(crate) fn smooth_budget_on_transport_tick(
         cur_count,
         now,
         rate_opt,
-        recovery_rate_opt,
         overload_fire,
         recover_fire,
         allow_recovery_raise,
@@ -270,10 +196,6 @@ pub(crate) fn smooth_budget_on_transport_tick(
         snap,
         decode_fps: fps,
         decode_px,
-        overload_streak,
-        recovery_quiet_streak,
-        overload_window_ready,
-        recovery_window_ready,
     };
 
     apply_budget_actions_after_sample(player, video_pref, state_cell, &o);

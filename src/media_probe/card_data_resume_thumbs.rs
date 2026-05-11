@@ -69,25 +69,6 @@ pub fn is_natural_end(mpv: &Mpv) -> bool {
     }
 }
 
-/// When switching the loaded file: treat as "done" for continue + resume if [is_natural_end] **or** the
-/// user is in the last **~15%** of a long enough file (so **Next** at end credits, where `time-pos` is
-/// still far from the muxed `duration`, still drops the title from the continue list).
-pub fn is_done_enough_to_drop_continue(mpv: &Mpv) -> bool {
-    if is_natural_end(mpv) {
-        return true;
-    }
-    let (Ok(pos), Ok(dur)) = (
-        mpv.get_property::<f64>("time-pos"),
-        mpv.get_property::<f64>("duration"),
-    ) else {
-        return false;
-    };
-    if !pos.is_finite() || !dur.is_finite() || dur < 30.0 {
-        return false;
-    }
-    dur > 60.0 && pos / dur >= 0.85
-}
-
 fn percent_from_resume(start: Option<f64>, duration: Option<f64>) -> f64 {
     match (start, duration) {
         (Some(s), Some(d)) if d > 0.0 => {

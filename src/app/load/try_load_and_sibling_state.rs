@@ -24,9 +24,14 @@ fn try_load(
     }
     let ttl = title_for_open_path(path);
     sync_app_window_title(win, o.hdr_title_mirror.as_deref(), Some(ttl.as_str()));
-    reveal_ui_after_load(player, win, gl, recent_layer, o, warm_hit);
+    // Drain `FileLoaded` / `path` before `reveal_ui_after_load` unpause so transport runs
+    // `forget_bundled_me_budget_vf_apply_on_new_media` and resume/audio restore before `Pause(false)`
+    // can attach Smooth (`note_bundled` was being cleared by a later `FileLoaded` → duplicate `vf add`).
     if !warm_hit {
         transport_drain_after_loadfile();
+    }
+    reveal_ui_after_load(player, win, gl, recent_layer, o, warm_hit);
+    if !warm_hit {
         let _ = glib::idle_add_local_once(transport_drain_after_loadfile);
     }
     if let Some(f) = o.on_loaded.clone() {
@@ -48,16 +53,25 @@ fn load_file_into_player(
     let prev = local_file_from_mpv(&b.mpv).or_else(|| o.last_path.borrow().clone());
     if recent_layer.is_visible() && prev.as_ref().is_some_and(|p| same_open_target(p, path)) {
         eprintln!("[rhino] try_load: warm preload hit");
+        b.set_me_budget_shell_path(path);
+        crate::video_pref::publish_smooth_env_before_load(path, &o.video_pref.borrow(), false);
         return Ok(true);
     }
+    if prev.as_ref().is_some_and(|p| !same_open_target(p, path)) {
+        video_pref::strip_vapoursynth_before_replace_media(b);
+    }
+    b.set_me_budget_shell_path(path);
+    crate::video_pref::publish_smooth_env_before_load(path, &o.video_pref.borrow(), true);
     // Normalize speed before `loadfile` for sibling auto-advance (mpv keeps `speed`
     // across loadfile within a session; resume position is read from SQLite, not mpv).
     if o.reset_speed_to_normal {
         crate::playback_speed::force_normal(&b.mpv);
     }
-    let clear_resume = is_done_enough_to_drop_continue(&b.mpv) && local_file_from_mpv(&b.mpv).is_some();
+    // Only EOF / last ~3s ([is_natural_end]): the old "mostly watched" (~85%) heuristic could drop
+    // the previous continue entry while switching files if duration/`time-pos` was misleading.
+    let clear_resume = is_natural_end(&b.mpv) && local_file_from_mpv(&b.mpv).is_some();
     let drop_prev = prev.as_ref().is_some_and(|p| {
-        !same_open_target(p, path) && is_done_enough_to_drop_continue(&b.mpv)
+        !same_open_target(p, path) && is_natural_end(&b.mpv)
     });
     if let Err(e) = b.load_file_path(path, clear_resume) {
         eprintln!("[rhino] try_load: loadfile failed: {e}");

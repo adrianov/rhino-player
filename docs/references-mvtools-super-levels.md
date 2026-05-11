@@ -29,7 +29,7 @@ Third-party **[vapoursynth-manipmv](https://pypi.org/project/vapoursynth-manipmv
 
 **Block size vs cost:** **`Analyse`** lays out a motion block grid — smaller **`blksize`** tends to multiply blocks per frame; larger **`blksize`** yields coarser spatial motion sampling. Trade-offs stay **preset- and content-dependent**.
 
-Rhino’s Smooth FlowFPS binding is **`data/vs/rhino_60_mvtools.vpy`** (**see [26-sixty-fps-motion](../features/26-sixty-fps-motion.md)**). **Keep numeric tunables out of prose references:** **`Super`**, **`Analyse`**, **`FlowFPS`**, cache/thread limits, stderr **`tier`** thresholds, ME crop/resize, etc. belong in that script (**`overlap` &lt; `blksize`** is required by MVTools). **mpv** **`buffered-frames=N`** in Rhino’s **`vf`** comes from **`SMOOTH_VF_BUFFERED_FRAMES`** (**`src/video_pref/smooth_motion_tier.rs`**). Persisted ME-cap overload logic: **`src/video_pref/smooth_budget.rs`**.
+Rhino’s Smooth FlowFPS binding is **`data/vs/rhino_60_mvtools.vpy`** (**see [26-sixty-fps-motion](../features/26-sixty-fps-motion.md)**). **Keep numeric tunables out of prose references:** **`Super`**, **`Analyse`**, **`FlowFPS`**, cache/thread limits, ME crop/resize, etc. belong in that script (**`overlap` &lt; `blksize`** is required by MVTools). **mpv** **`buffered-frames=N`** in Rhino’s **`vf`** comes from **`SMOOTH_VF_BUFFERED_FRAMES`** (**`src/video_pref/smooth_motion_tier.rs`**). Persisted ME-cap overload logic: **`src/video_pref/smooth_budget.rs`**.
 
 For experiments with **proxy motion estimation** or **vector scaling**, third-party **[vapoursynth-manipmv](https://pypi.org/project/vapoursynth-manipmv/)** (**`ScaleVect`**) remains documented below as general MVTools ecosystem reading — it is **not** wired into Rhino’s bundled preset.
 

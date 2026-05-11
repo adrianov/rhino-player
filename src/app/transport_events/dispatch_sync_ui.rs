@@ -1,19 +1,39 @@
-/// Coalesces Smooth 60 `vf` rebuild: `FileLoaded` and `path` updates often arrive in one drain;
-/// prev/next, sibling EOF, and Open all reach mpv via `loadfile` → those events, plus **`container-fps`**
-/// once the demuxer exposes cadence (often after the first Smooth idle).
-/// **`VideoReconfig`** usually fires in a **later** drain after the decoder settles — scheduling again then
-/// re-runs [smooth_60_full_resync_after_media_change] because `smooth_60_resync_idle_pending` was cleared
-/// when the earlier idle ran (fixes stale cadence / A/V drift if we attached Smooth too early).
-/// A second schedule **within the same burst** before that idle runs is still skipped (`pending` guard).
-fn schedule_smooth_60_resync_idle(ctx: &Rc<TransportCtx>) {
-    if ctx.smooth_60_resync_idle_pending.replace(true) {
-        return;
-    }
-    let c = Rc::clone(ctx);
-    let _ = glib::idle_add_local_once(move || {
-        c.smooth_60_resync_idle_pending.set(false);
-        smooth_60_full_resync_after_media_change(&c.player, &c.eof.gl, &c.eof.reapply_60);
+/// Quiet period after `FileLoaded` / `VideoReconfig` / `path` / `container-fps` before
+/// [smooth_60_full_resync_after_media_change]: mpv often emits those in separate drains; one timer
+/// coalesces them so the bundled `.vpy` is not built twice with stale `container-fps` or SQLite ME rows.
+/// **~160 ms** gives `estimated-vf-fps` more time to settle so NTSC film is less often misread as **24**
+/// on the first attach (still not guaranteed on slow demux).
+const SMOOTH_60_RESYNC_DEBOUNCE: Duration = Duration::from_millis(160);
+
+/// Upserts **`media.decode_w/h`** when mpv already reports size — lets [crate::db::resolve_media_smooth_me_budget]
+/// pick a same-resolution neighbor **before** the first Smooth rebuild (transport tick is too late).
+fn sync_media_decode_row_for_me_budget(player: &Rc<RefCell<Option<MpvBundle>>>) {
+    with_bundle(player, |b| {
+        let Some(p) = crate::media_probe::local_file_from_mpv(&b.mpv) else {
+            return;
+        };
+        let Some((w, h)) = crate::video_pref::decode_wh_from_mpv(&b.mpv) else {
+            return;
+        };
+        crate::db::media_sync_decode_size(&p, w, h);
     });
+}
+
+fn schedule_smooth_60_resync_idle(ctx: &Rc<TransportCtx>) {
+    sync_media_decode_row_for_me_budget(&ctx.player);
+    if let Some(id) = ctx.smooth_60_resync_debounce.borrow_mut().take() {
+        id.remove();
+    }
+    let deb = Rc::clone(&ctx.smooth_60_resync_debounce);
+    let c = Rc::clone(ctx);
+    *ctx.smooth_60_resync_debounce.borrow_mut() = Some(glib::timeout_add_local(
+        SMOOTH_60_RESYNC_DEBOUNCE,
+        move || {
+            *deb.borrow_mut() = None;
+            smooth_60_full_resync_after_media_change(&c.player, &c.eof.gl, &c.eof.reapply_60);
+            glib::ControlFlow::Break
+        },
+    ));
 }
 
 /// Run `f` with the active mpv bundle if it is borrowable and present. Skips silently
@@ -50,12 +70,9 @@ fn sync_smooth_vf_on_pause_transition(ctx: &Rc<TransportCtx>, paused: bool) {
             return;
         }
         if !paused {
-            smooth_vf_attach_if_playing(
-                Rc::clone(&ctx.player),
-                ctx.eof.gl.clone(),
-                ctx.eof.reapply_60.clone(),
-                true,
-            );
+            // Same debounced path as `FileLoaded` / `container-fps` — avoids double `apply_mpv_video`
+            // when unpause races a pending resync timer.
+            schedule_smooth_60_resync_idle(ctx);
         }
     });
     ctx.eof.gl.queue_render();
@@ -89,7 +106,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
         TransportEv::FileLoaded => {
             // Invalidate bundled ME budget fast-path (`vf_smooth_matches_prefs`) so **`apply_mpv_video`**
             // reinstalls vapoursynth: a warm VapourSynth interpreter reused across **`loadfile`** does not adopt
-            // a newer ME px² budget (**`RHINO_SMOOTH_CAP_FILE`**) unless **`vf clr`/`vf add`** runs (**`smooth_vf_me_budget_applied`**).
+            // a newer ME px² budget (**`RHINO_SMOOTH_MAX_AREA`**) unless **`vf clr`/`vf add`** runs (**`smooth_vf_me_budget_applied`**).
             crate::video_pref::forget_bundled_me_budget_vf_apply_on_new_media();
             crate::video_pref::smooth_budget_reset_session_on_new_media(&ctx.smooth_budget_decoder);
             // New file: apply the SQLite-driven resume, restore the saved audio track *before*
@@ -114,8 +131,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             refresh_sibling_nav(ctx);
             transport_tick(ctx);
             sync_seek_chapters(ctx);
-            // Usually follows `FileLoaded` in a later drain — second idle reapplies Smooth once output
-            // stabilizes (cadence / vf timing); skipped when redundant with an unserviced pending idle.
+            // Often follows `FileLoaded` in a later drain — debounce merges into one vf rebuild.
             schedule_smooth_60_resync_idle(ctx);
         }
         TransportEv::PathChanged => {
@@ -162,6 +178,7 @@ fn run_sibling_eof(ctx: &Rc<TransportCtx>) {
         &e.exit_after_current,
         &e.app,
         &e.sub_pref,
+        &ctx.video_pref,
         &e.idle_inhib,
         &e.mpv_teardown_after_draw,
         &e.on_video_chrome,

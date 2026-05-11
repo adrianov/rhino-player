@@ -20,6 +20,9 @@ use gl_platform::GlDynLib;
 /// Owns loaded GL/EGL (Linux) or a native [`CAOpenGLLayer`] surface (macOS).
 pub struct MpvBundle {
     pub mpv: Mpv,
+    /// Canonical path last set by the shell ([try_load], preload). SQLite ME budget + **`media`** keys use this
+    /// **before** mpv **`path`**, which can lag after a switch.
+    pub(crate) me_budget_shell_path: std::cell::RefCell<Option<std::path::PathBuf>>,
     /// Resume time (seconds) for the next `FileLoaded`. Set by [load_file_path] from `db::resume_pos`,
     /// applied + cleared by [apply_pending_resume] after the file is loaded.
     pending_resume: std::cell::Cell<Option<f64>>,
@@ -105,8 +108,9 @@ impl MpvBundle {
         Ok((
             Self {
                 mpv,
-                render,
+                me_budget_shell_path: std::cell::RefCell::new(None),
                 _gl: gl_libs,
+                render,
                 gl_ptr,
                 pending_resume: std::cell::Cell::new(None),
             },
@@ -120,6 +124,7 @@ impl MpvBundle {
         Ok((
             Self {
                 mpv,
+                me_budget_shell_path: std::cell::RefCell::new(None),
                 pending_resume: std::cell::Cell::new(None),
                 macos: Some(macos),
             },

@@ -10,6 +10,7 @@ fn wire_final_open_dialog(ctx: &FinalActionCtx) {
     let hdr_mirror_o = ctx.hdr_title_mirror.clone();
     let app = ctx.app.clone();
     let playback_open = Rc::clone(&ctx.playback_focus);
+    let video_pref_open = Rc::clone(&ctx.video_pref);
 
     open.connect_activate(glib::clone!(
         #[weak]
@@ -24,8 +25,9 @@ fn wire_final_open_dialog(ctx: &FinalActionCtx) {
         hdr_mirror_o,
         #[strong]
         playback_open,
-        move |_, _| {
-            let Some(w) = app.active_window() else {
+        #[strong]
+        video_pref_open,
+        move |_, _| {            let Some(w) = app.active_window() else {
                 return;
             };
             let vf = video_file_filter();
@@ -47,6 +49,7 @@ fn wire_final_open_dialog(ctx: &FinalActionCtx) {
             let oload = Rc::clone(&on_file_loaded_o);
             let mirror_pick = hdr_mirror_o.clone();
             let pf_pick = Rc::clone(&playback_open);
+            let vp_pick = video_pref_open.clone();
             dialog.open(Some(&w), None::<&gio::Cancellable>, move |res| {
                 let Ok(file) = res else {
                     return;
@@ -58,15 +61,16 @@ fn wire_final_open_dialog(ctx: &FinalActionCtx) {
                 let Some(aw) = w_f.downcast_ref::<adw::ApplicationWindow>() else {
                     return;
                 };
-                let mut o = LoadOpts::replace_media(
-                    last_fp.clone(),
-                    Some(ovc2),
-                    wa2.clone(),
-                    Some(oload),
-                    true,
-                    false,
-                    mirror_pick.clone(),
-                );
+                let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
+                    video_pref: Rc::clone(&vp_pick),
+                    last_path: last_fp.clone(),
+                    on_start: Some(ovc2),
+                    win_aspect: wa2.clone(),
+                    on_loaded: Some(oload),
+                    play_on_start: true,
+                    reset_speed_to_normal: false,
+                    hdr_title_mirror: mirror_pick.clone(),
+                });
                 o.playback_focus = Some(Rc::clone(&pf_pick));
                 if let Err(e) = try_load(
                     &path,

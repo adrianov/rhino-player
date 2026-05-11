@@ -58,8 +58,8 @@ mod smooth_me_geometry_tests {
     use super::*;
 
     #[test]
-    fn uhd_scaled_matches_script_style_dims() {
-        // decode 3840×1600 ⇒ 6144000 px²; sqrt(cap/decode_px) → round → align(8), matches bundled `.vpy`.
+    fn wide_decode_scaled_dims_match_bundled_script() {
+        // 3840×1600 decode; sqrt(cap/decode_px) → round → align(8), matches bundled `.vpy` style.
         let (w, h) = bundled_me_vf_out_wh(3840, 1600, 970_173).expect("dims");
         assert_eq!((w, h), (1520, 632));
     }
