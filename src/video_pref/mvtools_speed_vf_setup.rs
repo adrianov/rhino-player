@@ -129,7 +129,7 @@ pub fn refresh_smooth_for_playback_speed(
 /// True when mpv's `vf` chain already matches what [add_smooth_60] would install for current prefs
 /// (resolved script · **`buffered-frames`** · **`concurrent-frames=auto`** · bundled **`RHINO_SMOOTH_MAX_AREA`** env ·
 /// **`smooth_vf_me_budget_applied`**). Used to skip redundant **`vf clr`**/**`vf add`** on duplicate idle
-/// after **FileLoaded** / **`path`** — **seek** never reaches [apply_mpv_video_impl].
+/// after **FileLoaded** / **`path`** / debounced post-**seek** resync (see **`schedule_smooth_60_resync_idle`**).
 pub(crate) fn vf_smooth_matches_prefs(
     mpv: &Mpv,
     v: &VideoPrefs,

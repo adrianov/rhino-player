@@ -17,12 +17,33 @@ fn smooth_60_full_resync_after_media_change(
     if let Some(b) = player.borrow().as_ref() {
         let mut vp = r.vp.borrow_mut();
         let a = video_pref::apply_mpv_video(b, &mut vp, None);
-        let r2 = video_pref::reapply_60_if_still_missing(b, &mut vp);
-        turn_off = a.smooth_auto_off || r2.smooth_auto_off;
+        turn_off = a.smooth_auto_off;
     }
     if turn_off {
         sync_smooth_60_to_off(&r.app);
         show_smooth_setup_dialog(&r.app);
+        gl.queue_render();
+        return;
     }
-    gl.queue_render();
+    // [reapply_60_if_still_missing] reads `vf` after a successful `vf add`. libmpv can accept the
+    // command in the same main-loop slice before `get_property("vf")` reflects the new chain —
+    // running it synchronously here caused a second [apply_mpv_video] + duplicate VapourSynth init on seek.
+    // `GLArea::queue_render` runs once in that idle (not here too): the next slice sees settled `vf`
+    // and any rare reattach from [reapply_60_if_still_missing], without double-invalidating for one resync.
+    let player2 = Rc::clone(player);
+    let r2 = r.clone();
+    let gl2 = gl.clone();
+    let _ = glib::idle_add_local_once(move || {
+        let mut t = false;
+        if let Some(b) = player2.borrow().as_ref() {
+            let mut vp = r2.vp.borrow_mut();
+            let rx = video_pref::reapply_60_if_still_missing(b, &mut vp);
+            t = rx.smooth_auto_off;
+        }
+        if t {
+            sync_smooth_60_to_off(&r2.app);
+            show_smooth_setup_dialog(&r2.app);
+        }
+        gl2.queue_render();
+    });
 }
