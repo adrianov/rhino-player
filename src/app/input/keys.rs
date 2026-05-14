@@ -12,7 +12,8 @@ fn root_focus_wants_raw_keys(win: &adw::ApplicationWindow) -> bool {
         || fw.downcast_ref::<gtk::PasswordEntry>().is_some()
 }
 
-/// GDK **Audio\*** keys: hardware play/pause/stop and prev/next (macOS media keys, many keyboards).
+/// GDK **Audio\*** keys: hardware play/pause/stop and prev/next on Linux (and keyboards that expose them via GDK).
+#[cfg(not(target_os = "macos"))]
 fn propagation_for_media_keys(
     key: gtk::gdk::Key,
     play_key: &PlayToggleCtx,
@@ -34,6 +35,17 @@ fn propagation_for_media_keys(
         try_load_sibling_pick(sibling_advance::next_after_eof, "next", nav);
         return Some(glib::Propagation::Stop);
     }
+    None
+}
+
+/// macOS hardware keys use [`wire_macos_now_playing_remote`] only (`MPRemoteCommandCenter`).
+#[cfg(target_os = "macos")]
+#[inline]
+fn propagation_for_media_keys(
+    _key: gtk::gdk::Key,
+    _play_key: &PlayToggleCtx,
+    _nav: &SiblingNavTryRefs,
+) -> Option<glib::Propagation> {
     None
 }
 

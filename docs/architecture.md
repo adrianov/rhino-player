@@ -61,7 +61,7 @@ The columns below describe the **current Linux binding** in detail; macOS and Wi
 | File associations / open | GIO `Application::open` (HANDLES_OPEN target) | `NSApplicationDelegate openURLs:` | file-type registration + `OnFileActivated` |
 | Single instance | GIO single-instance + remote activation | `NSApplication` runs once per bundle | named pipe / single-instance mutex |
 | Audio output | PulseAudio / PipeWire (`ao=pulse`) | CoreAudio (`ao=coreaudio`) | WASAPI (`ao=wasapi`) |
-| Media keys / shell integration | MPRIS over D-Bus | `MPRemoteCommandCenter`, `MPNowPlayingInfoCenter` | `SystemMediaTransportControls` |
+| Media keys / shell integration | MPRIS over D-Bus | **Now Playing** (`MPNowPlayingInfoCenter` metadata + `MPRemoteCommandCenter` handlers); GDK `Audio*` shortcuts skipped so keys are not handled twice | `SystemMediaTransportControls` |
 | Idle / sleep inhibit | `gtk::Application::inhibit` (IDLE + SUSPEND) | `NSProcessInfo.beginActivity…` (`NSActivityOptions.idleDisplaySleepDisabled` + idle system sleep disabled) | `SetThreadExecutionState` |
 | Packaging | dynamic system libs; AppImage / distro packages | `.app` bundle (notarized) | MSIX / portable ZIP |
 | Build tooling | Cargo (Rust core; system libs from distro) | Cargo + Xcode toolchain for AppKit shim | Cargo + MSVC toolchain for WinUI shim |

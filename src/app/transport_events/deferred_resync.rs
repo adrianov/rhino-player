@@ -46,6 +46,9 @@ fn install_transport_tick(ctx: &Rc<TransportCtx>) {
 }
 
 fn transport_tick(ctx: &Rc<TransportCtx>) {
+    #[cfg(target_os = "macos")]
+    sync_macos_now_playing_for_transport(&ctx.player);
+
     let Some((pause, core_idle, dur, pos)) = read_transport_state(&ctx.player) else {
         return;
     };

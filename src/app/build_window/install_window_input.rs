@@ -51,9 +51,8 @@
     });
 
     #[cfg(target_os = "macos")]
-    wire_macos_media_keys(
-        play_ctx.clone(),
-        SiblingNavCtx {
+    {
+        let nav = SiblingNavCtx {
             btn_prev: w.sibling_nav.prev_btn.clone(),
             btn_next: w.sibling_nav.next_btn.clone(),
             win: w.win.clone(),
@@ -68,6 +67,7 @@
             on_file_loaded: Rc::clone(&on_file_loaded),
             hdr_title_mirror: w.hdr_title_mirror.clone(),
             playback_focus: Rc::clone(&playback_focus),
-        },
-    );
+        };
+        wire_macos_now_playing_remote(play_ctx.clone(), nav);
+    }
 }
