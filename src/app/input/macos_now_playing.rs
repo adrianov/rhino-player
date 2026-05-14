@@ -14,6 +14,16 @@ use objc2_media_player::{
     MPRemoteCommandCenter, MPRemoteCommandEvent, MPRemoteCommandHandlerStatus,
 };
 
+/// Install one remote-command handler and give Rust-side ownership of the block/token to ObjC for the
+/// rest of process lifetime.
+///
+/// **Leak / retention (deliberate, bounded):** [`MPRemoteCommand::addTargetWithHandler`] retains the
+/// handler block and returns an opaque target object used internally by MediaPlayer. We never call
+/// `removeTarget:`. Registration happens exactly **six** times under [`Once::call_once`] in
+/// [`register_remote_commands`], so leaked Objective‑C objects are bounded and fixed at startup.
+/// [`std::mem::forget`] on both values avoids pairing bugs if Rust’s [`RcBlock`] drop raced or
+/// over‑released relative to MediaPlayer’s retain semantics — same practical trade‑off as leaving
+/// targets registered until exit in Objective‑C.
 fn wire_remote_command(
     cmd: &objc2_media_player::MPRemoteCommand,
     handler: RcBlock<dyn Fn(NonNull<MPRemoteCommandEvent>) -> MPRemoteCommandHandlerStatus>,
@@ -100,21 +110,24 @@ unsafe fn np_publish(title: &str, dur: f64, pos: f64, pause: bool, speed: f64) {
     let npc = MPNowPlayingInfoCenter::defaultCenter();
     let dict = NSMutableDictionary::<NSString, AnyObject>::new();
     let title_ns = NSString::from_str(title);
+    // `NSMutableDictionary::insert` → `setObject:forKey:` retains each **value** and copies **keys**
+    // (NSString adopts NSCopying). Rust `Retained` temps may drop after each insert; the dictionary + ARC
+    // keep owning references.
     dict.insert(MPMediaItemPropertyTitle, title_ns.as_ref());
-    dict.insert(MPMediaItemPropertyPlaybackDuration, NSNumber::numberWithDouble(dur).as_ref());
-    dict.insert(
-        MPNowPlayingInfoPropertyElapsedPlaybackTime,
-        NSNumber::numberWithDouble(pos).as_ref(),
-    );
+
+    let dur_ns = NSNumber::numberWithDouble(dur);
+    dict.insert(MPMediaItemPropertyPlaybackDuration, dur_ns.as_ref());
+
+    let pos_ns = NSNumber::numberWithDouble(pos);
+    dict.insert(MPNowPlayingInfoPropertyElapsedPlaybackTime, pos_ns.as_ref());
+
     let rate = if pause { 0.0 } else { speed };
-    dict.insert(
-        MPNowPlayingInfoPropertyPlaybackRate,
-        NSNumber::numberWithDouble(rate).as_ref(),
-    );
-    dict.insert(
-        MPNowPlayingInfoPropertyMediaType,
-        NSNumber::numberWithUnsignedInteger(MPNowPlayingInfoMediaType::Video.0).as_ref(),
-    );
+    let rate_ns = NSNumber::numberWithDouble(rate);
+    dict.insert(MPNowPlayingInfoPropertyPlaybackRate, rate_ns.as_ref());
+
+    let media_type_ns = NSNumber::numberWithUnsignedInteger(MPNowPlayingInfoMediaType::Video.0);
+    dict.insert(MPNowPlayingInfoPropertyMediaType, media_type_ns.as_ref());
+
     npc.setNowPlayingInfo(Some(&dict));
     npc.setPlaybackState(if pause {
         MPNowPlayingPlaybackState::Paused
