@@ -93,9 +93,9 @@ fn new_undo_bar() -> UndoBar {
 /// Scrolled row of at most five continue cards, with the undo snackbar **under** the strip but
 /// outside the horizontal scroller — the pill stays centered on the viewport when the strip scrolls.
 ///
-/// The four `[gtk::Box]` spacers (top, left, right, bottom around the **card** row) are the **empty** hit
-/// area for main-window double-click fullscreen: not the card strip or undo bar.
-pub fn new_scroll() -> (gtk::Box, gtk::Box, [gtk::Box; 4], UndoBar) {
+/// The two `[gtk::Box]` spacers (top, bottom) are the **empty** hit area for main-window
+/// double-click fullscreen: not the card strip or undo bar.
+pub fn new_scroll() -> (gtk::Box, gtk::Box, [gtk::Box; 2], UndoBar) {
     let h = gtk::Box::new(gtk::Orientation::Horizontal, 16);
     h.set_homogeneous(true);
     h.set_halign(gtk::Align::Center);
@@ -113,25 +113,9 @@ pub fn new_scroll() -> (gtk::Box, gtk::Box, [gtk::Box; 4], UndoBar) {
         .hscrollbar_policy(gtk::PolicyType::Automatic)
         .vscrollbar_policy(gtk::PolicyType::Never)
         .kinetic_scrolling(false)
-        .propagate_natural_width(true)
         .propagate_natural_height(true)
         .build();
     card_scr.add_css_class("rp-recent-scroll");
-
-    let sp_left = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    sp_left.set_hexpand(true);
-    sp_left.set_vexpand(true);
-    let sp_right = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    sp_right.set_hexpand(true);
-    sp_right.set_vexpand(true);
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    row.set_halign(gtk::Align::Fill);
-    row.set_valign(gtk::Align::Start);
-    row.set_hexpand(true);
-    row.set_vexpand(false);
-    row.append(&sp_left);
-    row.append(&card_scr);
-    row.append(&sp_right);
 
     let v = gtk::Box::new(gtk::Orientation::Vertical, 0);
     v.set_vexpand(true);
@@ -146,11 +130,11 @@ pub fn new_scroll() -> (gtk::Box, gtk::Box, [gtk::Box; 4], UndoBar) {
     sp_bot.set_vexpand(true);
     let undo_bar = new_undo_bar();
     v.append(&sp_top);
-    v.append(&row);
+    v.append(&card_scr);
     v.append(&undo_bar.shell);
     v.append(&sp_bot);
 
-    (v, h, [sp_top, sp_left, sp_right, sp_bot], undo_bar)
+    (v, h, [sp_top, sp_bot], undo_bar)
 }
 
 fn clear(f: &gtk::Box) {
@@ -171,8 +155,8 @@ fn card_width(strip_w: i32, count: usize) -> i32 {
 }
 
 /// Width used for [`card_width`] / [`sync_card_sizes`]: nearest ancestor
-/// [`gtk::ScrolledWindow`]'s width (viewport strip), not the scrolled child's width — so undo stays
-/// centered when the strip scrolls. Fallback: [`card_row`]'s parent width once layout exists.
+/// [`gtk::ScrolledWindow`]'s width (full window width), not the scrolled child's width.
+/// Fallback: [`card_row`]'s parent width once layout exists.
 fn strip_width_for_cards(card_row: &gtk::Box) -> Option<i32> {
     let mut w_opt = Some(card_row.parent()?);
     while let Some(w) = w_opt.take() {

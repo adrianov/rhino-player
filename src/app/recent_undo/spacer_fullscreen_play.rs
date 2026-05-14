@@ -1,5 +1,5 @@
 fn wire_recent_spacer_fullscreen(
-    sp_empty: [gtk::Box; 4],
+    sp_empty: [gtk::Box; 2],
     win: &adw::ApplicationWindow,
     fs: &FullscreenToggleRefs,
     recent: &gtk::Box,

@@ -43,7 +43,7 @@ struct WindowWidgets {
     pref_menu: gio::Menu,
     recent_scrl: gtk::Box,
     flow_recent: gtk::Box,
-    recent_spacers: [gtk::Box; 4],
+    recent_spacers: [gtk::Box; 2],
     undo_bar: crate::recent_view::UndoBar,
     /// Local wall-clock readout; visible only in fullscreen (`docs/features/17-window-behavior.md`).
     fs_clock: gtk::Label,
