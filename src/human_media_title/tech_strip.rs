@@ -72,7 +72,7 @@ fn tech_regexes() -> &'static [Regex] {
             .iter()
             .map(|tag| {
                 Regex::new(&format!(
-                    r"(?i)(?:^|[.\s]){}(?:$|[.\s])",
+                    r"(?i)(?:^|[.\s\-]){}(?:$|[.\s\-])",
                     regex::escape(tag)
                 ))
                 .unwrap_or_else(|_| panic!("tech tag regex {tag}"))

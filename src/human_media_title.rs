@@ -250,6 +250,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bdremux_stripped() {
+        assert_eq!(human_media_title("Movie Name BDRemux.mkv"), "Movie Name");
+        assert_eq!(human_media_title("Some.Film.BDRemux.mkv"), "Some Film");
+        assert_eq!(
+            human_media_title("Women in Love Criterion Collection-BDRemux.mkv"),
+            "Women in Love Criterion Collection"
+        );
+    }
+
+    #[test]
     fn americans_sample() {
         assert_eq!(
             human_media_title("The.Americans.S04E04.1080p.WEB-DL.4xRus.Eng.TeamHD.mkv"),

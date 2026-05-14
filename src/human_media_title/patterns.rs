@@ -34,7 +34,7 @@ fn patterns() -> &'static Patterns {
         strip_ext: Regex::new(r"(?i)\.[a-z0-9]{2,5}$").expect("strip_ext"),
         glued_dots: Regex::new(r"[\p{L}\p{N}]+\.[\p{L}\p{N}]+\.[\p{L}\p{N}]+").expect("glued"),
         tech_hint: Regex::new(
-            r"(?i)\b(?:2160p|1080p|720p|480p|8K|4K|UHD|S\d{1,2}(?:E\d+)?|(?:19|20)\d{2}|DVD|BD\d*|BD|WEB|Rip|HEVC|H264|H\.?264|H265|H\.?265|x264|x265|AAC|AC3|DTS|FLAC|MP3|MKV|MP4)\b",
+            r"(?i)\b(?:2160p|1080p|720p|480p|8K|4K|UHD|S\d{1,2}(?:E\d+)?|(?:19|20)\d{2}|DVD|BD\d*|BD|WEB|Rip|BDRemux|Remux|HEVC|H264|H\.?264|H265|H\.?265|x264|x265|AAC|AC3|DTS|FLAC|MP3|MKV|MP4)\b",
         )
         .expect("tech_hint"),
         se: Regex::new(r"(?i)\bS(\d{1,2})E(\d{1,3})\b").expect("se"),
