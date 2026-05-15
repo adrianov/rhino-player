@@ -59,3 +59,4 @@ cp "$HICON/1024x1024/apps/ch.rhino.RhinoPlayer.png" "$ICONSET/icon_512x512@2x.pn
 iconutil -c icns "$ICONSET" -o "$CONTENTS/Resources/AppIcon.icns"
 
 echo "Built $APP_PATH (version ${VERSION}). Drag to /Applications or run: open \"$APP_PATH\""
+open -R "$APP_PATH"
