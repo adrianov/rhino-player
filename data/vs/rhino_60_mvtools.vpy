@@ -168,14 +168,9 @@ def _mv_graph_for_frame_size(
 
 
 def _super_levels_effective(me_w_px: int, me_h_px: int) -> int:
-    """``mv.Super`` ``levels`` passed to the filter: **>0** fixed, **0** = MVTools automatic count.
-
-    Automatic **0** on very small ME frames can yield **no** pyramid (**``nLevels`` == 0**) upstream → crashes.
-    """
+    """``mv.Super`` ``levels`` passed to the filter: **>0** fixed, **0** = MVTools automatic count."""
     if _MV_SUPER_LEVELS > 0:
         return _MV_SUPER_LEVELS
-    if min(max(1, me_w_px), max(1, me_h_px)) < _MV_SMALL_ME_SIDE:
-        return 1
     return 0
 
 
