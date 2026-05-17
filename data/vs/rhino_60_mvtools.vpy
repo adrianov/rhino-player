@@ -24,7 +24,8 @@ _TARGET_NUM = 60
 _TARGET_DEN = 1
 _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (extra ME path)
-# MVTools ``Analyse``: ``blksize`` / ``overlap`` are ``_MV_BLK_SIZE`` / ``_MV_BLK_OVERLAP`` (``overlap`` < ``blksize``).
+# MVTools ``Analyse``: ``blksize`` is chosen so the **longest edge** divided by it is **≥ 12**
+# (power-of-2, **16–128**); ``overlap`` is always half of ``blksize``.
 # Block grid cost scales with ``blksize`` (smaller ⇒ usually more blocks per frame).
 # **Decode-area budget**: Rhino sets **`RHINO_SMOOTH_MAX_AREA`** (px²) before **`vf add`**; the script reads it via libc ``getenv``.
 # Standalone **mpv** + this script may set **`RHINO_SMOOTH_MAX_AREA`** instead when no snap path exists.
@@ -33,13 +34,9 @@ _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (ex
 # so MVTools runs at **≤ budget** pixels (**stderr ``path=scaled``**); otherwise **native** (**``path=full``**).
 # **FlowFPS** output is the ME raster (may be smaller than decode when ``path=scaled``); mpv scales to the window.
 # **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse`` (luma-only ME yields bad chroma — green tint).
-_MV_BLK_SIZE = 128
-_MV_BLK_OVERLAP = 64
-# ME shorter side **below** this → **64×64** / **overlap 32** (smaller block grid for marginal frames).
-# **128×128** on e.g. **320×240** has hit **``free(): invalid pointer``** inside **vsrepo** mvtools when
-# **``blksize``** is too large — treat as marginal grid edge case.
-_MV_SMALL_ME_SIDE = 480
-# ME **width/height** crop/scale alignment (``_me_wh_aligned``). Independent of MVTools ``blksize`` (``_MV_BLK_SIZE``):
+_MV_BLK_MAX = 128
+_MV_BLK_MIN = 16
+_MV_BLK_MIN_CELLS = 12
 # aligning to **8** rather than snapping dimensions to ``blksize`` trims less from decode / scaled ME and still validates in practice — **mpv** +
 # **mv.Super/Analyse/FlowFPS** use ``blksize`` / ``overlap`` above.
 _ME_GEOMETRY_ALIGN_PX = 8
@@ -134,35 +131,37 @@ def _smooth_max_area_px() -> int:
         return max(min_budget, _DEFAULT_ME_AREA_PX2)
 
 
+def _mv_blk_for_edge(longest_edge: int) -> int:
+    """Largest power-of-2 ``blksize`` (``_MV_BLK_MIN``–``_MV_BLK_MAX``) where ``longest_edge / blksize >= _MV_BLK_MIN_CELLS``."""
+    raw = int(longest_edge) // _MV_BLK_MIN_CELLS
+    floored = 1 << (raw.bit_length() - 1) if raw >= 1 else _MV_BLK_MIN
+    return max(_MV_BLK_MIN, min(floored, _MV_BLK_MAX))
+
+
 def _mv_graph_for_frame_size(
     me_w_px: int,
     me_h_px: int,
 ) -> tuple[int, int, int, int, int, int, bool, bool, bool]:
     """MVTools params from **ME** raster (``me_w_px``×``me_h_px``).
 
-    Small ME clips use **64×64** / **overlap 32** — see ``_MV_SMALL_ME_SIDE``.
-    **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse``.
+    ``blksize`` is chosen so the **longest edge** yields **≥ _MV_BLK_MIN_CELLS** blocks;
+    ``overlap`` is half of ``blksize``.
     Shared: ``pel=1``, ``sharp=1``, ``search=4`` (hex), ``truemotion=True``,
-    ``FlowFPS(mask=2, blend=True)``, ``global=True``.
+    ``FlowFPS(mask=2, blend=True)``, ``global=True``, ``chroma=True``.
 
     Returns ``(blksize, overlap, pel, sharp, search, flow_mask, flow_blend,
     truemotion, chroma)``.
     """
-    w = max(1, me_w_px)
-    h = max(1, me_h_px)
-    if min(w, h) < _MV_SMALL_ME_SIDE:
-        blk, ov = 64, 32
-    else:
-        blk, ov = _MV_BLK_SIZE, _MV_BLK_OVERLAP
+    blk = _mv_blk_for_edge(max(me_w_px, me_h_px))
     return (
         blk,
-        ov,
+        blk // 2,
         1,
         1,
         4,
         2,
-        True,  # FlowFPS blend
-        True,  # Analyse truemotion
+        True,
+        True,
         True,
     )
 
@@ -507,7 +506,7 @@ else:
             work_me = core.resize.Bicubic(work, width=_aw, height=_ah)
             _me_path = "scaled"
         _blk, _ov, _pel, _sharp, _search, _fmask, _fblend, _tm, _mv_chroma = (
-            _mv_graph_for_frame_size(work_me.width, work_me.height)
+            _mv_graph_for_frame_size(_decode_w, _decode_h)
         )
         _eff_super_lv = _super_levels_effective(work_me.width, work_me.height)
         _super_kw = {
