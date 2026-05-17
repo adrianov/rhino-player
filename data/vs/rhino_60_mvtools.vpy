@@ -35,9 +35,9 @@ _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (ex
 # **Both paths**: ``chroma=True`` on ``Super`` / ``Analyse`` (luma-only ME yields bad chroma — green tint).
 _MV_BLK_SIZE = 128
 _MV_BLK_OVERLAP = 64
-# ME shorter side **below** this → **64×64** / **overlap 32** and **``Super`` levels ≥ 1** (never auto-0).
+# ME shorter side **below** this → **64×64** / **overlap 32** (smaller block grid for marginal frames).
 # **128×128** on e.g. **320×240** has hit **``free(): invalid pointer``** inside **vsrepo** mvtools when
-# **``levels``** auto-collapses — treat as marginal grid / pyramid edge case.
+# **``blksize``** is too large — treat as marginal grid edge case.
 _MV_SMALL_ME_SIDE = 480
 # ME **width/height** crop/scale alignment (``_me_wh_aligned``). Independent of MVTools ``blksize`` (``_MV_BLK_SIZE``):
 # aligning to **8** rather than snapping dimensions to ``blksize`` trims less from decode / scaled ME and still validates in practice — **mpv** +
