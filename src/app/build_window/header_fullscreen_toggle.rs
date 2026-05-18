@@ -53,6 +53,14 @@ fn wire_header_fullscreen_toggle(
             return;
         }
         if rec_hdr.is_visible() && !win_hdr.is_fullscreen() {
+            if win_hdr.is_maximized() {
+                let prev = lu_hdr.borrow();
+                win_hdr.unmaximize();
+                win_hdr.set_default_size(prev.0, prev.1);
+            } else {
+                *lu_hdr.borrow_mut() = win_normal_size(&win_hdr);
+                win_hdr.maximize();
+            }
             return;
         }
         toggle_fullscreen(&win_hdr, &fr_hdr, &lu_hdr, &skip_hdr, fb_hdr.as_ref());
