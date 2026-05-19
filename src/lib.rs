@@ -29,6 +29,7 @@ mod sub_prefs;
 mod sub_track_abbr;
 mod sub_tracks;
 mod theme;
+mod window_present;
 mod time;
 mod track_label_match;
 #[cfg(target_os = "macos")]

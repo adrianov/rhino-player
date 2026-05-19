@@ -65,7 +65,6 @@ fn wire_final_actions(ctx: FinalActionCtx) {
     );
     wire_final_platform_accels(&ctx);
     wire_final_idle_chrome_resize(&ctx);
-    ctx.win.present();
 }
 
 include!("final_actions_quit_close.rs");
