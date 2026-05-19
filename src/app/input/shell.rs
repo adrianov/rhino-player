@@ -1,12 +1,19 @@
 include!("shell_focus_return_repaint.rs");
 
-fn w_in_set_shell(ctx: &WindowInputCtx) {
-    let s = &ctx.shell;
+/// Packs toolbar + video stack into the application window (safe to call once).
+fn attach_window_shell(s: &WindowInputShell) {
     s.root.add_top_bar(&s.header);
     s.root.set_content(Some(&s.video_handle));
     s.root.add_bottom_bar(&s.bottom);
     s.outer_ovl.set_child(Some(&s.root));
     s.win.set_content(Some(&s.outer_ovl));
+}
+
+fn w_in_set_shell(ctx: &WindowInputCtx) {
+    if ctx.shell.win.content().is_some() {
+        return;
+    }
+    attach_window_shell(&ctx.shell);
 }
 
 fn refresh_fs_wall_clock(lbl: &gtk::Label) {

@@ -51,8 +51,6 @@ struct GlRealizeOkRefs {
 fn gl_realize_bundle_ready(
     area: &gtk::GLArea,
     r: &GlRealizeOkRefs,
-    file_boot_rz: &Rc<RefCell<Option<PathBuf>>>,
-    skip_preload_followups: bool,
     b: MpvBundle,
     auto_off: bool,
 ) {
@@ -71,20 +69,6 @@ fn gl_realize_bundle_ready(
     // the native CAOpenGLLayer so the grid is not covered by the always-on-top video.
     if let Some(pl) = r.p_realize.borrow().as_ref() {
         pl.watch_overlay(&r.recent_rz);
-    }
-    let preload_auto_off =
-        preload_first_continue(&r.p_realize, &r.vp_realize, &r.recent_rz, &r.last_rz);
-    if preload_auto_off == Some(true) {
-        sync_smooth_60_to_off(&r.app_realize);
-    }
-    if preload_auto_off.is_some() && !skip_preload_followups {
-        schedule_preload_pause(r.p_realize.clone(), r.recent_rz.clone());
-        schedule_preload_reapply_60(
-            r.p_realize.clone(),
-            r.reapply_rz.clone(),
-            r.recent_rz.clone(),
-            r.app_realize.clone(),
-        );
     }
     drain_recent_backfill(&r.pending_rz);
     sync_close_video_action(
@@ -112,29 +96,6 @@ fn gl_realize_bundle_ready(
         let _ = bundle.mpv.disable_deprecated_events();
     }
     trigger_transport_install();
-    if let Some(p) = file_boot_rz.replace(None) {
-        let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
-            video_pref: Rc::clone(&r.vp_realize),
-            last_path: r.last_rz.clone(),
-            on_start: Some(Rc::clone(&r.on_vid_rz)),
-            win_aspect: Rc::clone(&r.wa_st),
-            on_loaded: Some(Rc::clone(&r.ol_rz)),
-            play_on_start: false,
-            reset_speed_to_normal: false,
-            hdr_title_mirror: r.hdr_title_mirror.clone(),
-        });
-        o.playback_focus = Some(Rc::clone(&r.playback_focus));
-        if let Err(e) = try_load(
-            &p,
-            &r.p_realize,
-            &r.win_rz,
-            &r.gl_rz,
-            &r.recent_rz,
-            &o,
-        ) {
-            eprintln!("[rhino] try_load (startup): {e}");
-        }
-    }
 }
 
 include!("realize_gl_handlers.rs");
@@ -239,45 +200,5 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
             )
         }
     ));
-}
-
-fn schedule_preload_pause(
-    player: Rc<RefCell<Option<MpvBundle>>>,
-    recent: gtk::Box,
-) {
-    let _ = glib::timeout_add_local(Duration::from_millis(100), move || {
-        if recent.is_visible() {
-            if let Some(b) = player.borrow().as_ref() {
-                let _ = b.mpv.set_property("pause", true);
-            }
-        }
-        glib::ControlFlow::Break
-    });
-}
-
-fn schedule_preload_reapply_60(
-    player: Rc<RefCell<Option<MpvBundle>>>,
-    reapply: VideoReapply60,
-    recent: gtk::Box,
-    app: adw::Application,
-) {
-    let _ = glib::idle_add_local_once(move || {
-        if !recent.is_visible() {
-            return;
-        }
-        if let Some(b) = player.borrow().as_ref() {
-            let mut vp = reapply.vp.borrow_mut();
-            if !vp.smooth_60 {
-                return;
-            }
-            // Preload path: grid visible and paused — `apply_mpv_video` will not attach `vf` until
-            // `pause=no`; play from a card goes through `sync_smooth_vf_on_pause_transition`.
-            let off = video_pref::apply_mpv_video(b, &mut vp, None).smooth_auto_off
-                || video_pref::reapply_60_if_still_missing(b, &mut vp).smooth_auto_off;
-            if off {
-                sync_smooth_60_to_off(&app);
-            }
-        }
-    });
 }
 
