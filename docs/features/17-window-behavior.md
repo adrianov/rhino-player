@@ -14,9 +14,10 @@ mpv_props: [pause, path, dwidth, dheight, fullscreen]
 - On opening a landscape file, the window resizes to match its aspect.
 - When another application had foreground focus, opening a media title raises the viewer.
 - Fullscreen viewing still allows reading **local wall-clock time** without leaving fullscreen.
+- On a multi-display setup, dim every display except the one showing the viewer.
 
 ## Description
-The shell uses `adw::ToolbarView` with content extending to top and bottom edges, so chrome overlays the GLArea instead of shrinking it. A `GtkWindowHandle` wraps the main content for primary-drag window move (more reliable than manual GestureDrag on GL/Wayland). Fullscreen and maximize are wired to GTK / Wayland conventions; `gtk::Application::inhibit` with IDLE+SUSPEND prevents dim and sleep while a real file plays and the recent grid is hidden. Pointer hides on the GLArea after 3 seconds without motion. On opening a new file, the window is presented so it can take focus when another app was foreground; the window resizes to match landscape aspect (target width 960 px, max height 900 px); portrait, square, or unknown sizes leave the window alone. While fullscreen, the header can show **local time** beside the playback menus so the system clock stays glanceable when chrome is visible.
+The shell uses `adw::ToolbarView` with content extending to top and bottom edges, so chrome overlays the GLArea instead of shrinking it. A `GtkWindowHandle` wraps the main content for primary-drag window move (more reliable than manual GestureDrag on GL/Wayland). Fullscreen and maximize are wired to GTK / Wayland conventions; `gtk::Application::inhibit` with IDLE+SUSPEND prevents dim and sleep while a real file plays and the recent grid is hidden. Pointer hides on the GLArea after 3 seconds without motion. On opening a new file, the window is presented so it can take focus when another app was foreground; the window resizes to match landscape aspect (target width 960 px, max height 900 px); portrait, square, or unknown sizes leave the window alone. While fullscreen, the header can show **local time** beside the playback menus so the system clock stays glanceable when chrome is visible. When at least two displays are connected, the header may offer a toggle that blacks out every display except the one hosting the viewer; the choice persists across sessions.
 
 **Post-resize aspect lock** (snapping the window to current display video aspect after the user finishes resizing) and **one-click switching between header `MenuButton` popovers** were attempted but did not validate in manual testing in the current pass. They are documented as not shipped.
 
@@ -107,6 +108,53 @@ Feature: Window, fullscreen, and presentation
     When the user clicks another header MenuButton
     Then a single click switching to the next popover is not yet reliable in manual testing
     And users may need a second click in this pass
+
+  Scenario: Blackout toggle hidden on a single display
+    Given the platform reports one connected display
+    When the header chrome is visible
+    Then the blackout-other-displays control is not shown
+
+  Scenario: Blackout toggle visible with multiple displays
+    Given the platform reports at least two connected displays
+    When the header chrome is visible
+    Then the blackout-other-displays control appears in the header toolbar
+    And its styling matches the other header menu controls
+
+  Scenario: Enable blackout while playing
+    Given at least two displays are connected
+    And a media title is loaded and playing
+    And the viewer window is the active window on one display
+    When the user turns on blackout-other-displays
+    Then every other connected display shows a solid black surface above normal content
+    And the display showing the viewer remains unchanged
+
+  Scenario: Blackout does not apply while paused
+    Given blackout-other-displays is on
+    And playback is paused
+    When the viewer window is the active window
+    Then the black surfaces on other displays are not shown
+
+  Scenario: Disable blackout while active
+    Given blackout-other-displays is on and playback is playing
+    When the user turns off blackout-other-displays
+    Then the black surfaces on other displays are removed
+
+  Scenario: Blackout clears when the viewer loses focus
+    Given blackout-other-displays is on and playback is playing
+    When the viewer window is no longer the active window
+    Then the black surfaces on other displays are removed
+
+  Scenario: Blackout follows the viewer across displays
+    Given blackout-other-displays is on and playback is playing
+    When the viewer window moves to another connected display
+    Then the black surfaces are recalculated so the new host display stays visible
+    And every other connected display is blacked out
+
+  Scenario: Blackout preference persists
+    Given the user enabled blackout-other-displays
+    When the application restarts
+    Then blackout-other-displays remains enabled
+    And it applies again the next time playback is active with multiple displays connected
 ```
 
 ## Notes
@@ -122,4 +170,5 @@ Feature: Window, fullscreen, and presentation
 - **Startup shell:** Continue strip uses `recent_view::fill_continue_strip` (SQLite durations + cached JPEG thumbs only) **before** `present`. libmpv init is queued from `GLArea` realize on the next idle; transport / seek-preview / input wiring runs on the next idle after that (`deferred_after_present.rs`; seek preview only when the preference is on). Warm preload of the first continue file runs **after** transport observers are installed (`run_continue_warm_preload`), debounced by `WARM_PRELOAD_DELAY` so the shell paints first; `recent_visible` is seeded from the continue-strip intent (`want_recent`), not `Widget::is_visible()` (false until the window is mapped). While the grid is visible, Smooth / VapourSynth resync and the resume seek are deferred until reveal/unpause. Resume is applied on `FileLoaded` only (never before the demuxer is ready).
 - **macOS header popovers stuck open:** gdk-macos often does not dismiss non-modal `Popover`s on outside press or same-`MenuButton` toggle (Escape still works). `chrome_macos_header_popovers.rs`: capture-phase click on `ToolbarView` calls `popdown` + `set_active(false)` when the pick target is outside the open menu/popover; capture on each header `MenuButton` claims the sequence and closes when already active.
 - **macOS exit fullscreen:** after **`fullscreen_timing`** settlement, **`GtkWindow::unfullscreen`** runs from **`dispatch_async_f` onto libdispatch’s main queue**, chained across several hops (`dispatch_get_main_queue`), **outside** nested **`g_main_context_dispatch`** / zero-duration GLib timeouts — those paths still reproduced `_NSExitFullScreenTransitionController` recursion (~74k frames: `_syncToolbarPosition` ↔ `_updateTitlebarContainerViewFrameIfNecessary`) and Rust stack overflow on macOS 26.x. Symbols are resolved at runtime (**`dlsym`**) so linking does not depend on Xcode **`-ldispatch`** stubs under **`-nodefaultlibs`**. The widget pointer is **`g_object_ref`**’d for the async tail and **`g_object_unref`**’d after the call; **`-toggleFullScreen:` is not used.** **Restore size:** GDK often reports `is_maximized` false while native fullscreen is active; the deferred maximize helper must **not** overwrite `fs_restore` once toggle already saved pre-maximize `(w, h)`, or exit fullscreen restores screen-sized dimensions instead of the original window.
+- **Multi-monitor blackout (macOS):** `screen_blackout` — borderless `NSWindow` per non-viewer `NSScreen` at `NSMainMenuWindowLevel + 1`, black background, `orderFront` relative to the viewer's native window. Active when the preference is on, the viewer is the active window, and playback is running (same gate as idle inhibit: loaded path, not paused, continue grid hidden); cleared on pause, deactivation, browse overlay, or preference off. Header `MenuButton` (`rp-blackout-mbtn`, bundled `video-display-symbolic`, readout **On** / **Off**); hidden when `NSScreen::screens().len() < 2`. SQLite key `black_out_screens`. `NSApplicationDidChangeScreenParametersNotification` and `NSWindowDidChangeScreenNotification` refresh overlay geometry; transport pause / tick resync overlays. Linux: control hidden (no binding yet).
 - **Known macOS glitch (unresolved):** after repeated zoom/maximize/fullscreen or similar shell geometry churn, the bottom toolbar chrome can transiently composite incorrectly so **video briefly shows through what should be an opaque toolbar** (gdk-macos’s layer above the native `CAOpenGLLayer`). Extra maximize/resize repaint scheduling was removed as unreliable; **`invalidate_window_layers`** remains for Space/cross-fade staleness — not sufficient for every stuck compositing case**. No stable in-tree workaround in this pass.

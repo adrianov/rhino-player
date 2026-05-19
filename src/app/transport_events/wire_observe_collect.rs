@@ -111,6 +111,7 @@ struct TransportCtx {
     tick: Rc<RefCell<Option<glib::SourceId>>>,
     cache: Rc<RefCell<TransportCache>>,
     seek_chapters: Rc<RefCell<Vec<(f64, String)>>>,
+    blackout: Rc<crate::screen_blackout::BlackoutSync>,
 }
 
 /// All wiring inputs for [wire_transport_events]. Grouped to keep the call site narrow and
@@ -140,6 +141,7 @@ struct TransportSetup {
     playback_focus: Rc<Cell<bool>>,
     widgets: TransportWidgets,
     seek_chapters: Rc<RefCell<Vec<(f64, String)>>>,
+    blackout: Rc<crate::screen_blackout::BlackoutSync>,
 }
 
 fn wire_transport_events(s: TransportSetup) {
@@ -176,6 +178,7 @@ fn wire_transport_events(s: TransportSetup) {
         tick: Rc::new(RefCell::new(None)),
         cache: Rc::new(RefCell::new(TransportCache::default())),
         seek_chapters: s.seek_chapters.clone(),
+        blackout: s.blackout.clone(),
     });
 
     let ctx_drain = Rc::clone(&ctx);

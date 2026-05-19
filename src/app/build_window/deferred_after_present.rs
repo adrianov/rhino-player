@@ -228,6 +228,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         bar_show: bar_show.clone(),
         hdr_title_mirror: hdr_title_mirror.clone(),
         seek_chapters: Rc::clone(&seek_chapters),
+        blackout: Rc::clone(&w.blackout_sync),
         widgets: TransportWidgets {
             play_pause: w.play_pause.clone(),
             seek: w.seek.clone(),

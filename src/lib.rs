@@ -22,6 +22,7 @@ mod mpv_embed;
 mod paths;
 mod playback_speed;
 mod recent_view;
+mod screen_blackout;
 pub mod sched;
 mod seek_bar_preview;
 mod sibling_advance;

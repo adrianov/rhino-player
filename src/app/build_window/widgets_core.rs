@@ -109,6 +109,7 @@ fn build_toolbar_header_shell(
     sub_menu: &gtk::MenuButton,
     smooth_btn: &gtk::Button,
     speed_mbtn: &gtk::MenuButton,
+    blackout_btn: &gtk::Button,
 ) -> ToolbarHeaderShell {
     let fs_clock = gtk::Label::new(None);
     fs_clock.add_css_class("rp-fs-clock");
@@ -126,6 +127,7 @@ fn build_toolbar_header_shell(
     header.pack_end(sub_menu);
     header.pack_end(smooth_btn);
     header.pack_end(speed_mbtn);
+    header.pack_end(blackout_btn);
     header.pack_end(&fs_clock);
 
     #[cfg(target_os = "macos")]

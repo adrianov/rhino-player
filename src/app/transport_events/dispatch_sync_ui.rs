@@ -102,6 +102,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             ctx.cache.borrow_mut().pause = p;
             refresh_play_button(ctx);
             sync_smooth_vf_on_pause_transition(ctx, p);
+            ctx.blackout.sync();
         }
         TransportEv::Duration(d) => {
             let d = if d.is_finite() { d } else { 0.0 };
@@ -141,6 +142,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             schedule_transport_resync_on_idle(ctx);
             schedule_smooth_60_resync_idle(ctx);
             sync_seek_chapters(ctx);
+            ctx.blackout.sync();
         }
         TransportEv::VideoReconfig => {
             sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);

@@ -168,6 +168,38 @@ pub fn save_seek_bar_preview(on: bool) {
     });
 }
 
+const K_BLACK_OUT_SCREENS: &str = "black_out_screens";
+
+/// [docs/features/17-window-behavior.md] — multi-monitor blackout; default off.
+pub fn load_black_out_screens() -> bool {
+    with_conn(|c| {
+        let o = c
+            .query_row(
+                "SELECT v FROM settings WHERE k = ?1",
+                params![K_BLACK_OUT_SCREENS],
+                |row| {
+                    let s: String = row.get(0)?;
+                    Ok(s)
+                },
+            )
+            .optional()?;
+        Ok(o.map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+            .unwrap_or(false))
+    })
+    .unwrap_or(false)
+}
+
+pub fn save_black_out_screens(on: bool) {
+    let _ = with_conn(|c| {
+        c.execute(
+            "INSERT INTO settings (k, v) VALUES (?1, ?2)
+             ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+            params![K_BLACK_OUT_SCREENS, if on { "1" } else { "0" }],
+        )?;
+        Ok(())
+    });
+}
+
 pub fn save_audio(volume: f64, muted: bool) {
     if !volume.is_finite() {
         return;

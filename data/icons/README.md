@@ -3,7 +3,8 @@
 - `hicolor/scalable/actions/speedometer-symbolic.svg` — bundled symbolic for the header **playback speed** control (`speedometer-symbolic`). Source: [GNOME Decibels](https://gitlab.gnome.org/GNOME/decibels) `data/icons/scalable/actions/speedometer-symbolic.svg` (GPL-3.0-or-later, identical project license).
 - `hicolor/scalable/actions/camera-video-symbolic.svg` — bundled symbolic for the header **Smooth Video** control and Preferences menu (`camera-video-symbolic`). Rhino-drawn monochrome asset (same project license as the repo).
 - `hicolor/scalable/actions/media-view-subtitles-symbolic.svg` — bundled symbolic for the header **subtitles** menu (`media-view-subtitles-symbolic`). Source: [GNOME adwaita-icon-theme](https://gitlab.gnome.org/GNOME/adwaita-icon-theme) `Adwaita/symbolic/actions/media-view-subtitles-symbolic.svg` (LGPL-3.0 / CC-BY-SA-3.0, both compatible).
-- Both names are otherwise unavailable on platforms whose icon theme is incomplete (e.g. macOS + Homebrew GTK ship an empty `hicolor`); `src/icons.rs` prepends this tree so GTK resolves them.
+- `hicolor/scalable/actions/video-display-symbolic.svg` — bundled symbolic for the header **black out other displays** control (`video-display-symbolic`). Rhino-drawn dual-monitor asset (same project license as the repo).
+- All names are otherwise unavailable on platforms whose icon theme is incomplete (e.g. macOS + Homebrew GTK ship an empty `hicolor`); `src/icons.rs` prepends this tree so GTK resolves them.
 
 ## Layout
 

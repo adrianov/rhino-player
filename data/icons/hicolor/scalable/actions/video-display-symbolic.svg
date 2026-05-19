@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Rhino Player: bundled symbolic for header blackout-other-displays (`video-display-symbolic`). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+    <path fill="currentColor" d="M0.5,2 h6.5 v7.5 h-6.5 z
+                                 M2.75,9.5 h1 v1 h-1 z
+                                 M1.25,10.5 h4 v1 h-4 z
+                                 M9,2 h6.5 v7.5 h-6.5 z
+                                 M11.25,9.5 h1 v1 h-1 z
+                                 M9.75,10.5 h4 v1 h-4 z"/>
+</svg>

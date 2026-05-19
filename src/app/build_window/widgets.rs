@@ -51,6 +51,8 @@ struct WindowWidgets {
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     /// Bottom-bar `app.close-video`; tooltip from [sync_close_video_action].
     close_video_btn: gtk::Button,
+    blackout_menu: gtk::Button,
+    blackout_sync: Rc<crate::screen_blackout::BlackoutSync>,
 }
 
 fn build_widgets(
@@ -83,6 +85,12 @@ fn build_widgets(
         build_speed_menu(player, &gl_area, video_pref, app);
 
     let SmoothToolbarWidgets { smooth_btn, smooth_status } = build_smooth_video_toolbar(app);
+    let (recent_scrl, flow_recent, recent_spacers, undo_bar) = recent_view::new_scroll();
+    recent_scrl.set_vexpand(true);
+    recent_scrl.set_hexpand(true);
+    recent_scrl.set_halign(gtk::Align::Fill);
+    recent_scrl.set_valign(gtk::Align::Fill);
+
     let menu_btn = {
         #[cfg(not(target_os = "macos"))]
         {
@@ -94,12 +102,22 @@ fn build_widgets(
         }
     };
 
+    let (blackout_menu, blackout_sync) =
+        crate::screen_blackout::build_blackout_header(&win, player, &recent_scrl);
+
     let ToolbarHeaderShell {
         root,
         header,
         fs_clock,
         hdr_title_mirror,
-    } = build_toolbar_header_shell(&menu_btn, &vol_menu, &sub_menu, &smooth_btn, &speed_mbtn);
+    } = build_toolbar_header_shell(
+        &menu_btn,
+        &vol_menu,
+        &sub_menu,
+        &smooth_btn,
+        &speed_mbtn,
+        &blackout_menu,
+    );
 
     let SeekTimeLabels {
         seek_adj,
@@ -120,12 +138,6 @@ fn build_widgets(
     let video_handle = gtk::WindowHandle::new();
     video_handle.set_child(Some(&ovl));
     let outer_ovl = gtk::Overlay::new();
-
-    let (recent_scrl, flow_recent, recent_spacers, undo_bar) = recent_view::new_scroll();
-    recent_scrl.set_vexpand(true);
-    recent_scrl.set_hexpand(true);
-    recent_scrl.set_halign(gtk::Align::Fill);
-    recent_scrl.set_valign(gtk::Align::Fill);
     ovl.add_overlay(&recent_scrl);
 
     WindowWidgets {
@@ -146,6 +158,8 @@ fn build_widgets(
         fs_clock,
         hdr_title_mirror,
         close_video_btn,
+        blackout_menu,
+        blackout_sync,
     }
 }
 

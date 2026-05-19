@@ -23,6 +23,12 @@ const APP_CSS: &str = r#"
             min-width: 26px;
             padding: 2px;
         }
+        .rpb-header menubutton.flat image,
+        .rpb-header button.rp-smooth-mbtn.flat image,
+        .rpb-header button.rp-blackout-mbtn.flat image {
+            color: #eeeeec;
+            -gtk-icon-style: symbolic;
+        }
         menubutton.rp-speed-mbtn.flat > button {
             min-height: 26px;
             min-width: 0;
@@ -67,6 +73,26 @@ const APP_CSS: &str = r#"
             border-spacing: 0;
         }
         button.rp-smooth-mbtn.flat label.rp-smooth-readout {
+            color: #9a9996;
+            font-feature-settings: "tnum";
+            font-size: 0.75em;
+            padding: 0;
+            margin: 0;
+            min-width: 0;
+            opacity: 0.92;
+        }
+        button.rp-blackout-mbtn.flat {
+            min-height: 26px;
+            min-width: 0;
+            padding-left: 4px;
+            padding-right: 4px;
+        }
+        button.rp-blackout-mbtn.flat box.rp-blackout-face {
+            padding: 0;
+            margin: 0;
+            border-spacing: 0;
+        }
+        button.rp-blackout-mbtn.flat label.rp-blackout-readout {
             color: #9a9996;
             font-feature-settings: "tnum";
             font-size: 0.75em;
