@@ -141,6 +141,10 @@ const APP_CSS: &str = r#"
         scale.rp-seek { margin: 0 2px; }
         scale.rp-vol { margin: 0; }
         scale.rp-vol > trough { min-height: 4px; }
+        scale.rp-vol slider {
+            min-width: 16px;
+            min-height: 16px;
+        }
         /* Smaller thumb than default libadwaita touch slab so trough clicks succeed for short seeks. */
         scale.rp-seek slider {
             min-width: 16px;
@@ -278,5 +282,8 @@ pub fn apply() {
     // Enter / menu use `toggle_fullscreen` only; disabling GDK's built-in action keeps parity.
     if let Some(settings) = gtk::Settings::default() {
         settings.set_gtk_titlebar_double_click(Some("none"));
+        // GtkScale / GtkRange: primary click on trough jumps the thumb under the pointer and
+        // keeps dragging until release (macOS Homebrew GTK often defaults this to false).
+        settings.set_gtk_primary_button_warps_slider(true);
     }
 }

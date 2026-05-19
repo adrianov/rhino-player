@@ -56,6 +56,6 @@ Feature: Volume, mute, and persistence
 ```
 
 ## Notes
-- The scale uses `draw_value=false`; level is read from the slider and the header icon (muted / low / medium / high).
+- The scale uses `draw_value=false`; level is read from the slider and the header icon (muted / low / medium / high). Trough click + drag uses stock GtkRange behavior via `gtk-primary-button-warps-slider` in `theme::apply_theme` (Homebrew macOS often leaves this off by default).
 - Up / Down keys nudge volume by 5% (clamped); `m` toggles mute (see [13-input-shortcuts](13-input-shortcuts.md)).
 - Persistence runs before `commit_quit` so values reflect real playback state.
