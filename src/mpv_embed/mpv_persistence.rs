@@ -64,6 +64,13 @@ pub fn load_file_path(&self, path: &Path, clear_outgoing_resume: bool) -> Result
 /// Uses **`absolute+exact`** so the demuxer lands on the saved time (keyframe-only seeks can
 /// sit at 0s briefly on load and fight the continue grid).
 pub fn apply_pending_resume(&self) {
+    if self.pending_resume.get().is_none() {
+        return;
+    }
+    // `loadfile` is async; seeking before the demuxer is ready drops the stash and leaves time-pos at 0.
+    if crate::media_probe::local_file_from_mpv(&self.mpv).is_none() {
+        return;
+    }
     let Some(t) = self.pending_resume.replace(None) else {
         return;
     };

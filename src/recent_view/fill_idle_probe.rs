@@ -1,6 +1,5 @@
-/// Probes each path in an idle; [card_data_list] is DB-only (no libmpv) on the main thread, then
-/// [schedule_backfill] starts missing-cache work when the owner decides it will not compete with startup.
-pub fn fill_idle(
+/// DB-only cards on the main thread, then thumb backfill on the next idle (no libmpv).
+pub fn fill_continue_strip(
     row: &gtk::Box,
     paths: Vec<std::path::PathBuf>,
     on_open: RcPathFn,
@@ -9,16 +8,9 @@ pub fn fill_idle(
     backfill: Rc<RefCell<Option<Rc<RecentContext>>>>,
     schedule_backfill: BackfillFn,
 ) {
-    let row = row.clone();
-    let o = on_open;
-    let r = on_remove;
-    let t = on_trash;
-    let _ = glib::idle_add_local(move || {
-        let n = ensure_recent_backfill(&backfill, &row, o.clone(), r.clone(), t.clone());
-        let v: Vec<CardData> = card_data_list(&paths);
-        fill_row(&row, v, o.clone(), r.clone(), t.clone());
-        let paths_t = paths.clone();
-        schedule_backfill(n, paths_t);
-        glib::ControlFlow::Break
-    });
+    let n = ensure_recent_backfill(&backfill, row, on_open.clone(), on_remove.clone(), on_trash.clone());
+    let v: Vec<CardData> = card_data_list(&paths);
+    fill_row(row, v, on_open, on_remove, on_trash);
+    glib::idle_add_local_once(move || schedule_backfill(n, paths));
 }
+

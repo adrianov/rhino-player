@@ -20,6 +20,10 @@ fn sync_media_decode_row_for_me_budget(player: &Rc<RefCell<Option<MpvBundle>>>) 
 }
 
 fn schedule_smooth_60_resync_idle(ctx: &Rc<TransportCtx>) {
+    // Warm preload behind the continue grid: defer VapourSynth until reveal/unpause.
+    if ctx.recent_visible.get() {
+        return;
+    }
     sync_media_decode_row_for_me_budget(&ctx.player);
     if let Some(id) = ctx.smooth_60_resync_debounce.borrow_mut().take() {
         id.remove();
@@ -45,6 +49,14 @@ fn with_bundle(player: &Rc<RefCell<Option<MpvBundle>>>, f: impl FnOnce(&MpvBundl
             f(b);
         }
     }
+}
+
+fn apply_file_loaded_resume_and_audio(player: &Rc<RefCell<Option<MpvBundle>>>) {
+    with_bundle(player, |b| {
+        b.apply_pending_resume();
+        audio_tracks::restore_saved_audio(&b.mpv);
+        audio_tracks::ensure_playable_audio(&b.mpv);
+    });
 }
 
 fn has_open_path(mpv: &Mpv) -> bool {
@@ -112,12 +124,16 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             // New file: apply the SQLite-driven resume, restore the saved audio track *before*
             // any unpause so mpv does not play the default `aid` for a fraction of a second and
             // then switch (audio path re-open caused lip-sync drift on continue-grid → reopen).
-            // Reset the one-shot EOF guard and let `transport_tick` pick up state.
-            with_bundle(&ctx.player, |b| {
-                b.apply_pending_resume();
-                audio_tracks::restore_saved_audio(&b.mpv);
-                audio_tracks::ensure_playable_audio(&b.mpv);
-            });
+            // Warm preload: defer the seek to the next idle so the continue strip stays responsive.
+            if ctx.recent_visible.get() {
+                let player = Rc::clone(&ctx.player);
+                glib::idle_add_local_once(move || {
+                    apply_file_loaded_resume_and_audio(&player);
+                    transport_drain_after_loadfile();
+                });
+            } else {
+                apply_file_loaded_resume_and_audio(&ctx.player);
+            }
             ctx.eof.sibling_seof.done.set(false);
             sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);
             refresh_sibling_nav(ctx);

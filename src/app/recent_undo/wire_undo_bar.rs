@@ -228,7 +228,7 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
 
     if want_recent {
         let paths5: Vec<PathBuf> = history::load().into_iter().take(5).collect();
-        recent_view::fill_idle(
+        recent_view::fill_continue_strip(
             &flow_recent,
             paths5,
             on_open.clone(),
