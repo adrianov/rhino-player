@@ -55,7 +55,10 @@ fn build_window(
     let mpv_teardown_after_draw = Rc::new(Cell::new(false));
 
     #[cfg(target_os = "macos")]
-    header_menubtns_switch(&[w.speed_mbtn.clone(), w.sub_menu.clone(), w.vol_menu.clone()]);
+    wire_macos_header_menu_cluster(
+        &w.root,
+        &[w.speed_mbtn.clone(), w.sub_menu.clone(), w.vol_menu.clone()],
+    );
     #[cfg(not(target_os = "macos"))]
     header_menubtns_switch(&[
         w.speed_mbtn.clone(), w.sub_menu.clone(), w.vol_menu.clone(), w.menu_btn.clone(),

@@ -1,5 +1,8 @@
 include!("chrome_fs_transition_gate.rs");
 include!("chrome_macos_unfullscreen_defer.rs");
+#[cfg(target_os = "macos")]
+include!("chrome_macos_header_popovers.rs");
+include!("chrome_header_menubtns.rs");
 
 /// Refs shared by menu / gesture fullscreen toggles (one bundle keeps wiring arity small).
 struct FullscreenToggleRefs {
@@ -147,41 +150,6 @@ fn header_popover_non_modal(pop: &impl IsA<gtk::Popover>) {
         return;
     }
     pop.set_property("modal", false);
-}
-
-/// No built-in “menu button group.” Before the [gtk::MenuButton] default: close other menus,
-/// then an idle [set_active] if the first press did not open the target (e.g. lost to popover stack).
-fn ensure_active_idle(btn: gtk::MenuButton) {
-    glib::idle_add_local(move || {
-        if !btn.is_active() { btn.set_active(true); }
-        glib::ControlFlow::Break
-    });
-}
-
-fn header_menubtns_switch(menus: &[gtk::MenuButton]) {
-    for (i, menu) in menus.iter().enumerate() {
-        let g = gtk::GestureClick::new();
-        g.set_button(gtk::gdk::BUTTON_PRIMARY);
-        g.set_propagation_limit(gtk::PropagationLimit::None);
-        g.set_propagation_phase(gtk::PropagationPhase::Capture);
-        let this = menu.clone();
-        let sibs: Vec<gtk::MenuButton> = menus
-            .iter()
-            .enumerate()
-            .filter(|&(j, _)| j != i)
-            .map(|(_, b)| b.clone())
-            .collect();
-        let c = this.clone();
-        g.connect_pressed(move |_, n, _, _| {
-            if n != 1 { return; }
-            let had_other = sibs.iter().any(|b| b.is_active());
-            for b in &sibs { b.set_active(false); }
-            if had_other && !c.is_active() {
-                ensure_active_idle(c.clone());
-            }
-        });
-        this.add_controller(g);
-    }
 }
 
 /// Display (or stream) size in pixels from mpv, if known.
