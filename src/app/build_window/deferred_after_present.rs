@@ -172,7 +172,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
 
     #[cfg(target_os = "linux")]
     wire_mpris_linux_after_seek(MprisLinuxWireCtx {
-        app: app.clone(),
+        app: &app,
         win: w.win.clone(),
         gl_area: w.gl_area.clone(),
         recent_scrl: w.recent_scrl.clone(),
