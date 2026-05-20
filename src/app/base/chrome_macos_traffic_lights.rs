@@ -12,9 +12,7 @@ thread_local! {
 #[cfg(target_os = "macos")]
 fn macos_traffic_cancel_poll() {
     MACOS_TRAFFIC_POLL.with(|s| {
-        if let Some(id) = s.borrow_mut().take() {
-            id.remove();
-        }
+        drop_glib_source(s);
     });
     MACOS_TRAFFIC_HEIGHT_SNAP.with(|h| *h.borrow_mut() = None);
 }

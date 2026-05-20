@@ -4,8 +4,8 @@
 //! macOS: set [`NSWindow`] frame on the screen under the mouse **before** `present` so the first
 //! frame is not drawn on the primary display (gdk-macos would otherwise show, then jump on idle).
 
-use glib::prelude::Cast;
-use gtk::prelude::{GtkApplicationExt, GtkWindowExt};
+use glib::prelude::{Cast, ObjectExt};
+use gtk::prelude::{GtkApplicationExt, GtkWindowExt, WidgetExt};
 
 /// Install platform hooks (macOS: re-place when the app becomes active).
 pub fn wire_activation_present(_app: &adw::Application) {

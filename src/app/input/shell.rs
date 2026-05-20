@@ -21,9 +21,7 @@ fn refresh_fs_wall_clock(lbl: &gtk::Label) {
 }
 
 fn stop_fs_clock_tick(slot: &Rc<RefCell<Option<glib::SourceId>>>) {
-    if let Some(id) = slot.borrow_mut().take() {
-        id.remove();
-    }
+    drop_glib_source(slot.as_ref());
 }
 
 fn fs_clock_timer_step(
@@ -126,6 +124,7 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
         let p_fs = ctx.player.clone();
         let b = ctx.bar_show.clone();
         let nav = ctx.nav_t.clone();
+        let cur_fs = ctx.cur_t.clone();
         let sq = ctx.motion_squelch.clone();
         let lcap = ctx.last_cap_xy.clone();
         let lgl = ctx.last_gl_xy.clone();
@@ -142,9 +141,8 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
             #[cfg(target_os = "macos")]
             fs_leave_gen.set(fs_leave_gen.get().wrapping_add(1));
 
-            if let Some(id) = nav.borrow_mut().take() {
-                id.remove();
-            }
+            drop_glib_source(nav.as_ref());
+            drop_glib_source(cur_fs.as_ref());
             sq.set(None);
             lcap.set(None);
             lgl.set(None);

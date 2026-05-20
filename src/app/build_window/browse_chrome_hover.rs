@@ -26,9 +26,7 @@ fn rc_on_browse_chrome(parts: BrowseChromeRefs) -> Rc<dyn Fn()> {
         header,
     } = parts;
     Rc::new(move || {
-        if let Some(id) = nav_t.borrow_mut().take() {
-            id.remove();
-        }
+        drop_glib_source(nav_t.as_ref());
         bar_show.set(true);
         apply_chrome(ChromeApplyParts {
             hdr_csd_baseline: &hdr_csd,

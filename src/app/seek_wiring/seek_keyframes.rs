@@ -18,9 +18,7 @@ struct SeekKeyframeParams<'a> {
 }
 
 fn cancel_smooth_seek_debounce(slot: &Rc<RefCell<Option<glib::SourceId>>>) {
-    if let Some(id) = slot.borrow_mut().take() {
-        id.remove();
-    }
+    drop_glib_source(slot.as_ref());
 }
 
 fn schedule_smooth_vf_only_tail(slot: &Rc<RefCell<Option<glib::SourceId>>>, gl: gtk::GLArea) {

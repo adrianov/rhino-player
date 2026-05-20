@@ -9,6 +9,7 @@ mod continue_undo;
 mod db;
 mod fullscreen_timing;
 mod glib_log_filter;
+mod glib_source_drop;
 mod history;
 mod human_media_title;
 mod icons;

@@ -91,9 +91,7 @@ pub(crate) fn start_vo_pump(
     run_id: u64,
     seek_sec: f64,
 ) {
-    if let Some(s) = pump.borrow_mut().take() {
-        s.remove();
-    }
+    crate::glib_source_drop::drop_glib_source(pump.as_ref());
     let t_s = format!("{seek_sec:.3}");
     let gl2 = gl.clone();
     let pr2 = Rc::clone(preview);

@@ -128,9 +128,7 @@ fn macos_dispatch_chain_then_unfullscreen(win: &adw::ApplicationWindow) {
 #[cfg(target_os = "macos")]
 fn macos_schedule_unfullscreen(win: adw::ApplicationWindow) {
     MACOS_DEFER_UNFULLSCREEN.with(|slot| {
-        if let Some(id) = slot.borrow_mut().take() {
-            id.remove();
-        }
+        drop_glib_source(slot);
         let id = glib::timeout_add_local_once(
             crate::fullscreen_timing::TRANSITION_SETTLE,
             move || {

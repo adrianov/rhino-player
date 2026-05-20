@@ -136,12 +136,8 @@ pub fn connect(
 
             st.show_at(x);
             st.serial.set(st.serial.get().wrapping_add(1));
-            if let Some(id) = st.deb.borrow_mut().take() {
-                id.remove();
-            }
-            if let Some(id) = st.pump.borrow_mut().take() {
-                id.remove();
-            }
+            crate::glib_source_drop::drop_glib_source(st.deb.as_ref());
+            crate::glib_source_drop::drop_glib_source(st.pump.as_ref());
             schedule_preview_seek(Rc::clone(&st));
         }
     ));
@@ -151,12 +147,8 @@ pub fn connect(
         st,
         move |_| {
             st.serial.set(st.serial.get().wrapping_add(1));
-            if let Some(id) = st.deb.borrow_mut().take() {
-                id.remove();
-            }
-            if let Some(id) = st.pump.borrow_mut().take() {
-                id.remove();
-            }
+            crate::glib_source_drop::drop_glib_source(st.deb.as_ref());
+            crate::glib_source_drop::drop_glib_source(st.pump.as_ref());
             *st.last_xy.borrow_mut() = None;
             st.hide();
         }

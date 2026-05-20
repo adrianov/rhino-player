@@ -93,9 +93,7 @@ fn apply_chrome<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>) {
 include!("chrome_pointer_after_bars.rs");
 
 fn replace_timeout(s: Rc<RefCell<Option<glib::SourceId>>>, f: impl Fn() + 'static) {
-    if let Some(id) = s.borrow_mut().take() {
-        id.remove();
-    }
+    drop_glib_source(s.as_ref());
     *s.borrow_mut() = Some(glib::timeout_add_local(
         IDLE_3S,
         glib::clone!(

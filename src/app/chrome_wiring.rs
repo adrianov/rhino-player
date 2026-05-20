@@ -10,9 +10,7 @@ fn wire_menu_chrome(
         let any =
             ch.vol.is_active() || ch.sub.is_active() || ch.speed.is_active() || ch.main.is_active();
         if any {
-            if let Some(id) = ch.nav.borrow_mut().take() {
-                id.remove();
-            }
+            drop_glib_source(ch.nav.as_ref());
             if ch.bar_show.get() {
                 return;
             }

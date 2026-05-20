@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 use crate::audio_tracks;
 use crate::continue_undo::{apply as apply_bar_undo, ContinueBarUndo};
 use crate::db;
+use crate::glib_source_drop::drop_glib_source;
 use crate::format_time;
 use crate::history;
 use crate::icons;

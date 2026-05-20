@@ -11,9 +11,7 @@ fn fs_transition_note_notify_idle_clear(
     busy: &Rc<Cell<bool>>,
     settle_slot: &Rc<RefCell<Option<glib::SourceId>>>,
 ) {
-    if let Some(id) = settle_slot.borrow_mut().take() {
-        id.remove();
-    }
+    drop_glib_source(settle_slot.as_ref());
     let busy_c = Rc::clone(busy);
     let slot_c = Rc::clone(settle_slot);
     let id = glib::timeout_add_local_once(crate::fullscreen_timing::TRANSITION_SETTLE, move || {

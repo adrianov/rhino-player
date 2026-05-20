@@ -17,9 +17,7 @@ fn wire_macos_gl_cursor_while_unfocused(ctx: &WindowInputCtx) {
     ) {
         ptr.set(false);
         lgl.set(None);
-        if let Some(id) = cur.borrow_mut().take() {
-            id.remove();
-        }
+        drop_glib_source(cur.as_ref());
         show_chrome_pointer(win, gl);
     }
 
@@ -74,9 +72,7 @@ fn wire_macos_gl_cursor_while_unfocused(ctx: &WindowInputCtx) {
     }
 
     fn cancel_wake(media_wake: &Rc<RefCell<Option<glib::SourceId>>>) {
-        if let Some(id) = media_wake.borrow_mut().take() {
-            id.remove();
-        }
+        drop_glib_source(media_wake.as_ref());
     }
 
     // After we stop the 200 ms poll (no playable media), wake every few seconds to see if we
@@ -122,9 +118,7 @@ fn wire_macos_gl_cursor_while_unfocused(ctx: &WindowInputCtx) {
     let stop_poll_timer: Rc<dyn Fn()> = {
         let poll_slot = Rc::clone(&poll_slot);
         Rc::new(move || {
-            if let Some(id) = poll_slot.borrow_mut().take() {
-                id.remove();
-            }
+            drop_glib_source(poll_slot.as_ref());
         })
     };
 

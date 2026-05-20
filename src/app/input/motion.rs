@@ -178,9 +178,8 @@ fn w_in_gl_motion(ctx: &WindowInputCtx) {
         move |_| {
             ptr.set(false);
             lgl.set(None);
-            if let Some(id) = cur.borrow_mut().take() {
-                id.remove();
-            }
+            // Slot may already be cleared in [`shell::w_in_fullscreen`] before synthesized leave.
+            drop_glib_source(cur.as_ref());
             show_chrome_pointer(&win_m, &gl_c);
         }
     ));
