@@ -4,20 +4,33 @@ thread_local! {
 }
 
 /// Present fullscreen-exit on the libdispatch main queue instead of nested GLib sources.
-/// Chained zero-duration GLib timeouts still ran inside `g_main_context_dispatch` and reproduced
+/// Zero-duration GLib timeout chains still run inside `g_main_context_dispatch` and reproduced
 /// ~74k-frame AppKit recursion (`_syncToolbarPosition` ↔ `_updateTitlebarContainerViewFrameIfNecessary`)
 /// on macOS 26.x.
-///
-/// **`dispatch_get_main_queue` / `dispatch_async_f`** are resolved with **`dlsym(RTLD_DEFAULT, …)`**
-/// so the binary does not link **`libdispatch`** explicitly — Xcode 26 SDK **`ld`** often fails to
-/// satisfy **`_dispatch_get_main_queue`** from **`-ldispatch`** under **`-nodefaultlibs`**.
 #[cfg(target_os = "macos")]
 type DispatchQueueRaw = *mut std::ffi::c_void;
 
 #[cfg(target_os = "macos")]
-struct LibDispatchDyn {
+type DispatchTime = u64;
+
+#[cfg(target_os = "macos")]
+const DISPATCH_TIME_NOW: DispatchTime = 0;
+
+/// Delay before GTK `unfullscreen` when the ⌃⌘F shortcut did not exit yet.
+#[cfg(target_os = "macos")]
+const GTK_UNFULLSCREEN_FALLBACK_NS: i64 = 350_000_000;
+
+#[cfg(target_os = "macos")]
+struct LibDispatch {
     get_main_queue: unsafe extern "C" fn() -> DispatchQueueRaw,
     async_f: unsafe extern "C" fn(
+        DispatchQueueRaw,
+        *mut std::ffi::c_void,
+        unsafe extern "C" fn(*mut std::ffi::c_void),
+    ),
+    time: unsafe extern "C" fn(DispatchTime, i64) -> DispatchTime,
+    after_f: unsafe extern "C" fn(
+        DispatchTime,
         DispatchQueueRaw,
         *mut std::ffi::c_void,
         unsafe extern "C" fn(*mut std::ffi::c_void),
@@ -25,31 +38,58 @@ struct LibDispatchDyn {
 }
 
 #[cfg(target_os = "macos")]
-fn macos_libdispatch_dyn() -> Option<&'static LibDispatchDyn> {
+fn macos_libdispatch() -> Option<&'static LibDispatch> {
     use std::sync::OnceLock;
-    static D: OnceLock<Option<LibDispatchDyn>> = OnceLock::new();
-    D.get_or_init(|| unsafe {
-        let g = libc::dlsym(libc::RTLD_DEFAULT, c"dispatch_get_main_queue".as_ptr());
-        let a = libc::dlsym(libc::RTLD_DEFAULT, c"dispatch_async_f".as_ptr());
-        if g.is_null() || a.is_null() {
+    static D: OnceLock<Option<LibDispatch>> = OnceLock::new();
+    D.get_or_init(macos_load_libdispatch).as_ref()
+}
+
+#[cfg(target_os = "macos")]
+fn macos_load_libdispatch() -> Option<LibDispatch> {
+    unsafe {
+        let mut handle = libc::RTLD_DEFAULT;
+        let path = c"/usr/lib/system/libdispatch.dylib";
+        let lib = libc::dlopen(path.as_ptr(), libc::RTLD_LAZY);
+        if !lib.is_null() {
+            handle = lib;
+        }
+        let g = libc::dlsym(handle, c"dispatch_get_main_queue".as_ptr());
+        let a = libc::dlsym(handle, c"dispatch_async_f".as_ptr());
+        let t = libc::dlsym(handle, c"dispatch_time".as_ptr());
+        let f = libc::dlsym(handle, c"dispatch_after_f".as_ptr());
+        if g.is_null() || a.is_null() || t.is_null() || f.is_null() {
             return None;
         }
-        Some(LibDispatchDyn {
-            get_main_queue: std::mem::transmute::<
-                *mut libc::c_void,
-                unsafe extern "C" fn() -> DispatchQueueRaw,
-            >(g),
-            async_f: std::mem::transmute::<
-                *mut libc::c_void,
-                unsafe extern "C" fn(
-                    DispatchQueueRaw,
-                    *mut std::ffi::c_void,
-                    unsafe extern "C" fn(*mut std::ffi::c_void),
-                ),
-            >(a),
+        Some(LibDispatch {
+            get_main_queue: std::mem::transmute(g),
+            async_f: std::mem::transmute(a),
+            time: std::mem::transmute(t),
+            after_f: std::mem::transmute(f),
         })
-    })
-    .as_ref()
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" fn macos_gtk_unfullscreen_fallback(ctx: *mut std::ffi::c_void) {
+    if ctx.is_null() {
+        return;
+    }
+    let widget = glib::translate::from_glib_borrow::<*mut gtk::ffi::GtkWidget, gtk::Widget>(
+        ctx.cast(),
+    );
+    if let Some(win) = widget.downcast_ref::<adw::ApplicationWindow>() {
+        if win.is_fullscreen() {
+            crate::macos_window::gtk_unfullscreen_guarded(win);
+        }
+    }
+    glib::gobject_ffi::g_object_unref(ctx.cast());
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn macos_schedule_gtk_unfullscreen_fallback(ctx: *mut std::ffi::c_void, d: &LibDispatch) {
+    let q = (d.get_main_queue)();
+    let when = (d.time)(DISPATCH_TIME_NOW, GTK_UNFULLSCREEN_FALLBACK_NS);
+    (d.after_f)(when, q, ctx, macos_gtk_unfullscreen_fallback);
 }
 
 #[cfg(target_os = "macos")]
@@ -60,69 +100,52 @@ unsafe extern "C" fn macos_unfullscreen_dispatch_final(ctx: *mut std::ffi::c_voi
     let widget = glib::translate::from_glib_borrow::<*mut gtk::ffi::GtkWidget, gtk::Widget>(
         ctx.cast(),
     );
-    if let Some(win) = widget.downcast_ref::<adw::ApplicationWindow>() {
-        if win.is_fullscreen() {
-            win.unfullscreen();
-        }
+    let Some(win) = widget.downcast_ref::<adw::ApplicationWindow>() else {
+        glib::gobject_ffi::g_object_unref(ctx.cast());
+        return;
+    };
+    if !win.is_fullscreen() {
+        glib::gobject_ffi::g_object_unref(ctx.cast());
+        return;
     }
+    let Some(d) = macos_libdispatch() else {
+        crate::macos_window::gtk_unfullscreen_guarded(win);
+        glib::gobject_ffi::g_object_unref(ctx.cast());
+        return;
+    };
+    let posted = crate::macos_window::nswindow_for_widget(win.upcast_ref::<gtk::Widget>())
+        .is_some_and(|ns| crate::macos_window::post_fullscreen_toggle_shortcut(&ns));
+    if posted {
+        macos_schedule_gtk_unfullscreen_fallback(ctx, d);
+        return;
+    }
+    crate::macos_window::gtk_unfullscreen_guarded(win);
     glib::gobject_ffi::g_object_unref(ctx.cast());
 }
 
 #[cfg(target_os = "macos")]
-unsafe extern "C" fn macos_unfullscreen_dispatch_hop3(ctx: *mut std::ffi::c_void) {
-    let Some(d) = macos_libdispatch_dyn() else {
-        macos_unfullscreen_dispatch_final(ctx);
-        return;
-    };
-    let q = unsafe { (d.get_main_queue)() };
-    unsafe { (d.async_f)(q, ctx, macos_unfullscreen_dispatch_final) };
-}
-
-#[cfg(target_os = "macos")]
-unsafe extern "C" fn macos_unfullscreen_dispatch_hop2(ctx: *mut std::ffi::c_void) {
-    let Some(d) = macos_libdispatch_dyn() else {
-        macos_unfullscreen_dispatch_final(ctx);
-        return;
-    };
-    let q = unsafe { (d.get_main_queue)() };
-    unsafe { (d.async_f)(q, ctx, macos_unfullscreen_dispatch_hop3) };
-}
-
-#[cfg(target_os = "macos")]
-unsafe extern "C" fn macos_unfullscreen_dispatch_hop1(ctx: *mut std::ffi::c_void) {
-    let Some(d) = macos_libdispatch_dyn() else {
-        macos_unfullscreen_dispatch_final(ctx);
-        return;
-    };
-    let q = unsafe { (d.get_main_queue)() };
-    unsafe { (d.async_f)(q, ctx, macos_unfullscreen_dispatch_hop2) };
-}
-
-#[cfg(target_os = "macos")]
-fn macos_unfullscreen_timer_fallback(ctx: *mut std::ffi::c_void) {
-    let _ = glib::timeout_add_local_once(Duration::ZERO, move || {
-        let _ = glib::timeout_add_local_once(Duration::ZERO, move || {
-            let _ = glib::timeout_add_local_once(Duration::ZERO, move || {
-                unsafe { macos_unfullscreen_dispatch_final(ctx) };
-            });
+fn macos_dispatch_async_main(
+    ctx: *mut std::ffi::c_void,
+    work: unsafe extern "C" fn(*mut std::ffi::c_void),
+) {
+    let Some(d) = macos_libdispatch() else {
+        let _ = glib::timeout_add_local_once(Duration::from_millis(1), move || {
+            unsafe { work(ctx) };
         });
-    });
+        return;
+    };
+    unsafe {
+        (d.async_f)((d.get_main_queue)(), ctx, work);
+    }
 }
 
 #[cfg(target_os = "macos")]
-fn macos_dispatch_chain_then_unfullscreen(win: &adw::ApplicationWindow) {
+fn macos_dispatch_then_unfullscreen(win: &adw::ApplicationWindow) {
     let wptr = win.upcast_ref::<gtk::Widget>().as_ptr();
     unsafe {
         glib::gobject_ffi::g_object_ref(wptr.cast());
     }
-    let Some(d) = macos_libdispatch_dyn() else {
-        macos_unfullscreen_timer_fallback(wptr.cast());
-        return;
-    };
-    let q = unsafe { (d.get_main_queue)() };
-    unsafe {
-        (d.async_f)(q, wptr.cast(), macos_unfullscreen_dispatch_hop1);
-    }
+    macos_dispatch_async_main(wptr.cast(), macos_unfullscreen_dispatch_final);
 }
 
 #[cfg(target_os = "macos")]
@@ -135,7 +158,7 @@ fn macos_schedule_unfullscreen(win: adw::ApplicationWindow) {
                 MACOS_DEFER_UNFULLSCREEN.with(|s| {
                     *s.borrow_mut() = None;
                 });
-                macos_dispatch_chain_then_unfullscreen(&win);
+                macos_dispatch_then_unfullscreen(&win);
             },
         );
         *slot.borrow_mut() = Some(id);
