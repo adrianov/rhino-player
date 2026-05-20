@@ -52,6 +52,14 @@ fn persist_budget_and_maybe_rebuild_vf(
     new_budget_px: u64,
     stderr_reason_suffix: &'static str,
 ) -> bool {
+    if player
+        .try_borrow()
+        .ok()
+        .and_then(|g| g.as_ref().map(|b| b.may_persist_media_rows()))
+        != Some(true)
+    {
+        return false;
+    }
     let Some(eff) = persist_budget_current_effective(player, video_pref) else {
         if video_log() {
             eprintln!(

@@ -9,15 +9,22 @@ pub(crate) fn set_me_budget_shell_path(&self, path: &Path) {
     *self.me_budget_shell_path.borrow_mut() = std::fs::canonicalize(path).ok();
 }
 
+pub(crate) fn set_skip_media_persist(&self, skip: bool) {
+    self.skip_media_persist.set(skip);
+}
+
+#[must_use]
+pub(crate) fn may_persist_media_rows(&self) -> bool {
+    !self.skip_media_persist.get()
+}
+
 /// End playback; call after the SQLite snapshot. Safe to skip before process exit.
 pub fn stop_playback(&self) {
     *self.me_budget_shell_path.borrow_mut() = None;
     let _ = self.mpv.command("stop", &[]);
 }
 
-/// Persist `duration` + `time-pos` (and clear them if at natural end) for the open local file.
-/// Single source of truth for resume — replaces the old mpv `watch_later` sidecar dance.
-pub fn save_playback_state(&self) {
+fn snapshot_playback_inner(&self) {
     if let Some(p) = media_probe::local_file_from_mpv(&self.mpv) {
         if media_probe::is_natural_end(&self.mpv) {
             media_probe::clear_resume_for_path(&p);
@@ -27,15 +34,30 @@ pub fn save_playback_state(&self) {
     media_probe::record_playback_for_current(&self.mpv);
 }
 
+/// Persist `duration` + `time-pos` unless [Self::skip_media_persist] (continue-grid warm hover).
+pub fn save_playback_state(&self) {
+    if self.skip_media_persist.get() {
+        return;
+    }
+    self.snapshot_playback_inner();
+}
+
+/// Close / quit / back-from-playback: always persist the open file.
+pub fn save_playback_state_for_close(&self) {
+    self.snapshot_playback_inner();
+}
+
 /// Save SQLite resume snapshot, then stop playback. Used at process quit.
 pub fn commit_quit(&self) {
-    self.save_playback_state();
+    if !self.skip_media_persist.get() {
+        self.save_playback_state_for_close();
+    }
     self.stop_playback();
 }
 
 /// Save outgoing resume snapshot before leaving the open file (e.g. **Back to Browse**).
 pub fn snapshot_outgoing_before_leave(&self) {
-    self.save_playback_state();
+    self.save_playback_state_for_close();
 }
 
 /// Save outgoing resume to SQLite, then `loadfile` the new path. The new file's resume position
@@ -43,12 +65,20 @@ pub fn snapshot_outgoing_before_leave(&self) {
 /// `FileLoaded`. We do **not** pass `start=` as a loadfile option — older mpv (≤ 0.35) treats
 /// the third positional argument as `<index>` and rejects the whole command.
 /// When [clear_outgoing_resume] is true, the outgoing file reached the end: drop its DB resume.
-pub fn load_file_path(&self, path: &Path, clear_outgoing_resume: bool) -> Result<(), String> {
-    if clear_outgoing_resume {
+/// When [warm_preload] is true (continue-grid hover / first-card preload), do not snapshot or
+/// clear the outgoing file — mpv is often still at 0s while paused behind the grid.
+pub fn load_file_path(
+    &self,
+    path: &Path,
+    clear_outgoing_resume: bool,
+    snapshot_outgoing: bool,
+    warm_preload: bool,
+) -> Result<(), String> {
+    if clear_outgoing_resume && !warm_preload {
         if let Some(p) = media_probe::local_file_from_mpv(&self.mpv) {
             media_probe::clear_resume_for_path(&p);
         }
-    } else {
+    } else if snapshot_outgoing && !warm_preload {
         media_probe::record_playback_for_current(&self.mpv);
     }
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
@@ -64,11 +94,18 @@ pub fn load_file_path(&self, path: &Path, clear_outgoing_resume: bool) -> Result
 /// Uses **`absolute+exact`** so the demuxer lands on the saved time (keyframe-only seeks can
 /// sit at 0s briefly on load and fight the continue grid).
 pub fn apply_pending_resume(&self) {
-    if self.pending_resume.get().is_none() {
+    let Some(path) = crate::media_probe::local_file_from_mpv(&self.mpv) else {
         return;
+    };
+    if self.pending_resume.get().is_none() {
+        let pos = self.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
+        if pos.is_finite() && pos < crate::media_probe::NEAR_END_SEC {
+            if let Some(t) = db::resume_pos(&path) {
+                self.pending_resume.set(Some(t));
+            }
+        }
     }
-    // `loadfile` is async; seeking before the demuxer is ready drops the stash and leaves time-pos at 0.
-    if crate::media_probe::local_file_from_mpv(&self.mpv).is_none() {
+    if self.pending_resume.get().is_none() {
         return;
     }
     let Some(t) = self.pending_resume.replace(None) else {

@@ -63,6 +63,8 @@ const WARM_REVEAL_DELAY_MS: u64 = 160;
 /// After transport wiring, wait before warm `loadfile` so the shell can paint (macOS spinner).
 const WARM_PRELOAD_DELAY: std::time::Duration =
     std::time::Duration::from_millis(WARM_REVEAL_DELAY_MS);
+/// Debounce continue-card hover before background warm `loadfile` (quick pointer passes).
+const HOVER_WARM_PRELOAD_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
 const SUB_SCAN_TICKS: u8 = 24;
 const SUB_SCAN_MS: u64 = 250;
 const WIN_INIT_W: i32 = 960;
@@ -261,9 +263,7 @@ fn schedule_window_aspect_on_resize_end(
     recent: &gtk::Box,
     win_aspect: &Rc<Cell<Option<f64>>>,
 ) {
-    if let Some(id) = deb.borrow_mut().take() {
-        id.remove();
-    }
+    drop_glib_source(deb.as_ref());
     let d = Rc::clone(&deb);
     let w = win.clone();
     let r = recent.clone();

@@ -71,7 +71,6 @@ fn wire_handlers_before_mpv(
         speed_list: w.speed_list.clone(),
         speed_readout: w.speed_readout.clone(),
         video_pref: Rc::clone(video_pref), app: app.clone(), close_video_btn: w.close_video_btn.clone(),
-        playback_focus: Rc::clone(playback_focus),
     });
     wire_sub_style_controls(SubStyleCtx {
         player: player.clone(), sub_pref: sub_pref.clone(), gl: w.gl_area.clone(),
@@ -201,10 +200,19 @@ fn wire_handlers_before_mpv(
         playback_focus: Rc::clone(playback_focus),
     });
 
+    let warm_hover = want_recent.then(|| {
+        warm_hover_hooks(
+            player.clone(),
+            Rc::clone(video_pref),
+            w.recent_scrl.clone(),
+            last_path.clone(),
+        )
+    });
     let recent_wiring = wire_recent_undo(RecentUndoCtx {
         player: player.clone(), recent: w.recent_scrl.clone(), flow: w.flow_recent.clone(),
         undo_shell: undo_shell.clone(), undo_label: undo_label.clone(), undo_btn: undo_btn.clone(),
         undo_close: w.undo_bar.close.clone(), on_open: on_open.clone(), want_recent,
+        warm_hover: warm_hover.clone(),
     });
     // `is_visible()` is false until the window is mapped; use `want_recent` so transport
     // and warm-preload see the continue strip on empty launch before `present`.

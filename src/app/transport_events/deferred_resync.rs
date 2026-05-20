@@ -35,14 +35,31 @@ fn sync_sub_header_readout(player: &Rc<RefCell<Option<MpvBundle>>>, label: &gtk:
 }
 
 fn install_transport_tick(ctx: &Rc<TransportCtx>) {
-    if let Some(id) = ctx.tick.borrow_mut().take() {
-        id.remove();
-    }
+    drop_glib_source(ctx.tick.as_ref());
     let c = Rc::clone(ctx);
     *ctx.tick.borrow_mut() = Some(glib::timeout_add_local(TICK_INTERVAL, move || {
         transport_tick(&c);
         glib::ControlFlow::Continue
     }));
+}
+
+fn sync_decode_size_on_tick(player: &Rc<RefCell<Option<MpvBundle>>>) {
+    let Ok(g) = player.try_borrow() else {
+        return;
+    };
+    let Some(b) = g.as_ref() else {
+        return;
+    };
+    if !b.may_persist_media_rows() {
+        return;
+    }
+    let Some(p) = crate::media_probe::local_file_from_mpv(&b.mpv) else {
+        return;
+    };
+    let Some((w, h)) = crate::video_pref::decode_wh_from_mpv(&b.mpv) else {
+        return;
+    };
+    crate::db::media_sync_decode_size(&p, w, h);
 }
 
 fn transport_tick(ctx: &Rc<TransportCtx>) {
@@ -68,15 +85,7 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     if bar_visible {
         sync_seek_pos(&ctx.widgets, pos, dur);
     }
-    if let Ok(g) = ctx.player.try_borrow() {
-        if let Some(b) = g.as_ref() {
-            if let Some(p) = crate::media_probe::local_file_from_mpv(&b.mpv) {
-                if let Some((w, h)) = crate::video_pref::decode_wh_from_mpv(&b.mpv) {
-                    crate::db::media_sync_decode_size(&p, w, h);
-                }
-            }
-        }
-    }
+    sync_decode_size_on_tick(&ctx.player);
     if core_idle && dur > 0.0 && (dur - pos) <= TICK_EOF_TAIL_SEC {
         run_sibling_eof(ctx);
     }

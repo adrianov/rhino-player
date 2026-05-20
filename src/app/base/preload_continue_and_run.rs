@@ -8,19 +8,86 @@ fn boot_path_from_argv() -> Option<PathBuf> {
     }
 }
 
-fn preload_first_continue(
+/// At most one warm `loadfile` at a time; further hovers queue until the current preload finishes.
+struct WarmPreloadGate {
+    inflight: Cell<bool>,
+    queued: RefCell<Option<PathBuf>>,
+}
+
+impl WarmPreloadGate {
+    fn begin(&self) -> bool {
+        if self.inflight.get() {
+            return false;
+        }
+        self.inflight.set(true);
+        true
+    }
+
+    fn finish(&self, run_queued: impl FnOnce(PathBuf)) {
+        self.inflight.set(false);
+        if let Some(path) = self.queued.borrow_mut().take() {
+            run_queued(path);
+        }
+    }
+}
+
+struct WarmPreloadCtx {
+    gate: Rc<WarmPreloadGate>,
+    player: Rc<RefCell<Option<MpvBundle>>>,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
+    recent: gtk::Box,
+    last_path: Rc<RefCell<Option<PathBuf>>>,
+}
+
+impl WarmPreloadCtx {
+    fn run_path(&self, path: PathBuf) {
+        if !self.gate.begin() {
+            *self.gate.queued.borrow_mut() = Some(path);
+            return;
+        }
+        if !preload_continue_path(
+            &path,
+            &self.player,
+            &self.video_pref,
+            &self.recent,
+            &self.last_path,
+        ) {
+            self.gate.finish(|p| self.run_path(p));
+            return;
+        }
+        let ctx_i = Rc::new(WarmPreloadCtx {
+            gate: Rc::clone(&self.gate),
+            player: Rc::clone(&self.player),
+            video_pref: Rc::clone(&self.video_pref),
+            recent: self.recent.clone(),
+            last_path: Rc::clone(&self.last_path),
+        });
+        glib::idle_add_local_once(move || finish_preload_after_file_loaded(ctx_i));
+        schedule_preload_pause(Rc::clone(&self.player), self.recent.clone());
+    }
+}
+
+fn preload_continue_path(
+    path: &Path,
     player: &Rc<RefCell<Option<MpvBundle>>>,
     video_pref: &Rc<RefCell<db::VideoPrefs>>,
     recent: &impl IsA<gtk::Widget>,
     last_path: &Rc<RefCell<Option<PathBuf>>>,
 ) -> bool {
-    if !recent.is_visible() || last_path.borrow().is_some() {
+    if !recent.is_visible() || !path.is_file() || player.borrow().is_none() {
         return false;
     }
-    let path = match history::load().into_iter().next() {
-        Some(p) => p,
-        None => return false,
-    };
+    if last_path
+        .borrow()
+        .as_ref()
+        .is_some_and(|p| same_open_target(p, path))
+    {
+        if let Some(b) = player.borrow().as_ref() {
+            if local_file_from_mpv(&b.mpv).is_some_and(|m| same_open_target(&m, path)) {
+                return false;
+            }
+        }
+    }
     let o = LoadOpts {
         video_pref: Rc::clone(video_pref),
         record: false,
@@ -32,27 +99,56 @@ fn preload_first_continue(
         reset_speed_to_normal: false,
         hdr_title_mirror: None,
         playback_focus: None,
+        warm_preload: true,
     };
-    if load_file_into_player(&path, player, recent, &o).is_err() {
+    if load_file_into_player(path, player, recent, &o).is_err() {
         return false;
     }
     if let Some(b) = player.borrow().as_ref() {
         let _ = b.mpv.set_property("pause", true);
     }
-    *last_path.borrow_mut() = std::fs::canonicalize(&path).ok();
-    // Drain only after releasing `borrow_mut` — transport uses `try_borrow_mut` and would skip
-    // `FileLoaded` / duration while the preload hold is active (seek bar stuck at 0:00 / 0:00).
+    *last_path.borrow_mut() = std::fs::canonicalize(path).ok();
     transport_drain_after_loadfile();
     let _ = glib::idle_add_local_once(transport_drain_after_loadfile);
-
-    let player_i = player.clone();
-    glib::idle_add_local_once(move || finish_preload_after_file_loaded(player_i));
     true
 }
 
-fn finish_preload_after_file_loaded(player: Rc<RefCell<Option<MpvBundle>>>) {
+fn preload_first_continue(ctx: &WarmPreloadCtx) -> bool {
+    if !ctx.recent.is_visible() || ctx.last_path.borrow().is_some() {
+        return false;
+    }
+    let path = match history::load().into_iter().next() {
+        Some(p) => p,
+        None => return false,
+    };
+    if !ctx.gate.begin() {
+        *ctx.gate.queued.borrow_mut() = Some(path);
+        return false;
+    }
+    if !preload_continue_path(
+        &path,
+        &ctx.player,
+        &ctx.video_pref,
+        &ctx.recent,
+        &ctx.last_path,
+    ) {
+        ctx.gate.finish(|p| ctx.run_path(p));
+        return false;
+    }
+    let ctx_i = Rc::new(WarmPreloadCtx {
+        gate: Rc::clone(&ctx.gate),
+        player: Rc::clone(&ctx.player),
+        video_pref: Rc::clone(&ctx.video_pref),
+        recent: ctx.recent.clone(),
+        last_path: Rc::clone(&ctx.last_path),
+    });
+    glib::idle_add_local_once(move || finish_preload_after_file_loaded(ctx_i));
+    true
+}
+
+fn finish_preload_after_file_loaded(ctx: Rc<WarmPreloadCtx>) {
     transport_drain_after_loadfile();
-    let _player = player;
+    ctx.gate.finish(|path| ctx.run_path(path));
 }
 
 fn schedule_preload_pause(player: Rc<RefCell<Option<MpvBundle>>>, recent: gtk::Box) {
@@ -66,22 +162,65 @@ fn schedule_preload_pause(player: Rc<RefCell<Option<MpvBundle>>>, recent: gtk::B
     });
 }
 
+/// Warm-preload one continue entry paused behind the grid.
+fn run_continue_warm_preload_path(path: &Path, ctx: &Rc<WarmPreloadCtx>) {
+    ctx.run_path(path.to_path_buf());
+}
+
 /// Warm-preload the first continue entry after transport observers are installed.
 fn run_continue_warm_preload(
-    player: &Rc<RefCell<Option<MpvBundle>>>,
-    video_pref: &Rc<RefCell<db::VideoPrefs>>,
-    recent: &gtk::Box,
-    last_path: &Rc<RefCell<Option<PathBuf>>>,
+    ctx: &Rc<WarmPreloadCtx>,
     _reapply_60: &VideoReapply60,
     skip_followups: bool,
 ) {
-    if !preload_first_continue(player, video_pref, recent, last_path) {
+    if !preload_first_continue(ctx) {
         return;
     }
     if skip_followups {
+        ctx.gate.finish(|_| ());
         return;
     }
-    schedule_preload_pause(player.clone(), recent.clone());
+    schedule_preload_pause(Rc::clone(&ctx.player), ctx.recent.clone());
+}
+
+type WarmHoverLeave = Rc<dyn Fn()>;
+
+/// Debounced enter/leave hooks for background warm preload on continue-card hover.
+fn warm_hover_hooks(
+    player: Rc<RefCell<Option<MpvBundle>>>,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
+    recent: gtk::Box,
+    last_path: Rc<RefCell<Option<PathBuf>>>,
+) -> recent_view::WarmHoverHooks {
+    let ctx = Rc::new(WarmPreloadCtx {
+        gate: Rc::new(WarmPreloadGate {
+            inflight: Cell::new(false),
+            queued: RefCell::new(None),
+        }),
+        player,
+        video_pref,
+        recent,
+        last_path,
+    });
+    let pending = Rc::new(RefCell::new(None::<glib::SourceId>));
+    let pending_leave = pending.clone();
+    let leave: WarmHoverLeave = Rc::new(move || {
+        drop_glib_source(pending_leave.as_ref());
+    });
+    let enter = Rc::new(move |path: &Path| {
+        drop_glib_source(pending.as_ref());
+        let path = path.to_path_buf();
+        let ctx = Rc::clone(&ctx);
+        let pending_done = pending.clone();
+        let id = glib::timeout_add_local(HOVER_WARM_PRELOAD_DELAY, move || {
+            // GLib removes this source on `Break`; drop the slot only (never `g_source_remove`).
+            pending_done.borrow_mut().take();
+            run_continue_warm_preload_path(&path, &ctx);
+            glib::ControlFlow::Break
+        });
+        *pending.borrow_mut() = Some(id);
+    });
+    recent_view::WarmHoverHooks { enter, leave }
 }
 
 pub fn run() -> i32 {

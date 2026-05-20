@@ -9,6 +9,9 @@ const SMOOTH_60_RESYNC_DEBOUNCE: Duration = Duration::from_millis(160);
 /// pick a same-resolution neighbor **before** the first Smooth rebuild (transport tick is too late).
 fn sync_media_decode_row_for_me_budget(player: &Rc<RefCell<Option<MpvBundle>>>) {
     with_bundle(player, |b| {
+        if !b.may_persist_media_rows() {
+            return;
+        }
         let Some(p) = crate::media_probe::local_file_from_mpv(&b.mpv) else {
             return;
         };
@@ -25,9 +28,7 @@ fn schedule_smooth_60_resync_idle(ctx: &Rc<TransportCtx>) {
         return;
     }
     sync_media_decode_row_for_me_budget(&ctx.player);
-    if let Some(id) = ctx.smooth_60_resync_debounce.borrow_mut().take() {
-        id.remove();
-    }
+    drop_glib_source(ctx.smooth_60_resync_debounce.as_ref());
     let deb = Rc::clone(&ctx.smooth_60_resync_debounce);
     let c = Rc::clone(ctx);
     *ctx.smooth_60_resync_debounce.borrow_mut() = Some(glib::timeout_add_local(

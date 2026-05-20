@@ -133,15 +133,32 @@ fn reflow_continue_cards(
     let r: Vec<PathBuf> = history::load().into_iter().take(5).collect();
     recent.set_visible(true);
     let v: Vec<CardData> = card_data_list(&r);
-    recent_view::fill_row(row, v, on_open.clone(), on_remove.clone(), on_trash.clone());
-    let n = recent_view::ensure_recent_backfill(rbf, row, on_open, on_remove, on_trash);
+    let warm = rbf
+        .borrow()
+        .as_ref()
+        .and_then(|c| c.warm_hover().cloned());
+    recent_view::fill_row(
+        row,
+        v,
+        on_open.clone(),
+        on_remove.clone(),
+        on_trash.clone(),
+        warm.as_ref(),
+    );
+    let warm_ctx = rbf.borrow().as_ref().and_then(|c| c.warm_hover().cloned());
+    let n = recent_view::ensure_recent_backfill(
+        rbf,
+        row,
+        on_open,
+        on_remove,
+        on_trash,
+        warm_ctx,
+    );
     recent_view::schedule_thumb_backfill(n, r);
 }
 
 fn cancel_undo_timer(src: &RefCell<Option<glib::source::SourceId>>) {
-    if let Some(id) = src.borrow_mut().take() {
-        id.remove();
-    }
+    drop_glib_source(src);
 }
 
 /// LIFO stack: label shows the file that **Undo** will restore; dismiss / timeout discards that undo target only.

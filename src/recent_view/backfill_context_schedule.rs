@@ -5,6 +5,7 @@ pub fn ensure_recent_backfill(
     on_open: RcPathFn,
     on_remove: RcPathFn,
     on_trash: RcPathFn,
+    warm_hover: Option<WarmHoverHooks>,
 ) -> Rc<RecentContext> {
     if let Some(c) = cell.borrow().as_ref() {
         return Rc::clone(c);
@@ -16,6 +17,7 @@ pub fn ensure_recent_backfill(
         on_open,
         on_remove,
         on_trash,
+        warm_hover,
         cancel: cancel.clone(),
         refill_tx,
         poll_id: Rc::new(RefCell::new(None)),
@@ -79,9 +81,10 @@ pub fn schedule_thumb_backfill(ctx: Rc<RecentContext>, paths: Vec<std::path::Pat
 /// Uses [PropagationPhase::Target] so nested [gtk::Button]s receive the click first.
 fn add_click_and_pointer(
     card: &impl IsA<gtk::Widget>,
-    _debug_path: &str,
+    path: &Path,
     act: UnitFn,
     show_on_hover: &[gtk::Button],
+    warm_hover: Option<&WarmHoverHooks>,
 ) {
     card.as_ref().set_can_target(true);
     let g = gtk::GestureClick::new();
@@ -97,19 +100,28 @@ fn add_click_and_pointer(
 
     let c = card.as_ref().clone();
     let show: Vec<gtk::Button> = show_on_hover.to_vec();
+    let warm_enter = warm_hover.map(|h| h.enter.clone());
+    let warm_path = path.to_path_buf();
     let m = gtk::EventControllerMotion::new();
     m.connect_enter(move |_, _x, _y| {
         c.set_cursor_from_name(Some("pointer"));
         for b in &show {
             b.set_visible(true);
         }
+        if let Some(f) = warm_enter.as_ref() {
+            f(&warm_path);
+        }
     });
     let c = card.as_ref().clone();
     let hide: Vec<gtk::Button> = show_on_hover.to_vec();
+    let warm_leave = warm_hover.map(|h| h.leave.clone());
     m.connect_leave(move |_| {
         c.set_cursor_from_name(None);
         for b in &hide {
             b.set_visible(false);
+        }
+        if let Some(f) = warm_leave.as_ref() {
+            f();
         }
     });
     card.as_ref().add_controller(m);

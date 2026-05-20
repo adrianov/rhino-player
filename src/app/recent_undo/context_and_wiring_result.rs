@@ -18,4 +18,5 @@ struct RecentUndoCtx {
     undo_close: gtk::Button,
     on_open: RcPathFn,
     want_recent: bool,
+    warm_hover: Option<recent_view::WarmHoverHooks>,
 }

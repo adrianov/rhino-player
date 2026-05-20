@@ -14,6 +14,5 @@ struct VideoFileActionCtx {
     do_commit: Rc<dyn Fn() + 'static>,
     close_action_cell: Rc<RefCell<Option<gio::SimpleAction>>>,
     trash_action_cell: Rc<RefCell<Option<gio::SimpleAction>>>,
-    playback_focus: Rc<Cell<bool>>,
     close_video_btn: gtk::Button,
 }

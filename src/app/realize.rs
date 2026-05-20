@@ -71,13 +71,7 @@ fn gl_realize_bundle_ready(
         pl.watch_overlay(&r.recent_rz);
     }
     drain_recent_backfill(&r.pending_rz);
-    sync_close_video_action(
-        &r.close_video,
-        &r.close_video_btn,
-        &r.p_realize,
-        &r.recent_rz,
-        r.playback_focus.as_ref(),
-    );
+    sync_close_video_action(&r.close_video, &r.close_video_btn, &r.p_realize, &r.recent_rz);
     sync_trash_action(&r.move_to_trash, &r.p_realize, &r.recent_rz);
     if let Some(pl) = r.p_realize.borrow().as_ref() {
         let show = if r.recent_rz.is_visible() {

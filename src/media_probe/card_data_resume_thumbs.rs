@@ -9,7 +9,8 @@ use libmpv2::Mpv;
 use crate::db;
 
 /// Near-end window (seconds); matches [percent_from_resume] and `app` sibling/continue rules.
-const NEAR_END: f64 = 3.0;
+pub const NEAR_END_SEC: f64 = 3.0;
+const NEAR_END: f64 = NEAR_END_SEC;
 
 /// Data for one recent-movie card.
 pub struct CardData {

@@ -66,13 +66,26 @@ fn back_to_browse(
         let rbb2 = rbb.clone();
         let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
             let v: Vec<CardData> = card_data_list(&paths2);
-            recent_view::fill_row(&row2, v, op2.clone(), osl2.clone(), otr2.clone());
+            let warm = rbb2
+                .borrow()
+                .as_ref()
+                .and_then(|c| c.warm_hover().cloned());
+            recent_view::fill_row(
+                &row2,
+                v,
+                op2.clone(),
+                osl2.clone(),
+                otr2.clone(),
+                warm.as_ref(),
+            );
+            let warm_ctx = rbb2.borrow().as_ref().and_then(|c| c.warm_hover().cloned());
             let n = recent_view::ensure_recent_backfill(
                 &rbb2,
                 &row2,
                 op2.clone(),
                 osl2.clone(),
                 otr2.clone(),
+                warm_ctx,
             );
             recent_view::schedule_thumb_backfill(n, paths2.clone());
             glib::ControlFlow::Break
@@ -100,19 +113,25 @@ const CLOSE_VIDEO_PLAYBACK_TIP: &str = "Close Video (Cmd+W)";
 #[cfg(not(target_os = "macos"))]
 const CLOSE_VIDEO_PLAYBACK_TIP: &str = "Close Video (Ctrl+W)";
 
+/// True when mpv has a local regular file loaded (warm preload, playing, or paused behind the grid).
+pub(crate) fn has_loaded_local_media(player: &Rc<RefCell<Option<MpvBundle>>>) -> bool {
+    player.borrow().as_ref().is_some_and(|b| {
+        local_file_from_mpv(&b.mpv).is_some_and(|p| p.is_file())
+    })
+}
+
 /// Enables `app.close-video` and matches the bottom close button tooltip to browse vs playback.
 fn sync_close_video_action(
     a: &gio::SimpleAction,
     tip_target: &gtk::Button,
     player: &Rc<RefCell<Option<MpvBundle>>>,
     recent: &impl IsA<gtk::Widget>,
-    playback_focus: &Cell<bool>,
 ) {
     let has_player = player.borrow().is_some();
     let grid = recent.is_visible();
     a.set_enabled(has_player || grid);
 
-    let tip = if grid || !playback_focus.get() {
+    let tip = if grid || !has_loaded_local_media(player) {
         "Quit Rhino Player"
     } else {
         CLOSE_VIDEO_PLAYBACK_TIP
@@ -126,14 +145,13 @@ fn schedule_sync_close_video_idle(c: &BackToBrowseCtx, recent: &gtk::Box) {
     let cell = Rc::clone(&c.close_action_cell);
     let tip_target = c.close_video_btn.clone();
     let p = c.player.clone();
-    let pf = Rc::clone(&c.playback_focus);
     let recent = recent.clone();
     let _ = glib::idle_add_local_once(move || {
         let g = cell.borrow();
         let Some(a) = g.as_ref() else {
             return;
         };
-        sync_close_video_action(a, &tip_target, &p, &recent, pf.as_ref());
+        sync_close_video_action(a, &tip_target, &p, &recent);
     });
 }
 

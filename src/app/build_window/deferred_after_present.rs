@@ -293,15 +293,18 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         let reapply_60 = reapply_60.clone();
         // Let the continue strip paint before `loadfile` (macOS beach-ball if we block the same
         // idle turn as transport wiring).
+        let ctx = Rc::new(WarmPreloadCtx {
+            gate: Rc::new(WarmPreloadGate {
+                inflight: Cell::new(false),
+                queued: RefCell::new(None),
+            }),
+            player,
+            video_pref,
+            recent,
+            last_path,
+        });
         let _ = glib::timeout_add_local(WARM_PRELOAD_DELAY, move || {
-            run_continue_warm_preload(
-                &player,
-                &video_pref,
-                &recent,
-                &last_path,
-                &reapply_60,
-                false,
-            );
+            run_continue_warm_preload(&ctx, &reapply_60, false);
             glib::ControlFlow::Break
         });
     }

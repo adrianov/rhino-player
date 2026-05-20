@@ -23,6 +23,8 @@ struct LoadOpts {
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     /// When set, set **true** in [reveal_ui_after_load] / delayed warm reveal — **false** from [back_to_browse].
     playback_focus: Option<Rc<Cell<bool>>>,
+    /// Continue-grid hover/first-card preload: skip outgoing SQLite snapshot; see [MpvBundle::load_file_path].
+    warm_preload: bool,
 }
 
 /// Bundles **`replace_media`** inputs (keeps Clippy arity down).
@@ -52,6 +54,7 @@ impl LoadOpts {
             reset_speed_to_normal: b.reset_speed_to_normal,
             hdr_title_mirror: b.hdr_title_mirror,
             playback_focus: None,
+            warm_preload: false,
         }
     }
 }

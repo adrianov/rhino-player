@@ -9,6 +9,7 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
         undo_close,
         on_open,
         want_recent,
+        warm_hover,
     } = ctx;
 
     let recent_backfill: Rc<RefCell<Option<Rc<RecentContext>>>> = Rc::new(RefCell::new(None));
@@ -234,6 +235,7 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
             on_open.clone(),
             on_remove.clone(),
             on_trash.clone(),
+            warm_hover.clone(),
             recent_backfill.clone(),
             recent_backfill_start.clone(),
         );

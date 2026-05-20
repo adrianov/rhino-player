@@ -26,6 +26,8 @@ pub struct MpvBundle {
     /// Resume time (seconds) for the next `FileLoaded`. Set by [load_file_path] from `db::resume_pos`,
     /// applied + cleared by [apply_pending_resume] after the file is loaded.
     pending_resume: std::cell::Cell<Option<f64>>,
+    /// Continue-grid warm hover: block SQLite `media` writes until the user opens for playback or closes.
+    pub(crate) skip_media_persist: std::cell::Cell<bool>,
 
     #[cfg(not(target_os = "macos"))]
     _gl: GlDynLib,
@@ -113,6 +115,7 @@ impl MpvBundle {
                 render,
                 gl_ptr,
                 pending_resume: std::cell::Cell::new(None),
+                skip_media_persist: std::cell::Cell::new(false),
             },
             auto_off,
         ))
@@ -126,6 +129,7 @@ impl MpvBundle {
                 mpv,
                 me_budget_shell_path: std::cell::RefCell::new(None),
                 pending_resume: std::cell::Cell::new(None),
+                skip_media_persist: std::cell::Cell::new(false),
                 macos: Some(macos),
             },
             auto_off,

@@ -27,13 +27,9 @@ fn try_load(
     // Drain `FileLoaded` / `path` before `reveal_ui_after_load` unpause so transport runs
     // `forget_bundled_me_budget_vf_apply_on_new_media` and resume/audio restore before `Pause(false)`
     // can attach Smooth (`note_bundled` was being cleared by a later `FileLoaded` → duplicate `vf add`).
-    if !warm_hit {
-        transport_drain_after_loadfile();
-    }
+    transport_drain_after_loadfile();
     reveal_ui_after_load(player, win, gl, recent_layer, o, warm_hit);
-    if !warm_hit {
-        let _ = glib::idle_add_local_once(transport_drain_after_loadfile);
-    }
+    let _ = glib::idle_add_local_once(transport_drain_after_loadfile);
     if let Some(f) = o.on_loaded.clone() {
         glib::source::idle_add_local_once(move || f());
     }
@@ -55,6 +51,10 @@ fn load_file_into_player(
         eprintln!("[rhino] try_load: warm preload hit");
         b.set_me_budget_shell_path(path);
         crate::video_pref::publish_smooth_env_before_load(path, &o.video_pref.borrow(), false);
+        if o.play_on_start {
+            b.set_skip_media_persist(false);
+        }
+        b.apply_pending_resume();
         return Ok(true);
     }
     if prev.as_ref().is_some_and(|p| !same_open_target(p, path)) {
@@ -73,12 +73,14 @@ fn load_file_into_player(
     let drop_prev = prev.as_ref().is_some_and(|p| {
         !same_open_target(p, path) && is_natural_end(&b.mpv)
     });
-    if let Err(e) = b.load_file_path(path, clear_resume) {
+    let snapshot_outgoing = !o.warm_preload;
+    b.set_skip_media_persist(recent_layer.is_visible() && o.warm_preload);
+    if let Err(e) = b.load_file_path(path, clear_resume, snapshot_outgoing, o.warm_preload) {
         eprintln!("[rhino] try_load: loadfile failed: {e}");
         return Err(e);
     }
     eprintln!("[rhino] try_load: loadfile ok");
-    if drop_prev {
+    if drop_prev && !o.warm_preload {
         if let Some(p) = prev {
             remove_continue_entry(&p);
         }
@@ -127,6 +129,9 @@ fn start_playback(
     o: &LoadOpts,
     delayed_warm: bool,
 ) {
+    if let Some(b) = player.borrow().as_ref() {
+        b.set_skip_media_persist(false);
+    }
     if delayed_warm {
         let recent = recent_layer.as_ref().clone();
         let win2 = win.clone();

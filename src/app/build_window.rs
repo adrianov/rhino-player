@@ -86,7 +86,7 @@ fn build_window(
         on_browse_back: Rc::clone(&on_browse_back), undo_timer: undo_timer.clone(),
         undo_remove_stack: undo_remove_stack.clone(), do_commit: do_commit.clone(),
         close_action_cell: Rc::clone(&close_action_cell), trash_action_cell: Rc::clone(&trash_action_cell),
-        playback_focus: Rc::clone(&playback_focus), close_video_btn: w.close_video_btn.clone(),
+        close_video_btn: w.close_video_btn.clone(),
     });
 
     wire_mpv_realize(MpvRealizeCtx {

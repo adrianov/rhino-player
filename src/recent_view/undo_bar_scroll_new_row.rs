@@ -222,6 +222,14 @@ fn full_bleed_icon(icon: &'static str) -> gtk::Widget {
 type UnitFn = Rc<dyn Fn(()) + 'static>;
 type RcPathFn = Rc<dyn Fn(&Path) + 'static>;
 type BackfillFn = Rc<dyn Fn(Rc<RecentContext>, Vec<std::path::PathBuf>) + 'static>;
+type WarmHoverLeave = Rc<dyn Fn()>;
+
+/// Debounced warm-preload hooks for continue-card pointer enter/leave.
+#[derive(Clone)]
+pub struct WarmHoverHooks {
+    pub enter: RcPathFn,
+    pub leave: WarmHoverLeave,
+}
 
 /// Per-window state for the recent row: [refill] after background thumbs, [shutdown] on scroll destroy.
 pub struct RecentContext {
@@ -230,6 +238,7 @@ pub struct RecentContext {
     on_open: RcPathFn,
     on_remove: RcPathFn,
     on_trash: RcPathFn,
+    warm_hover: Option<WarmHoverHooks>,
     /// Stops workers and poller; cleared in [shutdown].
     pub cancel: Arc<AtomicBool>,
     /// Worker → main: request a [refill] (no GTK types on the [Send] side).
@@ -241,6 +250,10 @@ pub struct RecentContext {
 }
 
 impl RecentContext {
+    pub(crate) fn warm_hover(&self) -> Option<&WarmHoverHooks> {
+        self.warm_hover.as_ref()
+    }
+
     /// Rebuilds cards from the current history (first five paths).
     pub fn refill(&self) {
         let paths: Vec<std::path::PathBuf> = crate::history::load().into_iter().take(5).collect();
@@ -251,6 +264,7 @@ impl RecentContext {
             self.on_open.clone(),
             self.on_remove.clone(),
             self.on_trash.clone(),
+            self.warm_hover.as_ref(),
         );
     }
 
@@ -259,9 +273,7 @@ impl RecentContext {
     /// run many seconds; cancel is checked only between files, not inside libmpv).
     pub fn shutdown(&self) {
         self.cancel.store(false, Ordering::Release);
-        if let Some(id) = self.poll_id.borrow_mut().take() {
-            id.remove();
-        }
+        crate::glib_source_drop::drop_glib_source(self.poll_id.as_ref());
         let workers: Vec<JoinHandle<()>> = self.workers.borrow_mut().drain(..).collect();
         if workers.is_empty() {
             return;

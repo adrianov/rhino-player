@@ -130,6 +130,9 @@ pub fn load_time_pos_map() -> HashMap<String, f64> {
     .unwrap_or_default()
 }
 
+/// Near-start mpv reads during warm preload must not clobber a stored resume (see `media_probe::NEAR_END`).
+const MIN_PERSIST_RESUME_SEC: f64 = 3.0;
+
 /// Store [duration_sec] and [time_pos_sec] (seconds) for a local file. Used on file switch and close.
 pub fn set_playback(path: &Path, duration_sec: f64, time_pos_sec: f64) {
     if !duration_sec.is_finite() || duration_sec <= 0.0 {
@@ -138,13 +141,19 @@ pub fn set_playback(path: &Path, duration_sec: f64, time_pos_sec: f64) {
     if !time_pos_sec.is_finite() || time_pos_sec < 0.0 {
         return;
     }
+    let t = time_pos_sec.min(duration_sec);
+    if t < MIN_PERSIST_RESUME_SEC {
+        if resume_pos(path).is_some() || t < 1.0 {
+            set_duration(path, duration_sec);
+            return;
+        }
+    }
     let Some(s) = std::fs::canonicalize(path)
         .ok()
         .and_then(|p| p.to_str().map(str::to_string))
     else {
         return;
     };
-    let t = time_pos_sec.min(duration_sec);
     let _ = with_conn(|c| {
         c.execute(
             "INSERT INTO media (path, duration_sec, time_pos_sec) VALUES (?1, ?2, ?3)
