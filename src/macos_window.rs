@@ -4,9 +4,10 @@
 //! and exposes helpers used by the GTK shell: hide / show traffic lights and layer invalidation.
 //!
 //! Fullscreen **exit** is deferred after [`crate::fullscreen_timing`] settlement
-//! (`chrome_macos_unfullscreen_defer`): post **⌃⌘F** to AppKit first; only call GTK
-//! [`GtkWindowExt::unfullscreen`] later if still fullscreen. Direct GTK unfullscreen from nested GLib
-//! timeouts reproduced ~74k-frame AppKit recursion on macOS 26.x (`_NSExitFullScreenTransitionController`).
+//! (`chrome_macos_unfullscreen_defer`): drive AppKit via [`native_leave_fullscreen`] /
+//! [`post_fullscreen_toggle_shortcut`]; never [`GtkWindowExt::unfullscreen`] (gdk-macos present during
+//! `_NSExitFullScreenTransitionController` reproduced ~74k-frame recursion on macOS 26.x). GTK state
+//! is synced with [`GtkWindowExt::set_fullscreened`] when native fullscreen has already ended.
 
 use gdk4_macos::prelude::Cast;
 use gdk4_macos::MacosSurface;
@@ -16,7 +17,7 @@ use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2_app_kit::{
     NSApplication, NSCursor, NSEvent, NSEventModifierFlags, NSEventType, NSView, NSWindow,
-    NSWindowButton,
+    NSWindowButton, NSWindowStyleMask,
 };
 use objc2_foundation::{MainThreadMarker, NSString, NSPoint};
 use objc2_quartz_core::CATransaction;
@@ -73,7 +74,24 @@ pub fn invalidate_window_layers<W: IsA<gtk::Widget>>(widget: &W) {
 /// disabled, GTK won't restore the AppKit buttons), and re-enabling it after a hide
 /// fight breaks the very state we are trying to manage. Driving `setHidden:` directly is
 /// reversible and survives GTK layout passes.
-/// Post the standard **⌃⌘F** fullscreen toggle to AppKit (avoids GTK `unfullscreen` → gdk present).
+/// Whether AppKit reports this window in native fullscreen (style mask).
+pub(crate) fn ns_window_is_native_fullscreen(nswin: &NSWindow) -> bool {
+    nswin.styleMask().contains(NSWindowStyleMask::FullScreen)
+}
+
+/// Start native fullscreen exit (`toggleFullScreen:`). Does not call GTK.
+pub(crate) fn native_leave_fullscreen(nswin: &NSWindow) -> bool {
+    if !ns_window_is_native_fullscreen(nswin) {
+        return true;
+    }
+    CATransaction::begin();
+    CATransaction::setDisableActions(true);
+    nswin.toggleFullScreen(None);
+    CATransaction::commit();
+    true
+}
+
+/// Post the standard **⌃⌘F** fullscreen toggle to AppKit (supplement when `toggleFullScreen:` stalls).
 pub(crate) fn post_fullscreen_toggle_shortcut(nswin: &NSWindow) -> bool {
     let Some(mtm) = MainThreadMarker::new() else {
         return false;
@@ -100,12 +118,22 @@ pub(crate) fn post_fullscreen_toggle_shortcut(nswin: &NSWindow) -> bool {
     true
 }
 
-/// GTK unfullscreen with layer actions disabled (fallback when the shortcut did not exit).
-pub(crate) fn gtk_unfullscreen_guarded(win: &adw::ApplicationWindow) {
-    CATransaction::begin();
-    CATransaction::setDisableActions(true);
-    win.unfullscreen();
-    CATransaction::commit();
+/// Reconcile GTK `fullscreened` with AppKit after native exit (no `gtk_window_unfullscreen`).
+pub(crate) fn sync_gtk_fullscreen_from_native(win: &adw::ApplicationWindow) {
+    let Some(nswin) = nswindow_for_widget(win.upcast_ref::<gtk::Widget>()) else {
+        if win.is_fullscreen() {
+            win.set_fullscreened(false);
+        }
+        return;
+    };
+    let gtk_fs = win.is_fullscreen();
+    let ns_fs = ns_window_is_native_fullscreen(&nswin);
+    if gtk_fs && !ns_fs {
+        win.set_fullscreened(false);
+    } else if gtk_fs && ns_fs {
+        let _ = native_leave_fullscreen(&nswin);
+        let _ = post_fullscreen_toggle_shortcut(&nswin);
+    }
 }
 
 pub fn set_traffic_lights_visible<W: IsA<gtk::Widget>>(widget: &W, visible: bool) {
