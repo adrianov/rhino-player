@@ -25,8 +25,11 @@ fn schedule_leave_fs_idle_linux(
     w_leave: adw::ApplicationWindow,
     skip_leave: Rc<Cell<bool>>,
     tch_leave: Rc<dyn Fn(&adw::ApplicationWindow)>,
+    play_leave: PlayToggleCtx,
+    pause_leave: Rc<RefCell<Option<bool>>>,
 ) {
     let _ = glib::source::idle_add_local_once(move || {
+        fs_on_exit_pause(&play_leave, pause_leave.as_ref());
         restore_windowed_size(&fr_leave, &lu_leave, &w_leave);
         let w2 = w_leave;
         let skip2 = skip_leave;
@@ -48,6 +51,8 @@ fn macos_schedule_leave_fs_restore_chrome(
     w_leave: adw::ApplicationWindow,
     skip_leave: Rc<Cell<bool>>,
     tch_leave: Rc<dyn Fn(&adw::ApplicationWindow)>,
+    play_leave: PlayToggleCtx,
+    pause_leave: Rc<RefCell<Option<bool>>>,
 ) {
     let gen_rc = Rc::clone(gen);
     let _ = glib::timeout_add_local_once(delay, move || {
@@ -55,6 +60,7 @@ fn macos_schedule_leave_fs_restore_chrome(
             skip_leave.set(false);
             return;
         }
+        fs_on_exit_pause(&play_leave, pause_leave.as_ref());
         restore_windowed_size(&fr_leave, &lu_leave, &w_leave);
         let w2 = w_leave;
         let skip2 = skip_leave;

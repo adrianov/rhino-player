@@ -45,6 +45,7 @@ fn build_window(
         nav_can_next: Cell::new(false),
     });
     let fs_restore = Rc::new(RefCell::new(None::<(i32, i32)>));
+    let fs_pause_stash = Rc::new(RefCell::new(None::<bool>));
     let fs_transition_busy = Rc::new(Cell::new(false));
     let fs_transition_settle = Rc::new(RefCell::new(None::<glib::SourceId>));
     let skip_max_to_fs = Rc::new(Cell::new(false));
@@ -123,6 +124,7 @@ fn build_window(
         last_cap_xy,
         last_gl_xy,
         fs_restore,
+        fs_pause_stash,
         fs_transition_busy,
         fs_transition_settle,
         skip_max_to_fs,

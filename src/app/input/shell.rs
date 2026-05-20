@@ -130,10 +130,12 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
         let lcap = ctx.last_cap_xy.clone();
         let lgl = ctx.last_gl_xy.clone();
         let fr = ctx.fs_restore.clone();
+        let fs_pause_stash = ctx.fs_pause_stash.clone();
         let skip_fs = ctx.skip_max_to_fs.clone();
         let lu_ntf = ctx.last_unmax.clone();
         let fs_busy_ntf = Rc::clone(&ctx.fs_transition_busy);
         let fs_settle_ntf = Rc::clone(&ctx.fs_transition_settle);
+        let play_fs = ctx.play_toggle.clone();
         let win_sig = ctx.shell.win.clone();
         let tch_fs = Rc::clone(&touch_chrome_gl);
         win_sig.connect_fullscreened_notify(move |w| {
@@ -166,6 +168,7 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                     macos_fs_notify_defer_maximize(&fr, w);
                 }
                 b.set(false);
+                fs_on_enter_pause(&play_fs, fs_pause_stash.as_ref());
                 show_fs_wall_clock_fullscreen(&fs_clock, &fs_tick_slot, w);
                 tch_fs(w);
                 hide_cursor_after_bars_hide(w, &gl_fs, &recent_fs, &p_fs);
@@ -186,6 +189,8 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                 // Defer restore + chrome with [`crate::fullscreen_timing::TRANSITION_SETTLE`].
                 //
                 let fr_leave = Rc::clone(&fr);
+                let pause_leave = Rc::clone(&fs_pause_stash);
+                let play_leave = play_fs.clone();
                 let lu_leave = Rc::clone(&lu_ntf);
                 let w_leave = w.clone();
                 let skip_leave = skip_fs.clone();
@@ -200,9 +205,13 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                     w_leave,
                     skip_leave,
                     tch_leave,
+                    play_leave,
+                    pause_leave,
                 );
                 #[cfg(not(target_os = "macos"))]
-                schedule_leave_fs_idle_linux(fr_leave, lu_leave, w_leave, skip_leave, tch_leave);
+                schedule_leave_fs_idle_linux(
+                    fr_leave, lu_leave, w_leave, skip_leave, tch_leave, play_leave, pause_leave,
+                );
             }
             if !w.is_fullscreen() {
                 let gl2 = gl_fs.clone();

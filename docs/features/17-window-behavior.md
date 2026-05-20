@@ -67,6 +67,24 @@ Feature: Window, fullscreen, and presentation
     When the user double-clicks primary on the top toolbar
     Then the window enters fullscreen via the maximize-then-fullscreen path
 
+  Scenario: Entering fullscreen while paused resumes playback
+    Given a media title is loaded and playback is paused
+    And the recent grid is hidden and the window is not fullscreen
+    When the user enters fullscreen
+    Then playback resumes
+
+  Scenario: Exiting fullscreen restores pause only when entry had unpaused a paused title and playback is still running
+    Given a media title was paused before entering fullscreen
+    And playback is running when the user exits fullscreen
+    When the user exits fullscreen
+    Then playback is paused again
+
+  Scenario: Exiting fullscreen does not change pause when already paused or was playing before entry
+    Given the window leaves fullscreen
+    When playback is already paused at exit, or was not paused before that fullscreen session
+    Then the exit does not unpause playback
+    And the exit does not pause playback solely because of leaving fullscreen
+
   Scenario: Exiting fullscreen restores last windowed size
     Given the window is fullscreen with a saved windowed size
     When the user exits fullscreen
@@ -158,6 +176,7 @@ Feature: Window, fullscreen, and presentation
 ```
 
 ## Notes
+- **Fullscreen pause bookmark:** `fs_pause_stash: RefCell<Option<bool>>` — on first `fullscreened_notify` enter per session, record whether playback was paused; unpause only when `Some(true)`. On deferred leave (same timing as windowed size restore), pause back only when stash was `Some(true)` and mpv is still unpaused; if the user paused again during fullscreen, leave paused. `Some(false)` or no stash → exit does not pause. Spurious re-enter notifies skip re-stashing while stash is set.
 - Header **double-click fullscreen:** primary **double-click** on `HeaderBar` calls the same fullscreen toggle as the video gesture; fullscreen **exit** ignores the browse-overlay guard so the toolbar is always a target to leave fullscreen; fullscreen **entry** skips while the overlay is visible (same as GL double-click). **`gtk-titlebar-double-click`** is set to **`none`** in **`theme::apply`** so GDK does not also run **toggle-maximize** on that gesture (capture order could demaximize after our toggle).
 - Fullscreen-only header clock: `GtkLabel` packed on `HeaderBar` before speed / sound / subtitle / main menu; reads **`org.gnome.desktop.interface`** (`clock-format` **12h** / **24h**, `clock-show-seconds`) when that schema exists so the string matches the desktop shell clock (no forced `%X` / seconds / AM–PM). Fallback **`%H:%M`** when settings are unavailable; visible updates use `glib::timeout_add_seconds_local(1, …)` while fullscreen because no toolkit signal fires per wall-clock second.
 - Inhibit implementation polls every ~500 ms to sync with pause / load / grid state; uninhibit always runs before quit.
