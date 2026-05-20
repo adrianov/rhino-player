@@ -129,6 +129,7 @@ fn reflow_continue_cards(
     on_remove: RcPathFn,
     on_trash: RcPathFn,
     rbf: &Rc<RefCell<Option<Rc<RecentContext>>>>,
+    chrome_cache: crate::media_probe::ContinueGridCache,
 ) {
     let r: Vec<PathBuf> = history::load().into_iter().take(5).collect();
     recent.set_visible(true);
@@ -144,6 +145,7 @@ fn reflow_continue_cards(
         on_remove.clone(),
         on_trash.clone(),
         warm.as_ref(),
+        Some(&chrome_cache),
     );
     let warm_ctx = rbf.borrow().as_ref().and_then(|c| c.warm_hover().cloned());
     let n = recent_view::ensure_recent_backfill(
@@ -153,6 +155,7 @@ fn reflow_continue_cards(
         on_remove,
         on_trash,
         warm_ctx,
+        Rc::clone(&chrome_cache),
     );
     recent_view::schedule_thumb_backfill(n, r);
 }
@@ -245,6 +248,8 @@ struct BackToBrowseCtx {
     /// Mirrors browse-overlay [gtk::Widget::is_visible]; refreshed before pausing
     /// on browse-back so transport can skip unloading the motion filter without racing `notify::visible`.
     recent_visible: Rc<Cell<bool>>,
+    /// Resume/duration for continue cards; transport reads this instead of SQLite per tick/hover.
+    continue_grid_cache: crate::media_probe::ContinueGridCache,
     /// **True** while the main chrome targets the playing file (grid hidden after [try_load] reveal).
     playback_focus: Rc<Cell<bool>>,
     /// First paint used the browse row (no boot file): keep the strip visible with the Open tile

@@ -233,6 +233,7 @@ pub struct WarmHoverHooks {
 
 /// Per-window state for the recent row: [refill] after background thumbs, [shutdown] on scroll destroy.
 pub struct RecentContext {
+    chrome_cache: crate::media_probe::ContinueGridCache,
     /// Same box as the grid row; used by [refill].
     row: gtk::Box,
     on_open: RcPathFn,
@@ -265,6 +266,7 @@ impl RecentContext {
             self.on_remove.clone(),
             self.on_trash.clone(),
             self.warm_hover.as_ref(),
+            Some(&self.chrome_cache),
         );
     }
 

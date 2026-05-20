@@ -6,6 +6,7 @@ pub fn ensure_recent_backfill(
     on_remove: RcPathFn,
     on_trash: RcPathFn,
     warm_hover: Option<WarmHoverHooks>,
+    chrome_cache: crate::media_probe::ContinueGridCache,
 ) -> Rc<RecentContext> {
     if let Some(c) = cell.borrow().as_ref() {
         return Rc::clone(c);
@@ -13,6 +14,7 @@ pub fn ensure_recent_backfill(
     let cancel = Arc::new(AtomicBool::new(true));
     let (refill_tx, refill_rx) = mpsc::channel();
     let ctx = Rc::new(RecentContext {
+        chrome_cache,
         row: row.clone(),
         on_open,
         on_remove,

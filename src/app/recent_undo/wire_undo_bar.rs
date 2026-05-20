@@ -10,6 +10,7 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
         on_open,
         want_recent,
         warm_hover,
+        continue_grid_cache,
     } = ctx;
 
     let recent_backfill: Rc<RefCell<Option<Rc<RecentContext>>>> = Rc::new(RefCell::new(None));
@@ -84,6 +85,7 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
         let ut_t = ut_rm.clone();
         let cell_rm = cell_rm.clone();
         let cell_t = cell_t.clone();
+        let cache_t = Rc::clone(&continue_grid_cache);
         move |path: &Path| {
             if !path.is_file() {
                 return;
@@ -118,7 +120,7 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
                 .as_ref()
                 .expect("on_trash not wired")
                 .clone();
-            reflow_continue_cards(&fr_t, &rec_t, op_t.clone(), f, t, &rbf_t);
+            reflow_continue_cards(&fr_t, &rec_t, op_t.clone(), f, t, &rbf_t, Rc::clone(&cache_t));
         }
     });
     *on_trash_slot.borrow_mut() = Some(on_trash.clone());
@@ -135,6 +137,7 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
         let u_sh_rm = u_sh_rm.clone();
         let do_rm = do_rm.clone();
         let ut_rm = ut_rm.clone();
+        let cache_rm = Rc::clone(&continue_grid_cache);
         move |path: &Path| {
             let u = capture_list_remove_undo(path);
             remove_continue_entry(path);
@@ -146,7 +149,15 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
                 .expect("on_remove not wired")
                 .clone();
             let t = tslot.borrow().as_ref().expect("on_trash not wired").clone();
-            reflow_continue_cards(&fr_sl, &recent_rm, op_s.clone(), f, t, &rbf_rm);
+            reflow_continue_cards(
+                &fr_sl,
+                &recent_rm,
+                op_s.clone(),
+                f,
+                t,
+                &rbf_rm,
+                Rc::clone(&cache_rm),
+            );
             rearm_undo_dismiss(&do_rm, ut_rm.as_ref());
         }
     });
@@ -165,7 +176,10 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
         let do_u = do_commit.clone();
         let cell_u = on_remove_cell.clone();
         let tslot_u = on_trash_slot.clone();
+        let cache_u = Rc::clone(&continue_grid_cache);
         undo_btn.connect_clicked(glib::clone!(
+            #[strong]
+            cache_u,
             #[strong]
             fr_u,
             #[strong]
@@ -213,7 +227,9 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
                     .as_ref()
                     .expect("on_trash not wired")
                     .clone();
-                reflow_continue_cards(&fr_u, &rec_u, op_u.clone(), f, t, &rbf_u);
+                reflow_continue_cards(
+                    &fr_u, &rec_u, op_u.clone(), f, t, &rbf_u, Rc::clone(&cache_u),
+                );
                 if !ur_u.borrow().is_empty() {
                     rearm_undo_dismiss(&do_u, ut_u.as_ref());
                 }
@@ -236,6 +252,7 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
             on_remove.clone(),
             on_trash.clone(),
             warm_hover.clone(),
+            Rc::clone(&continue_grid_cache),
             recent_backfill.clone(),
             recent_backfill_start.clone(),
         );

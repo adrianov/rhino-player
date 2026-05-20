@@ -110,6 +110,7 @@ struct TransportCtx {
     /// 1 Hz timer source id (kept so it can be replaced if observers re-install).
     tick: Rc<RefCell<Option<glib::SourceId>>>,
     cache: Rc<RefCell<TransportCache>>,
+    continue_grid_cache: crate::media_probe::ContinueGridCache,
     seek_chapters: Rc<RefCell<Vec<(f64, String)>>>,
     blackout: Rc<crate::screen_blackout::BlackoutSync>,
 }
@@ -142,6 +143,7 @@ struct TransportSetup {
     widgets: TransportWidgets,
     seek_chapters: Rc<RefCell<Vec<(f64, String)>>>,
     blackout: Rc<crate::screen_blackout::BlackoutSync>,
+    continue_grid_cache: crate::media_probe::ContinueGridCache,
 }
 
 fn wire_transport_events(s: TransportSetup) {
@@ -177,6 +179,7 @@ fn wire_transport_events(s: TransportSetup) {
         smooth_60_resync_debounce: Rc::new(RefCell::new(None)),
         tick: Rc::new(RefCell::new(None)),
         cache: Rc::new(RefCell::new(TransportCache::default())),
+        continue_grid_cache: s.continue_grid_cache,
         seek_chapters: s.seek_chapters.clone(),
         blackout: s.blackout.clone(),
     });
@@ -192,6 +195,19 @@ fn wire_transport_events(s: TransportSetup) {
         *slot.borrow_mut() = Some(Rc::new(move || {
             transport_tick(&ctx_tick);
             schedule_transport_resync_on_idle(&ctx_tick);
+        }));
+    });
+    let ctx_browse = Rc::clone(&ctx);
+    WARM_BROWSE_SYNC.with(|slot| {
+        *slot.borrow_mut() = Some(Rc::new(move |path: PathBuf| {
+            if let Ok(g) = ctx_browse.player.try_borrow() {
+                if let Some(b) = g.as_ref() {
+                    b.set_me_budget_shell_path(&path);
+                }
+            }
+            *ctx_browse.eof.last_path.borrow_mut() = Some(path);
+            refresh_sibling_nav(&ctx_browse);
+            transport_tick(&ctx_browse);
         }));
     });
 
@@ -241,7 +257,7 @@ fn request_smooth_60_transport_resync() {
 }
 
 /// Drain libmpv events into [dispatch_event] immediately. Safe no-op before the GL realize hook runs.
-fn transport_drain_after_loadfile() {
+pub(crate) fn transport_drain_after_loadfile() {
     TRANSPORT_DRAIN.with(|slot| {
         if let Some(f) = slot.borrow().as_ref() {
             f();
@@ -250,17 +266,50 @@ fn transport_drain_after_loadfile() {
 }
 
 thread_local! {
-    /// One-shot [transport_tick] after warm resume / warm-hit open (mpv `time-pos` may lag while paused).
+    /// One-shot [transport_tick] after warm resume / warm-hit open.
     static TRANSPORT_TICK: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
 }
 
-/// Refresh seek bar + clocks (paused continue grid uses SQLite resume, not mpv `time-pos`).
+thread_local! {
+    /// Continue-grid hover / warm `loadfile` start: DB resume + duration, prev/next from [last_path].
+    static WARM_BROWSE_SYNC: RefCell<Option<Rc<dyn Fn(PathBuf)>>> = const { RefCell::new(None) };
+}
+
+thread_local! {
+    /// After warm `FileLoaded` + resume idle — release [WarmPreloadGate] for the queued hover target.
+    static WARM_PRELOAD_LOADED: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+}
+
+/// Refresh seek bar + clocks from mpv (and SQLite fallbacks on the continue grid).
 pub(crate) fn transport_nudge_tick() {
     TRANSPORT_TICK.with(|slot| {
         if let Some(f) = slot.borrow().as_ref() {
             f();
         }
     });
+}
+
+pub(crate) fn transport_sync_warm_browse(path: &Path) {
+    let Some(canon) = std::fs::canonicalize(path).ok() else {
+        return;
+    };
+    WARM_BROWSE_SYNC.with(|slot| {
+        if let Some(f) = slot.borrow().as_ref() {
+            f(canon);
+        }
+    });
+}
+
+pub(crate) fn register_warm_preload_loaded(done: Rc<dyn Fn()>) {
+    WARM_PRELOAD_LOADED.with(|slot| *slot.borrow_mut() = Some(done));
+}
+
+pub(crate) fn warm_preload_notify_loaded() {
+    disarm_warm_path_settle();
+    let done = WARM_PRELOAD_LOADED.with(|slot| slot.borrow().clone());
+    if let Some(f) = done {
+        let _ = glib::idle_add_local_once(move || f());
+    }
 }
 
 /// Called from `wire_mpv_realize` right after the mpv bundle is created, so transport-event

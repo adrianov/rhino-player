@@ -1,4 +1,5 @@
 struct HandlersBeforeMpv {
+    continue_grid_cache: crate::media_probe::ContinueGridCache,
     seek_sync: Rc<Cell<bool>>,
     seek_grabbed: Rc<Cell<bool>>,
     smooth_seek_debounce: Rc<RefCell<Option<glib::SourceId>>>,
@@ -16,6 +17,7 @@ struct HandlersBeforeMpv {
     recent_visible: Rc<Cell<bool>>,
     close_action_cell: Rc<RefCell<Option<gio::SimpleAction>>>,
     trash_action_cell: Rc<RefCell<Option<gio::SimpleAction>>>,
+    warm_preload: Option<Rc<WarmPreloadCtx>>,
 }
 
 fn wire_handlers_before_mpv(
@@ -200,19 +202,24 @@ fn wire_handlers_before_mpv(
         playback_focus: Rc::clone(playback_focus),
     });
 
-    let warm_hover = want_recent.then(|| {
-        warm_hover_hooks(
+    let warm_preload = want_recent.then(|| {
+        WarmPreloadCtx::new(
             player.clone(),
             Rc::clone(video_pref),
             w.recent_scrl.clone(),
             last_path.clone(),
         )
     });
+    let warm_hover = warm_preload
+        .as_ref()
+        .map(|ctx| warm_hover_hooks(Rc::clone(ctx)));
+    let continue_grid_cache = Rc::new(RefCell::new(std::collections::HashMap::new()));
     let recent_wiring = wire_recent_undo(RecentUndoCtx {
         player: player.clone(), recent: w.recent_scrl.clone(), flow: w.flow_recent.clone(),
         undo_shell: undo_shell.clone(), undo_label: undo_label.clone(), undo_btn: undo_btn.clone(),
         undo_close: w.undo_bar.close.clone(), on_open: on_open.clone(), want_recent,
         warm_hover: warm_hover.clone(),
+        continue_grid_cache: Rc::clone(&continue_grid_cache),
     });
     // `is_visible()` is false until the window is mapped; use `want_recent` so transport
     // and warm-preload see the continue strip on empty launch before `present`.
@@ -245,11 +252,13 @@ fn wire_handlers_before_mpv(
             playback_focus: Rc::clone(playback_focus),
             browse_has_strip: want_recent,
             hdr_title_mirror: w.hdr_title_mirror.clone(),
+            continue_grid_cache: Rc::clone(&continue_grid_cache),
         },
         w.win.clone(), w.gl_area.clone(), w.recent_scrl.clone(), w.flow_recent.clone(),
     );
 
     HandlersBeforeMpv {
+        continue_grid_cache,
         seek_sync,
         seek_grabbed,
         smooth_seek_debounce,
@@ -267,5 +276,6 @@ fn wire_handlers_before_mpv(
         recent_visible,
         close_action_cell: close_act_for_sync,
         trash_action_cell: trash_act_for_sync,
+        warm_preload,
     }
 }

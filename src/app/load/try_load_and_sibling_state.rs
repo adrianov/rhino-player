@@ -47,14 +47,17 @@ fn load_file_into_player(
     let mut g = player.borrow_mut();
     let b = g.as_mut().ok_or("Player not ready. Wait for GL init.")?;
     let prev = local_file_from_mpv(&b.mpv).or_else(|| o.last_path.borrow().clone());
-    if recent_layer.is_visible() && prev.as_ref().is_some_and(|p| same_open_target(p, path)) {
+    // Warm hit only when mpv already has this file (not `last_path` alone — hover sets that before `loadfile`).
+    if recent_layer.is_visible()
+        && local_file_from_mpv(&b.mpv).is_some_and(|cur| same_open_target(&cur, path))
+    {
         eprintln!("[rhino] try_load: warm preload hit");
         b.set_me_budget_shell_path(path);
         crate::video_pref::publish_smooth_env_before_load(path, &o.video_pref.borrow(), false);
         if o.play_on_start {
             b.set_skip_media_persist(false);
         }
-        b.apply_pending_resume();
+        let _ = b.apply_pending_resume_on_warm_open();
         transport_nudge_tick();
         return Ok(true);
     }

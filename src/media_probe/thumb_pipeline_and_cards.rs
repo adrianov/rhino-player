@@ -209,6 +209,8 @@ fn card_one(path: &Path, durs: &HashMap<String, f64>, tpos: &HashMap<String, f64
             percent: 0.0,
             thumb: None,
             missing: true,
+            resume_sec: 0.0,
+            duration_sec: 0.0,
         };
     }
     let abs = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
@@ -222,6 +224,8 @@ fn card_one(path: &Path, durs: &HashMap<String, f64>, tpos: &HashMap<String, f64
         percent: pct,
         thumb,
         missing: false,
+        resume_sec: st.unwrap_or(0.0),
+        duration_sec: dur.unwrap_or(0.0),
     }
 }
 

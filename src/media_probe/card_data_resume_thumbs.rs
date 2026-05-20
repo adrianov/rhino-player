@@ -1,5 +1,7 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use libmpv2::events::Event;
@@ -12,6 +14,43 @@ use crate::db;
 pub const NEAR_END_SEC: f64 = 3.0;
 const NEAR_END: f64 = NEAR_END_SEC;
 
+/// Resume + duration (seconds) for one continue card — filled once with the grid, reused by transport.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ContinueSnap {
+    pub resume_sec: f64,
+    pub duration_sec: f64,
+}
+
+/// Canonical path string → snap; rebuilt whenever the continue row is filled ([continue_grid_cache_refresh]).
+pub type ContinueGridCache = Rc<RefCell<HashMap<String, ContinueSnap>>>;
+
+/// Rebuild the cache from [CardData] (two SQLite reads happen only in [crate::media_probe::card_data_list]).
+pub fn continue_grid_cache_refresh(cache: &ContinueGridCache, cards: &[CardData]) {
+    let mut g = cache.borrow_mut();
+    g.clear();
+    for c in cards {
+        if c.missing {
+            continue;
+        }
+        let Some(k) = c.path.to_str() else {
+            continue;
+        };
+        g.insert(
+            k.to_string(),
+            ContinueSnap {
+                resume_sec: c.resume_sec,
+                duration_sec: c.duration_sec,
+            },
+        );
+    }
+}
+
+pub fn continue_grid_cache_lookup(cache: &ContinueGridCache, path: &Path) -> Option<ContinueSnap> {
+    let abs = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let k = abs.to_str()?;
+    cache.borrow().get(k).copied()
+}
+
 /// Data for one recent-movie card.
 pub struct CardData {
     pub path: PathBuf,
@@ -21,6 +60,8 @@ pub struct CardData {
     pub thumb: Option<Vec<u8>>,
     /// File missing; card is greyed and click removes the entry.
     pub missing: bool,
+    pub resume_sec: f64,
+    pub duration_sec: f64,
 }
 
 /// Drop SQLite resume position so the next `loadfile` starts at 0.

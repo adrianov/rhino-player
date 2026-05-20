@@ -61,6 +61,8 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         aspect_resize_end_deb,
         aspect_resize_wired,
         file_boot,
+        warm_preload,
+        continue_grid_cache,
     } = args;
 
     // Same as continue-strip launch (`file_boot` none); do not use `recent_visible.get()`
@@ -208,6 +210,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
     );
 
     wire_transport_events(TransportSetup {
+        continue_grid_cache: Rc::clone(&continue_grid_cache),
         app: app.clone(),
         player: player.clone(),
         video_pref: Rc::clone(&video_pref),
@@ -285,28 +288,18 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         smooth_toolbar_status: w.smooth_status.clone(),
     });
 
-    if want_warm_preload {
-        let player = Rc::clone(&player);
-        let video_pref = Rc::clone(&video_pref);
-        let recent = w.recent_scrl.clone();
-        let last_path = Rc::clone(&last_path);
-        let reapply_60 = reapply_60.clone();
-        // Let the continue strip paint before `loadfile` (macOS beach-ball if we block the same
-        // idle turn as transport wiring).
-        let ctx = Rc::new(WarmPreloadCtx {
-            gate: Rc::new(WarmPreloadGate {
-                inflight: Cell::new(false),
-                queued: RefCell::new(None),
-            }),
-            player,
-            video_pref,
-            recent,
-            last_path,
-        });
-        let _ = glib::timeout_add_local(WARM_PRELOAD_DELAY, move || {
-            run_continue_warm_preload(&ctx, &reapply_60, false);
-            glib::ControlFlow::Break
-        });
+    if let Some(ctx) = warm_preload {
+        register_warm_preload_ctx(Rc::clone(&ctx));
+        let done_ctx = Rc::clone(&ctx);
+        register_warm_preload_loaded(Rc::new(move || {
+            let run = Rc::clone(&done_ctx);
+            let gate = Rc::clone(&done_ctx.gate);
+            gate.complete(move |p| WarmPreloadCtx::run_path(&run, p));
+        }));
+        if want_warm_preload {
+            let ctx = Rc::clone(&ctx);
+            let _ = glib::idle_add_local_once(move || run_continue_warm_preload(&ctx, false));
+        }
     }
 }
 
@@ -355,5 +348,7 @@ struct WindowAfterPresentArgs {
     aspect_resize_end_deb: Rc<RefCell<Option<glib::SourceId>>>,
     aspect_resize_wired: Rc<Cell<bool>>,
     file_boot: Rc<RefCell<Option<PathBuf>>>,
+    warm_preload: Option<Rc<WarmPreloadCtx>>,
+    continue_grid_cache: crate::media_probe::ContinueGridCache,
 }
 

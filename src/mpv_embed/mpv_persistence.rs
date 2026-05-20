@@ -104,31 +104,27 @@ pub fn apply_pending_resume(&self) -> Option<f64> {
     let Some(path) = crate::media_probe::local_file_from_mpv(&self.mpv) else {
         return None;
     };
-    if self.pending_resume.get().is_none() {
-        let pos = self.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
-        if pos.is_finite() && pos < crate::media_probe::NEAR_END_SEC {
-            if let Some(t) = db::resume_pos(&path) {
-                self.pending_resume.set(Some(t));
-            }
-        }
-    }
-    if self.pending_resume.get().is_none() {
-        return None;
-    }
+    resume_seek::stash_near_start_resume(&self.mpv, &self.pending_resume, &path);
     let Some(t) = self.pending_resume.replace(None) else {
         return None;
     };
-    let _ = crate::video_pref::unload_smooth_on_pause(&self.mpv);
-    let s = format!("{t:.4}");
-    let _ = self.mpv.command("seek", &[s.as_str(), "absolute+exact"]);
+    if resume_seek::resume_already_at(&self.mpv, t) {
+        return Some(t);
+    }
+    resume_seek::seek_to_resume_sec(&self.mpv, t);
     Some(t)
 }
 
-/// Seek knob / elapsed while paused on the continue grid — SQLite resume only (mpv `time-pos` lags).
-pub(crate) fn knob_pos_from_sqlite(&self) -> f64 {
-    let path = crate::media_probe::local_file_from_mpv(&self.mpv)
-        .or_else(|| self.me_budget_shell_path.borrow().clone());
-    path.and_then(|p| db::resume_pos(&p)).unwrap_or(0.0)
+/// Warm reopen (card click / Space): only seek when hover preload never applied [pending_resume].
+pub fn apply_pending_resume_on_warm_open(&self) -> Option<f64> {
+    let Some(t) = self.pending_resume.replace(None) else {
+        return None;
+    };
+    if resume_seek::resume_already_at(&self.mpv, t) {
+        return Some(t);
+    }
+    resume_seek::seek_to_resume_sec(&self.mpv, t);
+    Some(t)
 }
 
 }

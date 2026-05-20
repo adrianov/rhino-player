@@ -62,6 +62,7 @@ fn build_window(
         &last_path, &playback_focus, &sibling_seof, &win_aspect,
     );
     let HandlersBeforeMpv {
+        continue_grid_cache,
         seek_sync,
         seek_grabbed,
         smooth_seek_debounce,
@@ -79,6 +80,7 @@ fn build_window(
         recent_visible,
         close_action_cell,
         trash_action_cell,
+        warm_preload,
     } = h;
 
     let video_file_actions = wire_video_file_actions(VideoFileActionCtx {
@@ -152,6 +154,8 @@ fn build_window(
         aspect_resize_end_deb,
         aspect_resize_wired,
         file_boot,
+        warm_preload,
+        continue_grid_cache,
     });
 
     crate::window_present::present_on_activation_display(&win_present);

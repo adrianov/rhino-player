@@ -6,6 +6,7 @@ pub fn fill_continue_strip(
     on_remove: RcPathFn,
     on_trash: RcPathFn,
     warm_hover: Option<WarmHoverHooks>,
+    chrome_cache: crate::media_probe::ContinueGridCache,
     backfill: Rc<RefCell<Option<Rc<RecentContext>>>>,
     schedule_backfill: BackfillFn,
 ) {
@@ -16,6 +17,7 @@ pub fn fill_continue_strip(
         on_remove.clone(),
         on_trash.clone(),
         warm_hover.clone(),
+        Rc::clone(&chrome_cache),
     );
     let v: Vec<CardData> = card_data_list(&paths);
     fill_row(
@@ -25,6 +27,7 @@ pub fn fill_continue_strip(
         on_remove,
         on_trash,
         warm_hover.as_ref(),
+        Some(&chrome_cache),
     );
     glib::idle_add_local_once(move || schedule_backfill(n, paths));
 }

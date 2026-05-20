@@ -59,6 +59,7 @@ fn back_to_browse(
     let otr2 = c.on_trash.clone();
     let paths2 = paths;
     let rbb = c.recent_backfill.clone();
+    let chrome_cache = Rc::clone(&c.continue_grid_cache);
     let _ = glib::source::idle_add_local_once(move || {
         if let Some(b) = p_write.borrow().as_ref() {
             b.snapshot_outgoing_before_leave();
@@ -77,6 +78,7 @@ fn back_to_browse(
                 osl2.clone(),
                 otr2.clone(),
                 warm.as_ref(),
+                Some(&chrome_cache),
             );
             let warm_ctx = rbb2.borrow().as_ref().and_then(|c| c.warm_hover().cloned());
             let n = recent_view::ensure_recent_backfill(
@@ -86,6 +88,7 @@ fn back_to_browse(
                 osl2.clone(),
                 otr2.clone(),
                 warm_ctx,
+                Rc::clone(&chrome_cache),
             );
             recent_view::schedule_thumb_backfill(n, paths2.clone());
             glib::ControlFlow::Break

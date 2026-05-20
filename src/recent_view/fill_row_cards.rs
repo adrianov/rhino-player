@@ -249,7 +249,11 @@ pub fn fill_row(
     on_remove: Rc<dyn Fn(&Path)>,
     on_trash: Rc<dyn Fn(&Path)>,
     warm_hover: Option<&WarmHoverHooks>,
+    chrome_cache: Option<&crate::media_probe::ContinueGridCache>,
 ) {
+    if let Some(cache) = chrome_cache {
+        crate::media_probe::continue_grid_cache_refresh(cache, &items);
+    }
     clear(row);
     let cards = Rc::new(RefCell::new(Vec::<gtk::Overlay>::new()));
 

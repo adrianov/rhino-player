@@ -76,16 +76,14 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
         c.duration = dur;
         c.pos = pos;
     }
-    if !warm_transport_chrome_pending(ctx, dur) {
-        let bar_visible = ctx.bar_show.get() || ctx.recent_visible.get();
-        update_time_labels(&ctx.widgets, pos, dur);
-        sync_duration_label(&ctx.widgets, dur);
-        sync_seek_range(&ctx.widgets, dur);
-        sync_speed_header(&ctx.player, &ctx.widgets, dur);
-        refresh_play_button(ctx);
-        if bar_visible {
-            sync_seek_pos(&ctx.widgets, pos, dur);
-        }
+    let bar_visible = ctx.bar_show.get() || ctx.recent_visible.get();
+    update_time_labels(&ctx.widgets, pos, dur);
+    sync_duration_label(&ctx.widgets, dur);
+    sync_seek_range(&ctx.widgets, dur);
+    sync_speed_header(&ctx.player, &ctx.widgets, dur);
+    refresh_play_button(ctx);
+    if bar_visible {
+        sync_seek_pos(&ctx.widgets, pos, dur);
     }
     sync_decode_size_on_tick(&ctx.player);
     if core_idle && dur > 0.0 && (dur - pos) <= TICK_EOF_TAIL_SEC {
@@ -116,12 +114,25 @@ fn read_transport_state(ctx: &TransportCtx) -> Option<(bool, bool, f64, f64)> {
     let core_idle = b.mpv.get_property::<bool>("core-idle").unwrap_or(false);
     let dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
     let dur = if dur.is_finite() { dur.max(0.0) } else { 0.0 };
-    let pos = if pause && ctx.recent_visible.get() {
-        b.knob_pos_from_sqlite()
-    } else {
-        let p = b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
-        if p.is_finite() { p.max(0.0) } else { 0.0 }
-    };
+    let mut pos = b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
+    pos = if pos.is_finite() { pos.max(0.0) } else { 0.0 };
+    let mut dur = dur;
+    if ctx.recent_visible.get() {
+        let shell = crate::media_probe::local_file_from_mpv(&b.mpv)
+            .or_else(|| b.me_budget_shell_path.borrow().clone());
+        if let Some(p) = shell {
+            if let Some(snap) =
+                crate::media_probe::continue_grid_cache_lookup(&ctx.continue_grid_cache, &p)
+            {
+                if pause {
+                    pos = snap.resume_sec;
+                }
+                if dur <= 0.0 {
+                    dur = snap.duration_sec;
+                }
+            }
+        }
+    }
     Some((pause, core_idle, dur, pos))
 }
 
