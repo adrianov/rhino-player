@@ -36,6 +36,19 @@ Feature: Application shell
     And the continue / recent grid is shown
     And the application process keeps running
 
+  Scenario: Close Video after warm preload and bottom Play
+    Given the continue grid is visible and a title is warm-preloaded from hover
+    When the user starts playback from the bottom Play control without activating the card
+    And the user activates Close Video or Ctrl+W
+    Then playback stops
+    And the continue grid is shown
+    And the application process keeps running
+
+  Scenario: Close on continue list quits when only warm preload is active
+    Given the continue grid is visible and a title is warm-preloaded paused in the background
+    When the user activates Close Video or Ctrl+W
+    Then the application process exits
+
   Scenario: Exit After Current Video overrides sibling advance
     Given the session-only Exit After Current Video item is enabled
     When the current media reaches natural end-of-playback
@@ -60,6 +73,7 @@ Feature: Application shell
 
 ## Notes
 - Global accelerators: `app.open` (Ctrl+O), `app.close-video` (Ctrl+W), `app.about` (F1), `app.quit` (q, Ctrl+Q).
+- `app.close-video`: **quit** when the continue grid is visible (browse / warm preload behind the grid) or when no local file is loaded; **back to browse** only when the grid is hidden and a file is loaded (`wire_actions.rs`, `has_loaded_local_media`).
 - User-facing name: `glib::set_application_name` is set to the same string as the initial window title (**Rhino Player**); `glib::set_prgname` remains the application id for `.desktop` / shell matching.
 - **macOS:** `gtk_application_set_menubar` uses the **same** `GMenu` instance as the header hamburger (`Open`, `Close`, `Fullscreen`, … `Preferences`, `About`, `Quit`), after actions are registered and the Preferences submenu is rebuilt.
 - Main-menu labels use Title Case for desktop-menu readability.

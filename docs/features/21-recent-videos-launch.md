@@ -17,7 +17,7 @@ mpv_props: [path, time-pos, duration, eof-reached]
 ## Description
 On empty launch (no CLI paths, no other "open this first" path takes over the first paint), the main content shows a row that always begins with **Open Video** (same workflow as choosing a file from the main menu). Up to **five** continue cards follow in most-recently-opened order when history entries exist; when history is empty, only this tile appears. Each history card has a thumbnail (cover style), a human-readable title derived from the last path segment (release-style dots, season/episode markers, and technical tags collapsed — no ellipsis), a thin progress bar with numeric percent, and trash + remove controls on hover.
 
-Clicking a history card loads that file and unpauses, even if watch-later had stored a paused session. The first history card may be warm-preloaded paused behind the grid; activating it (click or Space) hides the grid and reveals playback after a short reveal delay. Returning to the grid keeps the current file paused for warm reuse when the continue strip stays visible (including empty history while using this launch pattern). Playback stops when browsing back hides the strip (no boot-file launch paths).
+Clicking a history card loads that file and unpauses, even if watch-later had stored a paused session. The first history card may be warm-preloaded paused behind the grid on launch; hovering any other card while the grid stays visible may warm-preload that file in the background after a short debounce. Activating a preloaded card (click or Space) hides the grid and reveals playback after a short reveal delay. Returning to the grid keeps the current file paused for warm reuse when the continue strip stays visible (including empty history while using this launch pattern). Playback stops when browsing back hides the strip (no boot-file launch paths).
 
 History is durable, deduplicated by canonical path, capped at 20 entries (showing five), and prunes missing files on `history::load`. Thumbnails are JPEG BLOBs in the SQLite `media` table, refreshed in the background by a `vo=image` libmpv decode near the stored continue position. Remove and Move-to-trash share a session **LIFO undo stack** with a 10 s snackbar.
 
@@ -57,6 +57,14 @@ Feature: Recent videos grid on empty launch
     Given the recent grid is visible and the first card is warm-preloaded paused
     When the user presses Space
     Then after WARM_REVEAL_DELAY_MS the grid hides, chrome reveals, the window presents, and pause clears
+
+  Scenario: Hover warm-preloads a continue card in the background
+    Given the recent grid is visible and the playback engine is ready
+    And a continue card references a local file that is not already warm-preloaded
+    When the pointer rests on that card longer than the hover debounce
+    Then that file loads paused behind the grid without hiding the continue strip
+    And activating that card reveals playback with the warm-reveal delay
+    And stored resume positions for any hovered files remain unchanged in the persistent store
 
   Scenario: Card layout uses human-readable title and percent
     Given a card is rendered for an existing file
@@ -108,10 +116,10 @@ Feature: Recent videos grid on empty launch
 ## Notes
 - Trigger: empty CLI args; first paint follows this grid and CLI rules in [06-open-and-cli](06-open-and-cli.md).
 - Deduplication: opening a path moves it to the front; capacity 20, display 5; `history::load` prunes missing files.
-- Card UI: each card uses about 40% of the strip width with a minimum size, with a fixed **16:9** thumbnail frame (width drives height); image uses cover style (no letterboxing); title and progress sit in a soft bottom gradient overlay; the percentage is a small translucent pill; the trash icon sits left of the close icon on hover. The card title uses `human_media_title` on the basename (Transmission-style cleanup; window title uses the same helper). The leading **Open Video** tile uses the same footprint and `rp-recent-card` chrome plus dashed border styling in `theme_continue_grid.css`; it activates `app.open` (same flow as the **Open Video** menu entry).
+- Card UI: each card uses about 40% of the strip width with a minimum size, with a fixed **16:9** thumbnail frame (width drives height); image uses cover style (no letterboxing); title and progress sit in a soft bottom gradient overlay; the percentage is a small translucent pill; the trash icon sits left of the close icon on hover. Hover warm preload is debounced by `HOVER_WARM_PRELOAD_DELAY` (`src/app/base/constants_and_window_aspect.rs`); wiring via `warm_hover_hooks` / `run_continue_warm_preload_path` (`preload_continue_and_run.rs`). While the continue grid is visible and warm hover is active, `MpvBundle::skip_media_persist` blocks SQLite `media` writes (resume, decode size, smooth ME budget); close / back-from-playback / quit after real playback use `save_playback_state_for_close`. The card title uses `human_media_title` on the basename (Transmission-style cleanup; window title uses the same helper). The leading **Open Video** tile uses the same footprint and `rp-recent-card` chrome plus dashed border styling in `theme_continue_grid.css`; it activates `app.open` (same flow as the **Open Video** menu entry).
 - Snackbar: pill-shaped at the bottom; auto-hide after 10 s; remove and trash share one session LIFO stack; Undo snapshots include watch-later sidecar bytes plus the full media row; trash entries also store the `Trash/files/…` path for untrash.
 - `back_to_browse` clears the session undo stack except for trash (so the snackbar can offer untrash).
-- Length and progress: write libmpv `duration` and `time-pos` to the DB on file switch and window close (no `ffprobe`); fall back to watch-later (`start=` / `# path`) before showing 0%.
+- Length and progress: write libmpv `duration` and `time-pos` to the DB on file switch and window close (no `ffprobe`); fall back to watch-later (`start=` / `# path`) before showing 0%. Warm `loadfile` skips outgoing SQLite snapshots (`warm_preload`); near-start mpv reads must not overwrite an existing resume (`db::set_playback`, `media_probe::NEAR_END_SEC`); `apply_pending_resume` re-reads SQLite when still at the start after `FileLoaded` or on warm-hit open.
 - Thumbnails: `vo=image` libmpv with high-resolution seeking off; scale to ~960 px wide with `force_original_aspect_ratio=decrease`; JPEG quality ~82; video-only player with no audio / subtitles / external autoload / scripts / resume; loop-filter skipping only.
 - Acceptance (manual): with ≥3 valid history entries, launch with no args → Open tile plus three cards in correct order, percentages match reopen behaviour, click loads + seeks. Empty history → browse strip shows Open tile only. With a CLI file, this grid is not the first view.
 - Out of scope (v1): editing history order, hiding entries, streaming-art thumbs for remote URLs.
