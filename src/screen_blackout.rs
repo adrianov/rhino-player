@@ -45,6 +45,8 @@ pub struct ScreenBlackout {
     windows: Vec<objc2::rc::Retained<objc2_app_kit::NSWindow>>,
     #[cfg(target_os = "macos")]
     video_screen_ptr: Option<*const objc2_app_kit::NSScreen>,
+    #[cfg(target_os = "macos")]
+    last_screen_count: usize,
 }
 
 impl ScreenBlackout {
@@ -55,6 +57,8 @@ impl ScreenBlackout {
             windows: Vec::new(),
             #[cfg(target_os = "macos")]
             video_screen_ptr: None,
+            #[cfg(target_os = "macos")]
+            last_screen_count: 0,
         }
     }
 

@@ -72,23 +72,31 @@ fn sync_macos(
     if !should_apply(bo, win, player, recent_visible) {
         clear_macos(&mut bo.windows);
         bo.video_screen_ptr = None;
+        bo.last_screen_count = 0;
         return;
     }
     let Some(main_nswin) = crate::macos_window::nswindow_for_widget(win) else {
         clear_macos(&mut bo.windows);
         bo.video_screen_ptr = None;
+        bo.last_screen_count = 0;
         return;
     };
     let Some(video_screen) = main_nswin.screen() else {
         clear_macos(&mut bo.windows);
         bo.video_screen_ptr = None;
+        bo.last_screen_count = 0;
         return;
     };
+    let screen_count = screen_count_macos();
     let video_ptr = objc2::rc::Retained::as_ptr(&video_screen);
-    if bo.video_screen_ptr == Some(video_ptr) && !bo.windows.is_empty() {
+    if bo.video_screen_ptr == Some(video_ptr)
+        && bo.last_screen_count == screen_count
+        && !bo.windows.is_empty()
+    {
         return;
     }
     bo.video_screen_ptr = Some(video_ptr);
+    bo.last_screen_count = screen_count;
     apply_macos(&mut bo.windows, &main_nswin, &video_screen);
 }
 
