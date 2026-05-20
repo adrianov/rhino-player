@@ -187,6 +187,13 @@ fn wire_transport_events(s: TransportSetup) {
             drain_into_main(&ctx_drain);
         }));
     });
+    let ctx_tick = Rc::clone(&ctx);
+    TRANSPORT_TICK.with(|slot| {
+        *slot.borrow_mut() = Some(Rc::new(move || {
+            transport_tick(&ctx_tick);
+            schedule_transport_resync_on_idle(&ctx_tick);
+        }));
+    });
 
     let ctx_smooth = Rc::clone(&ctx);
     REQUEST_SMOOTH_60_RESYNC.with(|slot| {
@@ -236,6 +243,20 @@ fn request_smooth_60_transport_resync() {
 /// Drain libmpv events into [dispatch_event] immediately. Safe no-op before the GL realize hook runs.
 fn transport_drain_after_loadfile() {
     TRANSPORT_DRAIN.with(|slot| {
+        if let Some(f) = slot.borrow().as_ref() {
+            f();
+        }
+    });
+}
+
+thread_local! {
+    /// One-shot [transport_tick] after warm resume / warm-hit open (mpv `time-pos` may lag while paused).
+    static TRANSPORT_TICK: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+}
+
+/// Refresh seek bar + clocks (paused continue grid uses SQLite resume, not mpv `time-pos`).
+pub(crate) fn transport_nudge_tick() {
+    TRANSPORT_TICK.with(|slot| {
         if let Some(f) = slot.borrow().as_ref() {
             f();
         }

@@ -55,6 +55,7 @@ fn load_file_into_player(
             b.set_skip_media_persist(false);
         }
         b.apply_pending_resume();
+        transport_nudge_tick();
         return Ok(true);
     }
     if prev.as_ref().is_some_and(|p| !same_open_target(p, path)) {

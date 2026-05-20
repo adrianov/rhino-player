@@ -66,7 +66,7 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     #[cfg(target_os = "macos")]
     sync_macos_now_playing_for_transport(&ctx.player);
 
-    let Some((pause, core_idle, dur, pos)) = read_transport_state(&ctx.player) else {
+    let Some((pause, core_idle, dur, pos)) = read_transport_state(ctx) else {
         return;
     };
     {
@@ -76,14 +76,16 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
         c.duration = dur;
         c.pos = pos;
     }
-    let bar_visible = ctx.bar_show.get() || ctx.recent_visible.get();
-    update_time_labels(&ctx.widgets, pos, dur);
-            sync_duration_label(&ctx.widgets, dur);
-            sync_seek_range(&ctx.widgets, dur);
-            sync_speed_header(&ctx.player, &ctx.widgets, dur);
-    refresh_play_button(ctx);
-    if bar_visible {
-        sync_seek_pos(&ctx.widgets, pos, dur);
+    if !warm_transport_chrome_pending(ctx, dur) {
+        let bar_visible = ctx.bar_show.get() || ctx.recent_visible.get();
+        update_time_labels(&ctx.widgets, pos, dur);
+        sync_duration_label(&ctx.widgets, dur);
+        sync_seek_range(&ctx.widgets, dur);
+        sync_speed_header(&ctx.player, &ctx.widgets, dur);
+        refresh_play_button(ctx);
+        if bar_visible {
+            sync_seek_pos(&ctx.widgets, pos, dur);
+        }
     }
     sync_decode_size_on_tick(&ctx.player);
     if core_idle && dur > 0.0 && (dur - pos) <= TICK_EOF_TAIL_SEC {
@@ -107,17 +109,19 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     ctx.blackout.sync();
 }
 
-fn read_transport_state(
-    player: &Rc<RefCell<Option<MpvBundle>>>,
-) -> Option<(bool, bool, f64, f64)> {
-    let g = player.try_borrow().ok()?;
+fn read_transport_state(ctx: &TransportCtx) -> Option<(bool, bool, f64, f64)> {
+    let g = ctx.player.try_borrow().ok()?;
     let b = g.as_ref()?;
     let pause = b.mpv.get_property::<bool>("pause").unwrap_or(false);
     let core_idle = b.mpv.get_property::<bool>("core-idle").unwrap_or(false);
     let dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
     let dur = if dur.is_finite() { dur.max(0.0) } else { 0.0 };
-    let pos = b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
-    let pos = if pos.is_finite() { pos.max(0.0) } else { 0.0 };
+    let pos = if pause && ctx.recent_visible.get() {
+        b.knob_pos_from_sqlite()
+    } else {
+        let p = b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
+        if p.is_finite() { p.max(0.0) } else { 0.0 }
+    };
     Some((pause, core_idle, dur, pos))
 }
 

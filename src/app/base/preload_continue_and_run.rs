@@ -8,7 +8,7 @@ fn boot_path_from_argv() -> Option<PathBuf> {
     }
 }
 
-/// At most one warm `loadfile` at a time; further hovers queue until the current preload finishes.
+/// At most one warm `loadfile` at a time; while busy, [WarmPreloadGate::queue] keeps **only** the latest path.
 struct WarmPreloadGate {
     inflight: Cell<bool>,
     queued: RefCell<Option<PathBuf>>,
@@ -23,12 +23,34 @@ impl WarmPreloadGate {
         true
     }
 
+    /// Replace any prior queued hover target with [path] (last wins).
+    fn queue(&self, path: PathBuf) {
+        *self.queued.borrow_mut() = Some(path);
+    }
+
     fn finish(&self, run_queued: impl FnOnce(PathBuf)) {
         self.inflight.set(false);
         if let Some(path) = self.queued.borrow_mut().take() {
             run_queued(path);
         }
     }
+}
+
+fn is_warm_file_loaded(
+    path: &Path,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    last_path: &Rc<RefCell<Option<PathBuf>>>,
+) -> bool {
+    if !last_path
+        .borrow()
+        .as_ref()
+        .is_some_and(|p| same_open_target(p, path))
+    {
+        return false;
+    }
+    player.borrow().as_ref().is_some_and(|b| {
+        local_file_from_mpv(&b.mpv).is_some_and(|m| same_open_target(&m, path))
+    })
 }
 
 struct WarmPreloadCtx {
@@ -40,9 +62,16 @@ struct WarmPreloadCtx {
 }
 
 impl WarmPreloadCtx {
+    fn is_already_warm_loaded(&self, path: &Path) -> bool {
+        is_warm_file_loaded(path, &self.player, &self.last_path)
+    }
+
     fn run_path(&self, path: PathBuf) {
+        if self.is_already_warm_loaded(&path) {
+            return;
+        }
         if !self.gate.begin() {
-            *self.gate.queued.borrow_mut() = Some(path);
+            self.gate.queue(path);
             return;
         }
         if !preload_continue_path(
@@ -77,16 +106,8 @@ fn preload_continue_path(
     if !recent.is_visible() || !path.is_file() || player.borrow().is_none() {
         return false;
     }
-    if last_path
-        .borrow()
-        .as_ref()
-        .is_some_and(|p| same_open_target(p, path))
-    {
-        if let Some(b) = player.borrow().as_ref() {
-            if local_file_from_mpv(&b.mpv).is_some_and(|m| same_open_target(&m, path)) {
-                return false;
-            }
-        }
+    if is_warm_file_loaded(path, player, last_path) {
+        return false;
     }
     let o = LoadOpts {
         video_pref: Rc::clone(video_pref),
@@ -122,7 +143,7 @@ fn preload_first_continue(ctx: &WarmPreloadCtx) -> bool {
         None => return false,
     };
     if !ctx.gate.begin() {
-        *ctx.gate.queued.borrow_mut() = Some(path);
+        ctx.gate.queue(path);
         return false;
     }
     if !preload_continue_path(
@@ -209,12 +230,18 @@ fn warm_hover_hooks(
     });
     let enter = Rc::new(move |path: &Path| {
         drop_glib_source(pending.as_ref());
+        if ctx.is_already_warm_loaded(path) {
+            return;
+        }
         let path = path.to_path_buf();
         let ctx = Rc::clone(&ctx);
         let pending_done = pending.clone();
         let id = glib::timeout_add_local(HOVER_WARM_PRELOAD_DELAY, move || {
             // GLib removes this source on `Break`; drop the slot only (never `g_source_remove`).
             pending_done.borrow_mut().take();
+            if ctx.is_already_warm_loaded(&path) {
+                return glib::ControlFlow::Break;
+            }
             run_continue_warm_preload_path(&path, &ctx);
             glib::ControlFlow::Break
         });

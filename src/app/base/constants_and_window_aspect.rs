@@ -64,7 +64,7 @@ const WARM_REVEAL_DELAY_MS: u64 = 160;
 const WARM_PRELOAD_DELAY: std::time::Duration =
     std::time::Duration::from_millis(WARM_REVEAL_DELAY_MS);
 /// Debounce continue-card hover before background warm `loadfile` (quick pointer passes).
-const HOVER_WARM_PRELOAD_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
+const HOVER_WARM_PRELOAD_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 const SUB_SCAN_TICKS: u8 = 24;
 const SUB_SCAN_MS: u64 = 250;
 const WIN_INIT_W: i32 = 960;

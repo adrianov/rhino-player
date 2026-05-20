@@ -142,11 +142,13 @@ pub fn set_playback(path: &Path, duration_sec: f64, time_pos_sec: f64) {
         return;
     }
     let t = time_pos_sec.min(duration_sec);
-    if t < MIN_PERSIST_RESUME_SEC {
-        if resume_pos(path).is_some() || t < 1.0 {
-            set_duration(path, duration_sec);
-            return;
-        }
+    if t < MIN_PERSIST_RESUME_SEC && resume_pos(path).is_some() {
+        set_duration(path, duration_sec);
+        return;
+    }
+    if t < 1.0 {
+        set_duration(path, duration_sec);
+        return;
     }
     let Some(s) = std::fs::canonicalize(path)
         .ok()

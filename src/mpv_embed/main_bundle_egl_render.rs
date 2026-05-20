@@ -28,6 +28,8 @@ pub struct MpvBundle {
     pending_resume: std::cell::Cell<Option<f64>>,
     /// Continue-grid warm hover: block SQLite `media` writes until the user opens for playback or closes.
     pub(crate) skip_media_persist: std::cell::Cell<bool>,
+    /// Bumped on each warm `loadfile`; stale `FileLoaded` idles compare before resume/audio.
+    pub(crate) warm_file_gen: std::cell::Cell<u32>,
 
     #[cfg(not(target_os = "macos"))]
     _gl: GlDynLib,
@@ -116,6 +118,7 @@ impl MpvBundle {
                 gl_ptr,
                 pending_resume: std::cell::Cell::new(None),
                 skip_media_persist: std::cell::Cell::new(false),
+                warm_file_gen: std::cell::Cell::new(0),
             },
             auto_off,
         ))
@@ -130,6 +133,7 @@ impl MpvBundle {
                 me_budget_shell_path: std::cell::RefCell::new(None),
                 pending_resume: std::cell::Cell::new(None),
                 skip_media_persist: std::cell::Cell::new(false),
+                warm_file_gen: std::cell::Cell::new(0),
                 macos: Some(macos),
             },
             auto_off,

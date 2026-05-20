@@ -13,6 +13,10 @@ pub(crate) fn set_skip_media_persist(&self, skip: bool) {
     self.skip_media_persist.set(skip);
 }
 
+pub(crate) fn warm_file_gen(&self) -> u32 {
+    self.warm_file_gen.get()
+}
+
 #[must_use]
 pub(crate) fn may_persist_media_rows(&self) -> bool {
     !self.skip_media_persist.get()
@@ -83,6 +87,9 @@ pub fn load_file_path(
     }
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let s = canonical.to_str().ok_or("media path is not valid UTF-8")?;
+    if warm_preload {
+        self.warm_file_gen.set(self.warm_file_gen.get().wrapping_add(1));
+    }
     self.pending_resume.set(db::resume_pos(&canonical));
     self.mpv
         .command("loadfile", &[s, "replace"])
@@ -93,9 +100,9 @@ pub fn load_file_path(
 /// nothing is pending. Call once per `FileLoaded` from the transport-event drain.
 /// Uses **`absolute+exact`** so the demuxer lands on the saved time (keyframe-only seeks can
 /// sit at 0s briefly on load and fight the continue grid).
-pub fn apply_pending_resume(&self) {
+pub fn apply_pending_resume(&self) -> Option<f64> {
     let Some(path) = crate::media_probe::local_file_from_mpv(&self.mpv) else {
-        return;
+        return None;
     };
     if self.pending_resume.get().is_none() {
         let pos = self.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
@@ -106,14 +113,22 @@ pub fn apply_pending_resume(&self) {
         }
     }
     if self.pending_resume.get().is_none() {
-        return;
+        return None;
     }
     let Some(t) = self.pending_resume.replace(None) else {
-        return;
+        return None;
     };
     let _ = crate::video_pref::unload_smooth_on_pause(&self.mpv);
     let s = format!("{t:.4}");
     let _ = self.mpv.command("seek", &[s.as_str(), "absolute+exact"]);
+    Some(t)
+}
+
+/// Seek knob / elapsed while paused on the continue grid — SQLite resume only (mpv `time-pos` lags).
+pub(crate) fn knob_pos_from_sqlite(&self) -> f64 {
+    let path = crate::media_probe::local_file_from_mpv(&self.mpv)
+        .or_else(|| self.me_budget_shell_path.borrow().clone());
+    path.and_then(|p| db::resume_pos(&p)).unwrap_or(0.0)
 }
 
 }

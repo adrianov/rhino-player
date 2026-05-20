@@ -52,6 +52,11 @@ fn with_bundle(player: &Rc<RefCell<Option<MpvBundle>>>, f: impl FnOnce(&MpvBundl
     }
 }
 
+/// Continue-grid warm load before mpv reports `duration` — skip seek/clock/play chrome (avoids 0:00 flashes).
+fn warm_transport_chrome_pending(ctx: &TransportCtx, dur: f64) -> bool {
+    ctx.recent_visible.get() && dur <= 0.0
+}
+
 fn apply_file_loaded_resume_and_audio(player: &Rc<RefCell<Option<MpvBundle>>>) {
     with_bundle(player, |b| {
         b.apply_pending_resume();
@@ -101,18 +106,23 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
     match ev {
         TransportEv::Pause(p) => {
             ctx.cache.borrow_mut().pause = p;
-            refresh_play_button(ctx);
+            let dur = ctx.cache.borrow().duration;
+            if !warm_transport_chrome_pending(ctx, dur) {
+                refresh_play_button(ctx);
+            }
             sync_smooth_vf_on_pause_transition(ctx, p);
             ctx.blackout.sync();
         }
         TransportEv::Duration(d) => {
             let d = if d.is_finite() { d } else { 0.0 };
             ctx.cache.borrow_mut().duration = d;
-            sync_seek_range(w, d);
-            sync_duration_label(w, d);
-            sync_speed_header(&ctx.player, w, d);
-            refresh_play_button(ctx);
-            sync_seek_chapters(ctx);
+            if !warm_transport_chrome_pending(ctx, d) {
+                sync_seek_range(w, d);
+                sync_duration_label(w, d);
+                sync_speed_header(&ctx.player, w, d);
+                refresh_play_button(ctx);
+                sync_seek_chapters(ctx);
+            }
         }
         TransportEv::Volume(v) => sync_volume(w, v),
         TransportEv::Mute(m) => sync_mute(w, m),
@@ -129,8 +139,23 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             // Warm preload: defer the seek to the next idle so the continue strip stays responsive.
             if ctx.recent_visible.get() {
                 let player = Rc::clone(&ctx.player);
+                let want_gen = ctx
+                    .player
+                    .borrow()
+                    .as_ref()
+                    .map(crate::mpv_embed::MpvBundle::warm_file_gen)
+                    .unwrap_or(0);
                 glib::idle_add_local_once(move || {
+                    let cur = player
+                        .borrow()
+                        .as_ref()
+                        .map(crate::mpv_embed::MpvBundle::warm_file_gen)
+                        .unwrap_or(0);
+                    if cur != want_gen {
+                        return;
+                    }
                     apply_file_loaded_resume_and_audio(&player);
+                    transport_nudge_tick();
                     transport_drain_after_loadfile();
                 });
             } else {
@@ -139,8 +164,10 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             ctx.eof.sibling_seof.done.set(false);
             sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);
             refresh_sibling_nav(ctx);
-            transport_tick(ctx);
-            schedule_transport_resync_on_idle(ctx);
+            if !ctx.recent_visible.get() {
+                transport_tick(ctx);
+                schedule_transport_resync_on_idle(ctx);
+            }
             schedule_smooth_60_resync_idle(ctx);
             sync_seek_chapters(ctx);
             ctx.blackout.sync();
