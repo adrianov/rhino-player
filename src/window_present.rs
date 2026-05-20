@@ -1,19 +1,20 @@
 //! Present the main window on the display that contains the pointer.
 //!
 //! Portable: [`gtk::prelude::GtkWindowExt::present`] (compositor chooses placement; fine on Wayland).
-//! macOS: set [`NSWindow`] frame on the screen under the mouse **before** `present` so the first
-//! frame is not drawn on the primary display (gdk-macos would otherwise show, then jump on idle).
+//! macOS: set [`NSWindow`] frame on the screen under the mouse **before** the first `present` so the
+//! first frame is not drawn on the primary display (gdk-macos would otherwise show, then jump on idle).
+//! Screen placement runs **once** at startup; later activations only call [`GtkWindowExt::present`].
 
 use glib::prelude::{Cast, ObjectExt};
 use gtk::prelude::{GtkApplicationExt, GtkWindowExt, WidgetExt};
 
-/// Install platform hooks (macOS: re-place when the app becomes active).
+/// Install platform hooks (macOS: raise on re-activation without re-centering).
 pub fn wire_activation_present(_app: &adw::Application) {
     #[cfg(target_os = "macos")]
     wire_macos_did_become_active(_app);
 }
 
-/// Raise the window; on macOS, center it on the screen under the mouse when windowed.
+/// First present at startup; on macOS, center on the screen under the mouse when windowed.
 pub fn present_on_activation_display(win: &adw::ApplicationWindow) {
     if win.is_fullscreen() || win.is_maximized() {
         win.present();
@@ -68,7 +69,8 @@ fn wire_macos_did_become_active(app: &adw::Application) {
         let Some(win) = pick_application_window(&app) else {
             return;
         };
-        present_on_activation_display(&win);
+        // Startup already placed the frame; re-centering on every click/active broke windowed UX.
+        win.present();
     });
     let center = NSNotificationCenter::defaultCenter();
     let _observer = unsafe {
