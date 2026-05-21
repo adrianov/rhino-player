@@ -23,7 +23,7 @@ fn header_menubtns_switch(menus: &[gtk::MenuButton]) {
             .map(|(_, b)| b.clone())
             .collect();
         let c = this.clone();
-        g.connect_pressed(move |gesture, n, _, _| {
+        g.connect_pressed(move |_gesture, n, _, _| {
             if n != 1 {
                 return;
             }

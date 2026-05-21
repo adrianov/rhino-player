@@ -85,6 +85,7 @@ impl ScreenBlackout {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn should_apply(
     bo: &ScreenBlackout,
     win: &adw::ApplicationWindow,

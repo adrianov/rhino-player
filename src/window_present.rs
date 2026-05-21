@@ -5,10 +5,14 @@
 //! first frame is not drawn on the primary display (gdk-macos would otherwise show, then jump on idle).
 //! Screen placement runs **once** at startup; later activations only call [`GtkWindowExt::present`].
 
+#[cfg(target_os = "macos")]
 use glib::prelude::{Cast, ObjectExt};
-use gtk::prelude::{GtkApplicationExt, GtkWindowExt, WidgetExt};
+use gtk::prelude::GtkWindowExt;
+#[cfg(target_os = "macos")]
+use gtk::prelude::GtkApplicationExt;
 
 /// Install platform hooks (macOS: raise on re-activation without re-centering).
+#[cfg(target_os = "macos")]
 pub fn wire_activation_present(_app: &adw::Application) {
     #[cfg(target_os = "macos")]
     wire_macos_did_become_active(_app);
@@ -26,6 +30,7 @@ pub fn present_on_activation_display(win: &adw::ApplicationWindow) {
     win.present();
 }
 
+#[cfg(target_os = "macos")]
 pub(crate) fn pick_application_window(app: &adw::Application) -> Option<adw::ApplicationWindow> {
     app.active_window()
         .and_then(|w| w.downcast::<adw::ApplicationWindow>().ok())
