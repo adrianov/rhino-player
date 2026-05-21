@@ -22,8 +22,8 @@ const RECOVERY_STRAIN_TAIL_MIN_ELAPSED_SECS: f64 = 2.1;
 /// Relaxed-window rolling strain must stay **strictly below** this **fraction** for **`RECOVERY_FIRE_STREAK_TICKS`** successive ticks before ME raise.
 const RECOVERY_STRAIN_LT_FRAC: f64 = 0.10;
 
-/// **~30 s** at **`1 Hz`** with **`recovery_rate`** **`<`** **`RECOVERY_STRAIN_LT_FRAC`** before **`recovery_candidate`** raise.
-const RECOVERY_FIRE_STREAK_TICKS: u32 = 30;
+/// **~300 s** at **`1 Hz`** with **`recovery_rate`** **`<`** **`RECOVERY_STRAIN_LT_FRAC`** before **`recovery_candidate`** raise.
+const RECOVERY_FIRE_STREAK_TICKS: u32 = 300;
 
 /// Strain **fraction** = Δtally ÷ (**Δwall × denominator Hz**).
 #[must_use]
@@ -119,7 +119,7 @@ include!("smooth_budget_persist.rs");
 include!("smooth_budget_sample_window.rs");
 
 /// **`1 Hz`** transport tick (**bundled** `.vpy` only; **caller** skips ticks while the playback shell window is inactive / unmapped—see **`transport_events`**): tighten ME budget when the **playback smoothness strain tally**
-/// shows **>** **`OVERLOAD_STRAIN_GT_FRAC`** strict rolling strain **five** successive ticks; relax when relaxed-window strain **\<** **`RECOVERY_STRAIN_LT_FRAC`** **thirty** successive ticks.
+/// shows **>** **`OVERLOAD_STRAIN_GT_FRAC`** strict rolling strain **five** successive ticks; relax when relaxed-window strain **\<** **`RECOVERY_STRAIN_LT_FRAC`** **three hundred** successive ticks.
 pub(crate) fn smooth_budget_on_transport_tick(
     player: &Rc<RefCell<Option<crate::mpv_embed::MpvBundle>>>,
     video_pref: &Rc<RefCell<crate::db::VideoPrefs>>,
