@@ -1,5 +1,9 @@
 include!("chrome_fs_transition_gate.rs");
+#[cfg(target_os = "macos")]
+include!("chrome_macos_traffic_lights.rs");
 include!("chrome_macos_unfullscreen_defer.rs");
+#[cfg(target_os = "macos")]
+include!("chrome_macos_toggle.rs");
 #[cfg(target_os = "macos")]
 include!("chrome_macos_header_popovers.rs");
 include!("chrome_header_menubtns.rs");
@@ -12,10 +16,8 @@ struct FullscreenToggleRefs {
     fs_transition_busy: Rc<Cell<bool>>,
 }
 
+#[cfg(not(target_os = "macos"))]
 fn unfullscreen_safe_inner(win: &adw::ApplicationWindow) {
-    #[cfg(target_os = "macos")]
-    macos_schedule_unfullscreen(win.clone());
-    #[cfg(not(target_os = "macos"))]
     win.unfullscreen();
 }
 
@@ -28,6 +30,18 @@ fn unfullscreen_safe(win: &adw::ApplicationWindow, fs_busy: &Cell<bool>) {
     unfullscreen_safe_inner(win);
 }
 
+#[cfg(target_os = "macos")]
+fn toggle_fullscreen(
+    win: &adw::ApplicationWindow,
+    fs_restore: &RefCell<Option<(i32, i32)>>,
+    last_unmax: &RefCell<(i32, i32)>,
+    skip_max_to_fs: &Cell<bool>,
+    _fs_busy: &Cell<bool>,
+) {
+    macos_toggle_fullscreen(win, fs_restore, last_unmax, skip_max_to_fs);
+}
+
+#[cfg(not(target_os = "macos"))]
 fn toggle_fullscreen(
     win: &adw::ApplicationWindow,
     fs_restore: &RefCell<Option<(i32, i32)>>,
@@ -41,11 +55,9 @@ fn toggle_fullscreen(
     if win.is_fullscreen() {
         skip_max_to_fs.set(true);
         unfullscreen_safe_inner(win);
-        // unmaximize + set_default_size run in `connect_fullscreened_notify` (leave) if `fs_restore` was set
     } else if !win.is_maximized() {
         *fs_restore.borrow_mut() = Some(win_normal_size(win));
         win.maximize();
-        // Fullscreen is applied in `connect_maximized_notify` (maximized && !fullscreen).
     } else {
         if fs_restore.borrow().is_none() {
             *fs_restore.borrow_mut() = Some(*last_unmax.borrow());
@@ -78,7 +90,11 @@ where
 fn apply_chrome<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>) {
     c.root.set_extend_content_to_top_edge(true);
     c.root.set_extend_content_to_bottom_edge(true);
-    let show = c.recent.is_visible() || c.bar_show.get();
+    let mut show = c.recent.is_visible() || c.bar_show.get();
+    #[cfg(target_os = "macos")]
+    if crate::macos_fs_exit::exit_armed() {
+        show = true;
+    }
     let reveal_changed = set_toolbar_reveal(c.root, show);
     sync_header_window_controls(c.header, c.hdr_csd_baseline, show, c.root);
     if !reveal_changed {

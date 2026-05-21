@@ -41,10 +41,13 @@ fn wire_handlers_before_mpv(
     win_aspect: &Rc<Cell<Option<f64>>>,
 ) -> HandlersBeforeMpv {
     #[cfg(target_os = "macos")]
-    wire_macos_header_menu_cluster(
-        &w.root,
-        &[w.speed_mbtn.clone(), w.sub_menu.clone(), w.vol_menu.clone()],
-    );
+    {
+        crate::macos_window::register_win_bar_show(&w.win, Rc::clone(bar_show), w.root.clone());
+        wire_macos_header_menu_cluster(
+            &w.root,
+            &[w.speed_mbtn.clone(), w.sub_menu.clone(), w.vol_menu.clone()],
+        );
+    }
     #[cfg(not(target_os = "macos"))]
     header_menubtns_switch(&[
         w.speed_mbtn.clone(), w.sub_menu.clone(), w.vol_menu.clone(), w.menu_btn.clone(),

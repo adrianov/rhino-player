@@ -258,6 +258,9 @@ fn w_in_max_mode(ctx: &WindowInputCtx) {
                 if skip_idle.get() || !w_idle.is_maximized() || w_idle.is_fullscreen() {
                     return;
                 }
+                #[cfg(target_os = "macos")]
+                crate::macos_window::enter_fullscreen_from_maximized(&w_idle);
+                #[cfg(not(target_os = "macos"))]
                 w_idle.fullscreen();
             });
         }

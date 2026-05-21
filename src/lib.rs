@@ -16,6 +16,10 @@ mod icons;
 mod idle_inhibit;
 mod jpeg_texture;
 #[cfg(target_os = "macos")]
+mod macos_fs_debug;
+#[cfg(target_os = "macos")]
+mod macos_fs_exit;
+#[cfg(target_os = "macos")]
 mod macos_window;
 mod media_probe;
 mod mpris;

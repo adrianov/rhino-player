@@ -1,5 +1,3 @@
-include!("chrome_macos_traffic_lights.rs");
-
 fn wire_header_csd_baseline_snap(
     baseline: &Rc<Cell<Option<(bool, bool)>>>,
     header: &adw::HeaderBar,
@@ -48,6 +46,12 @@ fn sync_header_window_controls_macos(
     root: &adw::ToolbarView,
 ) {
     use gtk::prelude::WidgetExt;
+
+    if crate::macos_fs_exit::exit_armed() {
+        macos_traffic_cancel_poll();
+        // Do not touch traffic lights while exiting — AppKit titlebar layout is fragile.
+        return;
+    }
 
     let fullscreen = hdr
         .root()

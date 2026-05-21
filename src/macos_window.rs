@@ -3,28 +3,66 @@
 //! Resolves the underlying NSWindow via `gdk4_macos::MacosSurface::native()` (GTK 4.8+)
 //! and exposes helpers used by the GTK shell: hide / show traffic lights and layer invalidation.
 //!
-//! Fullscreen **exit** is deferred after [`crate::fullscreen_timing`] settlement
-//! (`chrome_macos_unfullscreen_defer`): drive AppKit via [`native_leave_fullscreen`] /
-//! [`post_fullscreen_toggle_shortcut`]; never [`GtkWindowExt::unfullscreen`] (gdk-macos present during
-//! `_NSExitFullScreenTransitionController` reproduced ~74k-frame recursion on macOS 26.x). GTK state
-//! is synced with [`GtkWindowExt::set_fullscreened`] when native fullscreen has already ended.
+//! Fullscreen **exit** (`chrome_macos_unfullscreen_defer`): reveal toolbar bars, settle,
+//! then native [`toggleFullScreen:`] while [`crate::macos_fs_exit`] is armed — not
+//! [`GtkWindowExt::set_fullscreened`](false).
 
 use gdk4_macos::prelude::Cast;
 use gdk4_macos::MacosSurface;
 use glib::object::IsA;
 use gtk::prelude::{GtkWindowExt, NativeExt, WidgetExt};
+#[cfg(target_os = "macos")]
+use glib::prelude::ObjectType;
 use objc2::msg_send;
 use objc2::rc::Retained;
-use objc2_app_kit::{
-    NSApplication, NSCursor, NSEvent, NSEventModifierFlags, NSEventType, NSView, NSWindow,
-    NSWindowButton, NSWindowStyleMask,
-};
-use objc2_foundation::{MainThreadMarker, NSString, NSPoint};
-use objc2_quartz_core::CATransaction;
+use objc2_app_kit::{NSCursor, NSView, NSWindow, NSWindowButton, NSWindowStyleMask};
 use std::cell::Cell;
+#[cfg(target_os = "macos")]
+use std::cell::RefCell;
+#[cfg(target_os = "macos")]
+use std::collections::HashMap;
+#[cfg(target_os = "macos")]
+use std::rc::Rc;
 
-/// US keyboard key code for `f` (⌃⌘F toggles fullscreen on macOS).
-const FS_TOGGLE_KEY_CODE: u16 = 3;
+#[cfg(target_os = "macos")]
+#[derive(Clone)]
+struct WinFsExitState {
+    bar_show: Rc<Cell<bool>>,
+    toolbar: adw::ToolbarView,
+}
+
+#[cfg(target_os = "macos")]
+thread_local! {
+    static WIN_FS_EXIT: RefCell<HashMap<isize, WinFsExitState>> = RefCell::new(HashMap::new());
+}
+
+/// Per-window fullscreen-exit state (`bar_show` + root [`ToolbarView`]); dropped on window destroy.
+#[cfg(target_os = "macos")]
+pub(crate) fn register_win_bar_show(
+    win: &adw::ApplicationWindow,
+    bar_show: Rc<Cell<bool>>,
+    toolbar: adw::ToolbarView,
+) {
+    let key = win.as_ptr() as isize;
+    WIN_FS_EXIT.with(|m| {
+        m.borrow_mut().insert(
+            key,
+            WinFsExitState {
+                bar_show,
+                toolbar,
+            },
+        );
+    });
+    win.connect_destroy(move |_| {
+        WIN_FS_EXIT.with(|m| m.borrow_mut().remove(&key));
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn fs_exit_state_for_win(win: &adw::ApplicationWindow) -> Option<WinFsExitState> {
+    let key = win.as_ptr() as isize;
+    WIN_FS_EXIT.with(|m| m.borrow().get(&key).cloned())
+}
 
 /// Resolve the underlying [`NSWindow`] for a realized GTK widget on macOS.
 ///
@@ -67,6 +105,21 @@ pub fn invalidate_window_layers<W: IsA<gtk::Widget>>(widget: &W) {
     }
 }
 
+/// Before AppKit leaves fullscreen: reveal [`ToolbarView`] bars only.
+///
+/// Enter fullscreen sets `bar_show` false and hides bars; touching traffic-light /
+/// `setShowStandardWindowButtons` in the same turn as `toggleFullScreen:` retriggers
+/// `_NSThemeZoomWidgetCell` geometry and can recurse titlebar layout. Native buttons
+/// stay visible while fullscreen (`chrome_header_csd_controls` fullscreen branch).
+pub(crate) fn prepare_fullscreen_exit(win: &adw::ApplicationWindow) {
+    if let Some(st) = fs_exit_state_for_win(win) {
+        st.bar_show.set(true);
+        st.toolbar.set_reveal_top_bars(true);
+        st.toolbar.set_reveal_bottom_bars(true);
+    }
+    crate::macos_fs_debug::log("prepare exit: reveal toolbar bars only");
+}
+
 /// Hide or show the macOS traffic-light buttons on the NSWindow that hosts `widget`.
 ///
 /// Uses [`NSWindow::standardWindowButton`] + `setHidden:`. We deliberately do **not**
@@ -79,64 +132,77 @@ pub(crate) fn ns_window_is_native_fullscreen(nswin: &NSWindow) -> bool {
     nswin.styleMask().contains(NSWindowStyleMask::FullScreen)
 }
 
-/// Start native fullscreen exit (`toggleFullScreen:`). Does not call GTK.
-pub(crate) fn native_leave_fullscreen(nswin: &NSWindow) -> bool {
-    if !ns_window_is_native_fullscreen(nswin) {
-        return true;
+pub(crate) fn ns_fullscreen_for_win(win: &adw::ApplicationWindow) -> bool {
+    nswindow_for_widget(win.upcast_ref::<gtk::Widget>())
+        .is_some_and(|ns| ns_window_is_native_fullscreen(&ns))
+}
+
+/// GDK `is_fullscreen` without a matching AppKit style mask (maximized-looking stuck state).
+pub(crate) fn clear_stale_gtk_fullscreen(win: &adw::ApplicationWindow) -> bool {
+    if !win.is_fullscreen() || ns_fullscreen_for_win(win) {
+        return false;
     }
-    CATransaction::begin();
-    CATransaction::setDisableActions(true);
-    nswin.toggleFullScreen(None);
-    CATransaction::commit();
+    crate::macos_fs_debug::log("clear stale gtk fullscreen (ns not fullscreen)");
+    win.set_fullscreened(false);
+    crate::macos_fs_exit::clear_exit();
     true
 }
 
-/// Post the standard **⌃⌘F** fullscreen toggle to AppKit (supplement when `toggleFullScreen:` stalls).
-pub(crate) fn post_fullscreen_toggle_shortcut(nswin: &NSWindow) -> bool {
-    let Some(mtm) = MainThreadMarker::new() else {
+/// AppKit native fullscreen is authoritative (GDK `is_fullscreen` can lag or stick after exit).
+pub(crate) fn window_still_fullscreen(win: &adw::ApplicationWindow) -> bool {
+    ns_fullscreen_for_win(win)
+}
+
+/// Whether GDK's [`GdkMacosWindow`] is inside AppKit's fullscreen enter/exit animation.
+pub(crate) fn gdk_macos_in_fullscreen_transition<W: IsA<gtk::Widget>>(widget: &W) -> bool {
+    let Some(nswin) = nswindow_for_widget(widget) else {
         return false;
     };
-    let ch = NSString::from_str("f");
-    let Some(ev) =
-        NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
-            NSEventType::KeyDown,
-            NSPoint::new(0.0, 0.0),
-            NSEventModifierFlags::Control | NSEventModifierFlags::Command,
-            0.0,
-            nswin.windowNumber(),
-            None,
-            &ch,
-            &ch,
-            false,
-            FS_TOGGLE_KEY_CODE,
-        )
-    else {
+    unsafe { msg_send![&*nswin, inFullscreenTransition] }
+}
+
+/// Enter native fullscreen from maximized (or windowed); fall back to GTK if toggle is unavailable.
+pub(crate) fn enter_fullscreen_from_maximized(win: &adw::ApplicationWindow) {
+    if !native_toggle_fullscreen_enter(win) {
+        win.fullscreen();
+    }
+}
+
+/// GDK-style guarded `toggleFullScreen:` to enter native fullscreen from maximized/windowed.
+pub(crate) fn native_toggle_fullscreen_enter(win: &adw::ApplicationWindow) -> bool {
+    let gtk = win.upcast_ref::<gtk::Widget>();
+    let Some(nswin) = nswindow_for_widget(gtk) else {
         return false;
     };
-    let app = NSApplication::sharedApplication(mtm);
-    app.sendEvent(&ev);
+    if gdk_macos_in_fullscreen_transition(gtk) || ns_window_is_native_fullscreen(&nswin) {
+        return false;
+    }
+    unsafe {
+        let _: () = msg_send![&*nswin, toggleFullScreen: &*nswin];
+    }
     true
 }
 
-/// Reconcile GTK `fullscreened` with AppKit after native exit (no `gtk_window_unfullscreen`).
-pub(crate) fn sync_gtk_fullscreen_from_native(win: &adw::ApplicationWindow) {
-    let Some(nswin) = nswindow_for_widget(win.upcast_ref::<gtk::Widget>()) else {
-        if win.is_fullscreen() {
-            win.set_fullscreened(false);
-        }
-        return;
+/// GDK-style guarded `toggleFullScreen:` (same path as `_gdk_macos_toplevel_surface_unfullscreen`).
+pub(crate) fn native_toggle_fullscreen_exit(win: &adw::ApplicationWindow) -> bool {
+    let gtk = win.upcast_ref::<gtk::Widget>();
+    let Some(nswin) = nswindow_for_widget(gtk) else {
+        return false;
     };
-    let gtk_fs = win.is_fullscreen();
-    let ns_fs = ns_window_is_native_fullscreen(&nswin);
-    if gtk_fs && !ns_fs {
-        win.set_fullscreened(false);
-    } else if gtk_fs && ns_fs {
-        let _ = native_leave_fullscreen(&nswin);
-        let _ = post_fullscreen_toggle_shortcut(&nswin);
+    if gdk_macos_in_fullscreen_transition(gtk) || !ns_window_is_native_fullscreen(&nswin) {
+        return false;
     }
+    unsafe {
+        let _: () = msg_send![&*nswin, toggleFullScreen: &*nswin];
+    }
+    true
 }
 
 pub fn set_traffic_lights_visible<W: IsA<gtk::Widget>>(widget: &W, visible: bool) {
+    if crate::macos_fs_exit::exit_armed() && !visible {
+        crate::macos_fs_debug::log("skip traffic lights hide (exit armed)");
+        return;
+    }
     let Some(win) = nswindow_for_widget(widget) else {
         return;
     };

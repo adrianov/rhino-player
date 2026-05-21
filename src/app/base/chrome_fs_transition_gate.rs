@@ -1,3 +1,4 @@
+#[cfg(not(target_os = "macos"))]
 fn fs_transition_try_begin(busy: &Cell<bool>) -> bool {
     if busy.get() {
         return false;
@@ -14,7 +15,11 @@ fn fs_transition_note_notify_idle_clear(
     drop_glib_source(settle_slot.as_ref());
     let busy_c = Rc::clone(busy);
     let slot_c = Rc::clone(settle_slot);
-    let id = glib::timeout_add_local_once(crate::fullscreen_timing::TRANSITION_SETTLE, move || {
+    #[cfg(target_os = "macos")]
+    let delay = std::time::Duration::from_millis(120);
+    #[cfg(not(target_os = "macos"))]
+    let delay = crate::fullscreen_timing::TRANSITION_SETTLE;
+    let id = glib::timeout_add_local_once(delay, move || {
         *slot_c.borrow_mut() = None;
         busy_c.set(false);
     });
