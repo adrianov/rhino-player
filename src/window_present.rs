@@ -7,7 +7,7 @@
 
 #[cfg(target_os = "macos")]
 use glib::prelude::{Cast, ObjectExt};
-use gtk::prelude::GtkWindowExt;
+use gtk::prelude::{GtkWindowExt, WidgetExt};
 #[cfg(target_os = "macos")]
 use gtk::prelude::GtkApplicationExt;
 
