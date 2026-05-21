@@ -1,5 +1,5 @@
 ---
-description: Complexity (Clippy) and feature-shaped modules — no Ruby AbcSize; SOLID + file-count guard.
+description: Clippy complexity, ~300-line modules, and mandatory refactor when one behavior change touches >6 files.
 alwaysApply: true
 ---
 
@@ -18,14 +18,21 @@ alwaysApply: true
   - Wiring the same command into **CI** (recommended) on every push or pull request to `main` / your default branch.
 - Treat a failing or warning-burdened Clippy run the same class of problem as a failing test: **fix by refactoring**; do not silence Clippy with `allow` (see `clippy-no-suppress.mdc`).
 
-## When a feature touches “too many” files
+## Six-file rule (one behavior change → refactor)
 
-If implementing **one** user-visible feature or a single story causes changes across **more than six** Rust source or build files (or similar breadth in tests for that feature), **treat that as a design smell**, not a success metric.
+**Trigger:** You are implementing **one** user-visible behavior change (one feature story, one bug fix for a single scenario, one acceptance path in `docs/features/`). Count every **production** file you had to touch for that behavior — Rust under `src/`, `build.rs`, feature-owned scripts under `data/` when behavior changes, and tests that exist **only** for that behavior. Do **not** count docs-only edits, release assets, or unrelated drive-by fixes.
 
-- **Refactor first** (same PR if small, or a split PR) so that the feature is **cohesive** and each module has **one main reason to change** (Single Responsibility), abstractions are **open for extension** where behaviour varies, and feature-specific types and control flow live together instead of piling into one place (often `app.rs` in small apps). This aligns with **SOLID** in the practical sense: **stability in the right place**, **injection of boundaries** (UI / mpv / platform), and **lean interfaces** between layers.
-- Prefer **one obvious module or directory per feature** so reviewers and future you can work in one area. If a feature is correct but scattered, **restructure in the same workstream** rather than entrenching cross-file “telepathy” for the next year.
+**If the count is more than six, you must refactor before you finish the task** — not “consider,” not “later.” Wide scatter for a single behavior is a **design failure**, not thoroughness.
 
-**Wording for agents:** *Do not celebrate breadth of edit; compress scope into a clear shape. If the file count is high, pause and re-home code so one module owns the feature and others depend on it through narrow APIs.*
+**What to do (same workstream, before calling the task done):**
+
+1. **Stop adding** more one-off hooks across the tree; **re-home** the behavior into one obvious owner (module or small directory) with a **narrow public surface** (a few functions or a small type).
+2. **Shrink call sites** so other files only call that owner; delete duplicate paths and stale fallbacks uncovered by the move.
+3. **Split the PR** only when the refactor is too large to review safely; the refactor still belongs in the same delivery as the behavior, not a vague follow-up.
+
+**Shape to aim for:** UI / mpv / persistence / platform boundaries stay separate; feature-specific control flow and types live **with** the feature, not spread so six files must change in lockstep for the next tweak.
+
+**Agent summary:** *One behavior, one home. More than six files means pause, consolidate, then wire dependents through a small API — do not ship the scattered version.*
 
 ## Module length (soft target ~300 lines)
 

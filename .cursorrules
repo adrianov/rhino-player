@@ -7,7 +7,7 @@
 
 ## Directories
 
-- `build.rs` — Linux: embeds `DT_RUNPATH` for `/usr/local/lib/<multiarch>` and `/usr/local/lib` so a locally built `libmpv` (e.g. VapourSynth) is preferred over the distro copy without `LD_LIBRARY_PATH`. macOS: Homebrew **`lib`** search path for **`libmpv.dylib`**. (macOS fullscreen-exit deferral uses **`dlsym`** for **`libdispatch`** — no explicit link.)
+- `build.rs` — Linux: embeds `DT_RUNPATH` for `/usr/local/lib/<multiarch>` and `/usr/local/lib` so a locally built `libmpv` (e.g. VapourSynth) is preferred over the distro copy without `LD_LIBRARY_PATH`. macOS: Homebrew **`lib`** search path for **`libmpv.dylib`**.
 - `scripts/macos-dev-env.sh` — exports `PKG_CONFIG_PATH` and `PATH` for Homebrew GTK 4 / libadwaita before `cargo build` on macOS.
 - `scripts/macos-build-app-bundle.sh` — **`Rhino Player.app`** (default `dist/macos/` via **`DEST_ROOT`**): copies release `rhino-player`, `packaging/macos/Info.plist.in` → `Contents/Info.plist` (bundle id `ch.rhino.RhinoPlayer`, viewer UTIs/extensions), **`AppIcon.icns`**, **`Resources/data/icons`** hicolor tree, **`Resources/share/rhino-player/vs`**.
 - `scripts/build-deb.sh` — binary **`.deb`** into **`releases/`** by default (`OUTPUT=` override): `/usr` layout; runtime deps `libgtk-4-1`, `libadwaita-1-0`, `libmpv2 | libmpv1`.
@@ -30,6 +30,6 @@
 - Keep `.cursorrules` and `docs/README.md` feature list aligned with what exists in the tree.
 - Prefer clear module boundaries: UI (GTK/Adwaita), mpv control, platform (DBus, portals), persistence (settings, session).
 - **Quality checks:** run `cargo qcheck` (Clippy across the whole crate) before finishing. Module length is policed by `clippy::too_many_lines` (warns over ~300 lines) plus `.cursor/rules/refactor-touched-longest.mdc` (every request that edits an oversized module must shrink it in the same turn). Do not add `#[allow(clippy::…)]`—fix by refactoring (see `.cursor/rules/clippy-no-suppress.mdc`). If many modules exceed the soft limit, refactor **one file at a time**, **longest first**.
-- **Complexity and module shape:** there is no Ruby-style `AbcSize` in Rust; use Clippy (see `clippy.toml`) and follow `.cursor/rules/complexity-and-module-design.mdc` (if a feature touches **>6 files** or a module is large, **prefer** smaller modules and one reason to change, without treating **300 lines** as a hard gate).
+- **Complexity and module shape:** no Ruby `AbcSize`; use Clippy (`clippy.toml`) and `.cursor/rules/complexity-and-module-design.mdc` — **one behavior change touching >6 production files → refactor in the same workstream** (one module owns the feature); soft **~300 lines**/file via Clippy + `refactor-touched-longest.mdc`.
 - **UI / IO timing:** prefer event subscriptions over periodic polls; see `.cursor/rules/events-over-polling.mdc`.
 - Name length: prefer short, clear identifiers (2–3 words) for new types and functions, consistent with the rest of the file.
