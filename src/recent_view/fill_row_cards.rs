@@ -13,7 +13,7 @@ fn open_video_pick_card() -> gtk::Overlay {
 
     let btn = gtk::Button::builder()
         .action_name("app.open")
-        .vexpand(true)
+        .vexpand(false)
         .hexpand(true)
         .css_classes(["flat"])
         .build();
@@ -233,6 +233,9 @@ fn append_history_card(
         );
     }
 
+    let (w, h) = default_card_dims();
+    apply_card_dims(&card, w, h);
+
     let wrap = adw::Clamp::new();
     wrap.set_maximum_size(CARD_MAX_W);
     wrap.set_child(Some(&card));
@@ -261,6 +264,8 @@ pub fn fill_row(
     let wrap_pick = adw::Clamp::new();
     wrap_pick.set_maximum_size(CARD_MAX_W);
     wrap_pick.set_child(Some(&pick));
+    let (dw, dh) = default_card_dims();
+    apply_card_dims(&pick, dw, dh);
     cards.borrow_mut().push(pick.clone());
     row.append(&wrap_pick);
 

@@ -15,7 +15,9 @@
             border: 1px solid rgba(255, 255, 255, 0.10);
             box-shadow: 0 10px 28px rgba(0, 0, 0, 0.50);
             min-width: 220px;
-            min-height: 124px;
+            /* Height from [sync_card_sizes] / [default_card_dims]; avoid a CSS min-height
+               above 16:9 that GTK uses before the first size sync on Linux. */
+            min-height: 0;
         }
         .rp-recent-card:hover {
             border-color: rgba(255, 255, 255, 0.22);

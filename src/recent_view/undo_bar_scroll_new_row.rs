@@ -1,5 +1,4 @@
 
-use adw::prelude::*;
 use gtk::glib;
 use gtk::glib::prelude::Cast;
 use gtk::prelude::EventControllerExt;
@@ -14,11 +13,6 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::media_probe::{self, card_data_list, CardData};
-
-pub(crate) const CARD_ASPECT: f64 = 16.0 / 9.0;
-pub(crate) const CARD_MIN_W: i32 = 220;
-pub(crate) const CARD_MAX_W: i32 = 620;
-const CARD_GAP: i32 = 16;
 
 /// Session undo: title, **Undo**, close (dismisses without restoring). Placed in [new_scroll] under the card row.
 /// Plain [gtk::Box] shell (not [gtk::Revealer]) so GTK does not paint an extra background plane behind the pill.
@@ -97,7 +91,9 @@ fn new_undo_bar() -> UndoBar {
 /// double-click fullscreen: not the card strip or undo bar.
 pub fn new_scroll() -> (gtk::Box, gtk::Box, [gtk::Box; 2], UndoBar) {
     let h = gtk::Box::new(gtk::Orientation::Horizontal, 16);
-    h.set_homogeneous(true);
+    // Equal width comes from [sync_card_sizes]; homogeneous only stretches height to the
+    // tallest child's natural size (thumbnails / Open tile) before the first sync on Linux.
+    h.set_homogeneous(false);
     h.set_halign(gtk::Align::Center);
     h.set_baseline_position(gtk::BaselinePosition::Top);
     h.set_vexpand(false);
@@ -140,58 +136,6 @@ pub fn new_scroll() -> (gtk::Box, gtk::Box, [gtk::Box; 2], UndoBar) {
 fn clear(f: &gtk::Box) {
     while let Some(c) = f.first_child() {
         c.unparent();
-    }
-}
-
-fn card_width(strip_w: i32, count: usize) -> i32 {
-    let count = count.max(1) as i32;
-    let avail = (strip_w - CARD_GAP * (count - 1)).max(CARD_MIN_W);
-    let target = if count == 1 {
-        (f64::from(strip_w) * 0.40).round() as i32
-    } else {
-        avail / count
-    };
-    target.clamp(CARD_MIN_W, CARD_MAX_W)
-}
-
-/// Width used for [`card_width`] / [`sync_card_sizes`]: nearest ancestor
-/// [`gtk::ScrolledWindow`]'s width (full window width), not the scrolled child's width.
-/// Fallback: [`card_row`]'s parent width once layout exists.
-fn strip_width_for_cards(card_row: &gtk::Box) -> Option<i32> {
-    let mut w_opt = Some(card_row.parent()?);
-    while let Some(w) = w_opt.take() {
-        if let Some(sw) = w.downcast_ref::<gtk::ScrolledWindow>() {
-            let ww = sw.width();
-            if ww > 0 {
-                return Some(ww);
-            }
-        }
-        w_opt = w.parent();
-    }
-    let fb = card_row.parent()?.width();
-    (fb > 0).then_some(fb)
-}
-
-fn sync_card_sizes(card_row: &gtk::Box, cards: &[gtk::Overlay]) {
-    if cards.is_empty() {
-        return;
-    }
-    let Some(strip_w) = strip_width_for_cards(card_row) else {
-        return;
-    };
-    let w = card_width(strip_w, cards.len());
-    let h = (f64::from(w) / CARD_ASPECT).round() as i32;
-    for card in cards {
-        card.set_size_request(w, h);
-        card.set_width_request(w);
-        card.set_height_request(h);
-        if let Some(pw) = card.parent() {
-            if let Some(clamp) = pw.downcast_ref::<adw::Clamp>() {
-                clamp.set_maximum_size(w);
-                clamp.set_width_request(w);
-                clamp.set_height_request(h);
-            }
-        }
     }
 }
 
