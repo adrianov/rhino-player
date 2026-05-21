@@ -213,11 +213,13 @@ fn sync_undo_bar(
 
 fn rearm_undo_dismiss(
     do_commit: &Rc<dyn Fn() + 'static>,
-    undo_source: &RefCell<Option<glib::source::SourceId>>,
+    undo_source: &Rc<RefCell<Option<glib::source::SourceId>>>,
 ) {
-    cancel_undo_timer(undo_source);
+    cancel_undo_timer(undo_source.as_ref());
     let c = do_commit.clone();
+    let slot = Rc::clone(undo_source);
     *undo_source.borrow_mut() = Some(glib::timeout_add_seconds_local(10, move || {
+        crate::glib_source_drop::finish_glib_source(slot.as_ref());
         c();
         glib::ControlFlow::Break
     }));

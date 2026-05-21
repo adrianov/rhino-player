@@ -50,10 +50,18 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
         sync_undo_bar(&ul_d, &ub_d, &ush_d, &urs_d);
         if !urs_d.borrow().is_empty() {
             if let Some(f) = wk_d.borrow().as_ref().and_then(|w| w.upgrade()) {
-                *uts_d.borrow_mut() = Some(glib::timeout_add_seconds_local(10, move || {
-                    f();
-                    glib::ControlFlow::Break
-                }));
+                *uts_d.borrow_mut() = Some(glib::timeout_add_seconds_local(
+                    10,
+                    glib::clone!(
+                        #[strong]
+                        uts_d,
+                        move || {
+                            crate::glib_source_drop::finish_glib_source(uts_d.as_ref());
+                            f();
+                            glib::ControlFlow::Break
+                        }
+                    ),
+                ));
             }
         }
     });
@@ -108,7 +116,7 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
                 ur_t.borrow_mut()
                     .push(ContinueBarUndo::Trash { snap, in_trash: t });
                 sync_undo_bar(&u_la_t, &undo_t_t, &u_sh_t, &ur_t);
-                rearm_undo_dismiss(&do_t, ut_t.as_ref());
+                rearm_undo_dismiss(&do_t, &ut_t);
             }
             let f = cell_rm
                 .borrow()
@@ -158,7 +166,7 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
                 &rbf_rm,
                 Rc::clone(&cache_rm),
             );
-            rearm_undo_dismiss(&do_rm, ut_rm.as_ref());
+            rearm_undo_dismiss(&do_rm, &ut_rm);
         }
     });
     *on_remove_cell.borrow_mut() = Some(on_remove.clone());
@@ -231,7 +239,7 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
                     &fr_u, &rec_u, op_u.clone(), f, t, &rbf_u, Rc::clone(&cache_u),
                 );
                 if !ur_u.borrow().is_empty() {
-                    rearm_undo_dismiss(&do_u, ut_u.as_ref());
+                    rearm_undo_dismiss(&do_u, &ut_u);
                 }
             }
         ));

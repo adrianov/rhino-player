@@ -4,7 +4,7 @@ pub(crate) struct WarmPreloadGate {
     /// [MpvBundle::warm_file_gen] for the in-flight warm `loadfile`.
     inflight_gen: Cell<u32>,
     queued: RefCell<Option<PathBuf>>,
-    watchdog: RefCell<Option<glib::SourceId>>,
+    watchdog: Rc<RefCell<Option<glib::SourceId>>>,
 }
 
 impl WarmPreloadGate {
@@ -46,9 +46,11 @@ impl WarmPreloadGate {
         inflight_gen: u32,
     ) {
         self.disarm_watchdog();
+        let wd = Rc::clone(&self.watchdog);
         *self.watchdog.borrow_mut() = Some(glib::timeout_add_local(
             Duration::from_millis(WARM_PRELOAD_WATCHDOG_MS),
             move || {
+                crate::glib_source_drop::finish_glib_source(wd.as_ref());
                 if warm_preload_gate_busy() {
                     eprintln!("[rhino] warm preload: watchdog release");
                     let player = Rc::clone(&player);
@@ -62,7 +64,7 @@ impl WarmPreloadGate {
     }
 
     fn disarm_watchdog(&self) {
-        crate::glib_source_drop::drop_glib_source(&self.watchdog);
+        crate::glib_source_drop::drop_glib_source(self.watchdog.as_ref());
     }
 }
 
@@ -114,7 +116,7 @@ pub(crate) fn schedule_warm_path_settle(player: Rc<RefCell<Option<MpvBundle>>>) 
     *settle_slot.borrow_mut() = Some(glib::timeout_add_local(
         Duration::from_millis(WARM_PATH_SETTLE_MS),
         move || {
-            crate::glib_source_drop::drop_glib_source(slot.as_ref());
+            crate::glib_source_drop::finish_glib_source(slot.as_ref());
             if !warm_preload_gate_busy() {
                 return glib::ControlFlow::Break;
             }

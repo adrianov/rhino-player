@@ -43,7 +43,7 @@ impl WarmPreloadCtx {
                 inflight: Cell::new(false),
                 inflight_gen: Cell::new(0),
                 queued: RefCell::new(None),
-                watchdog: RefCell::new(None),
+                watchdog: Rc::new(RefCell::new(None)),
             }),
             player,
             video_pref,

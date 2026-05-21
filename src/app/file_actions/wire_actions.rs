@@ -89,7 +89,7 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
             // back_to_browse syncs the undo bar after the push above.
             bb(false);
             if !ur.borrow().is_empty() {
-                rearm_undo_dismiss(&dc, ut.as_ref());
+                rearm_undo_dismiss(&dc, &ut);
             }
         });
     }
