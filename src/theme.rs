@@ -249,38 +249,11 @@ const MACOS_TRANSPARENT_CONTENT_CSS: &str = r#"
         }
     "#;
 
-/// GTK ≥ 4.12 adds `cursor` to the CSS dialect on typical Linux builds. Some stacks (macOS / Homebrew
-/// in particular) still report a new `gtk::minor_version()` yet reject `cursor` in
-/// [CssProvider::load_from_string] with “No property named cursor”, which breaks parsing of our sheet.
-const CURSOR_CSS: &str = r#"
-        button:not(:disabled), menubutton:not(:disabled), modelbutton, togglebutton:not(:disabled),
-        switch, checkbutton, radiobutton, link, scale:not(:disabled), spinbutton > button,
-        listview > row, listbox > row {
-            cursor: pointer;
-        }
-        button:disabled, menubutton:disabled, scale:disabled, togglebutton:disabled {
-            cursor: not-allowed;
-        }
-        glarea.rp-cursor-hidden {
-            cursor: none;
-        }
-    "#;
-
-fn append_cursor_css(css: &mut String) {
-    if cfg!(target_os = "macos") {
-        return;
-    }
-    // Match gtk4 crate `v4_14`: older runtimes' CSS parsers reject `cursor` and log theme errors.
-    if gtk::minor_version() >= 14 {
-        css.push_str(CURSOR_CSS);
-    }
-}
-
 pub fn apply() {
     let mut css = String::with_capacity(
         APP_CSS.len()
             + RECENT_GRID_CSS.len()
-            + CURSOR_CSS.len()
+            + 256
             + if cfg!(target_os = "macos") {
                 MACOS_TRANSPARENT_CONTENT_CSS.len()
             } else {
@@ -293,7 +266,7 @@ pub fn apply() {
     if cfg!(target_os = "macos") {
         css.push_str(MACOS_TRANSPARENT_CONTENT_CSS);
     }
-    append_cursor_css(&mut css);
+    crate::theme_cursor::append_cursor_css(&mut css);
     let p = gtk::CssProvider::new();
     p.load_from_string(&css);
     if let Some(d) = gtk::gdk::Display::default() {

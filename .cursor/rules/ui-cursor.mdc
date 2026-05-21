@@ -6,6 +6,6 @@ alwaysApply: true
 
 # Interactive cursor (pointer)
 
-- **Theme:** `src/theme.rs` applies GTK CSS so `button`, `menubutton`, `modelbutton`, `togglebutton`, `switch`, `checkbutton`, `radiobutton`, `link`, `scale`, `spinbutton > button`, and list rows use `cursor: pointer`; disabled buttons/scales/toggles use `cursor: not-allowed` on **Linux** when GTK is ≥ 4.12. **macOS:** those rules are omitted (Homebrew GTK’s CSS parser rejects `cursor`, which breaks loading the rest of the app stylesheet). Do not add theme rules that set a pointer on `entry`, `textview`, or the video `GLArea` (leave default / I‑beam / system).
+- **Theme:** `src/theme_cursor.rs` appends GTK CSS `cursor` rules only when `gtk::check_version(4, 16, 0)` passes at runtime (4.14.x on Ubuntu still logs “No property named cursor”). **macOS:** omitted (Homebrew GTK rejects `cursor` in CSS). Do not add theme rules that set a pointer on `entry`, `textview`, or the video `GLArea` (leave default / I‑beam / system).
 - **Code:** For a new control that is not covered by those GTK node types (e.g. a custom hit target), call `set_cursor_from_name(Some("pointer"))` on the widget (see `recent_view` undo bar). For disabled custom controls, use `None` or an appropriate cursor.
 - **Continue cards** already set pointer on hover via `EventControllerMotion`; on Linux, global button CSS also applies to icon buttons on cards.
