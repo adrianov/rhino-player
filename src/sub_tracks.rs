@@ -47,7 +47,10 @@ pub fn is_bitmap_sub_codec(codec: &str) -> bool {
 
 /// Whether the subtitle popover should offer the text-colour control for the current file/selection.
 pub fn text_color_applies(mpv: &Mpv) -> bool {
-    let subs = sub_stream_codecs(mpv);
+    text_color_applies_codecs(mpv, &sub_stream_codecs(mpv))
+}
+
+fn text_color_applies_codecs(mpv: &Mpv, subs: &[(i64, String)]) -> bool {
     if subs.is_empty() {
         return false;
     }
@@ -62,23 +65,27 @@ pub fn text_color_applies(mpv: &Mpv) -> bool {
 }
 
 pub fn sync_text_color_row(mpv: &Mpv, row: &impl IsA<gtk::Widget>) {
-    row.set_visible(text_color_applies(mpv));
+    sync_text_color_row_codecs(mpv, row, &sub_stream_codecs(mpv));
+}
+
+fn sync_text_color_row_codecs(mpv: &Mpv, row: &impl IsA<gtk::Widget>, codecs: &[(i64, String)]) {
+    row.set_visible(text_color_applies_codecs(mpv, codecs));
 }
 
 fn sub_stream_codecs(mpv: &Mpv) -> Vec<(i64, String)> {
+    sub_nodes_from_track_list(mpv)
+        .into_iter()
+        .map(|n| (n.id, n.codec.unwrap_or_default()))
+        .collect()
+}
+
+fn sub_nodes_from_track_list(mpv: &Mpv) -> Vec<Node> {
     let json = match mpv.get_property::<String>("track-list") {
         Ok(s) => s,
         Err(_) => return vec![],
     };
     let nodes: Vec<Node> = serde_json::from_str(&json).unwrap_or_default();
-    nodes
-        .into_iter()
-        .filter(|n| n.kind == "sub")
-        .map(|n| {
-            let codec = n.codec.unwrap_or_default();
-            (n.id, codec)
-        })
-        .collect()
+    nodes.into_iter().filter(|n| n.kind == "sub").collect()
 }
 
 fn track_header_token(r: &Row) -> String {

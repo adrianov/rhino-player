@@ -1,7 +1,8 @@
 // Subtitle rows via `playback_entity` (included by `sub_tracks.rs`).
 
 use crate::playback_entity::{
-    entity_from_mpv, resolve_sub_mpv_id, sub_ifo_slot_for_sid, sub_menu_rows, SubMenuRow,
+    entity_from_mpv, resolve_sub_mpv_id, sub_ifo_slot_for_sid, sub_menu_rows, sub_menu_snapshot,
+    SubMenuRow,
 };
 
 fn row_from_menu(r: &SubMenuRow) -> Row {
@@ -25,4 +26,10 @@ fn ifo_slot_for_sid(mpv: &Mpv, sid: i64) -> Option<u8> {
 
 fn sub_rows(mpv: &Mpv) -> Vec<Row> {
     sub_menu_rows(mpv).iter().map(row_from_menu).collect()
+}
+
+fn sub_popover_data(mpv: &Mpv) -> (Vec<Row>, Vec<(i64, String)>) {
+    let (menu, codecs) = sub_menu_snapshot(mpv);
+    let rows = menu.iter().map(row_from_menu).collect();
+    (rows, codecs)
 }

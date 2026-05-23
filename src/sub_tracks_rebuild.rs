@@ -27,6 +27,7 @@ fn apply_sub_pick(
     on_pick: Option<&SubPickFn>,
     header_readout: Option<&gtk::Label>,
     text_color_row: Option<&gtk::Box>,
+    sub_codecs: Option<&[(i64, String)]>,
 ) {
     if let Some(sid) = resolve_sub_id(mpv, id, ifo_slot) {
         set_sub_id(mpv, sid);
@@ -38,7 +39,11 @@ fn apply_sub_pick(
         refresh_sub_header(mpv, l);
     }
     if let Some(row) = text_color_row {
-        sync_text_color_row(mpv, row);
+        if let Some(codecs) = sub_codecs {
+            sync_text_color_row_codecs(mpv, row, codecs);
+        } else {
+            sync_text_color_row(mpv, row);
+        }
     }
 }
 
@@ -60,7 +65,7 @@ pub fn rebuild_popover(
         return false;
     };
     let mpv = &b.mpv;
-    let rows = sub_rows(mpv);
+    let (rows, sub_codecs) = sub_popover_data(mpv);
     if rows.is_empty() {
         return false;
     }
@@ -69,6 +74,7 @@ pub fn rebuild_popover(
     let want_slot = want.and_then(|sid| ifo_slot_for_sid(mpv, sid));
     let hdr_share = Rc::new(header_readout);
     let color_row = text_color_row.map(Rc::new);
+    let codecs_share = Rc::new(sub_codecs);
     block.set(true);
     let p = Rc::clone(player);
     let gl2 = gl.clone();
@@ -82,6 +88,7 @@ pub fn rebuild_popover(
     let off_cb = on_sub_off.as_ref().map(Rc::clone);
     let hdr_off = Rc::clone(&hdr_share);
     let color_off = color_row.clone();
+    let codecs_off = Rc::clone(&codecs_share);
     off_btn.connect_toggled(move |b| {
         if bl_off.get() || !b.is_active() {
             return;
@@ -92,7 +99,7 @@ pub fn rebuild_popover(
                 refresh_sub_header(&pl.mpv, l);
             }
             if let Some(row) = color_off.as_ref() {
-                sync_text_color_row(&pl.mpv, row.as_ref());
+                sync_text_color_row_codecs(&pl.mpv, row.as_ref(), &codecs_off);
             }
         }
         if let Some(f) = off_cb.as_ref() {
@@ -114,6 +121,7 @@ pub fn rebuild_popover(
         let pick = on_pick.as_ref().map(Rc::clone);
         let hdr_pick = Rc::clone(&hdr_share);
         let color_pick = color_row.clone();
+        let codecs_pick = Rc::clone(&codecs_share);
         btn.connect_toggled(move |b| {
             if blk2.get() || !b.is_active() {
                 return;
@@ -127,6 +135,7 @@ pub fn rebuild_popover(
                     pick.as_ref(),
                     hdr_pick.as_ref().as_ref(),
                     color_pick.as_deref(),
+                    Some(codecs_pick.as_slice()),
                 );
             }
             gl3.queue_render();
@@ -148,7 +157,7 @@ pub fn rebuild_popover(
     }
     block.set(false);
     if let Some(row) = color_row.as_ref() {
-        sync_text_color_row(mpv, row.as_ref());
+        sync_text_color_row_codecs(mpv, row.as_ref(), codecs_share.as_slice());
     }
     true
 }

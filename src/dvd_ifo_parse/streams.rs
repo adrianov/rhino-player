@@ -21,7 +21,7 @@ pub struct DvdIfoAudio {
     pub slot: u8,
     pub lang: String,
     pub channels: u8,
-    pub     label: String,
+    pub label: String,
     pub(super) codec_key: &'static str,
 }
 

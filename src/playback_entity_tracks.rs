@@ -83,8 +83,8 @@ fn line_label(id: i64, title: Option<String>, lang: Option<String>, ifo: Option<
     format!("Track {id}")
 }
 
-fn mpv_aid_for_slot(mpv: &Mpv, ifo: &crate::dvd_ifo_parse::DvdIfoStreams, slot: u8) -> Option<i64> {
-    for n in track_nodes(mpv) {
+fn mpv_aid_for_slot(nodes: &[TrackNode], ifo: &crate::dvd_ifo_parse::DvdIfoStreams, slot: u8) -> Option<i64> {
+    for n in nodes {
         if n.kind != "audio" {
             continue;
         }
@@ -100,19 +100,25 @@ fn mpv_aid_for_slot(mpv: &Mpv, ifo: &crate::dvd_ifo_parse::DvdIfoStreams, slot: 
     None
 }
 
-/// Map current mpv `aid` to a title-set IFO audio slot (DVD only).
-#[must_use]
-pub fn audio_ifo_slot_for_aid(mpv: &Mpv, entity: &PlaybackEntity, aid: i64) -> Option<u8> {
-    let ifo = entity.title_set_streams()?;
-    let n = track_nodes(mpv)
-        .into_iter()
-        .find(|n| n.kind == "audio" && n.id == aid)?;
+fn audio_ifo_slot_for_aid_nodes(
+    nodes: &[TrackNode],
+    ifo: &crate::dvd_ifo_parse::DvdIfoStreams,
+    aid: i64,
+) -> Option<u8> {
+    let n = nodes.iter().find(|n| n.kind == "audio" && n.id == aid)?;
     let meta = crate::dvd_ifo_parse::MpvTrackMeta {
         src_id: n.src_id,
         codec: n.codec.as_deref(),
         demux_channels: n.demux_channel_count,
     };
     crate::dvd_ifo_parse::audio_slot_for_meta(&ifo.audio, meta)
+}
+
+/// Map current mpv `aid` to a title-set IFO audio slot (DVD only).
+#[must_use]
+pub fn audio_ifo_slot_for_aid(mpv: &Mpv, entity: &PlaybackEntity, aid: i64) -> Option<u8> {
+    let ifo = entity.title_set_streams()?;
+    audio_ifo_slot_for_aid_nodes(&track_nodes(mpv), &ifo, aid)
 }
 
 /// Resolve menu row → mpv `aid` on the open chapter.
@@ -123,26 +129,26 @@ pub fn resolve_audio_mpv_id(mpv: &Mpv, entity: &PlaybackEntity, row: &AudioMenuR
     }
     let slot = row.ifo_slot?;
     let ifo = entity.title_set_streams()?;
-    mpv_aid_for_slot(mpv, &ifo, slot)
+    mpv_aid_for_slot(&track_nodes(mpv), &ifo, slot)
 }
 
-fn ifo_audio_rows(mpv: &Mpv, ifo: &crate::dvd_ifo_parse::DvdIfoStreams) -> Vec<AudioMenuRow> {
+fn ifo_audio_rows(nodes: &[TrackNode], ifo: &crate::dvd_ifo_parse::DvdIfoStreams) -> Vec<AudioMenuRow> {
     ifo.audio
         .iter()
         .map(|a| AudioMenuRow {
-            mpv_id: mpv_aid_for_slot(mpv, ifo, a.slot).unwrap_or(-1),
+            mpv_id: mpv_aid_for_slot(nodes, ifo, a.slot).unwrap_or(-1),
             label: a.label.clone(),
             ifo_slot: Some(a.slot),
         })
         .collect()
 }
 
-fn mpv_audio_rows(mpv: &Mpv, ifo: Option<&crate::dvd_ifo_parse::DvdIfoStreams>) -> Vec<AudioMenuRow> {
+fn mpv_audio_rows(nodes: &[TrackNode], ifo: Option<&crate::dvd_ifo_parse::DvdIfoStreams>) -> Vec<AudioMenuRow> {
     let mut used = ifo
         .map(|s| vec![false; s.audio.len()])
         .unwrap_or_default();
     let mut v = vec![];
-    for n in track_nodes(mpv) {
+    for n in nodes {
         if n.kind != "audio" {
             continue;
         }
@@ -159,7 +165,7 @@ fn mpv_audio_rows(mpv: &Mpv, ifo: Option<&crate::dvd_ifo_parse::DvdIfoStreams>) 
         });
         v.push(AudioMenuRow {
             mpv_id: n.id,
-            label: line_label(n.id, n.title, n.lang, ifo_label.as_deref()),
+            label: line_label(n.id, n.title.clone(), n.lang.clone(), ifo_label.as_deref()),
             ifo_slot: None,
         });
     }
@@ -172,12 +178,13 @@ pub fn audio_menu_rows(mpv: &Mpv) -> Vec<AudioMenuRow> {
     let Some((entity, _)) = entity_from_mpv(mpv) else {
         return vec![];
     };
+    let nodes = track_nodes(mpv);
     if let Some(ifo) = entity.title_set_streams() {
         if !ifo.audio.is_empty() {
-            return ifo_audio_rows(mpv, &ifo);
+            return ifo_audio_rows(&nodes, &ifo);
         }
     }
-    mpv_audio_rows(mpv, entity.title_set_streams().as_ref())
+    mpv_audio_rows(&nodes, entity.title_set_streams().as_ref())
 }
 
 include!("playback_entity_sub_tracks.rs");
@@ -186,20 +193,19 @@ include!("playback_entity_sub_tracks.rs");
 #[must_use]
 pub fn sub_ifo_slot_for_sid(mpv: &Mpv, entity: &PlaybackEntity, sid: i64) -> Option<u8> {
     let ifo = entity.title_set_streams()?;
-    let nodes: Vec<_> = track_nodes(mpv)
-        .into_iter()
-        .filter(|n| n.kind == "sub")
-        .collect();
-    let n = nodes.iter().find(|n| n.id == sid)?;
-    let idx = nodes.iter().position(|x| x.id == sid)?;
+    let nodes = track_nodes(mpv);
+    let sub_nodes: Vec<_> = nodes.iter().filter(|n| n.kind == "sub").collect();
+    let n = sub_nodes.iter().find(|n| n.id == sid)?;
+    let idx = sub_nodes.iter().position(|x| x.id == sid)?;
     crate::dvd_ifo_parse::sub_slot_for_src_id(&ifo.sub, sub_stream_src_id(n), idx)
 }
 
 /// Resolve menu row → mpv `sid` on the open chapter.
 #[must_use]
 pub fn resolve_sub_mpv_id(mpv: &Mpv, entity: &PlaybackEntity, mpv_id: i64, ifo_slot: Option<u8>) -> Option<i64> {
-    let sub_ids: Vec<i64> = track_nodes(mpv)
-        .into_iter()
+    let nodes = track_nodes(mpv);
+    let sub_ids: Vec<i64> = nodes
+        .iter()
         .filter(|n| n.kind == "sub")
         .map(|n| n.id)
         .collect();
@@ -208,73 +214,7 @@ pub fn resolve_sub_mpv_id(mpv: &Mpv, entity: &PlaybackEntity, mpv_id: i64, ifo_s
     }
     let slot = ifo_slot?;
     let ifo = entity.title_set_streams()?;
-    mpv_sid_for_slot(mpv, &ifo, slot)
-}
-
-fn ifo_sub_rows(mpv: &Mpv, ifo: &crate::dvd_ifo_parse::DvdIfoStreams) -> Vec<SubMenuRow> {
-    ifo.sub
-        .iter()
-        .map(|s| SubMenuRow {
-            mpv_id: mpv_sid_for_slot(mpv, ifo, s.slot).unwrap_or(-1),
-            label: s.label.clone(),
-            lang: s.lang.clone(),
-            ifo_slot: Some(s.slot),
-        })
-        .collect()
-}
-
-fn mpv_sub_rows(mpv: &Mpv, ifo: Option<&crate::dvd_ifo_parse::DvdIfoStreams>) -> Vec<SubMenuRow> {
-    let mut used = ifo
-        .map(|s| vec![false; s.sub.len()])
-        .unwrap_or_default();
-    let mut v = vec![];
-    for n in track_nodes(mpv) {
-        if n.kind != "sub" {
-            continue;
-        }
-        let ifo_label = ifo.and_then(|s| {
-            let slot_byte =
-                crate::dvd_ifo_parse::sub_slot_for_src_id(&s.sub, sub_stream_src_id(&n), v.len())?;
-            let idx = s
-                .sub
-                .iter()
-                .position(|r| r.slot == slot_byte)
-                .unwrap_or(v.len());
-            crate::dvd_ifo_parse::match_sub_label(&s.sub, idx, &mut used)
-        });
-        let lang = n
-            .lang
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or("")
-            .to_string();
-        v.push(SubMenuRow {
-            mpv_id: n.id,
-            label: line_label(n.id, n.title, n.lang.clone(), ifo_label.as_deref()),
-            lang: if lang.is_empty() {
-                ifo_label.unwrap_or_default()
-            } else {
-                lang
-            },
-            ifo_slot: None,
-        });
-    }
-    v
-}
-
-/// Subtitles popover rows for the current entity (IFO title-set list on DVD).
-#[must_use]
-pub fn sub_menu_rows(mpv: &Mpv) -> Vec<SubMenuRow> {
-    let Some((entity, _)) = entity_from_mpv(mpv) else {
-        return vec![];
-    };
-    if let Some(ifo) = entity.title_set_streams() {
-        if !ifo.sub.is_empty() {
-            return ifo_sub_rows(mpv, &ifo);
-        }
-    }
-    mpv_sub_rows(mpv, entity.title_set_streams().as_ref())
+    mpv_sid_for_slot(&nodes, &ifo, slot)
 }
 
 /// Whether the entity exposes title-set subtitle streams (IFO or mpv).
