@@ -255,11 +255,22 @@ impl MpvBundle {
     #[cfg(not(target_os = "macos"))]
     pub fn watch_overlay<W: glib::object::IsA<gtk::Widget>>(&self, _widget: &W) {}
 
-    /// Continue-grid warm preload: keep native video clipped/hidden and repaint GTK chrome.
+    /// Continue-grid warm preload / post-resize: resync native layer frame; optional repin after shell resize.
     pub(crate) fn nudge_browse_video_layout(&self, gl: &gtk::GLArea) {
+        self.nudge_video_layout(gl, false);
+    }
+
+    pub(crate) fn nudge_shell_layout_after_resize(&self, gl: &gtk::GLArea) {
+        self.nudge_video_layout(gl, true);
+    }
+
+    fn nudge_video_layout(&self, gl: &gtk::GLArea, repin_gtk_stack: bool) {
         #[cfg(target_os = "macos")]
         if let Some(m) = self.macos.as_ref() {
             m.resync_layer_frame();
+            if repin_gtk_stack {
+                m.repin_below_gtk_compositing();
+            }
         }
         gl.queue_render();
     }

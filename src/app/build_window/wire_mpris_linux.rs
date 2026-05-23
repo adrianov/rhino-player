@@ -12,6 +12,7 @@ struct MprisLinuxWireCtx<'a> {
     video_pref: Rc<RefCell<db::VideoPrefs>>,
     smooth_seek_debounce: Rc<RefCell<Option<glib::SourceId>>>,
     resume_after_seek_idle: Rc<Cell<bool>>,
+    dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
     on_file_loaded: &'a Rc<dyn Fn()>,
     on_video_chrome: &'a Rc<dyn Fn()>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
@@ -33,6 +34,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
         video_pref,
         smooth_seek_debounce,
         resume_after_seek_idle,
+        dvd_bar,
         on_file_loaded,
         on_video_chrome,
         hdr_title_mirror,
@@ -43,6 +45,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
     let gl_seek = gl_area.clone();
     let deb_seek = smooth_seek_debounce.clone();
     let resume_seek = resume_after_seek_idle.clone();
+    let bar_seek = dvd_bar.clone();
     let toggle_seek = play_ctx.clone();
     let seek_abs = crate::mpris::MpvSeekAbs(Rc::new(move |secs: &str| {
         main_player_seek_keyframes(
@@ -52,6 +55,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
                 smooth_seek_debounce: &deb_seek,
                 resume_after_seek_idle: &resume_seek,
                 play_toggle: &toggle_seek,
+                dvd_bar: Some(&bar_seek),
             },
             SeekKeyframeKind::ScaleOrExternal,
             secs,

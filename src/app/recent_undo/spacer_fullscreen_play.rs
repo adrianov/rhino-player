@@ -172,7 +172,7 @@ fn schedule_warm_reveal(ctx: PlayToggleCtx) {
     let _ = glib::timeout_add_local(Duration::from_millis(WARM_REVEAL_DELAY_MS), move || {
         ctx.recent.set_visible(false);
         (ctx.on_video_chrome)();
-        schedule_window_fit_h_video(ctx.player.clone(), ctx.win.clone());
+        schedule_window_fit_h_video(ctx.player.clone(), ctx.win.clone(), ctx.gl.clone());
         if let Some(button) = ctx.sub_menu.as_ref() {
             schedule_sub_button_scan(ctx.player.clone(), button.clone());
         }

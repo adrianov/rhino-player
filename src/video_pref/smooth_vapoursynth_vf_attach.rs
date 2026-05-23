@@ -10,6 +10,8 @@ pub(crate) fn smooth_vapoursynth_vf_try_attach(mpv: &libmpv2::Mpv, script_path_e
     match mpv.command("vf", &["add", spec.as_str()]) {
         Ok(()) => {
             eprintln!("[rhino] video: vf add vapoursynth command accepted");
+            #[cfg(target_os = "macos")]
+            crate::app::schedule_macos_shell_refresh_after_vf();
             true
         }
         Err(e) => {

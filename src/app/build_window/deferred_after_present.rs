@@ -23,6 +23,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         video_pref,
         sub_pref,
         seek_chapters,
+        dvd_bar,
         seek_bar_on,
         last_path,
         bar_show,
@@ -78,6 +79,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
             Rc::clone(&last_path),
             Rc::clone(&seek_bar_on),
             Rc::clone(&seek_chapters),
+            Rc::clone(&dvd_bar),
             seek_bar_preview::SeekPreviewCtx {
                 ovl: w.outer_ovl.clone(),
                 bottom: w.bottom.clone(),
@@ -98,6 +100,8 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
             outer_ovl: w.outer_ovl.clone(),
             video_handle: w.video_handle.clone(),
             bottom: w.bottom.clone(),
+            #[cfg(target_os = "macos")]
+            bottom_shell: w.bottom_shell.clone(),
             gl: w.gl_area.clone(),
             recent: w.recent_scrl.clone(),
         },
@@ -135,6 +139,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         smooth_seek_debounce: smooth_seek_debounce.clone(),
         resume_after_seek_idle: resume_after_seek_idle.clone(),
         play_toggle: play_ctx.clone(),
+        dvd_bar: Rc::clone(&dvd_bar),
         hdr_title_mirror: hdr_title_mirror.clone(),
         speed_sync: w.speed_sync.clone(),
         speed_list: w.speed_list.clone(),
@@ -172,6 +177,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         smooth_seek_debounce: smooth_seek_debounce.clone(),
         resume_after_seek_idle: resume_after_seek_idle.clone(),
         play_toggle: play_ctx.clone(),
+        dvd_bar: Rc::clone(&dvd_bar),
     });
 
     #[cfg(target_os = "linux")]
@@ -188,6 +194,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         video_pref: Rc::clone(&play_ctx.video_pref),
         smooth_seek_debounce: smooth_seek_debounce.clone(),
         resume_after_seek_idle: resume_after_seek_idle.clone(),
+        dvd_bar: Rc::clone(&dvd_bar),
         on_file_loaded: &on_file_loaded,
         on_video_chrome: &on_video_chrome,
         hdr_title_mirror: hdr_title_mirror.clone(),
@@ -233,6 +240,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         bar_show: bar_show.clone(),
         hdr_title_mirror: hdr_title_mirror.clone(),
         seek_chapters: Rc::clone(&seek_chapters),
+        dvd_bar: Rc::clone(&dvd_bar),
         blackout: Rc::clone(&w.blackout_sync),
         widgets: TransportWidgets {
             play_pause: w.play_pause.clone(),
@@ -310,6 +318,7 @@ struct WindowAfterPresentArgs {
     video_pref: Rc<RefCell<db::VideoPrefs>>,
     sub_pref: Rc<RefCell<db::SubPrefs>>,
     seek_chapters: Rc<RefCell<Vec<(f64, String)>>>,
+    dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
     seek_bar_on: Rc<Cell<bool>>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     bar_show: Rc<Cell<bool>>,

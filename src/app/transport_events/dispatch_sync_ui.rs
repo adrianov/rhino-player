@@ -27,6 +27,14 @@ fn schedule_smooth_60_resync_idle(ctx: &Rc<TransportCtx>) {
     if ctx.recent_visible.get() {
         return;
     }
+    if ctx
+        .player
+        .borrow()
+        .as_ref()
+        .is_some_and(|b| b.chapter_scrub_resume_pending())
+    {
+        return;
+    }
     sync_media_decode_row_for_me_budget(&ctx.player);
     drop_glib_source(ctx.smooth_60_resync_debounce.as_ref());
     let deb = Rc::clone(&ctx.smooth_60_resync_debounce);
@@ -52,26 +60,8 @@ fn with_bundle(player: &Rc<RefCell<Option<MpvBundle>>>, f: impl FnOnce(&MpvBundl
     }
 }
 
-fn apply_file_loaded_resume_and_audio(player: &Rc<RefCell<Option<MpvBundle>>>) {
-    with_bundle(player, |b| {
-        b.apply_pending_resume();
-        audio_tracks::restore_saved_audio(&b.mpv);
-        audio_tracks::ensure_playable_audio(&b.mpv);
-    });
-}
-
 fn has_open_path(mpv: &Mpv) -> bool {
     matches!(mpv.get_property::<String>("path"), Ok(s) if !s.trim().is_empty())
-}
-
-fn sync_seek_chapters(ctx: &Rc<TransportCtx>) {
-    let mut list = Vec::new();
-    if let Ok(g) = ctx.player.try_borrow() {
-        if let Some(b) = g.as_ref() {
-            list = crate::chapter_list::mpv_chapter_list(&b.mpv);
-        }
-    }
-    *ctx.seek_chapters.borrow_mut() = list;
 }
 
 fn sync_smooth_vf_on_pause_transition(ctx: &Rc<TransportCtx>, paused: bool) {
@@ -107,9 +97,16 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
         }
         TransportEv::Duration(d) => {
             let d = if d.is_finite() { d } else { 0.0 };
-            ctx.cache.borrow_mut().duration = d;
-            sync_seek_range(w, d);
-            sync_duration_label(w, d);
+            if d > 0.0 {
+                maybe_refresh_dvd_bar_cache(ctx);
+                if !ctx.recent_visible.get() {
+                    try_apply_pending_resume(ctx);
+                }
+            }
+            let bar_d = dvd_bar_duration(ctx).unwrap_or(d);
+            ctx.cache.borrow_mut().duration = bar_d;
+            sync_seek_range(w, bar_d);
+            sync_duration_label(w, bar_d);
             sync_speed_header(&ctx.player, w, d);
             refresh_play_button(ctx);
             sync_seek_chapters(ctx);
@@ -120,41 +117,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
         TransportEv::Volume(v) => sync_volume(w, v),
         TransportEv::Mute(m) => sync_mute(w, m),
         TransportEv::VolumeMax(vmax) => sync_volume_max(w, vmax),
-        TransportEv::FileLoaded => {
-            // Invalidate bundled ME budget fast-path (`vf_smooth_matches_prefs`) so **`apply_mpv_video`**
-            // reinstalls vapoursynth: a warm VapourSynth interpreter reused across **`loadfile`** does not adopt
-            // a newer ME px² budget (**`RHINO_SMOOTH_MAX_AREA`**) unless **`vf clr`/`vf add`** runs (**`smooth_vf_me_budget_applied`**).
-            crate::video_pref::forget_bundled_me_budget_vf_apply_on_new_media();
-            crate::video_pref::smooth_budget_reset_session_on_new_media(&ctx.smooth_budget_decoder);
-            // New file: apply the SQLite-driven resume, restore the saved audio track *before*
-            // any unpause so mpv does not play the default `aid` for a fraction of a second and
-            // then switch (audio path re-open caused lip-sync drift on continue-grid → reopen).
-            // Warm preload: defer the seek to the next idle so the continue strip stays responsive.
-            if ctx.recent_visible.get() {
-                let player = Rc::clone(&ctx.player);
-                let want_gen = ctx
-                    .player
-                    .borrow()
-                    .as_ref()
-                    .map(crate::mpv_embed::MpvBundle::warm_file_gen)
-                    .unwrap_or(0);
-                glib::idle_add_local_once(move || {
-                    warm_preload_finish_load(&player, want_gen);
-                });
-            } else {
-                apply_file_loaded_resume_and_audio(&ctx.player);
-            }
-            ctx.eof.sibling_seof.done.set(false);
-            sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);
-            refresh_sibling_nav(ctx);
-            if !ctx.recent_visible.get() {
-                transport_tick(ctx);
-                schedule_transport_resync_on_idle(ctx);
-            }
-            schedule_smooth_60_resync_idle(ctx);
-            sync_seek_chapters(ctx);
-            ctx.blackout.sync();
-        }
+        TransportEv::FileLoaded => dispatch_file_loaded(ctx),
         TransportEv::VideoReconfig => {
             sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);
             refresh_sibling_nav(ctx);
@@ -166,8 +129,12 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
         TransportEv::PathChanged => {
             crate::video_pref::forget_bundled_me_budget_vf_apply_on_new_media();
             crate::video_pref::smooth_budget_reset_session_on_new_media(&ctx.smooth_budget_decoder);
+            refresh_dvd_bar_cache(ctx);
             ctx.eof.sibling_seof.done.set(false);
             refresh_sibling_nav(ctx);
+            if !ctx.recent_visible.get() {
+                try_apply_pending_resume(ctx);
+            }
             transport_tick(ctx);
             schedule_smooth_60_resync_idle(ctx);
             sync_seek_chapters(ctx);
@@ -234,6 +201,7 @@ fn refresh_play_button(ctx: &Rc<TransportCtx>) {
     sync_play_button(&ctx.widgets, dur, paused);
 }
 
+include!("dispatch_sync_ui_file_loaded.rs");
 include!("dispatch_sync_ui_speed.rs");
 include!("dispatch_sync_ui_volume.rs");
 
@@ -261,8 +229,10 @@ fn sync_seek_range(w: &TransportWidgets, dur: f64) {
         w.seek.set_sensitive(has_media);
     }
     if has_media && (w.seek_adj.upper() - dur).abs() > f64::EPSILON {
+        w.seek_sync.set(true);
         w.seek_adj.set_lower(0.0);
         w.seek_adj.set_upper(dur);
+        w.seek_sync.set(false);
     }
 }
 

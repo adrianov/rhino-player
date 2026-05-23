@@ -43,6 +43,19 @@ fn install_transport_tick(ctx: &Rc<TransportCtx>) {
     }));
 }
 
+/// Keep mpv paused while the continue strip is up and playback has not been revealed.
+fn hold_browse_pause(player: &Rc<RefCell<Option<MpvBundle>>>, browse: bool) {
+    if !browse {
+        return;
+    }
+    let Ok(g) = player.try_borrow() else {
+        return;
+    };
+    if let Some(b) = g.as_ref() {
+        let _ = b.mpv.set_property("pause", true);
+    }
+}
+
 fn sync_decode_size_on_tick(player: &Rc<RefCell<Option<MpvBundle>>>) {
     let Ok(g) = player.try_borrow() else {
         return;
@@ -66,6 +79,8 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     #[cfg(target_os = "macos")]
     sync_macos_now_playing_for_transport(&ctx.player);
 
+    maybe_refresh_dvd_bar_cache(ctx);
+
     let Some((pause, core_idle, dur, pos)) = read_transport_state(ctx) else {
         return;
     };
@@ -86,8 +101,12 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
         sync_seek_pos(&ctx.widgets, pos, dur);
     }
     sync_decode_size_on_tick(&ctx.player);
-    if core_idle && dur > 0.0 && (dur - pos) <= TICK_EOF_TAIL_SEC {
-        run_sibling_eof(ctx);
+    let browse = crate::app::browse_overlay_active(&ctx.eof.recent);
+    hold_browse_pause(&ctx.player, browse);
+    if natural_eof_for_advance(ctx, core_idle) && !browse {
+        if !maybe_advance_dvd_chapter_eof(ctx) && dvd_eof_tail(ctx, dur, pos) {
+            run_sibling_eof(ctx);
+        }
     }
     sync_sub_header_readout(&ctx.player, &ctx.widgets.sub_readout);
     stamp_smooth_toolbar_readout(
@@ -107,33 +126,105 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     ctx.blackout.sync();
 }
 
+fn browse_pause_snap(
+    ctx: &TransportCtx,
+    shell: &Option<std::path::PathBuf>,
+    pause: bool,
+    pos: f64,
+    dur: f64,
+) -> (f64, f64, bool) {
+    if !ctx.recent_visible.get() {
+        return (pos, dur, false);
+    }
+    let Some(p) = shell.as_ref() else {
+        return (pos, dur, false);
+    };
+    let Some(snap) =
+        crate::media_probe::continue_grid_cache_lookup(&ctx.continue_grid_cache, p)
+    else {
+        return (pos, dur, false);
+    };
+    let mut pos = pos;
+    let mut dur = dur;
+    let mut from_entity = false;
+    if pause {
+        pos = snap.resume_sec;
+        from_entity = true;
+    }
+    if dur <= 0.0 {
+        dur = snap.duration_sec;
+    }
+    (pos, dur, from_entity)
+}
+
 fn read_transport_state(ctx: &TransportCtx) -> Option<(bool, bool, f64, f64)> {
-    let g = ctx.player.try_borrow().ok()?;
-    let b = g.as_ref()?;
+    let mut g = ctx.player.try_borrow_mut().ok()?;
+    let b = g.as_mut()?;
     let pause = b.mpv.get_property::<bool>("pause").unwrap_or(false);
     let core_idle = b.mpv.get_property::<bool>("core-idle").unwrap_or(false);
     let dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
     let dur = if dur.is_finite() { dur.max(0.0) } else { 0.0 };
     let mut pos = b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
     pos = if pos.is_finite() { pos.max(0.0) } else { 0.0 };
-    let mut dur = dur;
-    if ctx.recent_visible.get() {
-        let shell = crate::media_probe::local_file_from_mpv(&b.mpv)
-            .or_else(|| b.me_budget_shell_path.borrow().clone());
-        if let Some(p) = shell {
-            if let Some(snap) =
-                crate::media_probe::continue_grid_cache_lookup(&ctx.continue_grid_cache, &p)
-            {
-                if pause {
-                    pos = snap.resume_sec;
-                }
-                if dur <= 0.0 {
-                    dur = snap.duration_sec;
-                }
-            }
+    let shell = crate::media_probe::local_file_from_mpv(&b.mpv)
+        .or_else(|| b.me_budget_shell_path.borrow().clone());
+    let chapter = shell.clone();
+    let (mut pos, mut dur, pos_from_entity_snap) = browse_pause_snap(ctx, &shell, pause, pos, dur);
+    if let (Some(bar), Some(ch)) = (ctx.dvd_bar.borrow().as_ref(), chapter.as_ref()) {
+        dur = bar.total_sec();
+        if !pos_from_entity_snap {
+            pos = bar.transport_global_pos(b, ch, pos);
         }
     }
     Some((pause, core_idle, dur, pos))
+}
+
+fn natural_eof_for_advance(ctx: &TransportCtx, core_idle: bool) -> bool {
+    if core_idle {
+        return true;
+    }
+    let Ok(g) = ctx.player.try_borrow() else {
+        return false;
+    };
+    let Some(b) = g.as_ref() else {
+        return false;
+    };
+    b.mpv.get_property::<bool>("eof-reached").unwrap_or(false)
+}
+
+fn maybe_advance_dvd_chapter_eof(ctx: &Rc<TransportCtx>) -> bool {
+    if crate::app::browse_overlay_active(&ctx.eof.recent) {
+        return false;
+    }
+    let bar = ctx.dvd_bar.borrow();
+    let Some(ref bar) = *bar else {
+        return false;
+    };
+    if !crate::dvd_vob_timeline::advance_title_chapter_eof(&ctx.player, bar) {
+        return false;
+    }
+    crate::app::transport_drain_after_loadfile();
+    true
+}
+
+fn dvd_eof_tail(ctx: &TransportCtx, bar_dur: f64, bar_pos: f64) -> bool {
+    if bar_dur > 0.0 && (bar_dur - bar_pos) <= TICK_EOF_TAIL_SEC {
+        return true;
+    }
+    if ctx.dvd_bar.borrow().is_some() {
+        return mpv_chapter_eof(ctx);
+    }
+    bar_dur > 0.0 && (bar_dur - bar_pos) <= TICK_EOF_TAIL_SEC
+}
+
+fn mpv_chapter_eof(ctx: &TransportCtx) -> bool {
+    let Ok(g) = ctx.player.try_borrow() else {
+        return false;
+    };
+    let Some(b) = g.as_ref() else {
+        return false;
+    };
+    crate::dvd_vob_timeline::chapter_local_at_eof(&b.mpv)
 }
 
 fn schedule_transport_resync_on_idle(ctx: &Rc<TransportCtx>) {

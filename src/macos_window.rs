@@ -105,6 +105,29 @@ pub fn invalidate_window_layers<W: IsA<gtk::Widget>>(widget: &W) {
     }
 }
 
+#[cfg(target_os = "macos")]
+include!("macos_window_gdk_layout.rs");
+
+#[cfg(not(target_os = "macos"))]
+pub fn resize_window_frame(_win: &adw::ApplicationWindow, _width: i32, _height: i32) {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn request_gdk_surface_layout<W: IsA<gtk::Widget>>(_widget: &W) {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn refresh_gdk_shell_compositing(
+    _win: &adw::ApplicationWindow,
+    _gl: &gtk::GLArea,
+    _header: &adw::HeaderBar,
+    _root: &adw::ToolbarView,
+    _bottom_shell: &gtk::Box,
+    _bottom: &gtk::Box,
+) {
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn schedule_shell_layout_after_gtk_resize(_target_w: i32, _target_h: i32) {}
+
 /// Before AppKit leaves fullscreen: reveal [`ToolbarView`] bars only.
 ///
 /// Enter fullscreen sets `bar_show` false and hides bars; touching traffic-light /

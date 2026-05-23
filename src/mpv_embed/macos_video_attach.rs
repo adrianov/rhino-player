@@ -101,6 +101,11 @@ impl NativeVideoSurface {
         );
     }
 
+    /// Keep the native mpv layer under gdk-macos's GTK compositing sublayer (post-resize).
+    pub fn repin_below_gtk_compositing(&self) {
+        super::macos_video_layer_frame::pin_video_layer_below_gtk(&self.layer);
+    }
+
     /// Register an "overlay" widget — when it becomes visible the video layer hides so
     /// the GTK overlay (recent grid, etc.) shows through. The tick callback installed
     /// by [`wire_sizer_resync`] re-checks `overlay.is_visible()` every frame, and

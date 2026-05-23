@@ -9,6 +9,8 @@ struct WindowWidgets {
     video_handle: gtk::WindowHandle,
     gl_area: gtk::GLArea,
     bottom: gtk::Box,
+    #[cfg(target_os = "macos")]
+    bottom_shell: gtk::Box,
     play_pause: gtk::Button,
     sibling_nav: SiblingNavUi,
     menu_btn: gtk::MenuButton,
@@ -134,6 +136,8 @@ fn build_widgets(
         &seek,
         &time_right,
     );
+    #[cfg(target_os = "macos")]
+    let bottom_shell = crate::macos_bottom_bar::wrap_row(&bottom);
     let ovl = build_video_overlay(&gl_area);
     let video_handle = gtk::WindowHandle::new();
     video_handle.set_child(Some(&ovl));
@@ -141,7 +145,10 @@ fn build_widgets(
     ovl.add_overlay(&recent_scrl);
 
     WindowWidgets {
-        win, root, header, outer_ovl, video_handle, gl_area, bottom, play_pause, sibling_nav,
+        win, root, header, outer_ovl, video_handle, gl_area, bottom,
+        #[cfg(target_os = "macos")]
+        bottom_shell,
+        play_pause, sibling_nav,
         menu_btn, vol_menu, vol_header_img, vol_readout, sub_menu, sub_readout, smooth_status,
         speed_mbtn, speed_readout,
         speed_list, speed_sync,

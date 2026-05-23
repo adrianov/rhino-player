@@ -136,6 +136,13 @@ fn reveal_ui_after_load(
         if let Some(f) = o.on_start.as_ref() {
             f();
         }
+        #[cfg(target_os = "macos")]
+        {
+            crate::app::refresh_registered_shell_compositing();
+            if let Some(b) = player.borrow().as_ref() {
+                b.nudge_shell_layout_after_resize(gl);
+            }
+        }
     }
     gl.queue_render();
     if o.play_on_start {
@@ -144,7 +151,7 @@ fn reveal_ui_after_load(
     if let Some(b) = player.borrow().as_ref() {
         sync_window_aspect_from_mpv(&b.mpv, o.win_aspect.as_ref());
     }
-    schedule_window_fit_h_video(Rc::clone(player), win.clone());
+    schedule_window_fit_h_video(Rc::clone(player), win.clone(), gl.clone());
 }
 
 /// Unpauses mpv; for warm-hit paths, delays reveal by [WARM_REVEAL_DELAY_MS].

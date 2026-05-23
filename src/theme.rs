@@ -149,9 +149,20 @@ const APP_CSS: &str = r#"
            connect_render) so the underlying CAOpenGLLayer (mpv video) shows through. */
         .rp-gl.rp-gl-native { background: transparent; background-color: transparent; }
         .rp-bottom {
-            background-color: #1e1e1e;
-            border-top: 1px solid #3d3d3d;
-            padding: 4px 10px 6px 10px;
+            background-color: #2d2d2d;
+            color: #eeeeec;
+            box-shadow: none;
+            border: none;
+            padding: 2px 4px;
+        }
+        .rp-bottom button.flat {
+            min-height: 26px;
+            min-width: 26px;
+            padding: 2px;
+        }
+        .rp-bottom button.flat image {
+            color: #eeeeec;
+            -gtk-icon-style: symbolic;
         }
         /* LTR clock spacing; avoid margin-inline-end (not in all GTK CSS parsers). */
         .rp-bottom .rpb-prev { margin-right: 1px; }
@@ -234,11 +245,8 @@ const APP_CSS: &str = r#"
 /// Continue strip: cards, Open tile, undo pill, progress styling ([`recent_view::fill_row`]).
 const RECENT_GRID_CSS: &str = include_str!("theme_continue_grid.css");
 
-/// macOS: when the GLArea (and its container chain) is transparent, the native video
-/// CAOpenGLLayer **below** gdk's GTK sublayer shows through. The chrome (header / bottom
-/// bar) keeps its own opaque backgrounds (`.rpb-header`, `.rp-bottom`) so they still
-/// overlay the video; the recent grid (`.rp-recent-scroll`) keeps its dark base so it
-/// covers the (now-transparent) video region when shown.
+/// macOS hybrid render: window + video stack transparent so the native mpv layer shows
+/// through the GLArea. Continue grid and toolbar chrome keep their own opaque backgrounds.
 const MACOS_TRANSPARENT_CONTENT_CSS: &str = r#"
         window.rp-win,
         .rp-stack,
@@ -246,6 +254,24 @@ const MACOS_TRANSPARENT_CONTENT_CSS: &str = r#"
         .rp-gl.rp-gl-native {
             background: transparent;
             background-color: transparent;
+        }
+        .rp-recent-scroll,
+        .rp-recent-vbox {
+            background-color: #242424;
+            background: #242424;
+        }
+        toolbarview.rp-toolbar headerbar.rpb-header {
+            background-color: #2d2d2d;
+            background: #2d2d2d;
+        }
+        toolbarview.rp-toolbar box.rp-bottom-shell {
+            background-color: #2d2d2d;
+            background: #2d2d2d;
+            border-top: 1px solid #3d3d3d;
+        }
+        toolbarview.rp-toolbar box.rp-bottom-shell box.rp-bottom {
+            background-color: transparent;
+            background: transparent;
         }
     "#;
 

@@ -100,10 +100,63 @@ fn apply_chrome<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>) {
     }
     let reveal_changed = set_toolbar_reveal(c.root, show);
     sync_header_window_controls(c.header, c.hdr_csd_baseline, show, c.root);
-    if !reveal_changed {
-        return;
+    if let Some(win) = c
+        .gl
+        .root()
+        .and_then(|r| r.downcast::<adw::ApplicationWindow>().ok())
+    {
+        #[cfg(target_os = "macos")]
+        {
+            use glib::object::Cast;
+            if let Some(shell) = c.bottom.parent().and_then(|p| p.downcast::<gtk::Box>().ok()) {
+                crate::shell_debug_log::log_toolbar_layout(
+                    "chrome",
+                    &win,
+                    c.root,
+                    c.header,
+                    c.bottom,
+                    c.gl,
+                    c.recent.is_visible(),
+                    c.bar_show.get(),
+                    show,
+                    &shell,
+                );
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        crate::shell_debug_log::log_toolbar_layout(
+            "chrome",
+            &win,
+            c.root,
+            c.header,
+            c.bottom,
+            c.gl,
+            c.recent.is_visible(),
+            c.bar_show.get(),
+            show,
+        );
     }
+    repaint_chrome_after_layout(c, show);
+    let _ = reveal_changed;
+}
+
+fn repaint_chrome_after_layout<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>, show: bool) {
+    use gtk::prelude::NativeExt;
+
+    c.root.queue_allocate();
     c.gl.queue_render();
+    if let Some(win) = c
+        .gl
+        .root()
+        .and_then(|r| r.downcast::<adw::ApplicationWindow>().ok())
+    {
+        win.queue_draw();
+        if let Some(surf) = win.native().and_then(|n| n.surface()) {
+            surf.queue_render();
+        }
+        #[cfg(target_os = "macos")]
+        crate::macos_window::invalidate_window_layers(&win);
+    }
     if let Some(b) = c.player.borrow().as_ref() {
         sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, c.bottom.height(), c.gl.height());
     }
@@ -193,37 +246,8 @@ fn window_size_for_horizontal_video(vw: i64, vh: i64) -> (i32, i32) {
     (nw, nh)
 }
 
-/// Resize the window to match a **landscape** video aspect (wider than tall). No-op in fullscreen, when maximized, for portrait or square, or if dimensions are unknown.
-fn schedule_window_fit_h_video(
-    player: Rc<RefCell<Option<MpvBundle>>>,
-    win: adw::ApplicationWindow,
-) {
-    let w = win.clone();
-    let _ = glib::timeout_add_local(
-        Duration::from_millis(u64::from(FIT_WINDOW_DELAY_MS)),
-        move || {
-            if w.is_fullscreen() || w.is_maximized() {
-                return glib::ControlFlow::Break;
-            }
-            let b = match player.try_borrow() {
-                Ok(b) => b,
-                Err(_) => return glib::ControlFlow::Break,
-            };
-            let Some(pl) = b.as_ref() else {
-                return glib::ControlFlow::Break;
-            };
-            let Some((px, py)) = video_display_dims(&pl.mpv) else {
-                return glib::ControlFlow::Break;
-            };
-            if px <= py {
-                return glib::ControlFlow::Break;
-            }
-            let (nw, nh) = window_size_for_horizontal_video(px, py);
-            w.set_default_size(nw, nh);
-            glib::ControlFlow::Break
-        },
-    );
-}
+include!("chrome_shell_layout.rs");
+include!("chrome_window_video_fit.rs");
 
 fn schedule_or_defer_recent_backfill(
     player: &Rc<RefCell<Option<MpvBundle>>>,

@@ -161,6 +161,13 @@ fn dispatch_file_loaded(ctx: &Rc<TransportCtx>) {
     refresh_dvd_bar_cache(ctx);
     ctx.eof.sibling_seof.done.set(false);
     sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);
+    if !ctx.recent_visible.get() {
+        schedule_window_fit_h_video(
+            Rc::clone(&ctx.player),
+            ctx.eof.win.clone(),
+            ctx.eof.gl.clone(),
+        );
+    }
     refresh_sibling_nav(ctx);
     if !ctx.recent_visible.get() {
         transport_tick(ctx);

@@ -90,6 +90,10 @@ impl MacosRender {
         self.surface.resync_layer_frame();
     }
 
+    pub fn repin_below_gtk_compositing(&self) {
+        self.surface.repin_below_gtk_compositing();
+    }
+
     /// Serialize **`vf clr`** vs **`CVDisplayLink`** / **`mpv_render_context_render`** (Smooth **off**).
     pub(crate) fn with_vf_teardown<R>(&self, f: impl FnOnce() -> R) -> R {
         self.surface.pause_cv_display_link();

@@ -90,6 +90,12 @@ pub(crate) fn warm_preload_gate_busy() -> bool {
     WARM_CTX.with(|s| s.borrow().as_ref().is_some_and(|c| c.gate.busy()))
 }
 
+/// Continue grid visible or a warm `loadfile` in flight — no EOF sibling advance or unpause.
+#[must_use]
+pub(crate) fn browse_overlay_active(recent: &impl gtk::prelude::WidgetExt) -> bool {
+    recent.is_visible() || warm_preload_gate_busy()
+}
+
 pub(crate) fn disarm_warm_path_settle() {
     WARM_CTX.with(|s| {
         if let Some(c) = s.borrow().as_ref() {
@@ -135,6 +141,19 @@ pub(crate) fn schedule_warm_path_settle(player: Rc<RefCell<Option<MpvBundle>>>) 
     ));
 }
 
+/// Keep mpv paused and resync video chrome while the continue grid stays on screen.
+pub(crate) fn warm_preload_hold_browse_pause(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    gl: &gtk::GLArea,
+) {
+    if let Ok(g) = player.try_borrow() {
+        if let Some(b) = g.as_ref() {
+            let _ = b.mpv.set_property("pause", true);
+            b.nudge_browse_video_layout(gl);
+        }
+    }
+}
+
 pub(crate) fn warm_preload_finish_load(player: &Rc<RefCell<Option<MpvBundle>>>, want_gen: u32) {
     let cur = match player.try_borrow() {
         Ok(g) => g
@@ -151,13 +170,21 @@ pub(crate) fn warm_preload_finish_load(player: &Rc<RefCell<Option<MpvBundle>>>, 
         warm_preload_notify_loaded();
         return;
     }
-    warm_preload_apply_resume_audio(player);
+    let gl = WARM_CTX.with(|s| s.borrow().as_ref().map(|c| c.gl.clone()));
+    warm_preload_apply_resume_audio(player, gl.as_ref());
     transport_nudge_tick();
     let _ = glib::idle_add_local_once(transport_drain_after_loadfile);
+    if let Some(gl) = gl {
+        let player2 = Rc::clone(player);
+        let _ = glib::idle_add_local_once(move || warm_preload_hold_browse_pause(&player2, &gl));
+    }
     warm_preload_notify_loaded();
 }
 
-fn warm_preload_apply_resume_audio(player: &Rc<RefCell<Option<MpvBundle>>>) {
+fn warm_preload_apply_resume_audio(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    gl: Option<&gtk::GLArea>,
+) {
     if let Ok(g) = player.try_borrow() {
         if let Some(b) = g.as_ref() {
             b.apply_pending_resume();
@@ -165,20 +192,19 @@ fn warm_preload_apply_resume_audio(player: &Rc<RefCell<Option<MpvBundle>>>) {
             crate::audio_tracks::ensure_playable_audio(&b.mpv);
         }
     }
+    if let Some(gl) = gl {
+        warm_preload_hold_browse_pause(player, gl);
+    }
 }
 
-fn finish_warm_preload_ready_now(player: &Rc<RefCell<Option<MpvBundle>>>) {
-    let Ok(g) = player.try_borrow() else {
+fn finish_warm_preload_ready_now(player: &Rc<RefCell<Option<MpvBundle>>>, gl: &gtk::GLArea) {
+    if player.try_borrow().is_err() {
         let p = Rc::clone(player);
-        let _ = glib::idle_add_local_once(move || finish_warm_preload_ready_now(&p));
+        let gl2 = gl.clone();
+        let _ = glib::idle_add_local_once(move || finish_warm_preload_ready_now(&p, &gl2));
         return;
-    };
-    if let Some(b) = g.as_ref() {
-        b.apply_pending_resume();
-        crate::audio_tracks::restore_saved_audio(&b.mpv);
-        crate::audio_tracks::ensure_playable_audio(&b.mpv);
-        let _ = b.mpv.set_property("pause", true);
     }
+    warm_preload_apply_resume_audio(player, Some(gl));
     let _ = glib::idle_add_local_once(transport_drain_after_loadfile);
     transport_nudge_tick();
 }
@@ -199,6 +225,7 @@ fn schedule_warm_hover_preload(ctx: &Rc<WarmPreloadCtx>, path: PathBuf) {
 fn run_continue_warm_preload_path(path: &Path, ctx: &Rc<WarmPreloadCtx>) {
     transport_sync_warm_browse(path);
     if ctx.warm_target_ready(path) && ctx.gate.queued.borrow().is_none() {
+        warm_preload_hold_browse_pause(&ctx.player, &ctx.gl);
         return;
     }
     WarmPreloadCtx::run_path(ctx, path.to_path_buf());

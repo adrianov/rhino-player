@@ -24,6 +24,8 @@ mod macos_fs_debug;
 #[cfg(target_os = "macos")]
 mod macos_fs_exit;
 #[cfg(target_os = "macos")]
+mod macos_bottom_bar;
+#[cfg(target_os = "macos")]
 mod macos_open_video;
 #[cfg(target_os = "macos")]
 mod macos_window;
@@ -38,6 +40,7 @@ mod screen_blackout;
 pub mod sched;
 mod seek_bar_preview;
 mod sibling_advance;
+mod shell_debug_log;
 mod sub_prefs;
 mod sub_track_abbr;
 mod sub_tracks;

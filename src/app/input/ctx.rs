@@ -6,6 +6,8 @@ struct WindowInputShell {
     outer_ovl: gtk::Overlay,
     video_handle: gtk::WindowHandle,
     bottom: gtk::Box,
+    #[cfg(target_os = "macos")]
+    bottom_shell: gtk::Box,
     gl: gtk::GLArea,
     recent: gtk::Box,
 }

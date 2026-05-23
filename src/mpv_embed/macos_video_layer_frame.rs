@@ -11,7 +11,7 @@ use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2_app_kit::NSView;
 use objc2_foundation::{NSPoint, NSRect, NSSize};
-use objc2_quartz_core::CATransaction;
+use objc2_quartz_core::{CALayer, CATransaction};
 
 use crate::macos_window::nswindow_for_widget;
 
@@ -40,6 +40,7 @@ fn nswindow_content_height_for<W: IsA<gtk::Widget>>(sizer: &W) -> Option<f64> {
     }
 }
 
+/// Full GLArea allocation — chrome overlays the video via opaque gdk-macos widgets above this layer.
 pub(super) fn sync_layer_frame_now<W: IsA<gtk::Widget>>(
     layer: &RhinoMpvGlLayer,
     sizer: &W,
@@ -70,6 +71,17 @@ pub(super) fn sync_layer_frame_now<W: IsA<gtk::Widget>>(
     CATransaction::commit();
     if let Some(h) = repaint {
         h.mark_pending();
+    }
+}
+
+/// After programmatic resize gdk-macos may stack a fresh GTK compositing layer above the video.
+pub(super) fn pin_video_layer_below_gtk(layer: &RhinoMpvGlLayer) {
+    unsafe {
+        let superlayer: *mut CALayer = msg_send![layer, superlayer];
+        if superlayer.is_null() {
+            return;
+        }
+        let _: () = msg_send![superlayer, insertSublayer: layer, atIndex: 0u32];
     }
 }
 
@@ -154,8 +166,6 @@ pub(super) fn wire_sizer_resync(
 
     let l_tick = layer;
     let r_tick = repaint;
-    // Tick debounce: cheap key (size / visibility) avoids `compute_point` most frames; origin still
-    // probed every POS_PROBE_INTERVAL ticks so chrome-only moves resync without widget-tree walks @ 60 Hz.
     let last = std::cell::Cell::new((0i32, 0i32, i64::MIN, i64::MIN, i64::MIN, false, false));
     let last_cheap = std::cell::Cell::new((0i32, 0i32, i64::MIN, false, false));
     let tick_n = std::cell::Cell::new(0_u32);

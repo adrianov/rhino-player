@@ -3,14 +3,23 @@ fn preload_continue_path(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     video_pref: &Rc<RefCell<db::VideoPrefs>>,
     recent: &impl IsA<gtk::Widget>,
+    gl: &gtk::GLArea,
     last_path: &Rc<RefCell<Option<PathBuf>>>,
 ) -> PreloadOutcome {
     let path = crate::video_ext::resolve_open_media_path(path);
     if !recent.is_visible() || !path.is_file() || player.borrow().is_none() {
         return PreloadOutcome::Failed;
     }
+    eprintln!(
+        "[rhino] warm_preload: path={} exists={} play=false",
+        path.display(),
+        path.exists()
+    );
     if mpv_has_open_target(&path, player) {
         return PreloadOutcome::Ready;
+    }
+    if let Some(b) = player.borrow().as_ref() {
+        let _ = b.mpv.set_property("pause", true);
     }
     let canon = std::fs::canonicalize(&path).ok();
     *last_path.borrow_mut() = canon;
@@ -38,9 +47,7 @@ fn preload_continue_path(
     if warm_hit {
         return PreloadOutcome::Ready;
     }
-    if let Some(b) = player.borrow().as_ref() {
-        let _ = b.mpv.set_property("pause", true);
-    }
+    warm_preload_hold_browse_pause(player, gl);
     PreloadOutcome::Deferred
 }
 
@@ -61,6 +68,7 @@ fn preload_first_continue(ctx: &Rc<WarmPreloadCtx>) -> bool {
         &ctx.player,
         &ctx.video_pref,
         &ctx.recent,
+        &ctx.gl,
         &ctx.last_path,
     ) {
         PreloadOutcome::Deferred => {
@@ -73,15 +81,16 @@ fn preload_first_continue(ctx: &Rc<WarmPreloadCtx>) -> bool {
             ctx.gate.set_inflight_gen(gen);
             ctx.gate
                 .arm_watchdog(Rc::clone(&ctx.player), gen);
-            schedule_preload_pause(Rc::clone(&ctx.player), ctx.recent.clone());
+            schedule_preload_pause(Rc::clone(&ctx.player), ctx.gl.clone());
             true
         }
         PreloadOutcome::Ready => {
             let player = Rc::clone(&ctx.player);
+            let gl = ctx.gl.clone();
             let run = Rc::clone(ctx);
             let gate = Rc::clone(&run.gate);
             let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
-                finish_warm_preload_ready_now(&player);
+                finish_warm_preload_ready_now(&player, &gl);
                 let run = Rc::clone(&run);
                 gate.complete(move |p| WarmPreloadCtx::run_path(&run, p));
                 glib::ControlFlow::Break
@@ -107,24 +116,23 @@ fn run_continue_warm_preload(ctx: &Rc<WarmPreloadCtx>, skip_followups: bool) {
     }
 }
 
-fn schedule_preload_pause(player: Rc<RefCell<Option<MpvBundle>>>, recent: gtk::Box) {
+fn schedule_preload_pause(player: Rc<RefCell<Option<MpvBundle>>>, gl: gtk::GLArea) {
     let _ = glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
-        if recent.is_visible() {
-            if let Some(b) = player.borrow().as_ref() {
-                let _ = b.mpv.set_property("pause", true);
-            }
-        }
+        warm_preload_hold_browse_pause(&player, &gl);
         glib::ControlFlow::Break
     });
 }
 
 /// Immediate hover warm preload (no debounce); shared [WarmPreloadCtx] with startup preload.
 pub(crate) fn warm_hover_hooks(ctx: Rc<WarmPreloadCtx>) -> recent_view::WarmHoverHooks {
+    let enter_ctx = Rc::clone(&ctx);
     let enter = Rc::new(move |path: &Path| {
-        schedule_warm_hover_preload(&ctx, path.to_path_buf());
+        schedule_warm_hover_preload(&enter_ctx, path.to_path_buf());
     });
+    let player = Rc::clone(&ctx.player);
+    let gl = ctx.gl.clone();
     recent_view::WarmHoverHooks {
         enter,
-        leave: Rc::new(|| {}),
+        leave: Rc::new(move || warm_preload_hold_browse_pause(&player, &gl)),
     }
 }
