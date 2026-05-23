@@ -79,6 +79,13 @@ fn sync_decode_size_on_tick(player: &Rc<RefCell<Option<MpvBundle>>>) {
     crate::db::media_sync_decode_size(&p, w, h);
 }
 
+fn chapter_cross_load_busy(ctx: &TransportCtx) -> bool {
+    ctx.player
+        .borrow()
+        .as_ref()
+        .is_some_and(|b| b.chapter_cross_load_busy())
+}
+
 fn transport_tick(ctx: &Rc<TransportCtx>) {
     #[cfg(target_os = "macos")]
     sync_macos_now_playing_for_transport(&ctx.player);
@@ -108,7 +115,10 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     let browse = crate::app::browse_overlay_active(&ctx.eof.recent);
     hold_browse_pause(&ctx.player, browse);
     if natural_eof_for_advance(ctx, core_idle) && !browse {
-        if !maybe_advance_dvd_chapter_eof(ctx) && dvd_eof_tail(ctx, dur, pos) {
+        if !maybe_advance_dvd_chapter_eof(ctx)
+            && !chapter_cross_load_busy(ctx)
+            && dvd_eof_tail(ctx, dur, pos)
+        {
             run_sibling_eof(ctx);
         }
     }
@@ -210,7 +220,7 @@ fn maybe_advance_dvd_chapter_eof(ctx: &Rc<TransportCtx>) -> bool {
     if !advanced {
         return false;
     }
-    crate::app::transport_drain_after_loadfile();
+    crate::app::transport_drain_after_loadfile_idle();
     true
 }
 

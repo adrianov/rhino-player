@@ -50,6 +50,9 @@ pub fn advance_title_chapter_eof(
     if (bar.total_sec() - global) <= crate::app::TICK_EOF_TAIL_SEC {
         return false;
     }
+    if b.chapter_cross_load_busy() {
+        return false;
+    }
     let Some((next, next_global)) = bar.tl.next_chapter_after(&chapter) else {
         return false;
     };
