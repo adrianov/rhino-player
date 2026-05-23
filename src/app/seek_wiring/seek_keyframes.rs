@@ -131,6 +131,15 @@ fn main_player_seek_keyframes(p: &SeekKeyframeParams<'_>, kind: SeekKeyframeKind
         let Some(b) = g.as_ref() else {
             return;
         };
+        let shell = b.me_budget_shell_path.borrow();
+        if crate::media_probe::shell_media_path(&b.mpv, shell.as_deref())
+            .is_some_and(|path| crate::video_ext::is_dvd_vob_path(&path))
+        {
+            crate::dvd_vob_log::dvd_seek_log(format!(
+                "seek blocked: DVD global seek failed for t={seconds}s (no local fallback)"
+            ));
+            return;
+        }
         let _ = video_pref::unload_smooth_on_pause(&b.mpv);
         let _ = b.mpv.command("seek", &[seconds, "absolute+keyframes"]);
     }
