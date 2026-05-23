@@ -236,6 +236,35 @@ impl DvdVobTimeline {
             .collect()
     }
 
+    /// Seek-preview hover labels: same boundaries as [Self::chapter_mark_times] plus chapter 1 at `0.0`.
+    /// Empty when the title has only one chapter (no redundant “Chapter 1”).
+    pub fn chapter_preview_labels(&self) -> Vec<(f64, String)> {
+        let chapter_n = if !self.ptt_marks.is_empty() {
+            self.ptt_marks.len() + 1
+        } else {
+            self.vobs.len()
+        };
+        if chapter_n <= 1 {
+            return Vec::new();
+        }
+        let mut out = self.chapter_mark_times();
+        if out.is_empty() {
+            return out;
+        }
+        let first = if self.ptt_marks.is_empty() {
+            self.vobs
+                .first()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("Chapter 1")
+                .to_string()
+        } else {
+            "Chapter 1".to_string()
+        };
+        out.insert(0, (0.0, first));
+        out
+    }
+
     fn index_of(&self, path: &Path) -> Option<usize> {
         self.vobs
             .iter()

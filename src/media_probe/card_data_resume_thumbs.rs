@@ -140,12 +140,8 @@ fn path_tag(path: &str) -> u64 {
     h
 }
 
-/// Wanted thumb time for a **canonical** path (DB key is the canonical path string).
-fn thumb_time_for_path(key: &str) -> f64 {
-    let path = Path::new(key);
-    let durs = db::load_duration_map();
-    let tpos = db::load_time_pos_map();
-    let (resume, duration) = crate::playback_entity::card_resume_duration(path, &durs, &tpos);
+/// Wanted continue time for cache keys (whole-title seconds on DVD).
+fn grid_thumb_cache_time(resume: f64, duration: f64) -> f64 {
     let target = if resume > 0.0 {
         resume
     } else {
@@ -158,11 +154,46 @@ fn thumb_time_for_path(key: &str) -> f64 {
     }
 }
 
+struct GridThumbTarget {
+    load: PathBuf,
+    /// Seconds to seek inside [Self::load] for `vo=image`.
+    seek_sec: f64,
+    /// Whole-title seconds stored in `thumb_time_pos_sec` for cache freshness.
+    cache_time: f64,
+}
+
+/// Map entity resume to the chapter file + local seek used for continue-grid thumbs.
+fn grid_thumb_target(entity: &Path) -> Option<GridThumbTarget> {
+    if !entity.exists() {
+        return None;
+    }
+    let pe = crate::playback_entity::PlaybackEntity::resolve(entity);
+    let db_key = pe.db_path();
+    let durs = db::load_duration_map();
+    let tpos = db::load_time_pos_map();
+    let (resume, duration) = crate::playback_entity::card_resume_duration(&db_key, &durs, &tpos);
+    let cache_time = grid_thumb_cache_time(resume, duration);
+    let open_hint = crate::video_ext::resolve_open_media_path(entity);
+    let (load, seek_sec) = if let Some((target, local)) =
+        pe.resume_load_target(&open_hint, cache_time, &durs)
+    {
+        (target, local)
+    } else {
+        let load = std::fs::canonicalize(open_hint).ok()?;
+        (load, cache_time)
+    };
+    let load = std::fs::canonicalize(&load).ok()?;
+    Some(GridThumbTarget {
+        load,
+        seek_sec,
+        cache_time,
+    })
+}
+
 fn db_thumb_for_canon_path(can: &Path) -> Option<Vec<u8>> {
     let s = can.to_str()?;
-    let mtime = db::file_mtime_sec(can)?;
-    let t = thumb_time_for_path(s);
-    db::take_thumb_if_fresh(s, mtime, t)
+    let target = grid_thumb_target(can)?;
+    db_thumb_for_entity_key(s, &target.load, target.cache_time)
 }
 
 /// Current thumbnail for this path in [crate::db] when fresh; **no libmpv** (use on the UI thread).
@@ -170,26 +201,21 @@ pub fn cached_thumbnail_for_path(path: &Path) -> Option<Vec<u8>> {
     cached_thumbnail_for_display(path)
 }
 
-pub(crate) fn db_thumb_for_entity_key(db_key: &str, load_can: &Path) -> Option<Vec<u8>> {
-    let mtime = db::file_mtime_sec(load_can)?;
-    let t = thumb_time_for_path(db_key);
-    db::take_thumb_if_fresh(db_key, mtime, t)
+pub(crate) fn db_thumb_for_entity_key(
+    db_key: &str,
+    load: &Path,
+    cache_time: f64,
+) -> Option<Vec<u8>> {
+    let mtime = db::file_mtime_sec(load)?;
+    db::take_thumb_if_fresh(db_key, mtime, cache_time)
 }
 
-fn thumb_load_path(entity: &Path) -> Option<PathBuf> {
-    if !entity.exists() {
-        return None;
-    }
-    let load = crate::video_ext::resolve_open_media_path(entity);
-    std::fs::canonicalize(&load).ok()
-}
-
-/// Display fallback: entity-keyed thumb (mtime from the file mpv would load).
+/// Display fallback: entity-keyed thumb (mtime from the chapter file mpv loads).
 fn cached_thumbnail_for_display(path: &Path) -> Option<Vec<u8>> {
     let entity = crate::playback_entity::db_path_for(path);
     if let Some(k) = crate::db::history_key(&entity) {
-        if let Some(load) = thumb_load_path(&entity) {
-            if let Some(t) = db_thumb_for_entity_key(&k, &load) {
+        if let Some(target) = grid_thumb_target(&entity) {
+            if let Some(t) = db_thumb_for_entity_key(&k, &target.load, target.cache_time) {
                 return Some(t);
             }
         }

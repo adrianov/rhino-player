@@ -1,20 +1,15 @@
 /// PNG in [crate::db] `media.thumb_png`, rebuilt when the source file’s mtime changes.
 /// Calls [run_libmpv_image_frame] on a **cache miss**; keep that work off the UI thread (see [crate::recent_view::schedule_thumb_backfill]).
 pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
-    if !path.exists() {
-        return None;
-    }
     let entity = crate::playback_entity::db_path_for(path);
     let db_key = crate::db::history_key(&entity)?;
-    let load = crate::video_ext::resolve_open_media_path(&entity);
-    let can = std::fs::canonicalize(&load).ok()?;
-    if let Some(t) = db_thumb_for_entity_key(&db_key, &can) {
+    let target = grid_thumb_target(&entity)?;
+    if let Some(t) = db_thumb_for_entity_key(&db_key, &target.load, target.cache_time) {
         return Some(t);
     }
-    let mtime = db::file_mtime_sec(&can)?;
-    let t = thumb_time_for_path(&db_key);
-    let b = run_libmpv_image_frame(&can, path_tag(&db_key), t)?;
-    db::set_thumb(&db_key, &b, mtime, t);
+    let mtime = db::file_mtime_sec(&target.load)?;
+    let b = run_libmpv_image_frame(&target.load, path_tag(&db_key), target.seek_sec)?;
+    db::set_thumb(&db_key, &b, mtime, target.cache_time);
     Some(b)
 }
 

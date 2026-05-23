@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::fs;
 
     fn write_vob(dir: &std::path::Path, name: &str) {
@@ -105,6 +106,13 @@ mod tests {
             bar.tl.vobs.len() >= 2,
             "bar build should expand on-disk chapters"
         );
+        if !bar.tl.ptt_marks.is_empty() {
+            let labels = bar.chapter_preview_labels();
+            assert_eq!(
+                labels.first().map(|(_, s)| s.as_str()),
+                Some("Chapter 1")
+            );
+        }
     }
 
     #[test]
@@ -127,6 +135,21 @@ mod tests {
         assert!((local - 5.0).abs() < 1e-6);
         let (idx0, _) = tl.resolve_global(10.0);
         assert_eq!(idx0, 0);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn preview_labels_empty_for_single_chapter_vob() {
+        let base = std::env::temp_dir().join(format!("rhino-dvd-one-ch-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let vts = base.join("VIDEO_TS");
+        fs::create_dir_all(&vts).expect("mkdir");
+        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
+        write_vob(&vts, "VTS_02_1.VOB");
+        let p1 = vts.join("VTS_02_1.VOB");
+        let tl = DvdVobTimeline::from_chapter(&p1, &HashMap::new(), &p1, 100.0).expect("tl");
+        assert_eq!(tl.vobs.len(), 1);
+        assert!(tl.chapter_preview_labels().is_empty());
         let _ = fs::remove_dir_all(&base);
     }
 }

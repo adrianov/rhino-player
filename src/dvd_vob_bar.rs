@@ -22,8 +22,8 @@ impl DvdBarState {
     }
 
     #[must_use]
-    pub fn chapter_marks(&self) -> Vec<(f64, String)> {
-        self.tl.chapter_mark_times()
+    pub fn chapter_preview_labels(&self) -> Vec<(f64, String)> {
+        self.tl.chapter_preview_labels()
     }
 
     #[must_use]
