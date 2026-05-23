@@ -38,6 +38,7 @@ struct WindowWidgets {
     sub_tracks_section: gtk::Box,
     sub_scale_adj: gtk::Adjustment,
     sub_color_btn: gtk::ColorDialogButton,
+    sub_color_row: gtk::Box,
     vol_pop: gtk::Popover,
     sub_pop: gtk::Popover,
     #[cfg(target_os = "macos")]
@@ -81,7 +82,7 @@ fn build_widgets(
         vol_adj, vol_header_img, vol_readout, vol_mute_btn, audio_tracks_block, audio_tracks_box,
         audio_tracks_section, vol_pop, vol_menu,
         sub_tracks_block, sub_tracks_box, sub_tracks_section,
-        sub_scale_adj, sub_color_btn, sub_pop, sub_menu,
+        sub_scale_adj, sub_color_btn, sub_color_row, sub_pop, sub_menu,
         sub_readout,
     } = build_header_popovers(sub_pref);
 
@@ -162,7 +163,7 @@ fn build_widgets(
         vol_adj, vol_mute_btn,
         audio_tracks_box, audio_tracks_block, audio_tracks_section,
         sub_tracks_box, sub_tracks_block, sub_tracks_section,
-        sub_scale_adj, sub_color_btn,
+        sub_scale_adj, sub_color_btn, sub_color_row,
         vol_pop, sub_pop,
         #[cfg(target_os = "macos")]
         main_menu: menubar_model,

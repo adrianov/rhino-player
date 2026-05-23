@@ -1,3 +1,14 @@
+fn vol_pop_show_tracks_impl(
+    p: &Rc<RefCell<Option<MpvBundle>>>,
+    bx: &gtk::Box,
+    blk: &Rc<Cell<bool>>,
+    gla: &gtk::GLArea,
+    sec: &gtk::Box,
+) {
+    let show = audio_tracks::rebuild_popover(p, bx, blk, gla);
+    sec.set_visible(show);
+}
+
 fn vol_pop_show_tracks(
     p: &Rc<RefCell<Option<MpvBundle>>>,
     bx: &gtk::Box,
@@ -5,11 +16,55 @@ fn vol_pop_show_tracks(
     gla: &gtk::GLArea,
     sec: &gtk::Box,
 ) {
-    let (p, bx, blk, gla, sec) = (p.clone(), bx.clone(), blk.clone(), gla.clone(), sec.clone());
-    let _ = glib::idle_add_local_once(move || {
-        let show = audio_tracks::rebuild_popover(&p, &bx, &blk, &gla);
-        sec.set_visible(show);
-    });
+    vol_pop_show_tracks_impl(p, bx, blk, gla, sec);
+}
+
+fn sub_pop_show_tracks_impl(
+    p: &Rc<RefCell<Option<MpvBundle>>>,
+    bx: &gtk::Box,
+    blk: &Rc<Cell<bool>>,
+    gla: &gtk::GLArea,
+    sec: &gtk::Box,
+    on_pick: Option<Rc<dyn Fn(&str)>>,
+    on_sub_off: Option<Rc<dyn Fn()>>,
+    header_readout: Option<gtk::Label>,
+    text_color_row: Option<gtk::Box>,
+) {
+    let show = sub_tracks::rebuild_popover(
+        p,
+        bx,
+        blk,
+        gla,
+        on_pick,
+        on_sub_off,
+        header_readout,
+        text_color_row,
+    );
+    sec.set_visible(show);
+}
+
+fn sub_pop_show_tracks(
+    p: &Rc<RefCell<Option<MpvBundle>>>,
+    bx: &gtk::Box,
+    blk: &Rc<Cell<bool>>,
+    gla: &gtk::GLArea,
+    sec: &gtk::Box,
+    on_pick: Option<Rc<dyn Fn(&str)>>,
+    on_sub_off: Option<Rc<dyn Fn()>>,
+    header_readout: Option<gtk::Label>,
+    text_color_row: Option<gtk::Box>,
+) {
+    sub_pop_show_tracks_impl(
+        p,
+        bx,
+        blk,
+        gla,
+        sec,
+        on_pick,
+        on_sub_off,
+        header_readout,
+        text_color_row,
+    );
 }
 
 fn wire_popover_shows(
@@ -24,8 +79,13 @@ fn wire_popover_shows(
         w.gl_area.clone(),
         w.audio_tracks_section.clone(),
     );
-    w.vol_pop.connect_show(move |_| {
-        vol_pop_show_tracks(&p, &bx, &blk, &gla, &sec);
+    let audio_open = {
+        let (p, bx, blk, gla, sec) = (p.clone(), bx.clone(), blk.clone(), gla.clone(), sec.clone());
+        Rc::new(move || vol_pop_show_tracks(&p, &bx, &blk, &gla, &sec))
+    };
+    w.vol_pop.connect_show({
+        let audio_open = Rc::clone(&audio_open);
+        move |_| audio_open()
     });
 
     let sp_pick = sub_pref.clone();
@@ -48,30 +108,40 @@ fn wire_popover_shows(
         w.sub_tracks_section.clone(),
     );
     let sub_rd = w.sub_readout.clone();
+    let sub_color_row = w.sub_color_row.clone();
     let sub_pick = Rc::clone(&on_sub_pick);
     let sub_off = Rc::clone(&on_sub_off);
-    w.sub_pop.connect_show(move |_| {
-        let (p2, bx2, blk2, gla2, sec2) = (
-            p2.clone(),
-            bx2.clone(),
-            blk2.clone(),
-            gla2.clone(),
-            sec2.clone(),
-        );
-        let sub_pick = sub_pick.clone();
-        let sub_off = sub_off.clone();
+    let sub_open = {
+        let p2 = p2.clone();
+        let bx2 = bx2.clone();
+        let blk2 = Rc::clone(&blk2);
+        let gla2 = gla2.clone();
+        let sec2 = sec2.clone();
+        let sub_pick = Rc::clone(&sub_pick);
+        let sub_off = Rc::clone(&sub_off);
         let sub_rd = sub_rd.clone();
-        let _ = glib::idle_add_local_once(move || {
-            let show = sub_tracks::rebuild_popover(
+        let sub_color_row = sub_color_row.clone();
+        Rc::new(move || {
+            sub_pop_show_tracks(
                 &p2,
                 &bx2,
                 &blk2,
                 &gla2,
-                Some(sub_pick),
-                Some(sub_off),
-                Some(sub_rd),
+                &sec2,
+                Some(Rc::clone(&sub_pick)),
+                Some(Rc::clone(&sub_off)),
+                Some(sub_rd.clone()),
+                Some(sub_color_row.clone()),
             );
-            sec2.set_visible(show);
-        });
+        })
+    };
+    w.sub_pop.connect_show({
+        let sub_open = Rc::clone(&sub_open);
+        move |_| sub_open()
+    });
+
+    crate::header_menu_tracks::register_refresh(crate::header_menu_tracks::HeaderMenuTrackHooks {
+        audio: audio_open,
+        sub: sub_open,
     });
 }

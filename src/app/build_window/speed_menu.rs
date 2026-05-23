@@ -33,9 +33,10 @@ fn build_speed_menu(
         .vscrollbar_policy(gtk::PolicyType::Automatic)
         .propagate_natural_width(true)
         .propagate_natural_height(true)
-        .max_content_height(320)
+        .max_content_height(crate::header_menu_scroll::SPEED_MAX_H)
         .child(&speed_list)
         .build();
+    speed_scrl.add_css_class(crate::header_menu_scroll::SCROLL_CLASS_SPEED);
     let speed_col = gtk::Box::new(gtk::Orientation::Vertical, 6);
     speed_col.add_css_class("rp-popover-box");
     speed_col.append(&speed_scrl);

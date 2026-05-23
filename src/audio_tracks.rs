@@ -1,60 +1,33 @@
 //! Audio stream list and `aid` for the sound popover. See `docs/features/08-tracks.md`.
 
 use crate::mpv_embed::MpvBundle;
+use crate::playback_entity::{
+    audio_ifo_slot_for_aid, audio_menu_rows, entity_from_mpv, resolve_audio_mpv_id, AudioMenuRow,
+};
 use crate::track_label_match::{match_score, LabelMatchScore};
-use crate::{db, media_probe};
+use crate::{db, media_probe, playback_entity};
 use libmpv2::Mpv;
-use serde::Deserialize;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk::prelude::*;
 
-#[derive(Deserialize)]
-struct Node {
-    id: i64,
-    #[serde(rename = "type")]
-    kind: String,
-    #[serde(default)]
-    lang: Option<String>,
-    #[serde(default)]
-    title: Option<String>,
-}
-
 struct Row {
     id: i64,
     text: String,
+    ifo_slot: Option<u8>,
 }
 
-fn line_label(id: i64, title: Option<String>, lang: Option<String>) -> String {
-    let t = title.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let l = lang.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    if let (Some(a), Some(b)) = (t, l) {
-        return format!("{a} – {b}");
+fn row_from_menu(r: &AudioMenuRow) -> Row {
+    Row {
+        id: r.mpv_id,
+        text: r.label.clone(),
+        ifo_slot: r.ifo_slot,
     }
-    if let Some(s) = t.or(l) {
-        return s.to_string();
-    }
-    format!("Track {id}")
 }
 
 fn audio_rows(mpv: &Mpv) -> Vec<Row> {
-    let json = match mpv.get_property::<String>("track-list") {
-        Ok(s) => s,
-        Err(_) => return vec![],
-    };
-    let nodes: Vec<Node> = serde_json::from_str(&json).unwrap_or_default();
-    let mut v = vec![];
-    for n in nodes {
-        if n.kind != "audio" {
-            continue;
-        }
-        v.push(Row {
-            id: n.id,
-            text: line_label(n.id, n.title, n.lang),
-        });
-    }
-    v
+    audio_menu_rows(mpv).iter().map(row_from_menu).collect()
 }
 
 fn current_aid(mpv: &Mpv) -> Option<i64> {
@@ -81,7 +54,7 @@ fn set_aid(mpv: &Mpv, id: i64) {
 fn save_choice(mpv: &Mpv, id: i64, text: &str) {
     db::save_audio_track_name(text);
     if let Some(path) = media_probe::local_file_from_mpv(mpv) {
-        db::set_audio_aid(&path, id);
+        db::set_audio_aid(&playback_entity::db_path_for(&path), id);
     }
 }
 
@@ -109,6 +82,19 @@ fn closest_label<'a>(rows: &'a [Row], want: &str) -> Option<&'a Row> {
     picked
 }
 
+fn resolve_id(mpv: &Mpv, row: &Row) -> Option<i64> {
+    let (entity, _) = entity_from_mpv(mpv)?;
+    resolve_audio_mpv_id(
+        mpv,
+        &entity,
+        &AudioMenuRow {
+            mpv_id: row.id,
+            label: row.text.clone(),
+            ifo_slot: row.ifo_slot,
+        },
+    )
+}
+
 /// Restore per-file track first, otherwise use the closest saved audio-track label.
 pub fn restore_saved_audio(mpv: &Mpv) {
     let rows = audio_rows(mpv);
@@ -118,7 +104,9 @@ pub fn restore_saved_audio(mpv: &Mpv) {
     let Some(path) = media_probe::local_file_from_mpv(mpv) else {
         return;
     };
-    if let Some(saved) = db::load_audio_aid(&path) {
+    let entity = playback_entity::PlaybackEntity::resolve(&path);
+    let db_key = entity.db_path();
+    if let Some(saved) = db::load_audio_aid(&db_key) {
         if current_aid(mpv) == Some(saved) {
             return;
         }
@@ -126,13 +114,26 @@ pub fn restore_saved_audio(mpv: &Mpv) {
             set_aid(mpv, saved);
             return;
         }
+        if let Some(slot) = audio_ifo_slot_for_aid(mpv, &entity, saved) {
+            let menu = AudioMenuRow {
+                mpv_id: -1,
+                label: String::new(),
+                ifo_slot: Some(slot),
+            };
+            if let Some(aid) = resolve_audio_mpv_id(mpv, &entity, &menu) {
+                set_aid(mpv, aid);
+                return;
+            }
+        }
     }
     if rows.len() < 2 {
         return;
     }
     if let Some(row) = db::load_audio_track_name().and_then(|s| closest_label(&rows, &s)) {
-        if current_aid(mpv) != Some(row.id) {
-            set_aid(mpv, row.id);
+        if let Some(aid) = resolve_id(mpv, row) {
+            if current_aid(mpv) != Some(aid) {
+                set_aid(mpv, aid);
+            }
         }
     }
 }
@@ -150,16 +151,19 @@ pub fn ensure_playable_audio(mpv: &Mpv) {
         return;
     }
     if rows.len() == 1 {
-        let want = rows[0].id;
-        if current_aid(mpv) == Some(want) {
-            return;
+        if let Some(want) = resolve_id(mpv, &rows[0]) {
+            if current_aid(mpv) == Some(want) {
+                return;
+            }
+            set_aid(mpv, want);
         }
-        set_aid(mpv, want);
         return;
     }
     if let Ok(s) = mpv.get_property::<String>("aid") {
         if s == "no" {
-            set_aid(mpv, rows[0].id);
+            if let Some(aid) = resolve_id(mpv, &rows[0]) {
+                set_aid(mpv, aid);
+            }
         }
     }
 }
@@ -184,12 +188,15 @@ pub fn rebuild_popover(
         return false;
     }
     let want = current_aid(mpv);
+    let want_slot = entity_from_mpv(mpv).and_then(|(entity, _)| {
+        want.and_then(|a| audio_ifo_slot_for_aid(mpv, &entity, a))
+    });
     block.set(true);
     let p = Rc::clone(player);
     let blk = Rc::clone(block);
     let gl2 = gl.clone();
     let mut first: Option<gtk::CheckButton> = None;
-    let mut buttons: Vec<(i64, gtk::CheckButton)> = vec![];
+    let mut buttons: Vec<(i64, Option<u8>, gtk::CheckButton)> = vec![];
 
     for r in &rows {
         let btn = gtk::CheckButton::with_label(&r.text);
@@ -199,6 +206,7 @@ pub fn rebuild_popover(
             first = Some(btn.clone());
         }
         let id = r.id;
+        let ifo_slot = r.ifo_slot;
         let text = r.text.clone();
         let p2 = Rc::clone(&p);
         let blk2 = Rc::clone(&blk);
@@ -208,18 +216,25 @@ pub fn rebuild_popover(
                 return;
             }
             if let Some(pl) = p2.borrow().as_ref() {
-                set_aid(&pl.mpv, id);
-                save_choice(&pl.mpv, id, &text);
+                let row = Row {
+                    id,
+                    text: text.clone(),
+                    ifo_slot,
+                };
+                if let Some(aid) = resolve_id(&pl.mpv, &row) {
+                    set_aid(&pl.mpv, aid);
+                    save_choice(&pl.mpv, aid, &text);
+                }
             }
             gl3.queue_render();
         });
-        buttons.push((id, btn));
+        buttons.push((id, ifo_slot, btn));
     }
-    for (_, btn) in &buttons {
+    for (_, _, btn) in &buttons {
         bx.append(btn);
     }
-    for (id, btn) in &buttons {
-        let active = want == Some(*id);
+    for (id, ifo_slot, btn) in &buttons {
+        let active = want == Some(*id) && *id > 0 || want_slot == *ifo_slot;
         btn.set_active(active);
     }
     block.set(false);

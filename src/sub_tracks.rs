@@ -21,15 +21,64 @@ struct Node {
     #[serde(rename = "type")]
     kind: String,
     #[serde(default)]
-    lang: Option<String>,
-    #[serde(default)]
-    title: Option<String>,
+    codec: Option<String>,
 }
 
 struct Row {
     id: i64,
     text: String,
     lang: String,
+    ifo_slot: Option<u8>,
+}
+
+/// True for image-based subs where mpv ignores `sub-color` (VOBSUB, PGS, DVB, …).
+pub fn is_bitmap_sub_codec(codec: &str) -> bool {
+    let c = codec.trim();
+    c.eq_ignore_ascii_case("dvd_sub")
+        || c.eq_ignore_ascii_case("dvb_sub")
+        || c.eq_ignore_ascii_case("dvbsub")
+        || c.eq_ignore_ascii_case("dvb_teletext")
+        || c.eq_ignore_ascii_case("teletext")
+        || c.eq_ignore_ascii_case("pgs")
+        || c.eq_ignore_ascii_case("pgssub")
+        || c.eq_ignore_ascii_case("hdmv_pgs_subtitle")
+        || c.eq_ignore_ascii_case("xsub")
+}
+
+/// Whether the subtitle popover should offer the text-colour control for the current file/selection.
+pub fn text_color_applies(mpv: &Mpv) -> bool {
+    let subs = sub_stream_codecs(mpv);
+    if subs.is_empty() {
+        return false;
+    }
+    if let Some(id) = current_sid(mpv) {
+        return subs
+            .iter()
+            .find(|(tid, _)| *tid == id)
+            .is_some_and(|(_, codec)| !is_bitmap_sub_codec(codec));
+    }
+    subs.iter()
+        .any(|(_, codec)| !is_bitmap_sub_codec(codec))
+}
+
+pub fn sync_text_color_row(mpv: &Mpv, row: &impl IsA<gtk::Widget>) {
+    row.set_visible(text_color_applies(mpv));
+}
+
+fn sub_stream_codecs(mpv: &Mpv) -> Vec<(i64, String)> {
+    let json = match mpv.get_property::<String>("track-list") {
+        Ok(s) => s,
+        Err(_) => return vec![],
+    };
+    let nodes: Vec<Node> = serde_json::from_str(&json).unwrap_or_default();
+    nodes
+        .into_iter()
+        .filter(|n| n.kind == "sub")
+        .map(|n| {
+            let codec = n.codec.unwrap_or_default();
+            (n.id, codec)
+        })
+        .collect()
 }
 
 fn track_header_token(r: &Row) -> String {
@@ -44,8 +93,8 @@ fn track_header_token(r: &Row) -> String {
     abbrev_track_lang(Some(head))
 }
 
-fn compact_header_label_row(sid: i64, rows: &[Row]) -> String {
-    let Some(row) = rows.iter().find(|r| r.id == sid) else {
+fn compact_header_label_row(sid: i64, rows: &[Row], mpv: &Mpv) -> String {
+    let Some(row) = row_for_sid(sid, rows, mpv) else {
         return "…".to_string();
     };
     let t = track_header_token(row);
@@ -54,6 +103,15 @@ fn compact_header_label_row(sid: i64, rows: &[Row]) -> String {
     } else {
         t
     }
+}
+
+fn row_for_sid<'a>(sid: i64, rows: &'a [Row], mpv: &Mpv) -> Option<&'a Row> {
+    rows.iter()
+        .find(|r| r.id == sid)
+        .or_else(|| {
+            let slot = ifo_slot_for_sid(mpv, sid)?;
+            rows.iter().find(|r| r.ifo_slot == Some(slot))
+        })
 }
 
 /// Updates the subtitles header caption from the current subtitle track (`Off` when hidden).
@@ -68,69 +126,34 @@ fn sub_header_compact(mpv: &Mpv) -> String {
     if !sub_visibility(mpv) {
         return "Off".to_string();
     }
-    let sid = match current_sid(mpv) {
-        Some(id) => id,
-        None => return "Auto".to_string(),
-    };
     let rows = sub_rows(mpv);
-    compact_header_label_row(sid, &rows)
-}
-
-fn line_label(id: i64, title: Option<String>, lang: Option<String>) -> String {
-    let t = title.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let l = lang.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    if let (Some(a), Some(b)) = (t, l) {
-        return format!("{a} – {b}");
+    if let Some(sid) = current_sid(mpv) {
+        return compact_header_label_row(sid, &rows, mpv);
     }
-    if let Some(s) = t.or(l) {
-        return s.to_string();
-    }
-    format!("Track {id}")
-}
-
-fn sub_rows(mpv: &Mpv) -> Vec<Row> {
-    let json = match mpv.get_property::<String>("track-list") {
-        Ok(s) => s,
-        Err(_) => return vec![],
-    };
-    let nodes: Vec<Node> = serde_json::from_str(&json).unwrap_or_default();
-    let mut v = vec![];
-    for n in nodes {
-        if n.kind != "sub" {
-            continue;
+    let prefs = crate::db::load_sub();
+    let saved = prefs.last_sub_label.trim();
+    if !saved.is_empty() {
+        for r in &rows {
+            if r.text.eq_ignore_ascii_case(saved)
+                || r.lang.eq_ignore_ascii_case(saved)
+                || r.text.contains(saved)
+            {
+                return track_header_token(r);
+            }
         }
-        let lang = n
-            .lang
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or("")
-            .to_string();
-        v.push(Row {
-            id: n.id,
-            text: line_label(n.id, n.title, n.lang),
-            lang,
-        });
+        let a = abbrev_track_lang(Some(saved));
+        if !a.is_empty() {
+            return a;
+        }
     }
-    v
+    "Auto".to_string()
 }
 
-/// `track-list` has at least one `type: sub` entry.
+include!("sub_tracks_dvd.rs");
+
+/// `track-list` has at least one `type: sub` entry (or title-set IFO subs on DVD).
 pub fn has_subtitle_tracks(mpv: &Mpv) -> bool {
-    !sub_rows(mpv).is_empty() || has_subtitle_track_props(mpv)
-}
-
-fn has_subtitle_track_props(mpv: &Mpv) -> bool {
-    let Ok(count) = mpv.get_property::<i64>("track-list/count") else {
-        return false;
-    };
-    for i in 0..count.max(0) {
-        let key = format!("track-list/{i}/type");
-        if mpv.get_property::<String>(&key).is_ok_and(|s| s == "sub") {
-            return true;
-        }
-    }
-    false
+    crate::playback_entity::entity_has_subtitles(mpv)
 }
 
 /// Seeding text for fuzzy match: last hand-picked track label, else a short [LANG] hint.
@@ -180,8 +203,13 @@ pub fn autopick_sub_track(mpv: &Mpv, prefs: &SubPrefs) {
         return;
     }
     if let Some(id) = best_id {
+        let sid = rows
+            .iter()
+            .find(|r| r.id == id)
+            .and_then(|row| resolve_sub_id(mpv, id, row.ifo_slot))
+            .unwrap_or(id);
         let _ = mpv.set_property("sub-visibility", true);
-        let _ = mpv.set_property("sid", id);
+        let _ = mpv.set_property("sid", sid);
     }
 }
 
@@ -214,8 +242,22 @@ fn set_sub_off(mpv: &Mpv) {
 fn set_sub_id(mpv: &Mpv, id: i64) {
     let _ = mpv.set_property("sub-visibility", true);
     if mpv.set_property("sid", id).is_err() {
-        eprintln!("[rhino] set sid {id}");
+        let _ = mpv.set_property("sid", id.to_string());
     }
 }
 
 include!("sub_tracks_rebuild.rs");
+
+#[cfg(test)]
+mod tests {
+    use super::is_bitmap_sub_codec;
+
+    #[test]
+    fn bitmap_sub_codecs() {
+        assert!(is_bitmap_sub_codec("dvd_sub"));
+        assert!(is_bitmap_sub_codec("PGS"));
+        assert!(is_bitmap_sub_codec("hdmv_pgs_subtitle"));
+        assert!(!is_bitmap_sub_codec("ass"));
+        assert!(!is_bitmap_sub_codec("subrip"));
+    }
+}

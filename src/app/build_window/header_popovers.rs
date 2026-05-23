@@ -14,6 +14,7 @@ struct HeaderPopovers {
     sub_tracks_section: gtk::Box,
     sub_scale_adj: gtk::Adjustment,
     sub_color_btn: gtk::ColorDialogButton,
+    sub_color_row: gtk::Box,
     sub_pop: gtk::Popover,
     sub_menu: gtk::MenuButton,
     sub_readout: gtk::Label,
@@ -50,10 +51,11 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
         .vscrollbar_policy(gtk::PolicyType::Automatic)
         .propagate_natural_width(true)
         .propagate_natural_height(true)
-        .min_content_width(400)
-        .max_content_height(480)
+        .min_content_width(crate::header_menu_scroll::AUDIO_MIN_W)
+        .max_content_height(crate::header_menu_scroll::AUDIO_MAX_H)
         .child(&audio_tracks_box)
         .build();
+    audio_tracks_scrl.add_css_class(crate::header_menu_scroll::SCROLL_CLASS_AUDIO);
     #[cfg(target_os = "macos")]
     audio_tracks_scrl.set_min_content_width(280);
     let audio_tracks_section = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -107,10 +109,11 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
         .vscrollbar_policy(gtk::PolicyType::Automatic)
         .propagate_natural_width(true)
         .propagate_natural_height(true)
-        .min_content_width(360)
-        .max_content_height(280)
+        .min_content_width(crate::header_menu_scroll::SUB_MIN_W)
+        .max_content_height(crate::header_menu_scroll::SUB_MAX_H)
         .child(&sub_tracks_box)
         .build();
+    sub_tracks_scrl.add_css_class(crate::header_menu_scroll::SCROLL_CLASS_SUB);
     #[cfg(target_os = "macos")]
     sub_tracks_scrl.set_min_content_width(280);
     let sub_tracks_section = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -138,8 +141,10 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
     let sub_color_label = gtk::Label::new(Some("Text Color"));
     sub_color_label.set_xalign(0.0);
     sub_color_label.add_css_class("caption");
-    sub_opts.append(&sub_color_label);
-    sub_opts.append(&sub_color_btn);
+    let sub_color_row = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    sub_color_row.append(&sub_color_label);
+    sub_color_row.append(&sub_color_btn);
+    sub_opts.append(&sub_color_row);
 
     let sub_col = gtk::Box::new(gtk::Orientation::Vertical, 10);
     sub_col.add_css_class("rp-popover-box");
@@ -198,6 +203,7 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
         sub_tracks_section,
         sub_scale_adj,
         sub_color_btn,
+        sub_color_row,
         sub_pop,
         sub_menu,
         sub_readout,

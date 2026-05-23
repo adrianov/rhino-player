@@ -27,8 +27,10 @@ pub fn rgba_to_u32(r: &RGBA) -> u32 {
 /// by libmpv and fall back to white.
 pub fn apply_mpv(mpv: &Mpv, p: &SubPrefs) {
     let _ = mpv.set_property("sub-ass-override", "force");
-    let c = format!("#{:06X}", p.color & 0xFFFFFF);
-    let _ = mpv.set_property("sub-color", c);
+    if crate::sub_tracks::text_color_applies(mpv) {
+        let c = format!("#{:06X}", p.color & 0xFFFFFF);
+        let _ = mpv.set_property("sub-color", c);
+    }
     let b = format!("#{:06X}", p.border_color & 0xFFFFFF);
     let _ = mpv.set_property("sub-border-color", b);
     let _ = mpv.set_property("sub-border-size", p.border_size);
