@@ -16,7 +16,7 @@ thread_local! {
     static OPEN_PICK: RefCell<Option<Box<dyn FnOnce(Option<PathBuf>)>>> = const { RefCell::new(None) };
 }
 
-fn panel_allowed_file_types(mtm: MainThreadMarker) -> objc2::rc::Retained<NSArray<NSString>> {
+fn panel_allowed_file_types() -> objc2::rc::Retained<NSArray<NSString>> {
     let mut types: Vec<objc2::rc::Retained<NSString>> = Vec::new();
     for uti in [
         "public.movie",
@@ -32,7 +32,6 @@ fn panel_allowed_file_types(mtm: MainThreadMarker) -> objc2::rc::Retained<NSArra
     for ext in ["bdmv", "bdm"] {
         types.push(NSString::from_str(ext));
     }
-    let _ = mtm;
     NSArray::from_retained_slice(&types)
 }
 
@@ -71,7 +70,7 @@ fn present_open_video_sheet_ns(ns_win: objc2::rc::Retained<NSWindow>) {
     panel.setCanChooseDirectories(true);
     panel.setAllowsMultipleSelection(false);
     panel.setTreatsFilePackagesAsDirectories(false);
-    panel.setAllowedFileTypes(Some(&panel_allowed_file_types(mtm)));
+    panel.setAllowedFileTypes(Some(&panel_allowed_file_types()));
 
     let panel_ret = panel.clone();
     let handler = RcBlock::new(move |response| {
