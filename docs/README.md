@@ -66,4 +66,5 @@ Some UX targets were attempted in code but did not validate in manual testing on
 ## Technical references (upstream APIs)
 
 - [GTK4 / GDK4: toplevel size, `compute-size`, and aspect-related notes](references-gtk4-toplevel-aspect.md)
+- [GTK4 header menus on macOS (theater Overlay reparent; windowed Popover)](references-gtk4-macos-header-menus.md)
 - [MVTools `Super` pyramid **`levels`**: smoothness vs cost](references-mvtools-super-levels.md)
