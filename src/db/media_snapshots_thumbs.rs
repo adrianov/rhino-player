@@ -136,9 +136,11 @@ pub fn take_thumb_if_fresh(
 }
 
 fn load_path_matches(want: Option<&str>, stored: Option<&str>) -> bool {
+    use std::path::Path;
     match (want, stored) {
         (None, None) => true,
-        (Some(w), Some(s)) => w == s,
+        (Some(w), Some(s)) if w == s => true,
+        (Some(w), Some(s)) => crate::video_ext::paths_same_file(Path::new(w), Path::new(s)),
         (Some(_), None) => false,
         (None, Some(_)) => false,
     }

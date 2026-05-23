@@ -145,15 +145,30 @@ fn dvd_video_ts_dir_inner(disc: &Path) -> Option<PathBuf> {
     find_video_ts_child(disc).filter(|vts| video_ts_has_ifo(vts))
 }
 
-/// Same local media path (canonical when possible; no DVD “same disc” merge).
+/// Same local media path (canonical when possible; case-insensitive fallback for exFAT / `Video_ts`).
 pub(crate) fn paths_same_file(a: &Path, b: &Path) -> bool {
     if a == b {
         return true;
     }
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
-        (Ok(x), Ok(y)) => x == y,
-        _ => false,
+    if let (Ok(x), Ok(y)) = (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        if x == y {
+            return true;
+        }
     }
+    path_components_eq_ignore_ascii(a, b)
+}
+
+fn path_components_eq_ignore_ascii(a: &Path, b: &Path) -> bool {
+    use std::path::Component;
+    let ac: Vec<_> = a.components().collect();
+    let bc: Vec<_> = b.components().collect();
+    if ac.len() != bc.len() {
+        return false;
+    }
+    ac.iter().zip(bc.iter()).all(|(ca, cb)| match (ca, cb) {
+        (Component::Normal(x), Component::Normal(y)) => x.eq_ignore_ascii_case(y),
+        _ => ca == cb,
+    })
 }
 
 /// Main-feature first chapter for entity / timeline probe (no resume redirect).
@@ -377,6 +392,15 @@ mod tests {
         assert_eq!(resolve_open_media_path(&disc), vts.join("VTS_02_1.VOB"));
         assert_eq!(resolve_open_media_path(&ch2), ch2);
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn paths_same_file_ignores_video_ts_casing_without_canonicalize() {
+        let a = Path::new("/Volumes/Disc/DVD/Video_ts/VTS_02_1.VOB");
+        let b = Path::new("/Volumes/Disc/DVD/VIDEO_TS/VTS_02_1.VOB");
+        assert!(paths_same_file(a, b));
+        let c = Path::new("/Volumes/Disc/DVD/VIDEO_TS/VTS_02_2.VOB");
+        assert!(!paths_same_file(a, c));
     }
 
     #[test]
