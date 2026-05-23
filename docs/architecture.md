@@ -43,6 +43,7 @@ Feature scenarios use the **left** column. The **right** column is the current c
 | chapter list / current chapter | mpv `chapter-list`, `chapter` |
 | watch-later / resume sidecar | mpv `save-position-on-quit` + `watch-later-dir` |
 | the persistent store | SQLite `rhino.sqlite` (history / media / settings tables) |
+| playback entity | `PlaybackEntity` in `playback_entity.rs` — one logical title (single file or DVD chapter set) for history / resume |
 | user config directory | platform user-config root + `rhino/` subdirectory |
 | the platform's trash | OS-native trash facility |
 
