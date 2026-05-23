@@ -1,6 +1,5 @@
 /// Builds the playback-speed popover; icon + rate caption share one [`gtk::MenuButton`] hit target
 /// (horizontal row keeps header / fullscreen toolbar row height unchanged).
-/// Returns the list box (needed for file-loaded sync) + sync flag.
 struct SpeedMenuResult {
     speed_readout: gtk::Label,
     speed_mbtn: gtk::MenuButton,
@@ -15,7 +14,8 @@ fn build_speed_menu(
     app: &adw::Application,
 ) -> SpeedMenuResult {
     let speed_list = gtk::ListBox::new();
-    speed_list.set_activate_on_single_click(true);
+    // Selection changes on single click; activation is unused (row-selected applies speed).
+    speed_list.set_activate_on_single_click(false);
     speed_list.add_css_class("rich-list");
     for s in &playback_speed::SPEEDS {
         let row = gtk::ListBoxRow::new();
@@ -28,13 +28,26 @@ fn build_speed_menu(
         row.set_child(Some(&lab));
         speed_list.append(&row);
     }
+    let speed_scrl = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .propagate_natural_width(true)
+        .propagate_natural_height(true)
+        .max_content_height(320)
+        .child(&speed_list)
+        .build();
     let speed_col = gtk::Box::new(gtk::Orientation::Vertical, 6);
     speed_col.add_css_class("rp-popover-box");
-    speed_col.append(&speed_list);
+    speed_col.append(&speed_scrl);
     let speed_pop = gtk::Popover::new();
     speed_pop.add_css_class("rp-header-popover");
     speed_pop.set_child(Some(&speed_col));
     header_popover_non_modal(&speed_pop);
+    #[cfg(target_os = "macos")]
+    {
+        speed_pop.set_has_arrow(false);
+        crate::macos_header_menu::wire_popover(&speed_pop);
+    }
     let speed_mbtn = gtk::MenuButton::new();
     speed_mbtn.set_popover(Some(&speed_pop));
     speed_mbtn.set_tooltip_text(Some("Playback speed"));
@@ -61,40 +74,77 @@ fn build_speed_menu(
     speed_mbtn.set_child(Some(&speed_face));
 
     let speed_sync = Rc::new(Cell::new(false));
+    #[cfg(not(target_os = "macos"))]
+    let open_pick = Rc::new(Cell::new(false));
+    #[cfg(target_os = "macos")]
+    let open_pick = {
+        crate::macos_header_menu::wire_menu_btn_open_guard(&speed_mbtn);
+        let pick = crate::macos_header_menu::arm_menu_list_pick_guard(&speed_pop, &speed_list);
+        crate::macos_header_menu::register_list_pick(pick.clone());
+        pick
+    };
+    #[cfg(target_os = "macos")]
+    crate::macos_header_menu_debug::wire_header_menu_trace("speed", &speed_mbtn, &speed_pop);
     {
         let p = player.clone();
         let glr = gl.clone();
         let sy = speed_sync.clone();
+        #[cfg(not(target_os = "macos"))]
         let smb = speed_mbtn.clone();
         let spd_lbl = speed_readout.clone();
         let vp = Rc::clone(video_pref);
         let ap = app.clone();
-        speed_list.connect_row_activated(move |list2, row| {
-            if sy.get() {
+        let pick = open_pick.clone();
+        speed_list.connect_row_selected(move |list2, row| {
+            if sy.get() || pick.get() || !list2.is_sensitive() {
+                #[cfg(target_os = "macos")]
+                crate::macos_header_menu_debug::log_event(
+                    "speed",
+                    "row_selected_skip",
+                    &format!(
+                        "sync={} pick={} sensitive={}",
+                        sy.get(),
+                        pick.get(),
+                        list2.is_sensitive()
+                    ),
+                );
                 return;
             }
+            let Some(row) = row else { return };
             let i: u32 = (0i32..playback_speed::SPEEDS.len() as i32)
                 .find(|&ix| list2.row_at_index(ix).is_some_and(|r| r == *row))
                 .unwrap_or(0) as u32;
             let v = playback_speed::value_at(i);
+            #[cfg(target_os = "macos")]
+            crate::macos_header_menu_debug::log_event(
+                "speed",
+                "row_selected_apply",
+                &format!("rate={v}"),
+            );
             if let Some(b) = p.borrow().as_ref() {
                 let _ = b.mpv.set_property("speed", v);
                 playback_speed::stamp_speed_readout(&spd_lbl, v);
                 glr.queue_render();
             }
-            // Defer vf rebuild: libmpv can still report the old speed on the same GTK tick as
-            // set_property; mvtools_vf_eligible + add_smooth_60 must see 1.0× when returning.
             let bref = p.clone();
             let vp2 = Rc::clone(&vp);
             let ap2 = ap.clone();
             let _ = glib::idle_add_local_once(move || {
-                let Some(ref pl) = *bref.borrow() else { return };
+                let Some(ref pl) = *bref.borrow() else {
+                    return;
+                };
                 let r = video_pref::refresh_smooth_for_playback_speed(pl, &mut vp2.borrow_mut(), Some(v));
                 if r.smooth_auto_off {
                     sync_smooth_60_to_off(&ap2);
                 }
             });
-            smb.set_active(false);
+            #[cfg(not(target_os = "macos"))]
+            {
+                if let Some(pop) = smb.popover() {
+                    pop.popdown();
+                }
+                smb.set_active(false);
+            }
         });
     }
     SpeedMenuResult {

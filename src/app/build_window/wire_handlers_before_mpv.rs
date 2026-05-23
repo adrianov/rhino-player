@@ -41,13 +41,23 @@ fn wire_handlers_before_mpv(
     win_aspect: &Rc<Cell<Option<f64>>>,
 ) -> HandlersBeforeMpv {
     #[cfg(target_os = "macos")]
-    {
-        crate::macos_window::register_win_bar_show(&w.win, Rc::clone(bar_show), w.root.clone());
-        wire_macos_header_menu_cluster(
-            &w.root,
-            &[w.speed_mbtn.clone(), w.sub_menu.clone(), w.vol_menu.clone()],
-        );
-    }
+    crate::macos_window::register_win_bar_show(&w.win, Rc::clone(bar_show), w.root.clone());
+    #[cfg(target_os = "macos")]
+    wire_macos_header_menu_cluster(
+        &w.root,
+        &w.header,
+        &w.outer_ovl,
+        &w.win,
+        &[
+            (
+                w.speed_mbtn.clone(),
+                w.speed_mbtn.popover().expect("speed popover"),
+                "speed",
+            ),
+            (w.sub_menu.clone(), w.sub_pop.clone(), "subtitles"),
+            (w.vol_menu.clone(), w.vol_pop.clone(), "audio"),
+        ],
+    );
     #[cfg(not(target_os = "macos"))]
     header_menubtns_switch(&[
         w.speed_mbtn.clone(), w.sub_menu.clone(), w.vol_menu.clone(), w.menu_btn.clone(),
@@ -110,7 +120,7 @@ fn wire_handlers_before_mpv(
         gl: w.gl_area.clone(),
         recent: w.recent_scrl.clone(),
     });
-    register_shell_layout(Rc::new(ShellLayoutCtx {
+    let shell_layout = Rc::new(ShellLayoutCtx {
         win: w.win.clone(),
         root: w.root.clone(),
         header: w.header.clone(),
@@ -123,9 +133,13 @@ fn wire_handlers_before_mpv(
         bar_show: Rc::clone(bar_show),
         player: Rc::clone(player),
         touch_chrome: RefCell::new(None),
-    }));
+    });
+    register_shell_layout(Rc::clone(&shell_layout));
     #[cfg(target_os = "macos")]
-    wire_macos_recent_hide_refresh(&w.win, &w.gl_area, &w.recent_scrl, player);
+    {
+        wire_macos_recent_hide_refresh(&w.win, &w.gl_area, &w.recent_scrl, player);
+        wire_macos_surface_compositing_refresh(&shell_layout);
+    }
 
     let hdr_csd_baseline = Rc::new(Cell::new(None));
     wire_header_csd_baseline_snap(&hdr_csd_baseline, &w.header);
@@ -140,7 +154,27 @@ fn wire_handlers_before_mpv(
         seek_grabbed: seek_grabbed.clone(),
         hdr_csd_baseline: Rc::clone(&hdr_csd_baseline),
     });
-
+    #[cfg(target_os = "macos")]
+    {
+        let chc = Rc::clone(&ch_hide);
+        let chc_pop = Rc::clone(&chc);
+        crate::macos_header_menu::register_checks(
+            Rc::new(move || {
+                chc.vol.is_active()
+                    || chc.sub.is_active()
+                    || chc.speed.is_active()
+                    || chc.vol.popover().is_some_and(|p| p.is_visible())
+                    || chc.sub.popover().is_some_and(|p| p.is_visible())
+                    || chc.speed.popover().is_some_and(|p| p.is_visible())
+                    || crate::macos_header_menu_overlay::overlay_visible()
+            }),
+            Rc::new(move || {
+                chc_pop.vol.popover().is_some_and(|p| p.is_visible())
+                    || chc_pop.sub.popover().is_some_and(|p| p.is_visible())
+                    || chc_pop.speed.popover().is_some_and(|p| p.is_visible())
+            }),
+        );
+    }
     let on_video_chrome: Rc<dyn Fn()> = {
         let (csp, root, gl, b, recent, bot, p, hdr, chh, win_ov) = (
             Rc::clone(&hdr_csd_baseline),
@@ -171,7 +205,13 @@ fn wire_handlers_before_mpv(
         })
     };
     wire_shell_layout_chrome(Rc::clone(&on_video_chrome));
-    wire_menu_chrome(Rc::clone(&ch_hide), &w.vol_menu, &w.sub_menu, &w.speed_mbtn, &w.menu_btn);
+    wire_menu_chrome(
+        Rc::clone(&ch_hide),
+        &w.vol_menu,
+        &w.sub_menu,
+        &w.speed_mbtn,
+        &w.menu_btn,
+    );
     let play_ctx = PlayToggleCtx {
         app: app.clone(), player: player.clone(), video_pref: Rc::clone(video_pref),
         win: w.win.clone(),

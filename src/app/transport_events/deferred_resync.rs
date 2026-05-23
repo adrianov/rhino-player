@@ -22,6 +22,10 @@ fn smooth_budget_transport_window_ticks_count(win: &adw::ApplicationWindow) -> b
 }
 
 fn sync_sub_header_readout(player: &Rc<RefCell<Option<MpvBundle>>>, label: &gtk::Label) {
+    #[cfg(target_os = "macos")]
+    if crate::macos_header_menu::any_open() {
+        return;
+    }
     let Ok(g) = player.try_borrow() else {
         return;
     };
@@ -214,7 +218,7 @@ fn dvd_eof_tail(ctx: &TransportCtx, bar_dur: f64, bar_pos: f64) -> bool {
     if ctx.dvd_bar.borrow().is_some() {
         return mpv_chapter_eof(ctx);
     }
-    bar_dur > 0.0 && (bar_dur - bar_pos) <= TICK_EOF_TAIL_SEC
+    false
 }
 
 fn mpv_chapter_eof(ctx: &TransportCtx) -> bool {

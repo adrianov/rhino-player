@@ -1,0 +1,50 @@
+        toolbarview.rp-toolbar headerbar.rpb-header {
+            min-height: 34px;
+            padding: 0 4px;
+            border-spacing: 2px;
+        }
+        toolbarview.rp-toolbar headerbar.rpb-header label.title {
+            font-size: 11px;
+            padding: 0;
+            margin: 0;
+        }
+        toolbarview.rp-toolbar headerbar.rpb-header menubutton.flat > button,
+        toolbarview.rp-toolbar headerbar.rpb-header button.flat,
+        toolbarview.rp-toolbar headerbar.rpb-header windowcontrols button.image-button {
+            min-height: 22px;
+            min-width: 22px;
+            padding: 0 2px;
+        }
+        toolbarview.rp-toolbar headerbar.rpb-header menubutton.rp-speed-mbtn.flat > button,
+        toolbarview.rp-toolbar headerbar.rpb-header menubutton.rp-vol-mbtn.flat > button,
+        toolbarview.rp-toolbar headerbar.rpb-header menubutton.rp-sub-mbtn.flat > button,
+        toolbarview.rp-toolbar headerbar.rpb-header button.rp-smooth-mbtn.flat,
+        toolbarview.rp-toolbar headerbar.rpb-header button.rp-blackout-mbtn.flat {
+            min-height: 22px;
+            min-width: 22px;
+            padding: 0 2px;
+        }
+        toolbarview.rp-toolbar headerbar.rpb-header label.rp-speed-readout,
+        toolbarview.rp-toolbar headerbar.rpb-header label.rp-vol-readout,
+        toolbarview.rp-toolbar headerbar.rpb-header label.rp-sub-readout,
+        toolbarview.rp-toolbar headerbar.rpb-header label.rp-smooth-readout,
+        toolbarview.rp-toolbar headerbar.rpb-header label.rp-blackout-readout {
+            font-size: 0.7em;
+        }
+        /* Theater menus: popover detached from MenuButton (no gdk popup surface); keep normal chrome. */
+        toolbarview.rp-toolbar headerbar.rpb-header menubutton.flat.rp-header-menu-fs,
+        toolbarview.rp-toolbar headerbar.rpb-header menubutton.flat.rp-header-menu-fs > button {
+            opacity: 1;
+            filter: none;
+        }
+        toolbarview.rp-toolbar headerbar.rpb-header menubutton.flat.rp-header-menu-fs image {
+            color: #eeeeec;
+            -gtk-icon-style: symbolic;
+            opacity: 1;
+        }
+        toolbarview.rp-toolbar headerbar.rpb-header menubutton.rp-speed-mbtn.flat.rp-header-menu-fs label.rp-speed-readout,
+        toolbarview.rp-toolbar headerbar.rpb-header menubutton.rp-vol-mbtn.flat.rp-header-menu-fs label.rp-vol-readout,
+        toolbarview.rp-toolbar headerbar.rpb-header menubutton.rp-sub-mbtn.flat.rp-header-menu-fs label.rp-sub-readout {
+            color: #9a9996;
+            opacity: 0.92;
+        }

@@ -1,12 +1,4 @@
 /// Sound (volume + audio tracks) and subtitle (style + tracks) header popovers.
-///
-/// Returned widgets are wired into the header by `build_window`:
-/// - `vol_menu` and `sub_menu` are `MenuButton`s placed in the `HeaderBar`.
-/// - `vol_pop` and `sub_pop` are the popover children of those buttons.
-/// - The track sections (`audio_tracks_box`, `sub_tracks_box`) are populated by
-///   `audio_tracks` / `sub_tracks` on `popover.connect_show`.
-/// - `vol_adj`, `vol_header_img`, `vol_readout`, `vol_mute_btn`, `sub_readout`, `sub_scale_adj`, `sub_color_btn` are wired by
-///   the volume / subtitle preference handlers in `build_window`.
 struct HeaderPopovers {
     vol_adj: gtk::Adjustment,
     vol_header_img: gtk::Image,
@@ -62,6 +54,8 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
         .max_content_height(480)
         .child(&audio_tracks_box)
         .build();
+    #[cfg(target_os = "macos")]
+    audio_tracks_scrl.set_min_content_width(280);
     let audio_tracks_section = gtk::Box::new(gtk::Orientation::Vertical, 0);
     audio_tracks_section.append(&audio_tracks_scrl);
     audio_tracks_section.set_visible(false);
@@ -73,6 +67,12 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
     vol_pop.add_css_class("rp-header-popover");
     vol_pop.set_child(Some(&sound_col));
     header_popover_non_modal(&vol_pop);
+    #[cfg(target_os = "macos")]
+    {
+        vol_pop.set_has_arrow(false);
+        crate::macos_header_menu::wire_popover(&vol_pop);
+    }
+
     let vol_header_img = gtk::Image::from_icon_name("audio-volume-high-symbolic");
     vol_header_img.set_valign(gtk::Align::Center);
     let vol_readout = gtk::Label::new(Some("100%"));
@@ -93,6 +93,10 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
     vol_menu.set_hexpand(false);
     vol_menu.set_valign(gtk::Align::Center);
     vol_menu.set_always_show_arrow(false);
+    #[cfg(target_os = "macos")]
+    crate::macos_header_menu::wire_menu_btn_open_guard(&vol_menu);
+    #[cfg(target_os = "macos")]
+    crate::macos_header_menu_debug::wire_header_menu_trace("audio", &vol_menu, &vol_pop);
 
     let sp_init = sub_pref.borrow().clone();
     let sub_tracks_block = Rc::new(Cell::new(false));
@@ -107,6 +111,8 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
         .max_content_height(280)
         .child(&sub_tracks_box)
         .build();
+    #[cfg(target_os = "macos")]
+    sub_tracks_scrl.set_min_content_width(280);
     let sub_tracks_section = gtk::Box::new(gtk::Orientation::Vertical, 0);
     sub_tracks_section.append(&sub_tracks_scrl);
     sub_tracks_section.set_visible(false);
@@ -144,6 +150,11 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
     sub_pop.add_css_class("rp-header-popover");
     sub_pop.set_child(Some(&sub_col));
     header_popover_non_modal(&sub_pop);
+    #[cfg(target_os = "macos")]
+    {
+        sub_pop.set_has_arrow(false);
+        crate::macos_header_menu::wire_popover(&sub_pop);
+    }
 
     let sub_header_img = gtk::Image::from_icon_name("media-view-subtitles-symbolic");
     sub_header_img.set_valign(gtk::Align::Center);
@@ -167,6 +178,10 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
     sub_menu.set_valign(gtk::Align::Center);
     sub_menu.set_always_show_arrow(false);
     sub_menu.set_visible(false);
+    #[cfg(target_os = "macos")]
+    crate::macos_header_menu::wire_menu_btn_open_guard(&sub_menu);
+    #[cfg(target_os = "macos")]
+    crate::macos_header_menu_debug::wire_header_menu_trace("subtitles", &sub_menu, &sub_pop);
 
     HeaderPopovers {
         vol_adj,

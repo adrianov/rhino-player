@@ -64,6 +64,7 @@ fn poll_shell_layout_after_resize(ctx: Rc<ShellLayoutCtx>, target_w: i32, target
             "gtk synced {gw}x{gh} → shell sync (attempt={attempt})"
         ));
         schedule_shell_layout_sync();
+        crate::macos_window::nudge_gdk_compositing_width(&ctx.win);
         return;
     }
     if attempt >= 20 {
@@ -71,6 +72,7 @@ fn poll_shell_layout_after_resize(ctx: Rc<ShellLayoutCtx>, target_w: i32, target
             "gtk sync timeout gtk={gw}x{gh} target={target_w}x{target_h} → shell sync anyway"
         ));
         schedule_shell_layout_sync();
+        crate::macos_window::nudge_gdk_compositing_width(&ctx.win);
         return;
     }
     let c = Rc::clone(&ctx);
@@ -153,6 +155,43 @@ pub(crate) fn schedule_shell_layout_sync() {
             touch();
         }
     });
+    let c4 = Rc::clone(&ctx);
+    let _ = glib::timeout_add_local_once(std::time::Duration::from_millis(300), move || {
+        sync_shell_layout_tag(&c4, "sched-300ms");
+    });
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn wire_macos_surface_compositing_refresh(ctx: &Rc<ShellLayoutCtx>) {
+    use gtk::gdk::prelude::SurfaceExt;
+    use gtk::prelude::NativeExt;
+
+    let deb = Rc::new(RefCell::new(None::<glib::SourceId>));
+    let win = ctx.win.clone();
+    win.connect_map(move |w| {
+        let Some(surf) = w.native().and_then(|n| n.surface()) else {
+            return;
+        };
+        let deb_w = Rc::clone(&deb);
+        let schedule = Rc::new(move || {
+            if crate::macos_header_menu::defer_layer_invalidate() {
+                return;
+            }
+            if deb_w.borrow().is_some() {
+                return;
+            }
+            let deb2 = Rc::clone(&deb_w);
+            let id = glib::timeout_add_local_once(std::time::Duration::from_millis(32), move || {
+                *deb2.borrow_mut() = None;
+                refresh_registered_shell_compositing();
+            });
+            *deb_w.borrow_mut() = Some(id);
+        });
+        let on_w = Rc::clone(&schedule);
+        surf.connect_width_notify(move |_| on_w());
+        let on_h = schedule;
+        surf.connect_height_notify(move |_| on_h());
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -171,6 +210,7 @@ pub(crate) fn wire_macos_recent_hide_refresh(
         refresh_registered_shell_compositing();
         if let Some(ctx) = SHELL_LAYOUT.with(|s| s.borrow().clone()) {
             sync_shell_layout_tag(&ctx, "recent-hide");
+            crate::macos_window::nudge_gdk_compositing_width(&ctx.win);
         }
         if let Ok(g) = p.try_borrow() {
             if let Some(b) = g.as_ref() {
@@ -199,9 +239,13 @@ pub(crate) fn refresh_registered_shell_compositing() {
 #[cfg(target_os = "macos")]
 pub(crate) fn schedule_macos_shell_refresh_after_vf() {
     refresh_registered_shell_compositing();
-    let _ = glib::timeout_add_local_once(std::time::Duration::from_millis(100), || {
-        schedule_shell_layout_sync();
-    });
+    let win = SHELL_LAYOUT.with(|s| s.borrow().as_ref().map(|c| c.win.clone()));
+    if let Some(win) = win {
+        let _ = glib::idle_add_local_once(move || {
+            refresh_registered_shell_compositing();
+            crate::macos_window::nudge_gdk_compositing_width(&win);
+        });
+    }
 }
 
 #[cfg(not(target_os = "macos"))]

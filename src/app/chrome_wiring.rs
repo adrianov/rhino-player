@@ -27,6 +27,10 @@ fn wire_menu_chrome(
             });
             show_chrome_pointer(&ch.win, &ch.gl);
         } else {
+            #[cfg(target_os = "macos")]
+            if crate::macos_header_menu::any_open() {
+                return;
+            }
             schedule_bars_autohide(Rc::clone(&ch));
         }
     });

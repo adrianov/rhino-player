@@ -139,6 +139,7 @@ fn reveal_ui_after_load(
         #[cfg(target_os = "macos")]
         {
             crate::app::refresh_registered_shell_compositing();
+            crate::macos_window::nudge_gdk_compositing_width(win);
             if let Some(b) = player.borrow().as_ref() {
                 b.nudge_shell_layout_after_resize(gl);
             }

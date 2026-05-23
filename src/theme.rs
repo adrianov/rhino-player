@@ -15,13 +15,22 @@ const APP_CSS: &str = r#"
             padding: 0 4px;
         }
         toolbarview.rp-toolbar headerbar.rpb-header {
-            min-height: 0;
+            min-height: 34px;
             padding: 0 4px;
+            border-spacing: 0;
+        }
+        toolbarview.rp-toolbar headerbar.rpb-header label.title {
+            font-size: 0.85em;
+            padding: 0;
+            margin: 0;
         }
         .rpb-header menubutton.flat > button {
-            min-height: 26px;
-            min-width: 26px;
-            padding: 2px;
+            min-height: 22px;
+            min-width: 22px;
+            padding: 0 2px;
+        }
+        .rpb-header menubutton.flat.rp-header-menu-open > button {
+            background-color: rgba(255, 255, 255, 0.1);
         }
         .rpb-header menubutton.flat image,
         .rpb-header button.rp-smooth-mbtn.flat image,
@@ -30,15 +39,15 @@ const APP_CSS: &str = r#"
             -gtk-icon-style: symbolic;
         }
         menubutton.rp-speed-mbtn.flat > button {
-            min-height: 26px;
+            min-height: 22px;
             min-width: 0;
             padding-left: 4px;
             padding-right: 4px;
         }
         .rpb-header windowcontrols button.image-button {
-            min-height: 26px;
-            min-width: 26px;
-            padding: 1px;
+            min-height: 22px;
+            min-width: 22px;
+            padding: 0 2px;
         }
         label.rp-fs-clock {
             color: #c0bfbc;
@@ -62,7 +71,7 @@ const APP_CSS: &str = r#"
             opacity: 0.92;
         }
         button.rp-smooth-mbtn.flat {
-            min-height: 26px;
+            min-height: 22px;
             min-width: 0;
             padding-left: 4px;
             padding-right: 4px;
@@ -82,7 +91,7 @@ const APP_CSS: &str = r#"
             opacity: 0.92;
         }
         button.rp-blackout-mbtn.flat {
-            min-height: 26px;
+            min-height: 22px;
             min-width: 0;
             padding-left: 4px;
             padding-right: 4px;
@@ -102,7 +111,7 @@ const APP_CSS: &str = r#"
             opacity: 0.92;
         }
         menubutton.rp-vol-mbtn.flat > button {
-            min-height: 26px;
+            min-height: 22px;
             min-width: 0;
             padding-left: 4px;
             padding-right: 4px;
@@ -122,7 +131,7 @@ const APP_CSS: &str = r#"
             opacity: 0.92;
         }
         menubutton.rp-sub-mbtn.flat > button {
-            min-height: 26px;
+            min-height: 22px;
             min-width: 0;
             padding-left: 4px;
             padding-right: 4px;
@@ -247,33 +256,10 @@ const RECENT_GRID_CSS: &str = include_str!("theme_continue_grid.css");
 
 /// macOS hybrid render: window + video stack transparent so the native mpv layer shows
 /// through the GLArea. Continue grid and toolbar chrome keep their own opaque backgrounds.
-const MACOS_TRANSPARENT_CONTENT_CSS: &str = r#"
-        window.rp-win,
-        .rp-stack,
-        .rp-page-stack,
-        .rp-gl.rp-gl-native {
-            background: transparent;
-            background-color: transparent;
-        }
-        .rp-recent-scroll,
-        .rp-recent-vbox {
-            background-color: #242424;
-            background: #242424;
-        }
-        toolbarview.rp-toolbar headerbar.rpb-header {
-            background-color: #2d2d2d;
-            background: #2d2d2d;
-        }
-        toolbarview.rp-toolbar box.rp-bottom-shell {
-            background-color: #2d2d2d;
-            background: #2d2d2d;
-            border-top: 1px solid #3d3d3d;
-        }
-        toolbarview.rp-toolbar box.rp-bottom-shell box.rp-bottom {
-            background-color: transparent;
-            background: transparent;
-        }
-    "#;
+const MACOS_TRANSPARENT_CONTENT_CSS: &str = include_str!("theme_macos_transparent.css");
+
+/// Bottom transport chrome on gdk-macos (USER priority — wins over transparent window rules).
+const MACOS_BOTTOM_CHROME_CSS: &str = include_str!("theme_macos_bottom.css");
 
 pub fn apply() {
     let mut css = String::with_capacity(
@@ -301,6 +287,18 @@ pub fn apply() {
             &p,
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
+        #[cfg(target_os = "macos")]
+        {
+            let mut user = MACOS_BOTTOM_CHROME_CSS.to_string();
+            user.push_str(include_str!("theme_macos_header_compact.css"));
+            let chrome = gtk::CssProvider::new();
+            chrome.load_from_string(&user);
+            gtk::style_context_add_provider_for_display(
+                &d,
+                &chrome,
+                gtk::STYLE_PROVIDER_PRIORITY_USER,
+            );
+        }
     }
     // GTK's default title-bar double-click toggles maximize after our HeaderBar gesture runs,
     // undoing `maximize()` before `fullscreen()` (first double-click looks maximized then snaps small).

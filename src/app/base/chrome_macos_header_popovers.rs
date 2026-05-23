@@ -1,14 +1,8 @@
 // macOS: non-modal header Popovers often ignore outside presses and same-button toggle.
-// Explicit capture-phase dismissal matches Linux autohide behavior.
 
-/// Close sound / subtitles / speed header menus (and their popovers).
-fn close_header_menus(menus: &[gtk::MenuButton]) {
-    for btn in menus {
-        if let Some(pop) = btn.popover() {
-            pop.popdown();
-        }
-        btn.set_active(false);
-    }
+/// Close sound / subtitles / speed header popovers.
+pub(super) fn popdown_header_menus(menus: &[gtk::MenuButton], reason: &str) {
+    crate::macos_header_menu::popdown_all(menus, reason);
 }
 
 fn widget_is_descendant_of(widget: &gtk::Widget, ancestor: &gtk::Widget) -> bool {
@@ -39,34 +33,45 @@ fn click_targets_header_menu(
             }
         }
     }
-    false
+    crate::macos_header_menu_overlay::overlay_contains(&picked)
 }
 
 fn header_menu_open(menus: &[gtk::MenuButton]) -> bool {
-    menus.iter().any(gtk::MenuButton::is_active)
-        || menus.iter().filter_map(gtk::MenuButton::popover).any(|p| p.is_visible())
+    crate::macos_header_menu::any_open()
+        || crate::macos_header_menu_overlay::overlay_visible()
+        || menus.iter().any(gtk::MenuButton::is_active)
 }
 
 /// Dismiss open header popovers when the user clicks elsewhere in the shell.
 pub(super) fn wire_macos_header_popover_dismiss(
-    root: &impl IsA<gtk::Widget>,
+    shell: &impl IsA<gtk::Widget>,
     menus: &[gtk::MenuButton],
 ) {
-    let root = root.clone().upcast::<gtk::Widget>();
+    use gtk::prelude::GestureSingleExt;
+    let shell = shell.clone().upcast::<gtk::Widget>();
     let menus: Vec<gtk::MenuButton> = menus.to_vec();
     let g = gtk::GestureClick::new();
     g.set_button(gtk::gdk::BUTTON_PRIMARY);
     g.set_propagation_phase(gtk::PropagationPhase::Capture);
-    let root_pick = root.clone();
+    let shell_pick = shell.clone();
     g.connect_pressed(move |_, _n, x, y| {
+        if !crate::macos_header_menu::dismiss_allowed() {
+            return;
+        }
         if !header_menu_open(&menus) {
             return;
         }
-        let picked = root_pick.pick(x, y, gtk::PickFlags::DEFAULT);
-        if click_targets_header_menu(picked, &menus) {
+        let picked = shell_pick.pick(x, y, gtk::PickFlags::DEFAULT);
+        if click_targets_header_menu(picked.clone(), &menus) {
             return;
         }
-        close_header_menus(&menus);
+        #[cfg(target_os = "macos")]
+        crate::macos_header_menu_debug::log_event(
+            "header",
+            "close",
+            &format!("reason=outside_click pick={}", picked.is_some()),
+        );
+        popdown_header_menus(&menus, "outside_click");
     });
-    root.add_controller(g);
+    shell.add_controller(g);
 }

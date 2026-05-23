@@ -100,8 +100,5 @@ pub fn rebuild_popover(
         }
     }
     block.set(false);
-    if let Some(l) = &*hdr_share {
-        refresh_sub_header(mpv, l);
-    }
     true
 }

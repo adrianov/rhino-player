@@ -121,6 +121,10 @@ fn build_toolbar_header_shell(
     root.add_css_class("rp-toolbar");
     let header = adw::HeaderBar::new();
     header.add_css_class("rpb-header");
+    header.set_height_request(34);
+    header.set_size_request(-1, 34);
+    #[cfg(target_os = "macos")]
+    header.set_show_title(false);
     #[cfg(not(target_os = "macos"))]
     header.pack_end(menu_btn);
     header.pack_end(vol_menu);
@@ -134,6 +138,7 @@ fn build_toolbar_header_shell(
     let hdr_title_mirror = {
         let lab = Rc::new(gtk::Label::new(Some(APP_WIN_TITLE)));
         lab.add_css_class("title");
+        lab.set_valign(gtk::Align::Center);
         lab.set_single_line_mode(true);
         lab.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
         header.set_title_widget(Some(lab.as_ref()));

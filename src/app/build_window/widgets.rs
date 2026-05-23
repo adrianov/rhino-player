@@ -70,6 +70,7 @@ fn build_widgets(
     let _ = &exit_after_current;
 
     let win = build_main_application_window(app);
+    let outer_ovl = gtk::Overlay::new();
     let PlaybackChromeRow { play_pause, sibling_nav } = build_playback_chrome_row();
 
     let (discard_menu_placeholder, pref_menu, menubar_model) = build_app_menus();
@@ -78,13 +79,19 @@ fn build_widgets(
     drop(menubar_model);
     let HeaderPopovers {
         vol_adj, vol_header_img, vol_readout, vol_mute_btn, audio_tracks_block, audio_tracks_box,
-        audio_tracks_section, vol_pop, vol_menu,         sub_tracks_block, sub_tracks_box, sub_tracks_section,
-        sub_scale_adj, sub_color_btn, sub_pop, sub_menu, sub_readout,
+        audio_tracks_section, vol_pop, vol_menu,
+        sub_tracks_block, sub_tracks_box, sub_tracks_section,
+        sub_scale_adj, sub_color_btn, sub_pop, sub_menu,
+        sub_readout,
     } = build_header_popovers(sub_pref);
 
     let gl_area = build_gl_video_area();
-    let SpeedMenuResult { speed_readout, speed_mbtn, speed_list, speed_sync } =
-        build_speed_menu(player, &gl_area, video_pref, app);
+    let SpeedMenuResult {
+        speed_readout,
+        speed_mbtn,
+        speed_list,
+        speed_sync,
+    } = build_speed_menu(player, &gl_area, video_pref, app);
 
     let SmoothToolbarWidgets { smooth_btn, smooth_status } = build_smooth_video_toolbar(app);
     let (recent_scrl, flow_recent, recent_spacers, undo_bar) = recent_view::new_scroll();
@@ -141,7 +148,6 @@ fn build_widgets(
     let ovl = build_video_overlay(&gl_area);
     let video_handle = gtk::WindowHandle::new();
     video_handle.set_child(Some(&ovl));
-    let outer_ovl = gtk::Overlay::new();
     ovl.add_overlay(&recent_scrl);
 
     WindowWidgets {

@@ -155,7 +155,9 @@ fn repaint_chrome_after_layout<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>, 
             surf.queue_render();
         }
         #[cfg(target_os = "macos")]
-        crate::macos_window::invalidate_window_layers(&win);
+        if !crate::macos_header_menu::defer_layer_invalidate() {
+            crate::macos_window::invalidate_window_layers(&win);
+        }
     }
     if let Some(b) = c.player.borrow().as_ref() {
         sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, c.bottom.height(), c.gl.height());
@@ -184,11 +186,16 @@ fn schedule_bars_autohide(ctx: Rc<ChromeBarHide>) {
     replace_timeout(Rc::clone(&ctx.nav), {
         let ctx2 = Rc::clone(&ctx);
         move || {
+            #[cfg(target_os = "macos")]
+            let pop_open = crate::macos_header_menu::any_open();
+            #[cfg(not(target_os = "macos"))]
+            let pop_open = false;
             if ctx2.vol.is_active()
                 || ctx2.sub.is_active()
                 || ctx2.speed.is_active()
                 || ctx2.main.is_active()
                 || ctx2.seek_grabbed.get()
+                || pop_open
             {
                 schedule_bars_autohide(Rc::clone(&ctx2));
             } else {
@@ -212,14 +219,17 @@ fn schedule_bars_autohide(ctx: Rc<ChromeBarHide>) {
 
 /// Clicks to another header [gtk::MenuButton] are blocked while a **modal** popover is open.
 /// [gtk::Popover:modal] on GTK 4.14+ — set to false so the rest of the window (including
-/// the other header buttons) stays clickable; [gtk::Popover:autohide] still dismisses on outside press.
+/// the other header buttons) stays clickable.
+/// Linux: [gtk::Popover:autohide] still dismisses on outside press.
+/// macOS: autohide off — opening click would dismiss immediately; use capture dismiss instead.
 fn header_popover_non_modal(pop: &impl IsA<gtk::Popover>) {
     use glib::prelude::Cast;
     let pop = pop.upcast_ref::<gtk::Popover>();
-    if pop.find_property("modal").is_none() {
-        return;
+    if pop.find_property("modal").is_some() {
+        pop.set_property("modal", false);
     }
-    pop.set_property("modal", false);
+    #[cfg(target_os = "macos")]
+    pop.set_autohide(false);
 }
 
 /// Display (or stream) size in pixels from mpv, if known.

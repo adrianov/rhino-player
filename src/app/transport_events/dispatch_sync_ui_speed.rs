@@ -7,6 +7,10 @@ fn sync_speed_header(
     if w.speed_menu.is_sensitive() != has_media {
         w.speed_menu.set_sensitive(has_media);
     }
+    #[cfg(target_os = "macos")]
+    if crate::macos_header_menu::any_open() {
+        return;
+    }
     if !has_media {
         playback_speed::stamp_speed_readout(&w.speed_readout, 1.0);
         return;

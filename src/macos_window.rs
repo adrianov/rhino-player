@@ -108,6 +108,9 @@ pub fn invalidate_window_layers<W: IsA<gtk::Widget>>(widget: &W) {
 #[cfg(target_os = "macos")]
 include!("macos_window_gdk_layout.rs");
 
+#[cfg(target_os = "macos")]
+include!("macos_traffic_vertical.rs");
+
 #[cfg(not(target_os = "macos"))]
 pub fn resize_window_frame(_win: &adw::ApplicationWindow, _width: i32, _height: i32) {}
 
@@ -238,6 +241,9 @@ pub fn set_traffic_lights_visible<W: IsA<gtk::Widget>>(widget: &W, visible: bool
         if let Some(btn) = win.standardWindowButton(kind) {
             btn.setHidden(hidden);
         }
+    }
+    if visible {
+        sync_traffic_lights_vertical(widget, widget.height());
     }
 }
 

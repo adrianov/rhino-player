@@ -139,6 +139,7 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
         let fs_settle_ntf = Rc::clone(&ctx.fs_transition_settle);
         let play_fs = ctx.play_toggle.clone();
         let win_sig = ctx.shell.win.clone();
+        let ch_fs = Rc::clone(&ctx.ch_hide);
         let tch_fs = Rc::clone(&touch_chrome_gl);
         win_sig.connect_fullscreened_notify(move |w| {
             #[cfg(target_os = "macos")]
@@ -170,10 +171,16 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
                 }
                 b.set(false);
                 fs_on_enter_pause(&play_fs, fs_pause_stash.as_ref());
+                #[cfg(target_os = "macos")]
+                popdown_header_menus(
+                    &[ch_fs.vol.clone(), ch_fs.sub.clone(), ch_fs.speed.clone()],
+                    "fullscreen_enter",
+                );
                 show_fs_wall_clock_fullscreen(&fs_clock, &fs_tick_slot, w);
                 tch_fs(w);
                 hide_cursor_after_bars_hide(w, &gl_fs, &recent_fs, &p_fs);
             } else {
+                #[cfg(target_os = "macos")]
                 skip_fs.set(true);
                 b.set(true);
                 stop_fs_clock_tick(&fs_tick_slot);

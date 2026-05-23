@@ -10,11 +10,13 @@ fn preload_continue_path(
     if !recent.is_visible() || !path.is_file() || player.borrow().is_none() {
         return PreloadOutcome::Failed;
     }
-    eprintln!(
-        "[rhino] warm_preload: path={} exists={} play=false",
-        path.display(),
-        path.exists()
-    );
+    if crate::shell_debug_log::enabled() {
+        eprintln!(
+            "[rhino] warm_preload: path={} exists={} play=false",
+            path.display(),
+            path.exists()
+        );
+    }
     if mpv_has_open_target(&path, player) {
         return PreloadOutcome::Ready;
     }

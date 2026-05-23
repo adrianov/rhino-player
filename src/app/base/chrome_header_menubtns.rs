@@ -9,6 +9,43 @@ fn ensure_active_idle(btn: gtk::MenuButton) {
     });
 }
 
+#[cfg(target_os = "macos")]
+fn wire_macos_header_menu_cluster(
+    root: &adw::ToolbarView,
+    header: &adw::HeaderBar,
+    shell: &gtk::Overlay,
+    win: &adw::ApplicationWindow,
+    entries: &[(gtk::MenuButton, gtk::Popover, &'static str)],
+) {
+    let menus: Vec<gtk::MenuButton> = entries.iter().map(|(b, _, _)| b.clone()).collect();
+    header_menubtns_switch(&menus);
+    wire_macos_header_popover_dismiss(shell, &menus);
+    crate::macos_header_menu_overlay::HeaderMenuOverlay::wire(
+        shell.clone(),
+        win.clone(),
+        root.clone(),
+        header.clone(),
+        entries,
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn log_sibling_menu_close(sibs: &[gtk::MenuButton]) {
+    let any = sibs.iter().any(|b| {
+        b.is_active() || b.popover().is_some_and(|p| p.is_visible())
+    });
+    if any {
+        crate::macos_header_menu_debug::log_event("header", "close", "reason=sibling_switch");
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn header_menu_fullscreen(btn: &gtk::MenuButton) -> bool {
+    btn.root()
+        .and_then(|r| r.downcast::<adw::ApplicationWindow>().ok())
+        .is_some_and(|w| w.is_fullscreen())
+}
+
 fn header_menubtns_switch(menus: &[gtk::MenuButton]) {
     for (i, menu) in menus.iter().enumerate() {
         let g = gtk::GestureClick::new();
@@ -23,20 +60,17 @@ fn header_menubtns_switch(menus: &[gtk::MenuButton]) {
             .map(|(_, b)| b.clone())
             .collect();
         let c = this.clone();
-        g.connect_pressed(move |gesture, n, _, _| {
+        g.connect_pressed(move |_, n, _, _| {
             if n != 1 {
                 return;
             }
             #[cfg(target_os = "macos")]
-            if c.is_active() {
-                if let Some(pop) = c.popover() {
-                    pop.popdown();
-                }
-                c.set_active(false);
-                let _ = gesture.set_state(gtk::EventSequenceState::Claimed);
+            if header_menu_fullscreen(&c) {
                 return;
             }
             let had_other = sibs.iter().any(|b| b.is_active());
+            #[cfg(target_os = "macos")]
+            log_sibling_menu_close(&sibs);
             for b in &sibs {
                 if let Some(pop) = b.popover() {
                     pop.popdown();
@@ -49,10 +83,4 @@ fn header_menubtns_switch(menus: &[gtk::MenuButton]) {
         });
         this.add_controller(g);
     }
-}
-
-#[cfg(target_os = "macos")]
-fn wire_macos_header_menu_cluster(root: &adw::ToolbarView, menus: &[gtk::MenuButton]) {
-    header_menubtns_switch(menus);
-    wire_macos_header_popover_dismiss(root, menus);
 }

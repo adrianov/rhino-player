@@ -52,12 +52,12 @@ pub fn value_at(i: u32) -> f64 {
 }
 
 /// Snap the header [ListBox] and compact readout to current **mpv** `speed`; [flag] blocks
-/// `row-activated` when updating.
+/// `row-selected` when updating.
 /// Returns [Some] **canonical** speed if [mpv] `speed` was changed to a [SPEEDS] step (caller may resync
 /// VapourSynth env + [vf]); [None] if it was already on a step.
 pub fn sync_list(
     mpv: &Mpv,
-    flag: &std::cell::Cell<bool>,
+    flag: &std::rc::Rc<std::cell::Cell<bool>>,
     list: &ListBox,
     readout: &Label,
 ) -> Option<f64> {
@@ -74,7 +74,8 @@ pub fn sync_list(
     if let Some(row) = list.row_at_index(i as i32) {
         list.select_row(Some(&row));
     }
-    flag.set(false);
+    let f = std::rc::Rc::clone(flag);
+    let _ = glib::idle_add_local_once(move || f.set(false));
     if changed {
         Some(canon)
     } else {

@@ -1,0 +1,8 @@
+        toolbarview.rp-toolbar box.rp-bottom-shell {
+            background-color: #2d2d2d;
+            background: #2d2d2d;
+        }
+        toolbarview.rp-toolbar box.rp-bottom-shell box.rp-bottom {
+            background-color: transparent;
+            background: transparent;
+        }
