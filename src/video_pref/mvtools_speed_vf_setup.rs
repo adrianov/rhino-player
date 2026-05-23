@@ -55,6 +55,16 @@ pub fn set_playback_speed_env_from_mpv(mpv: &Mpv) {
 /// [vf] is omitted; **Smooth 60** pref may stay on for when the user returns to 1.0×.
 /// [speed_hint] is used when [Some] (e.g. header row) so we do not read [get_property] before it matches
 /// the value just sent with [set_property] — that race skipped re-adding the [vf] when going 1.5/2.0 → 1.0.
+/// Bundled/custom VapourSynth graph — skipped when interleaved cadence needs display-resample only.
+pub(crate) fn smooth_wants_vapoursynth_vf(
+    mpv: &Mpv,
+    bundle: Option<&crate::mpv_embed::MpvBundle>,
+    speed_hint: Option<f64>,
+) -> bool {
+    mvtools_vf_eligible(mpv, speed_hint)
+        && !smooth_prefers_display_resample_bundle(mpv, bundle)
+}
+
 pub(crate) fn mvtools_vf_eligible(mpv: &Mpv, speed_hint: Option<f64>) -> bool {
     let s = match speed_hint {
         Some(x) if x.is_finite() => normalized_env_speed(x),
@@ -96,7 +106,7 @@ pub fn resync_smooth_if_speed_mismatch(
     if !v.smooth_60 || !mpv_has_open_media(mpv) {
         return MpvVideoApply::default();
     }
-    let want_mvtools = mvtools_vf_eligible(mpv, None);
+    let want_mvtools = smooth_wants_vapoursynth_vf(mpv, Some(b), None);
     let has = vf_chain_has_vapoursynth(mpv);
     let graph_ok = !has || vf_smooth_matches_prefs(mpv, v, Some(b));
     if !needs_playback_speed_env_resync(mpv) && want_mvtools == has && graph_ok {
@@ -219,7 +229,7 @@ fn add_smooth_60(
         );
         return false;
     }
-    if !mvtools_vf_eligible(mpv, speed_hint) {
+    if !smooth_wants_vapoursynth_vf(mpv, bundle, speed_hint) {
         return false;
     }
     match speed_hint {

@@ -136,6 +136,12 @@ pub fn reapply_60_if_still_missing(b: &MpvBundle, v: &mut VideoPrefs) -> MpvVide
     if !mvtools_vf_eligible(mpv, None) {
         return MpvVideoApply::default();
     }
+    if smooth_prefers_display_resample_bundle(mpv, Some(b)) {
+        if vf_string_has_vapoursynth(mpv) {
+            apply_interleaved_display_resample(mpv, Some(b), video_log());
+        }
+        return MpvVideoApply::default();
+    }
     if vf_string_has_vapoursynth(mpv) {
         return MpvVideoApply::default();
     }
@@ -158,6 +164,7 @@ fn vf_string_has_vapoursynth(mpv: &Mpv) -> bool {
 /// still present so mpv can decode a real frame — especially while **paused**. Plain pause/unpause
 /// does not call this.
 pub fn unload_smooth_on_pause(mpv: &Mpv) -> bool {
+    mark_smooth_cadence_unstable_after_seek();
     if !vf_string_has_vapoursynth(mpv) {
         return false;
     }
@@ -193,6 +200,48 @@ pub fn apply_mpv_video(b: &MpvBundle, v: &mut VideoPrefs, speed_hint: Option<f64
     apply_mpv_video_impl(&b.mpv, Some(b), v, speed_hint)
 }
 
+/// Interleaved / unstable cadence: strip VapourSynth; mpv **display-resample** only.
+fn apply_interleaved_display_resample(mpv: &Mpv, bundle: Option<&MpvBundle>, vlog: bool) {
+    if vf_string_has_vapoursynth(mpv) {
+        clear_vf(mpv, bundle, vlog);
+    }
+    apply_source_fps_env(None);
+    apply_smooth_vf_present_opts(mpv);
+    eprintln!(
+        "[rhino] video: interleaved / unstable cadence — Smooth uses mpv display-resample (no VapourSynth)"
+    );
+}
+
+fn apply_mpv_video_without_mvtools(
+    mpv: &Mpv,
+    bundle: Option<&MpvBundle>,
+    v: &mut VideoPrefs,
+    speed_hint: Option<f64>,
+    paused: bool,
+    want_60: bool,
+    had_vapoursynth: bool,
+    vlog: bool,
+) -> MpvVideoApply {
+    let eligible_1x = mvtools_vf_eligible(mpv, speed_hint);
+    let display_only = smooth_prefers_display_resample_bundle(mpv, bundle);
+    let keep_vf_during_pause = paused && want_60 && !display_only;
+    let stripped_vf = had_vapoursynth && !keep_vf_during_pause;
+    if stripped_vf {
+        clear_vf(mpv, bundle, vlog);
+        set_auto_decode(mpv, vlog);
+        if !want_60 {
+            smooth_off_refresh_playhead(mpv, bundle);
+        }
+    }
+    if want_60 && eligible_1x && display_only {
+        apply_interleaved_display_resample(mpv, bundle, vlog);
+    } else if !want_60 && !stripped_vf {
+        restore_non_smooth_present_opts(mpv);
+    }
+    post_smooth_60_state(mpv, v, want_60, false, vlog);
+    MpvVideoApply::default()
+}
+
 fn apply_mpv_video_impl(
     mpv: &Mpv,
     bundle: Option<&MpvBundle>,
@@ -202,24 +251,28 @@ fn apply_mpv_video_impl(
     let vlog = video_log();
     log_apply(v);
     let paused = mpv.get_property::<bool>("pause").unwrap_or(true);
-    let use_mvtools = v.smooth_60 && mvtools_vf_eligible(mpv, speed_hint) && !paused;
     let want_60 = v.smooth_60;
+    let eligible_1x = mvtools_vf_eligible(mpv, speed_hint);
+    let display_only = smooth_prefers_display_resample_bundle(mpv, bundle);
+    let display_resample = want_60 && eligible_1x && display_only && !paused;
+    let use_mvtools = want_60 && smooth_wants_vapoursynth_vf(mpv, bundle, speed_hint) && !paused;
     let had_vapoursynth = vf_string_has_vapoursynth(mpv);
-    if !use_mvtools {
-        let keep_vf_during_pause = paused && want_60;
-        let stripped_vf = had_vapoursynth && !keep_vf_during_pause;
-        if stripped_vf {
-            clear_vf(mpv, bundle, vlog);
-            set_auto_decode(mpv, vlog);
-            if !want_60 {
-                smooth_off_refresh_playhead(mpv, bundle);
-            }
-        }
-        if !want_60 && !stripped_vf {
-            restore_non_smooth_present_opts(mpv);
-        }
+    if display_resample {
+        apply_interleaved_display_resample(mpv, bundle, vlog);
         post_smooth_60_state(mpv, v, want_60, false, vlog);
         return MpvVideoApply::default();
+    }
+    if !use_mvtools {
+        return apply_mpv_video_without_mvtools(
+            mpv,
+            bundle,
+            v,
+            speed_hint,
+            paused,
+            want_60,
+            had_vapoursynth,
+            vlog,
+        );
     }
     if !mpv_has_open_media(mpv) {
         let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle);
@@ -230,6 +283,11 @@ fn apply_mpv_video_impl(
     }
 
     if had_vapoursynth && vf_smooth_matches_prefs(mpv, v, bundle) {
+        if smooth_prefers_display_resample_bundle(mpv, bundle) {
+            apply_interleaved_display_resample(mpv, bundle, vlog);
+            post_smooth_60_state(mpv, v, want_60, false, vlog);
+            return MpvVideoApply::default();
+        }
         match speed_hint {
             Some(s) => set_playback_speed_env(s),
             None => set_playback_speed_env_from_mpv(mpv),

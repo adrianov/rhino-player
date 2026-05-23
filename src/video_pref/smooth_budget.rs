@@ -144,7 +144,9 @@ pub(crate) fn smooth_budget_on_transport_tick(
     let Some(b) = g.as_ref() else {
         return;
     };
-    if !vf_chain_has_vapoursynth(&b.mpv) || !mvtools_vf_eligible(&b.mpv, None) {
+    if !vf_chain_has_vapoursynth(&b.mpv)
+        || !smooth_wants_vapoursynth_vf(&b.mpv, Some(b), None)
+    {
         return;
     }
     let Some(snap) = read_smooth_budget_signal(&b.mpv) else {

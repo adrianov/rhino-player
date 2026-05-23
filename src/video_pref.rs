@@ -50,6 +50,7 @@ include!("video_pref/smooth_motion_tier.rs");
 include!("video_pref/mvtools_video_log_env.rs");
 include!("video_pref/open_media_env.rs");
 include!("video_pref/smooth_me_budget_resolve.rs");
+include!("video_pref/bluray_playback.rs");
 include!("video_pref/smooth_vf_me_budget_applied.rs");
 include!("video_pref/smooth_vf_swap_timing.rs");
 include!("video_pref/mpv_escape_path.rs");
