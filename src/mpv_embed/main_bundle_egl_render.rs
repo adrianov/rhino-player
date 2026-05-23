@@ -30,6 +30,16 @@ pub struct MpvBundle {
     pub(crate) skip_media_persist: std::cell::Cell<bool>,
     /// Bumped on each warm `loadfile`; stale `FileLoaded` idles compare before resume/audio.
     pub(crate) warm_file_gen: std::cell::Cell<u32>,
+    /// Pinned virtual DVD position until cross-chapter scrub resume is applied.
+    pub(crate) dvd_hold_global: std::cell::Cell<Option<f64>>,
+    /// Title-internal chapter `loadfile` from DVD EOF advance (keep vf, unpause after load).
+    pub(crate) chapter_eof_load: std::cell::Cell<bool>,
+    /// Cross-chapter unified-bar scrub: chapter-local [pending_resume]; ignore SQLite near-start.
+    chapter_scrub_resume: std::cell::Cell<bool>,
+    /// Hold `pause=yes` until cross-chapter resume seek lands (avoids playing from file start).
+    chapter_scrub_hold_pause: std::cell::Cell<bool>,
+    /// Unpause when hold ends only if the user was playing before [load_chapter_seek].
+    chapter_scrub_unpause_after: std::cell::Cell<bool>,
 
     #[cfg(not(target_os = "macos"))]
     _gl: GlDynLib,
@@ -119,6 +129,11 @@ impl MpvBundle {
                 pending_resume: std::cell::Cell::new(None),
                 skip_media_persist: std::cell::Cell::new(false),
                 warm_file_gen: std::cell::Cell::new(0),
+                dvd_hold_global: std::cell::Cell::new(None),
+                chapter_eof_load: std::cell::Cell::new(false),
+                chapter_scrub_resume: std::cell::Cell::new(false),
+                chapter_scrub_hold_pause: std::cell::Cell::new(false),
+                chapter_scrub_unpause_after: std::cell::Cell::new(false),
             },
             auto_off,
         ))
@@ -134,6 +149,11 @@ impl MpvBundle {
                 pending_resume: std::cell::Cell::new(None),
                 skip_media_persist: std::cell::Cell::new(false),
                 warm_file_gen: std::cell::Cell::new(0),
+                dvd_hold_global: std::cell::Cell::new(None),
+                chapter_eof_load: std::cell::Cell::new(false),
+                chapter_scrub_resume: std::cell::Cell::new(false),
+                chapter_scrub_hold_pause: std::cell::Cell::new(false),
+                chapter_scrub_unpause_after: std::cell::Cell::new(false),
                 macos: Some(macos),
             },
             auto_off,
@@ -234,6 +254,15 @@ impl MpvBundle {
 
     #[cfg(not(target_os = "macos"))]
     pub fn watch_overlay<W: glib::object::IsA<gtk::Widget>>(&self, _widget: &W) {}
+
+    /// Continue-grid warm preload: keep native video clipped/hidden and repaint GTK chrome.
+    pub(crate) fn nudge_browse_video_layout(&self, gl: &gtk::GLArea) {
+        #[cfg(target_os = "macos")]
+        if let Some(m) = self.macos.as_ref() {
+            m.resync_layer_frame();
+        }
+        gl.queue_render();
+    }
 
     /// macOS only: clear the GLArea framebuffer with alpha=0 so the native video layer
     /// below shows through. Call from inside `connect_render`. Reuses the bundle's

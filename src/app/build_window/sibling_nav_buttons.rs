@@ -25,6 +25,9 @@ fn try_load_sibling_pick(
     let Some(cur) = cur.filter(|c| c.is_file()) else {
         return;
     };
+    if crate::app::browse_overlay_active(&r.recent) {
+        return;
+    }
     let g = r.player.borrow();
     if g.is_none() {
         return;

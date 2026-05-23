@@ -63,6 +63,13 @@ Feature: Sibling folder queue
     When the user activates the bottom-bar Previous or Next
     Then the loaded file matches the same folder and sibling ordering as EOF advance
 
+  Scenario: DVD chapter files queue sibling disc directories
+    Given playback is a chapter file under a video transport folder on a disc directory
+    And another disc directory with a video transport folder is a sibling under the same parent
+    When the user activates Next or end-of-playback occurs after the whole title finishes
+    Then the next sibling disc directory opens at its resume-aware entry chapter
+    And not the next chapter file within the current disc unless chapter EOF advance applies
+
   Scenario: Ctrl with arrows jumps previous / next sibling
     Given a local file with duration is open
     When the user presses Ctrl+Left or Ctrl+Right (including keypad arrows with Ctrl)
@@ -80,6 +87,6 @@ Feature: Sibling folder queue
 - Before loading the next sibling after EOF, mpv `speed` is set to **1.0** when it was not already (see [28-playback-speed](28-playback-speed.md)).
 - The last successfully loaded canonical path is used when `path` is empty.
 - Local files only: with no resolvable path, no advance runs.
-- Implementation: `src/sibling_advance.rs`, `src/app/load.rs::maybe_advance_sibling_on_eof`, `src/app/transport_events.rs::wire_transport_events`.
+- Implementation: `src/sibling_advance.rs` (`dvd_disc_sibling` for `is_dvd_vob_path` / `is_dvd_disc_path`), `src/app/load.rs::maybe_advance_sibling_on_eof`, `src/app/transport_events.rs::wire_transport_events`.
 - Sensitivity and tooltips update on `path` change plus `FileLoaded` / `VideoReconfig`; chrome controls update from `mpv_observe_property` events with no-op-change guards (so tooltip-show timers are not reset).
 - Out of scope here: arbitrary multi-title playlists, shuffle, MIME probing.

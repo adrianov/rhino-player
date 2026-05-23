@@ -15,11 +15,19 @@ pub(crate) fn stash_near_start_resume(mpv: &Mpv, pending: &Cell<Option<f64>>, pa
     if !(pos.is_finite() && pos < crate::media_probe::NEAR_END_SEC) {
         return;
     }
-    let Some(t) = crate::db::resume_pos(path) else {
+    let entity = crate::playback_entity::PlaybackEntity::resolve(path);
+    let Some(t) = crate::db::resume_pos(&entity.db_path()) else {
         return;
     };
-    if !resume_already_at(mpv, t) {
-        pending.set(Some(t));
+    let map = crate::db::load_duration_map();
+    let Some((target, local)) = entity.resume_load_target(path, t, &map) else {
+        return;
+    };
+    if !crate::video_ext::paths_same_file(&target, path) {
+        return;
+    }
+    if !resume_already_at(mpv, local) {
+        pending.set(Some(local));
     }
 }
 

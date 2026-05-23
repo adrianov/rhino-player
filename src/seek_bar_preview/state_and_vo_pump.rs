@@ -22,6 +22,7 @@ pub struct SeekPreviewState {
     pub player: Rc<RefCell<Option<MpvBundle>>>,
     pub last_path: Rc<RefCell<Option<PathBuf>>>,
     pub chapters: Rc<RefCell<Vec<(f64, String)>>>,
+    pub dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
     pub hover_t: Rc<Cell<f64>>,
     pub last_xy: Rc<RefCell<Option<(f64, f64)>>>,
     pub deb: Rc<RefCell<Option<glib::SourceId>>>,

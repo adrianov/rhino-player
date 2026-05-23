@@ -36,6 +36,21 @@ pub fn snapshot_media_row(path: &Path) -> Option<MediaRowSnapshot> {
     .flatten()
 }
 
+/// PNG bytes for this entity path key when present (no mtime check).
+pub fn stored_thumb_png(path: &Path) -> Option<Vec<u8>> {
+    let s = history_key(path)?;
+    with_conn(|c| {
+        c.query_row(
+            "SELECT thumb_png FROM media WHERE path = ?1 AND thumb_png IS NOT NULL",
+            params![&s],
+            |row| row.get::<_, Option<Vec<u8>>>(0),
+        )
+        .optional()
+    })
+    .flatten()
+    .flatten()
+}
+
 /// Replace the `media` row after undo of a continue-list removal.
 pub fn apply_media_snapshot(s: &MediaRowSnapshot) {
     let _ = with_conn(|c| {

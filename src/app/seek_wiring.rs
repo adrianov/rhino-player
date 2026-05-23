@@ -19,6 +19,7 @@ struct SeekControlDeps {
     smooth_seek_debounce: Rc<RefCell<Option<glib::SourceId>>>,
     resume_after_seek_idle: Rc<Cell<bool>>,
     play_toggle: PlayToggleCtx,
+    dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
 }
 
 struct SeekCtx {
@@ -32,6 +33,7 @@ struct SeekCtx {
     smooth_seek_debounce: Rc<RefCell<Option<glib::SourceId>>>,
     resume_after_seek_idle: Rc<Cell<bool>>,
     play_toggle: PlayToggleCtx,
+    dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
 }
 
 fn wire_seek_control(seek: &gtk::Scale, d: SeekControlDeps) {
@@ -45,6 +47,7 @@ fn wire_seek_control(seek: &gtk::Scale, d: SeekControlDeps) {
         smooth_seek_debounce,
         resume_after_seek_idle,
         play_toggle,
+        dvd_bar,
     } = d;
     let ctx = Rc::new(SeekCtx {
         seek: seek.clone(),
@@ -57,6 +60,7 @@ fn wire_seek_control(seek: &gtk::Scale, d: SeekControlDeps) {
         smooth_seek_debounce,
         resume_after_seek_idle,
         play_toggle,
+        dvd_bar,
     });
     wire_value_changed(&ctx);
     wire_press_release(&ctx);
@@ -138,6 +142,7 @@ fn quick_seek(ctx: &SeekCtx, v: f64) {
             smooth_seek_debounce: &ctx.smooth_seek_debounce,
             resume_after_seek_idle: &ctx.resume_after_seek_idle,
             play_toggle: &ctx.play_toggle,
+            dvd_bar: Some(&ctx.dvd_bar),
         },
         SeekKeyframeKind::ScaleOrExternal,
         &s,
@@ -153,29 +158,63 @@ struct SeekArrowDeps<'a> {
     smooth_seek_debounce: &'a Rc<RefCell<Option<glib::SourceId>>>,
     resume_after_seek_idle: &'a Rc<Cell<bool>>,
     play_toggle: &'a PlayToggleCtx,
+    dvd_bar: Option<&'a Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>>,
+}
+
+#[must_use]
+fn dvd_title_pos(
+    b: &MpvBundle,
+    ch: &std::path::Path,
+    local: f64,
+    live: f64,
+    dvd_bar: Option<&Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>>,
+) -> Option<(f64, f64)> {
+    if let Some(slot) = dvd_bar {
+        let guard = slot.borrow();
+        if let Some(ref bar) = *guard {
+            return Some((bar.transport_global_pos(b, ch, local), bar.total_sec()));
+        }
+    }
+    crate::dvd_vob_timeline::DvdBarState::build(ch, live)
+        .map(|bar| (bar.transport_global_pos(b, ch, local), bar.total_sec()))
+}
+
+fn arrow_seek_pos_len(
+    b: &MpvBundle,
+    seek: &gtk::Scale,
+    dvd_bar: Option<&Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>>,
+) -> Option<(f64, f64)> {
+    let shell = b.me_budget_shell_path.borrow().clone();
+    let mut pos = b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
+    let mut dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
+    let chapter = crate::media_probe::local_file_from_mpv(&b.mpv).or(shell);
+    if let Some(ref ch) = chapter {
+        let live = if dur.is_finite() { dur.max(0.0) } else { 0.0 };
+        if let Some((g, total)) = dvd_title_pos(b, ch, pos, live, dvd_bar) {
+            pos = g;
+            dur = total;
+        }
+    }
+    pos = if pos.is_finite() { pos.max(0.0) } else { 0.0 };
+    dur = if dur.is_finite() { dur.max(0.0) } else { 0.0 };
+    let adj_u = seek.adjustment().upper();
+    let adj_u = if adj_u.is_finite() { adj_u.max(0.0) } else { 0.0 };
+    let len = if adj_u > 0.0 { adj_u } else if dur > 0.0 { dur } else { 0.0 };
+    (len > 0.0).then_some((pos, len))
 }
 
 /// Steps **playback position** by `delta_sec` (e.g. −5 / +5 for arrow keys); keeps UI scale + clock aligned.
 fn seek_arrow_step(d: &SeekArrowDeps<'_>, delta_sec: f64) {
-    let g = d.player.borrow();
-    let Some(b) = g.as_ref() else {
-        return;
+    let nt = {
+        let g = d.player.borrow();
+        let Some(b) = g.as_ref() else {
+            return;
+        };
+        let Some((pos, len)) = arrow_seek_pos_len(b, d.seek, d.dvd_bar) else {
+            return;
+        };
+        (pos + delta_sec).clamp(0.0, len)
     };
-    let pos = b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
-    let dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
-    let pos = if pos.is_finite() { pos.max(0.0) } else { 0.0 };
-    let dur = if dur.is_finite() { dur.max(0.0) } else { 0.0 };
-    let adj_u = d.seek.adjustment().upper();
-    let adj_u = if adj_u.is_finite() { adj_u.max(0.0) } else { 0.0 };
-    let len = if adj_u > 0.0 {
-        adj_u
-    } else if dur > 0.0 {
-        dur
-    } else {
-        return;
-    };
-    let nt = (pos + delta_sec).clamp(0.0, len);
-    drop(g);
     let s_abs = format!("{nt:.4}");
     main_player_seek_keyframes(
         &SeekKeyframeParams {
@@ -184,6 +223,7 @@ fn seek_arrow_step(d: &SeekArrowDeps<'_>, delta_sec: f64) {
             smooth_seek_debounce: d.smooth_seek_debounce,
             resume_after_seek_idle: d.resume_after_seek_idle,
             play_toggle: d.play_toggle,
+            dvd_bar: d.dvd_bar,
         },
         SeekKeyframeKind::ArrowBurst,
         &s_abs,

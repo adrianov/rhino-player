@@ -10,6 +10,7 @@ pub fn connect(
     last_path: Rc<RefCell<Option<PathBuf>>>,
     enabled: Rc<Cell<bool>>,
     chapters: Rc<RefCell<Vec<(f64, String)>>>,
+    dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
     ctx: SeekPreviewCtx,
 ) -> Rc<SeekPreviewState> {
     let SeekPreviewCtx { ovl, bottom } = ctx;
@@ -82,6 +83,7 @@ pub fn connect(
         player,
         last_path,
         chapters,
+        dvd_bar,
         hover_t: Rc::new(Cell::new(0.0)),
         last_xy: Rc::new(RefCell::new(None)),
         deb: Rc::new(RefCell::new(None)),
@@ -200,33 +202,44 @@ fn schedule_preview_seek(st: Rc<SeekPreviewState>) {
             if st2.serial.get() != run_id || !st2.enabled.get() {
                 return glib::ControlFlow::Break;
             }
-            let load_s = {
+            let seek = {
                 let g = st2.player.borrow();
                 let Some(b) = g.as_ref() else {
                     st2.hide();
                     return glib::ControlFlow::Break;
                 };
                 let shell = b.me_budget_shell_path.borrow().clone();
-                preview_load_path(&b.mpv, shell.as_deref())
-            };
-            let Some(load_s) = load_s else {
-                st2.hide();
-                return glib::ControlFlow::Break;
-            };
-            let bar_d = st2.seek_adj.upper();
-            let content_dur = st2
-                .player
-                .borrow()
-                .as_ref()
-                .map(|b| {
-                    preview_hover_duration(
+                let bar_d = st2.seek_adj.upper();
+                let hover = st2.hover_t.get();
+                if let Some(pt) = crate::dvd_vob_timeline::preview_target(
+                    &b.mpv,
+                    shell.as_deref(),
+                    hover,
+                    Some(&st2.dvd_bar),
+                ) {
+                    let cap = if pt.chapter_dur > 0.0 {
+                        pt.chapter_dur
+                    } else {
+                        bar_d
+                    };
+                    let t = cap_preview_seek_time(pt.local_sec, cap);
+                    Some((pt.load, cap, t))
+                } else if let Some(load_s) = preview_load_path(&b.mpv, shell.as_deref()) {
+                    let content_dur = preview_hover_duration(
                         bar_d,
                         &b.mpv,
                         st2.preview.borrow().as_ref().map(|p| &p.mpv),
-                    )
-                })
-                .unwrap_or(bar_d);
-            let t = cap_preview_seek_time(st2.hover_t.get(), content_dur);
+                    );
+                    let t = cap_preview_seek_time(hover, content_dur);
+                    Some((load_s, content_dur, t))
+                } else {
+                    None
+                }
+            };
+            let Some((load_s, content_dur, t)) = seek else {
+                st2.hide();
+                return glib::ControlFlow::Break;
+            };
             do_preview_seek(&st2, &load_s, content_dur, t, run_id);
             glib::ControlFlow::Break
         },

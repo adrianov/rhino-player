@@ -13,10 +13,14 @@ fn persist_budget_save_media_row_verbose(
     new_budget_px: u64,
     stderr_reason_suffix: &'static str,
 ) {
-    if let Some(p) = crate::media_probe::local_file_from_mpv(&b.mpv) {
-        crate::db::media_save_smooth_me_budget(&p, new_budget_px);
+    if let Some(p) = crate::media_probe::shell_media_path(
+        &b.mpv,
+        b.me_budget_shell_path.borrow().as_deref(),
+    ) {
+        let entity = crate::playback_entity::db_path_for(&p);
+        crate::db::media_save_smooth_me_budget(&entity, new_budget_px);
         if video_log() {
-            let key_ok = crate::db::history_key(&p).is_some();
+            let key_ok = crate::db::history_key(&entity).is_some();
             eprintln!(
                 "[rhino] video: (verbose) persist_budget media_save px²={new_budget_px} history_key_ok={key_ok}",
             );
@@ -34,8 +38,14 @@ fn persist_budget_save_media_imm_borrow(
 ) {
     if let Ok(g) = player.try_borrow() {
         if let Some(b) = g.as_ref() {
-            if let Some(p) = crate::media_probe::local_file_from_mpv(&b.mpv) {
-                crate::db::media_save_smooth_me_budget(&p, new_budget_px);
+            if let Some(p) = crate::media_probe::shell_media_path(
+                &b.mpv,
+                b.me_budget_shell_path.borrow().as_deref(),
+            ) {
+                crate::db::media_save_smooth_me_budget(
+                    &crate::playback_entity::db_path_for(&p),
+                    new_budget_px,
+                );
             }
         }
     }

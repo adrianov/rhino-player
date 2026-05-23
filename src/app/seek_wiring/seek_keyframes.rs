@@ -15,6 +15,7 @@ struct SeekKeyframeParams<'a> {
     smooth_seek_debounce: &'a Rc<RefCell<Option<glib::SourceId>>>,
     resume_after_seek_idle: &'a Rc<Cell<bool>>,
     play_toggle: &'a PlayToggleCtx,
+    dvd_bar: Option<&'a Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>>,
 }
 
 fn cancel_smooth_seek_debounce(slot: &Rc<RefCell<Option<glib::SourceId>>>) {
@@ -64,6 +65,45 @@ fn schedule_seek_burst_tail(
 /// **[SeekKeyframeKind::ScaleOrExternal]**: leaves pause alone; if this seek begins while playing,
 /// debounce Smooth reattach only. If an arrow burst left **`resume_after_seek_idle`** latched, the
 /// same tail timer still runs (seek-bar scrub while “held” paused for arrows).
+fn seek_keyframes_after_command(
+    p: &SeekKeyframeParams<'_>,
+    kind: SeekKeyframeKind,
+    paused_before: bool,
+) {
+    p.gl.queue_render();
+    if p.resume_after_seek_idle.get() {
+        schedule_seek_burst_tail(
+            p.smooth_seek_debounce,
+            p.resume_after_seek_idle.clone(),
+            p.gl.clone(),
+            p.play_toggle.clone(),
+        );
+    } else if matches!(kind, SeekKeyframeKind::ScaleOrExternal) && !paused_before {
+        schedule_smooth_vf_only_tail(p.smooth_seek_debounce, p.gl.clone());
+    }
+}
+
+fn try_dvd_global_seek(p: &SeekKeyframeParams<'_>, seconds: &str) -> bool {
+    let Ok(t) = seconds.parse::<f64>() else {
+        return false;
+    };
+    if !t.is_finite() {
+        return false;
+    }
+    let ok = crate::dvd_vob_timeline::seek_global(p.player, t, p.dvd_bar);
+    if !ok {
+        crate::dvd_vob_log::dvd_seek_log(format!(
+            "try_dvd_global_seek: seek_global returned false for t={t:.2} bar={}",
+            if p.dvd_bar.is_some_and(|b| b.borrow().is_some()) {
+                "cached"
+            } else {
+                "missing"
+            }
+        ));
+    }
+    ok
+}
+
 fn main_player_seek_keyframes(p: &SeekKeyframeParams<'_>, kind: SeekKeyframeKind, seconds: &str) {
     cancel_smooth_seek_debounce(p.smooth_seek_debounce);
     let paused_before;
@@ -82,6 +122,10 @@ fn main_player_seek_keyframes(p: &SeekKeyframeParams<'_>, kind: SeekKeyframeKind
             let _ = apply_mpv_pause(p.play_toggle, true);
         }
     }
+    if try_dvd_global_seek(p, seconds) {
+        seek_keyframes_after_command(p, kind, paused_before);
+        return;
+    }
     {
         let g = p.player.borrow();
         let Some(b) = g.as_ref() else {
@@ -90,15 +134,5 @@ fn main_player_seek_keyframes(p: &SeekKeyframeParams<'_>, kind: SeekKeyframeKind
         let _ = video_pref::unload_smooth_on_pause(&b.mpv);
         let _ = b.mpv.command("seek", &[seconds, "absolute+keyframes"]);
     }
-    if p.resume_after_seek_idle.get() {
-        schedule_seek_burst_tail(
-            p.smooth_seek_debounce,
-            p.resume_after_seek_idle.clone(),
-            p.gl.clone(),
-            p.play_toggle.clone(),
-        );
-    } else if matches!(kind, SeekKeyframeKind::ScaleOrExternal) && !paused_before {
-        schedule_smooth_vf_only_tail(p.smooth_seek_debounce, p.gl.clone());
-    }
-    p.gl.queue_render();
+    seek_keyframes_after_command(p, kind, paused_before);
 }

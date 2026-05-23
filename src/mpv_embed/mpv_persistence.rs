@@ -36,15 +36,7 @@ pub fn stop_playback(&self) {
 }
 
 fn snapshot_playback_inner(&self) {
-    let shell = self.me_budget_shell_path.borrow();
-    let path = media_probe::shell_media_path(&self.mpv, shell.as_deref());
-    if let Some(ref p) = path {
-        if media_probe::is_natural_end(&self.mpv) {
-            media_probe::clear_resume_for_path(p);
-            return;
-        }
-    }
-    media_probe::record_playback_for_current(&self.mpv, shell.as_deref());
+    media_probe::record_playback_for_current(&self.mpv, self.me_budget_shell_path.borrow().as_deref());
 }
 
 /// Persist `duration` + `time-pos` unless [Self::skip_media_persist] (continue-grid warm hover).
@@ -86,48 +78,233 @@ pub fn load_file_path(
     clear_outgoing_resume: bool,
     snapshot_outgoing: bool,
     warm_preload: bool,
+    resume_at: Option<f64>,
 ) -> Result<(), String> {
-    let shell = self.me_budget_shell_path.borrow();
-    let outgoing = media_probe::shell_media_path(&self.mpv, shell.as_deref());
-    if clear_outgoing_resume && !warm_preload {
-        if let Some(p) = outgoing {
-            media_probe::clear_resume_for_path(&p);
+    {
+        let shell = self.me_budget_shell_path.borrow();
+        let outgoing = media_probe::shell_media_path(&self.mpv, shell.as_deref());
+        if clear_outgoing_resume && !warm_preload {
+            if let Some(p) = outgoing {
+                media_probe::clear_resume_for_path(&p);
+            }
+        } else if snapshot_outgoing && !warm_preload {
+            media_probe::record_playback_for_current(&self.mpv, shell.as_deref());
         }
-    } else if snapshot_outgoing && !warm_preload {
-        media_probe::record_playback_for_current(&self.mpv, shell.as_deref());
     }
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let s = canonical.to_str().ok_or("media path is not valid UTF-8")?;
+    let entity = crate::playback_entity::PlaybackEntity::resolve(&canonical);
+    let db_key = entity.db_path();
+    let stored = resume_at.or_else(|| db::resume_pos(&db_key));
+    let (load_path, pending) = if let Some(global) = stored {
+        let map = db::load_duration_map();
+        entity
+            .resume_load_target(&canonical, global, &map)
+            .map(|(target, local)| (target, Some(local)))
+            .unwrap_or((canonical.clone(), None))
+    } else {
+        (canonical.clone(), None)
+    };
+    let s = load_path.to_str().ok_or("media path is not valid UTF-8")?;
     if warm_preload {
         self.warm_file_gen.set(self.warm_file_gen.get().wrapping_add(1));
     }
-    self.pending_resume.set(db::resume_pos(&canonical));
+    self.clear_chapter_scrub_pause_hold();
+    self.chapter_scrub_resume.set(false);
+    self.pending_resume.set(pending);
+    self.set_me_budget_shell_path(&load_path);
     self.mpv
         .command("loadfile", &[s, "replace"])
         .map_err(|e| format!("{e:?}"))
 }
 
-/// Apply the resume stashed by the most recent [load_file_path]. Idempotent and a no-op when
-/// nothing is pending. Call once per `FileLoaded` from the transport-event drain.
+/// Cross-chapter DVD seek: `loadfile` with chapter-local resume (not entity-global remap).
+pub fn load_chapter_seek(
+    &self,
+    path: &Path,
+    local_sec: f64,
+    hold_global: f64,
+    play_after: bool,
+) -> Result<(), String> {
+    {
+        let shell = self.me_budget_shell_path.borrow();
+        let outgoing = media_probe::shell_media_path(&self.mpv, shell.as_deref());
+        if outgoing.is_some() {
+            media_probe::record_playback_for_current(&self.mpv, shell.as_deref());
+        }
+    }
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let s = canonical.to_str().ok_or("media path is not valid UTF-8")?;
+    self.dvd_hold_global.set(Some(hold_global));
+    self.chapter_eof_load.set(play_after);
+    self.chapter_scrub_resume.set(true);
+    self.begin_chapter_scrub_pause_hold();
+    self.pending_resume.set(Some(local_sec.max(0.0)));
+    self.set_me_budget_shell_path(&canonical);
+    crate::dvd_vob_log::dvd_seek_log(format!(
+        "load_chapter_seek file={} local={local_sec:.2} hold_global={hold_global:.2}",
+        canonical.display()
+    ));
+    self.mpv
+        .command("loadfile", &[s, "replace"])
+        .map_err(|e| format!("{e:?}"))
+}
+
+/// Pause through cross-chapter `loadfile` until [apply_pending_resume] reaches the target.
+fn begin_chapter_scrub_pause_hold(&self) {
+    let was_playing = !self.mpv.get_property::<bool>("pause").unwrap_or(true);
+    self.chapter_scrub_unpause_after.set(was_playing);
+    self.chapter_scrub_hold_pause.set(true);
+    let _ = self.mpv.set_property("pause", true);
+    crate::dvd_vob_log::dvd_seek_log(format!(
+        "chapter_scrub: pause hold (resume playing={was_playing})"
+    ));
+}
+
+fn finish_chapter_scrub_pause_hold(&self) {
+    if !self.chapter_scrub_hold_pause.replace(false) {
+        return;
+    }
+    let playing = self.chapter_scrub_unpause_after.get();
+    let _ = self.mpv.set_property("pause", !playing);
+    crate::dvd_vob_log::dvd_seek_log(if playing {
+        "chapter_scrub: unpause after resume seek"
+    } else {
+        "chapter_scrub: re-pause after resume seek"
+    });
+}
+
+/// DVD cross-chapter resume: demux often ignores `seek` while `pause=yes` — unpause for the command.
+fn chapter_scrub_seek_to(&self, t: f64) {
+    if self.chapter_scrub_hold_pause.get() {
+        let _ = self.mpv.set_property("pause", false);
+    }
+    resume_seek::seek_to_resume_sec(&self.mpv, t);
+}
+
+fn complete_chapter_scrub_if_at_target(&self, t: f64) -> bool {
+    if !self.chapter_scrub_resume.get() {
+        return false;
+    }
+    if !resume_seek::resume_already_at(&self.mpv, t) {
+        return false;
+    }
+    let pos = self.mpv.get_property::<f64>("time-pos").unwrap_or(f64::NAN);
+    self.pending_resume.set(None);
+    self.chapter_scrub_resume.set(false);
+    self.dvd_hold_global.set(None);
+    self.finish_chapter_scrub_pause_hold();
+    crate::dvd_vob_log::dvd_seek_log(format!(
+        "apply_pending_resume: chapter scrub done target={t:.2} pos={pos:.2}"
+    ));
+    true
+}
+
+pub(crate) fn clear_chapter_scrub_pause_hold(&self) {
+    self.chapter_scrub_hold_pause.set(false);
+    self.chapter_scrub_unpause_after.set(false);
+}
+
+/// Open mpv `path` matches [Self::set_me_budget_shell_path] (set before `loadfile`).
+fn mpv_path_matches_shell(&self) -> bool {
+    let shell = self.me_budget_shell_path.borrow();
+    let Some(ref target) = *shell else {
+        return true;
+    };
+    let Some(open) = media_probe::local_file_from_mpv(&self.mpv) else {
+        return false;
+    };
+    crate::video_ext::paths_same_file(target.as_path(), &open)
+}
+
+/// Apply the resume stashed by the most recent [load_file_path] or [load_chapter_seek]. Idempotent
+/// and a no-op when nothing is pending. Call from `FileLoaded` and again on `path` / `duration`
+/// when the shell path was set before mpv switched files (cross-chapter DVD scrub).
 /// Uses **`absolute+exact`** so the demuxer lands on the saved time (keyframe-only seeks can
 /// sit at 0s briefly on load and fight the continue grid).
 pub fn apply_pending_resume(&self) -> Option<f64> {
-    let Some(path) = self.persist_media_path() else {
+    let Some(t) = self.pending_resume.get() else {
+        self.dvd_hold_global.set(None);
+        self.chapter_scrub_resume.set(false);
         return None;
     };
-    resume_seek::stash_near_start_resume(&self.mpv, &self.pending_resume, &path);
-    let Some(t) = self.pending_resume.replace(None) else {
+    if !self.mpv_path_matches_shell() {
+        crate::dvd_vob_log::dvd_seek_log(format!(
+            "apply_pending_resume: wait path (target={t:.2})"
+        ));
         return None;
-    };
+    }
+    let dur = self
+        .mpv
+        .get_property::<f64>("duration")
+        .ok()
+        .filter(|d| d.is_finite() && *d > 0.0)
+        .unwrap_or(0.0);
+    if dur <= 0.0 {
+        crate::dvd_vob_log::dvd_seek_log(format!(
+            "apply_pending_resume: wait duration (target={t:.2})"
+        ));
+        return None;
+    }
+    let chapter_scrub = self.chapter_scrub_resume.get();
+    if !chapter_scrub {
+        let path = self.persist_media_path();
+        if let Some(ref p) = path {
+            resume_seek::stash_near_start_resume(&self.mpv, &self.pending_resume, p);
+        }
+    }
+    let t = self.pending_resume.get()?;
+    let pos = self.mpv.get_property::<f64>("time-pos").unwrap_or(f64::NAN);
+    if chapter_scrub {
+        if self.complete_chapter_scrub_if_at_target(t) {
+            return Some(t);
+        }
+        self.chapter_scrub_seek_to(t);
+        if self.complete_chapter_scrub_if_at_target(t) {
+            return Some(t);
+        }
+        crate::dvd_vob_log::dvd_seek_log(format!(
+            "apply_pending_resume: chapter scrub seek {t:.2} (pos={pos:.2}, retry)"
+        ));
+        return Some(t);
+    }
     if resume_seek::resume_already_at(&self.mpv, t) {
+        self.pending_resume.set(None);
+        self.dvd_hold_global.set(None);
+        crate::dvd_vob_log::dvd_seek_log(format!(
+            "apply_pending_resume: at target {t:.2} (pos={pos:.2})"
+        ));
         return Some(t);
     }
     resume_seek::seek_to_resume_sec(&self.mpv, t);
+    self.pending_resume.set(None);
+    self.dvd_hold_global.set(None);
+    crate::dvd_vob_log::dvd_seek_log(format!("apply_pending_resume: seek {t:.2} (was pos={pos:.2})"));
     Some(t)
+}
+
+/// True while a cross-chapter scrub still needs [apply_pending_resume].
+#[must_use]
+pub fn chapter_scrub_resume_pending(&self) -> bool {
+    self.chapter_scrub_resume.get() && self.pending_resume.get().is_some()
+}
+
+pub(crate) fn clear_chapter_scrub_resume(&self) {
+    self.chapter_scrub_resume.set(false);
+    self.pending_resume.set(None);
+    self.finish_chapter_scrub_pause_hold();
+}
+
+/// True when the pending `loadfile` is a same-title DVD chapter advance (EOF auto-load).
+#[must_use]
+pub fn take_chapter_eof_load(&self) -> bool {
+    self.chapter_eof_load.replace(false)
 }
 
 /// Warm reopen (card click / Space): only seek when hover preload never applied [pending_resume].
 pub fn apply_pending_resume_on_warm_open(&self) -> Option<f64> {
+    if !self.mpv_path_matches_shell() {
+        return None;
+    }
     let Some(t) = self.pending_resume.replace(None) else {
         return None;
     };

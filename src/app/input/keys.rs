@@ -79,6 +79,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
     let time_left_sc = ctx.time_left.clone();
     let gl_seek = ctx.shell.gl.clone();
     let smooth_seek_db = ctx.smooth_seek_debounce.clone();
+    let dvd_bar_keys = Rc::clone(&ctx.dvd_bar);
     let resume_seek_idle = ctx.resume_after_seek_idle.clone();
     let play_seek_toggle = ctx.play_toggle.clone();
     let digit_spd = DigitSpeedShortcutCtx {
@@ -191,6 +192,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
             smooth_seek_debounce: &smooth_seek_db,
             resume_after_seek_idle: &resume_seek_idle,
             play_toggle: &play_seek_toggle,
+            dvd_bar: Some(&dvd_bar_keys),
         };
         if let Some(r) =
             propagation_horizontal_seek(key, recent_esc.is_visible(), seek_sc.is_sensitive(), &seek_deps)

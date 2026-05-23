@@ -32,11 +32,11 @@ pub fn continue_grid_cache_refresh(cache: &ContinueGridCache, cards: &[CardData]
         if c.missing {
             continue;
         }
-        let Some(k) = c.path.to_str() else {
+        let Some(k) = crate::db::history_key(&c.path) else {
             continue;
         };
         g.insert(
-            k.to_string(),
+            k,
             ContinueSnap {
                 resume_sec: c.resume_sec,
                 duration_sec: c.duration_sec,
@@ -46,9 +46,8 @@ pub fn continue_grid_cache_refresh(cache: &ContinueGridCache, cards: &[CardData]
 }
 
 pub fn continue_grid_cache_lookup(cache: &ContinueGridCache, path: &Path) -> Option<ContinueSnap> {
-    let abs = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let k = abs.to_str()?;
-    cache.borrow().get(k).copied()
+    let key = crate::db::history_key(path)?;
+    cache.borrow().get(&key).copied()
 }
 
 /// Data for one recent-movie card.
@@ -66,12 +65,13 @@ pub struct CardData {
 
 /// Drop SQLite resume position so the next `loadfile` starts at 0.
 pub fn clear_resume_for_path(media: &Path) {
-    db::clear_resume_position(media);
+    crate::playback_entity::clear_entity_resume(media);
 }
 
 /// Clear DB resume, then drop [path] from continue **history** (dismiss, trash, EOF with no next, etc.).
 pub fn remove_continue_entry(path: &Path) {
-    clear_resume_for_path(path);
+    let entity = crate::playback_entity::db_path_for(path);
+    clear_resume_for_path(&entity);
     crate::history::remove(path);
 }
 
@@ -85,7 +85,7 @@ pub struct ListRemoveUndo {
 
 /// Call **before** [remove_continue_entry] for a manual dismiss.
 pub fn capture_list_remove_undo(path: &Path) -> ListRemoveUndo {
-    let path = path.to_path_buf();
+    let path = crate::playback_entity::db_path_for(path);
     let media = db::snapshot_media_row(&path);
     ListRemoveUndo { path, media }
 }
@@ -142,13 +142,17 @@ fn path_tag(path: &str) -> u64 {
 
 /// Wanted thumb time for a **canonical** path (DB key is the canonical path string).
 fn thumb_time_for_path(key: &str) -> f64 {
-    let target = db::load_time_pos_map()
-        .get(key)
-        .copied()
-        .unwrap_or(GRID_FALLBACK_SEC);
-    let dur = db::load_duration_map().get(key).copied().unwrap_or(0.0);
-    if dur.is_finite() && dur > 1.0 {
-        target.clamp(0.0, (dur - 0.5).max(0.0))
+    let path = Path::new(key);
+    let durs = db::load_duration_map();
+    let tpos = db::load_time_pos_map();
+    let (resume, duration) = crate::playback_entity::card_resume_duration(path, &durs, &tpos);
+    let target = if resume > 0.0 {
+        resume
+    } else {
+        GRID_FALLBACK_SEC
+    };
+    if duration.is_finite() && duration > 1.0 {
+        target.clamp(0.0, (duration - 0.5).max(0.0))
     } else {
         target.max(0.0)
     }
@@ -161,23 +165,38 @@ fn db_thumb_for_canon_path(can: &Path) -> Option<Vec<u8>> {
     db::take_thumb_if_fresh(s, mtime, t)
 }
 
-/// Current thumbnail for this path in [crate::db] when [db::file_mtime_sec] matches; **no libmpv** (use on the UI thread).
+/// Current thumbnail for this path in [crate::db] when fresh; **no libmpv** (use on the UI thread).
 pub fn cached_thumbnail_for_path(path: &Path) -> Option<Vec<u8>> {
-    if !path.exists() {
+    cached_thumbnail_for_display(path)
+}
+
+pub(crate) fn db_thumb_for_entity_key(db_key: &str, load_can: &Path) -> Option<Vec<u8>> {
+    let mtime = db::file_mtime_sec(load_can)?;
+    let t = thumb_time_for_path(db_key);
+    db::take_thumb_if_fresh(db_key, mtime, t)
+}
+
+fn thumb_load_path(entity: &Path) -> Option<PathBuf> {
+    if !entity.exists() {
         return None;
+    }
+    let load = crate::video_ext::resolve_open_media_path(entity);
+    std::fs::canonicalize(&load).ok()
+}
+
+/// Display fallback: entity-keyed thumb (mtime from the file mpv would load).
+fn cached_thumbnail_for_display(path: &Path) -> Option<Vec<u8>> {
+    let entity = crate::playback_entity::db_path_for(path);
+    if let Some(k) = crate::db::history_key(&entity) {
+        if let Some(load) = thumb_load_path(&entity) {
+            if let Some(t) = db_thumb_for_entity_key(&k, &load) {
+                return Some(t);
+            }
+        }
+        if let Some(t) = db::stored_thumb_png(&entity) {
+            return Some(t);
+        }
     }
     let can = std::fs::canonicalize(path).ok()?;
     db_thumb_for_canon_path(&can)
-}
-
-/// Display fallback: show the last valid raster for this file while background backfill refreshes
-/// a stale `thumb_time_pos_sec`.
-fn cached_thumbnail_for_display(path: &Path) -> Option<Vec<u8>> {
-    if !path.exists() {
-        return None;
-    }
-    let can = std::fs::canonicalize(path).ok()?;
-    let s = can.to_str()?;
-    let mtime = db::file_mtime_sec(&can)?;
-    db::take_thumb_if_current(s, mtime)
 }

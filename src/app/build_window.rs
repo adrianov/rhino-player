@@ -28,6 +28,7 @@ fn build_window(
     );
 
     let seek_chapters = Rc::new(RefCell::new(Vec::<(f64, String)>::new()));
+    let dvd_bar = Rc::new(RefCell::new(None::<crate::dvd_vob_timeline::DvdBarState>));
     let bar_show = Rc::new(Cell::new(true));
     let nav_t = Rc::new(RefCell::new(None::<glib::SourceId>));
     let cur_t = Rc::new(RefCell::new(None::<glib::SourceId>));
@@ -116,6 +117,7 @@ fn build_window(
         video_pref,
         sub_pref,
         seek_chapters,
+        dvd_bar,
         seek_bar_on,
         last_path,
         bar_show,

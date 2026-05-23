@@ -25,6 +25,7 @@ pub(crate) struct WarmPreloadCtx {
     player: Rc<RefCell<Option<MpvBundle>>>,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
     recent: gtk::Box,
+    gl: gtk::GLArea,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     /// Coalesced hover target; runs at [glib::Priority::LOW] so scroll/motion stays smooth.
     hover_idle: Rc<RefCell<Option<glib::SourceId>>>,
@@ -36,6 +37,7 @@ impl WarmPreloadCtx {
         player: Rc<RefCell<Option<MpvBundle>>>,
         video_pref: Rc<RefCell<db::VideoPrefs>>,
         recent: gtk::Box,
+        gl: gtk::GLArea,
         last_path: Rc<RefCell<Option<PathBuf>>>,
     ) -> Rc<Self> {
         Rc::new(Self {
@@ -48,6 +50,7 @@ impl WarmPreloadCtx {
             player,
             video_pref,
             recent,
+            gl,
             last_path,
             hover_idle: Rc::new(RefCell::new(None)),
             path_settle: Rc::new(RefCell::new(None)),
@@ -61,6 +64,7 @@ impl WarmPreloadCtx {
 
     fn run_path(ctx: &Rc<Self>, path: PathBuf) {
         if ctx.warm_target_ready(&path) && ctx.gate.queued.borrow().is_none() {
+            warm_preload_hold_browse_pause(&ctx.player, &ctx.gl);
             return;
         }
         if !ctx.gate.try_begin() {
@@ -72,6 +76,7 @@ impl WarmPreloadCtx {
             &ctx.player,
             &ctx.video_pref,
             &ctx.recent,
+            &ctx.gl,
             &ctx.last_path,
         ) {
             PreloadOutcome::Deferred => {
@@ -84,14 +89,15 @@ impl WarmPreloadCtx {
                 ctx.gate.set_inflight_gen(gen);
                 ctx.gate
                     .arm_watchdog(Rc::clone(&ctx.player), gen);
-                schedule_preload_pause(Rc::clone(&ctx.player), ctx.recent.clone());
+                schedule_preload_pause(Rc::clone(&ctx.player), ctx.gl.clone());
             }
             PreloadOutcome::Ready => {
                 let run = Rc::clone(ctx);
                 let gate = Rc::clone(&run.gate);
                 let player = Rc::clone(&ctx.player);
+                let gl = ctx.gl.clone();
                 let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
-                    finish_warm_preload_ready_now(&player);
+                    finish_warm_preload_ready_now(&player, &gl);
                     let run = Rc::clone(&run);
                     gate.complete(move |p| Self::run_path(&run, p));
                     glib::ControlFlow::Break

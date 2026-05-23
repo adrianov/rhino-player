@@ -52,6 +52,16 @@ pub(crate) fn preview_hover_duration(
     main: &Mpv,
     preview: Option<&Mpv>,
 ) -> f64 {
+    if let Some(path) = crate::media_probe::local_file_from_mpv(main) {
+        let live = main
+            .get_property::<f64>("duration")
+            .ok()
+            .filter(|d| d.is_finite() && *d > 0.0)
+            .unwrap_or(0.0);
+        if let Some(bar) = crate::dvd_vob_timeline::DvdBarState::build(&path, live) {
+            return bar.total_sec().min(bar_upper).max(0.0);
+        }
+    }
     let mut dur = bar_upper;
     if let Ok(d) = main.get_property::<f64>("duration") {
         if d.is_finite() && d > 0.0 {

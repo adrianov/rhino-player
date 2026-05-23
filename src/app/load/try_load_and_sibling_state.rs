@@ -9,9 +9,18 @@ fn try_load(
     recent_layer: &impl IsA<gtk::Widget>,
     o: &LoadOpts,
 ) -> Result<(), String> {
+    let raw = path.to_path_buf();
     let path = crate::video_ext::resolve_open_media_path(path);
+    if path != raw {
+        eprintln!(
+            "[rhino] resolve_open: {} -> {}",
+            raw.display(),
+            path.display()
+        );
+    }
+    let tag = if o.warm_preload { "warm_preload" } else { "try_load" };
     eprintln!(
-        "[rhino] try_load: path={} exists={} record={} player_ready={} play={}",
+        "[rhino] {tag}: path={} exists={} record={} player_ready={} play={}",
         path.display(),
         path.exists(),
         o.record,
@@ -52,13 +61,16 @@ fn load_file_into_player(
     if recent_layer.is_visible()
         && local_file_from_mpv(&b.mpv).is_some_and(|cur| same_open_target(&cur, path))
     {
-        eprintln!("[rhino] try_load: warm preload hit");
+        eprintln!("[rhino] warm_preload: warm hit (same file)");
         b.set_me_budget_shell_path(path);
         crate::video_pref::publish_smooth_env_before_load(path, &o.video_pref.borrow(), false);
         if o.play_on_start {
             b.set_skip_media_persist(false);
         }
         let _ = b.apply_pending_resume_on_warm_open();
+        if !o.play_on_start {
+            let _ = b.mpv.set_property("pause", true);
+        }
         transport_nudge_tick();
         return Ok(true);
     }
@@ -74,19 +86,27 @@ fn load_file_into_player(
     }
     // Only EOF / last ~3s ([is_natural_end]): the old "mostly watched" (~85%) heuristic could drop
     // the previous continue entry while switching files if duration/`time-pos` was misleading.
-    let clear_resume = is_natural_end(&b.mpv)
-        && crate::media_probe::shell_media_path(&b.mpv, b.me_budget_shell_path.borrow().as_deref())
-            .is_some();
+    let clear_resume = {
+        let outgoing = crate::media_probe::shell_media_path(
+            &b.mpv,
+            b.me_budget_shell_path.borrow().as_deref(),
+        );
+        is_natural_end(&b.mpv)
+            && outgoing
+                .as_ref()
+                .is_some_and(|p| crate::sibling_advance::next_after_eof(p).is_none())
+    };
     let drop_prev = prev.as_ref().is_some_and(|p| {
         !same_open_target(p, path) && is_natural_end(&b.mpv)
     });
     let snapshot_outgoing = !o.warm_preload;
     b.set_skip_media_persist(recent_layer.is_visible() && o.warm_preload);
-    if let Err(e) = b.load_file_path(path, clear_resume, snapshot_outgoing, o.warm_preload) {
-        eprintln!("[rhino] try_load: loadfile failed: {e}");
+    let tag = if o.warm_preload { "warm_preload" } else { "try_load" };
+    if let Err(e) = b.load_file_path(path, clear_resume, snapshot_outgoing, o.warm_preload, None) {
+        eprintln!("[rhino] {tag}: loadfile failed: {e}");
         return Err(e);
     }
-    eprintln!("[rhino] try_load: loadfile ok");
+    eprintln!("[rhino] {tag}: loadfile ok");
     if drop_prev && !o.warm_preload {
         if let Some(p) = prev {
             remove_continue_entry(&p);

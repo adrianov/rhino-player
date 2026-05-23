@@ -1,5 +1,5 @@
 ---
-description: Clippy complexity, ~300-line modules, and mandatory refactor when one behavior change touches >6 files.
+description: Clippy complexity, ~300-line modules, and mandatory consolidation when one behavior change touches more than six production files.
 alwaysApply: true
 ---
 
@@ -18,21 +18,37 @@ alwaysApply: true
   - Wiring the same command into **CI** (recommended) on every push or pull request to `main` / your default branch.
 - Treat a failing or warning-burdened Clippy run the same class of problem as a failing test: **fix by refactoring**; do not silence Clippy with `allow` (see `clippy-no-suppress.mdc`).
 
-## Six-file rule (one behavior change → refactor)
+## Six-file scatter rule (one behavior → consolidate)
 
-**Trigger:** You are implementing **one** user-visible behavior change (one feature story, one bug fix for a single scenario, one acceptance path in `docs/features/`). Count every **production** file you had to touch for that behavior — Rust under `src/`, `build.rs`, feature-owned scripts under `data/` when behavior changes, and tests that exist **only** for that behavior. Do **not** count docs-only edits, release assets, or unrelated drive-by fixes.
+**Purpose:** One user-visible behavior should have **one obvious home** in code. If implementing it already touches many production files, the design is probably wrong — **consolidate in the same workstream**, do not ship a web of one-off hooks.
 
-**If the count is more than six, you must refactor before you finish the task** — not “consider,” not “later.” Wide scatter for a single behavior is a **design failure**, not thoroughness.
+### When it applies
 
-**What to do (same workstream, before calling the task done):**
+You are delivering **one** behavior change: a single feature scenario, one bug-fix path, or one acceptance story in `docs/features/`. Count production files you **had to edit** for that behavior only.
 
-1. **Stop adding** more one-off hooks across the tree; **re-home** the behavior into one obvious owner (module or small directory) with a **narrow public surface** (a few functions or a small type).
-2. **Shrink call sites** so other files only call that owner; delete duplicate paths and stale fallbacks uncovered by the move.
-3. **Split the PR** only when the refactor is too large to review safely; the refactor still belongs in the same delivery as the behavior, not a vague follow-up.
+| Count toward the limit | Do **not** count |
+|---|---|
+| `src/**/*.rs`, `build.rs` | Docs-only edits (`docs/`, README notes) |
+| Behavior-changing scripts under `data/` | Release / packaging assets |
+| Tests added **only** for this behavior | Unrelated drive-by fixes in other features |
 
-**Shape to aim for:** UI / mpv / persistence / platform boundaries stay separate; feature-specific control flow and types live **with** the feature, not spread so six files must change in lockstep for the next tweak.
+**Threshold:** more than **six** production files → **stop and consolidate before the task is done.** This is mandatory, not a suggestion for a later refactor.
 
-**Agent summary:** *One behavior, one home. More than six files means pause, consolidate, then wire dependents through a small API — do not ship the scattered version.*
+### How to consolidate
+
+1. **Stop scattering** — do not add another call site in a seventh file.
+2. **Pick an owner** — one module or small directory that owns the behavior end-to-end.
+3. **Expose a narrow API** — a few functions or one small type; hide details inside the owner.
+4. **Rewire dependents** — other files call only that API; delete duplicate branches and stale fallbacks the move exposes.
+5. **Ship together** — behavior and consolidation land in the same delivery. Split a PR only when review size forces it, not as an open-ended follow-up.
+
+### Layer boundaries (keep these thin)
+
+UI, playback engine, persistence, and platform stay separate. Feature-specific control flow and types live **in the owner**; outer layers remain adapters. The goal is not “fewer files everywhere,” but **no lockstep edits across six unrelated modules** for the next small tweak.
+
+### Agent shorthand
+
+**One behavior, one home.** Past six production files → pause, consolidate, rewire through a small API, then finish — **do not ship the scattered version.**
 
 ## Module length (soft target ~300 lines)
 

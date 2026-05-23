@@ -48,6 +48,7 @@ struct WindowInputCtx {
     smooth_seek_debounce: Rc<RefCell<Option<glib::SourceId>>>,
     resume_after_seek_idle: Rc<Cell<bool>>,
     play_toggle: PlayToggleCtx,
+    dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     speed_sync: Rc<Cell<bool>>,
     speed_list: gtk::ListBox,

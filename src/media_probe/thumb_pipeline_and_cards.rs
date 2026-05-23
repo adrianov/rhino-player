@@ -4,16 +4,17 @@ pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
     if !path.exists() {
         return None;
     }
-    let can = std::fs::canonicalize(path).ok()?;
-    if let Some(t) = db_thumb_for_canon_path(&can) {
+    let entity = crate::playback_entity::db_path_for(path);
+    let db_key = crate::db::history_key(&entity)?;
+    let load = crate::video_ext::resolve_open_media_path(&entity);
+    let can = std::fs::canonicalize(&load).ok()?;
+    if let Some(t) = db_thumb_for_entity_key(&db_key, &can) {
         return Some(t);
     }
-    let s = can.to_str()?;
     let mtime = db::file_mtime_sec(&can)?;
-    let tag = path_tag(s);
-    let t = thumb_time_for_path(s);
-    let b = run_libmpv_image_frame(&can, tag, t)?;
-    db::set_thumb(s, &b, mtime, t);
+    let t = thumb_time_for_path(&db_key);
+    let b = run_libmpv_image_frame(&can, path_tag(&db_key), t)?;
+    db::set_thumb(&db_key, &b, mtime, t);
     Some(b)
 }
 
@@ -207,20 +208,7 @@ pub(crate) fn local_file_from_mpv(mpv: &Mpv) -> Option<PathBuf> {
 /// media or on close so the recent grid can show %. Pass [shell_media_path]'s `shell` when mpv
 /// reports `bd://` (Blu-ray) instead of a filesystem path.
 pub fn record_playback_for_current(mpv: &Mpv, shell: Option<&std::path::Path>) {
-    let Some(can) = shell_media_path(mpv, shell) else {
-        return;
-    };
-    let d = mpv.get_property::<f64>("duration");
-    let t = mpv.get_property::<f64>("time-pos");
-    match (d, t) {
-        (Ok(dur), Ok(pos)) if dur.is_finite() && dur > 0.0 && pos.is_finite() && pos >= 0.0 => {
-            db::set_playback(&can, dur, pos);
-        }
-        (Ok(dur), _) if dur.is_finite() && dur > 0.0 => {
-            db::set_duration(&can, dur);
-        }
-        _ => {}
-    }
+    crate::playback_entity::persist_from_mpv(mpv, shell);
 }
 
 fn card_one(path: &Path, durs: &HashMap<String, f64>, tpos: &HashMap<String, f64>) -> CardData {
@@ -235,18 +223,17 @@ fn card_one(path: &Path, durs: &HashMap<String, f64>, tpos: &HashMap<String, f64
         };
     }
     let abs = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let s = abs.to_str();
-    let st = s.and_then(|k| tpos.get(k).copied());
-    let dur = s.and_then(|k| durs.get(k).copied());
-    let pct = percent_from_resume(st, dur);
-    let thumb = cached_thumbnail_for_display(&abs);
+    let entity = crate::playback_entity::db_path_for(&abs);
+    let (resume, duration) = crate::playback_entity::card_resume_duration(&entity, durs, tpos);
+    let pct = percent_from_resume(Some(resume), Some(duration));
+    let thumb = cached_thumbnail_for_display(&entity);
     CardData {
-        path: abs,
+        path: std::fs::canonicalize(&entity).unwrap_or(entity),
         percent: pct,
         thumb,
         missing: false,
-        resume_sec: st.unwrap_or(0.0),
-        duration_sec: dur.unwrap_or(0.0),
+        resume_sec: resume,
+        duration_sec: duration,
     }
 }
 

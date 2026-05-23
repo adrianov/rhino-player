@@ -87,6 +87,20 @@ impl NativeVideoSurface {
         Arc::clone(&self.redraw_handle)
     }
 
+    /// Re-run layer frame + visibility sync (continue-grid warm `loadfile`, resize, etc.).
+    pub fn resync_layer_frame(&self) {
+        let Some(sizer_widget) = self.sizer_widget.clone() else {
+            return;
+        };
+        let ov = self.overlay.borrow().clone();
+        sync_layer_frame_now(
+            &self.layer,
+            &sizer_widget,
+            ov.as_ref(),
+            Some(self.redraw_handle.as_ref()),
+        );
+    }
+
     /// Register an "overlay" widget — when it becomes visible the video layer hides so
     /// the GTK overlay (recent grid, etc.) shows through. The tick callback installed
     /// by [`wire_sizer_resync`] re-checks `overlay.is_visible()` every frame, and

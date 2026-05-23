@@ -23,7 +23,7 @@ const PROP_CONTAINER_FPS: u64 = 7;
 const TICK_INTERVAL: Duration = Duration::from_secs(1);
 /// Seconds before `duration` where `core-idle=true` is treated as natural EOF (decoder stall near
 /// the tail, including high playback speed).
-const TICK_EOF_TAIL_SEC: f64 = 1.5;
+pub(crate) const TICK_EOF_TAIL_SEC: f64 = 1.5;
 
 #[derive(Clone, Debug)]
 enum TransportEv {
@@ -112,6 +112,8 @@ struct TransportCtx {
     cache: Rc<RefCell<TransportCache>>,
     continue_grid_cache: crate::media_probe::ContinueGridCache,
     seek_chapters: Rc<RefCell<Vec<(f64, String)>>>,
+    /// Stable DVD title bar range (SQLite chapter lengths); not recomputed every transport tick.
+    dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
     blackout: Rc<crate::screen_blackout::BlackoutSync>,
 }
 
@@ -142,6 +144,7 @@ struct TransportSetup {
     playback_focus: Rc<Cell<bool>>,
     widgets: TransportWidgets,
     seek_chapters: Rc<RefCell<Vec<(f64, String)>>>,
+    dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
     blackout: Rc<crate::screen_blackout::BlackoutSync>,
     continue_grid_cache: crate::media_probe::ContinueGridCache,
 }
@@ -181,6 +184,7 @@ fn wire_transport_events(s: TransportSetup) {
         cache: Rc::new(RefCell::new(TransportCache::default())),
         continue_grid_cache: s.continue_grid_cache,
         seek_chapters: s.seek_chapters.clone(),
+        dvd_bar: s.dvd_bar.clone(),
         blackout: s.blackout.clone(),
     });
 
@@ -263,6 +267,11 @@ pub(crate) fn transport_drain_after_loadfile() {
             f();
         }
     });
+}
+
+/// Next main-loop turn — use after cross-chapter `loadfile` so `FileLoaded` is for the new VOB.
+pub(crate) fn transport_drain_after_loadfile_idle() {
+    let _ = glib::idle_add_local_once(transport_drain_after_loadfile);
 }
 
 thread_local! {

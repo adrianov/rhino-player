@@ -13,10 +13,7 @@ pub fn list_history(limit: usize) -> Vec<PathBuf> {
 }
 
 pub fn record_history(path: &Path) {
-    let Some(s) = std::fs::canonicalize(path)
-        .ok()
-        .and_then(|p| p.to_str().map(str::to_string))
-    else {
+    let Some(s) = history_key(path) else {
         return;
     };
     let now = now_unix_ms();
@@ -40,16 +37,26 @@ pub fn record_history(path: &Path) {
 }
 
 pub(crate) fn history_key(path: &Path) -> Option<String> {
-    std::fs::canonicalize(path)
+    let key = crate::playback_entity::db_path_for(path);
+    std::fs::canonicalize(&key)
         .ok()
         .and_then(|p| p.to_str().map(str::to_string))
-        .or_else(|| {
-            if path.is_absolute() {
-                path.to_str().map(str::to_string)
-            } else {
-                None
-            }
-        })
+        .or_else(|| key.to_str().map(str::to_string))
+}
+
+/// Remove `media` row for this exact path string (no DVD entity remap).
+pub fn delete_media_row_exact(path: &Path) {
+    let s = std::fs::canonicalize(path)
+        .ok()
+        .and_then(|p| p.to_str().map(str::to_string))
+        .or_else(|| path.to_str().map(str::to_string));
+    let Some(s) = s else {
+        return;
+    };
+    let _ = with_conn(|c| {
+        c.execute("DELETE FROM media WHERE path = ?1", params![&s])?;
+        Ok(())
+    });
 }
 
 pub fn remove_history(path: &Path) {
@@ -60,6 +67,30 @@ pub fn remove_history(path: &Path) {
         c.execute("DELETE FROM history WHERE path = ?1", params![&s])?;
         Ok(())
     });
+}
+
+/// Delete one `history` row by the exact path string stored in SQLite (not remapped).
+pub fn delete_history_stored_path(path: &Path) {
+    let Some(s) = path.to_str() else {
+        return;
+    };
+    let _ = with_conn(|c| {
+        c.execute("DELETE FROM history WHERE path = ?1", params![s])?;
+        Ok(())
+    });
+}
+
+/// Drop every continue-list row for the same [crate::playback_entity] (folder, chapter, entity key, …).
+pub fn remove_history_matching_entity(path: &Path) {
+    let Some(target) = history_key(&crate::playback_entity::db_path_for(path)) else {
+        return;
+    };
+    for p in list_history(MAX_HISTORY as usize) {
+        if history_key(&crate::playback_entity::db_path_for(&p)).as_deref() == Some(target.as_str()) {
+            delete_history_stored_path(&p);
+        }
+    }
+    remove_history(&crate::playback_entity::db_path_for(path));
 }
 
 // --- media (duration + thumb) ---
@@ -82,10 +113,7 @@ pub fn set_duration(path: &Path, sec: f64) {
     if !sec.is_finite() || sec <= 0.0 {
         return;
     }
-    let Some(s) = std::fs::canonicalize(path)
-        .ok()
-        .and_then(|p| p.to_str().map(str::to_string))
-    else {
+    let Some(s) = history_key(path) else {
         return;
     };
     let _ = with_conn(|c| {
@@ -96,6 +124,7 @@ pub fn set_duration(path: &Path, sec: f64) {
         )?;
         Ok(())
     });
+    crate::playback_entity::purge_extra_db_rows(path);
 }
 
 /// Resume position (seconds) for one file. Used by `loadfile` to pass `start=<sec>`.
@@ -150,10 +179,7 @@ pub fn set_playback(path: &Path, duration_sec: f64, time_pos_sec: f64) {
         set_duration(path, duration_sec);
         return;
     }
-    let Some(s) = std::fs::canonicalize(path)
-        .ok()
-        .and_then(|p| p.to_str().map(str::to_string))
-    else {
+    let Some(s) = history_key(path) else {
         return;
     };
     let _ = with_conn(|c| {
@@ -166,6 +192,7 @@ pub fn set_playback(path: &Path, duration_sec: f64, time_pos_sec: f64) {
         )?;
         Ok(())
     });
+    crate::playback_entity::purge_extra_db_rows(path);
 }
 
 /// Store the chosen audio track id immediately so SIGTERM / `kill` does not reset it.

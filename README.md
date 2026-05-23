@@ -17,6 +17,7 @@ Rhino Player is a desktop video player for Linux (GNOME, Ubuntu, and similar sys
 ## Features
 
 - **mpv-powered format support:** play the local video formats supported by your installed mpv/libmpv, including common containers such as MKV, MP4, WebM, AVI, MOV, MPEG-TS, and more.
+- **Blu-ray and DVD (folder rips):** open a ripped **Blu-ray** tree (`BDMV/`, including AVCHD layouts) or a **DVD** tree (`VIDEO_TS/`, or any chapter `.vob` inside it). Blu-ray plays through mpv’s disc mode; Rhino applies Bob deinterlace on interlaced 1080i/60i content so fields play at full temporal rate. DVD titles split across `VTS_XX_*.VOB` chapter files play as **one title**—one seek bar, one resume entry in Continue, and scrubbing across the full movie; **Previous** / **Next** walk chapter files in order (and still advance to the next folder when the title ends).
 - **Continue where you left off:** start on a recent-video grid with thumbnails, progress, and one-click resume.
 - **TV-series friendly playback:** continue through episodes in a folder, then into the next sibling folder at the same level (e.g. next season beside the current one), without jumping to unrelated folders that only share a higher folder.
 - **Optional Smooth Video (~60 FPS):** smoother motion with VapourSynth + MVTools when your setup supports it. Rhino **adapts how hard this runs while you watch** so it stays closer to what your PC can handle, instead of one fixed load for everyone.
@@ -40,6 +41,7 @@ All platforms need Rust 1.74+ and `pkg-config`. Pass a file path to play it dire
 
 ```bash
 ./target/release/rhino-player /path/to/video.mkv
+./target/release/rhino-player /path/to/VIDEO_TS/VTS_01_1.VOB
 ```
 
 ### Linux
@@ -128,9 +130,13 @@ After installing, launch Rhino Player from your app grid, from a file manager, o
 
 ```bash
 rhino-player /path/to/video.mkv
+rhino-player /path/to/Blu-ray/          # folder with BDMV/
+rhino-player /path/to/DVD/              # folder containing VIDEO_TS/
 ```
 
 Manual page: **`man rhino-player`** (after install) or **`man ./doc/rhino-player.1`** from the repository tree.
+
+More detail: [Blu-ray Bob deinterlace](docs/features/29-bluray-deinterlace.md), [DVD unified timeline](docs/features/30-dvd-unified-timeline.md).
 
 ## Smooth 60 FPS Setup
 
