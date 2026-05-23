@@ -123,8 +123,6 @@ fn build_toolbar_header_shell(
     header.add_css_class("rpb-header");
     header.set_height_request(34);
     header.set_size_request(-1, 34);
-    #[cfg(target_os = "macos")]
-    header.set_show_title(false);
     #[cfg(not(target_os = "macos"))]
     header.pack_end(menu_btn);
     header.pack_end(vol_menu);
@@ -142,6 +140,7 @@ fn build_toolbar_header_shell(
         lab.set_single_line_mode(true);
         lab.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
         header.set_title_widget(Some(lab.as_ref()));
+        header.set_show_title(true);
         Some(Rc::clone(&lab))
     };
     #[cfg(not(target_os = "macos"))]
