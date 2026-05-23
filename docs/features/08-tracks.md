@@ -58,10 +58,20 @@ Feature: Audio track selection
     Given exactly one audio stream exists and no per-file choice is stored
     When the delayed apply runs
     Then aid is set to that one track id
+
+  Scenario: DVD title-set audio list is stable across chapter files
+    Given a DVD title is open and the title-set info lists multiple audio streams
+    When the user opens the Sound control on any chapter of that title
+    Then the popover lists every title-set audio variant with the same labels on every chapter
+    And selecting a variant applies the matching stream on the current chapter
+    And the same variant stays selected after advancing to another chapter of the title
 ```
 
 ## Notes
 - The per-file aid is stored before the watch-later path so it survives SIGTERM / kill.
 - No "None" / no-audio row in the popover; **mute** covers that.
 - Errors setting `aid` are ignored in the UI (logs only).
+- **DVD chapter `.vob`:** Sound and Subtitles popovers list streams from **`VTS_xx_0.IFO`** via [`playback_entity::title_set_streams`](../features/31-playback-entity.md) (same rows on every chapter VOB of that title). Chapter `track-list` maps IFO slots to engine ids when the user picks a row (`playback_entity_tracks.rs`; wired in `audio_tracks.rs` / `sub_tracks.rs`).
+
+![DVD title-set audio tracks in the Sound popover](../screenshots/02-dvd-title-tracks.webp)
 - Video-track switching is reserved for a later iteration; show the control only if more than one non-album-art video track exists and update on `track-list` change without requiring a popover re-open.

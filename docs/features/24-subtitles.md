@@ -66,10 +66,17 @@ Feature: Subtitles styling and selection
     When chrome is visible
     Then sub-pos is raised so subtitles render above the seek/times row
     And sub-pos returns to default when chrome auto-hides
+
+  Scenario: DVD title-set subtitle list is stable across chapter files
+    Given a DVD title is open and the title-set info lists subtitle streams
+    When the user opens the Subtitles control on any chapter of that title
+    Then the popover lists every title-set subtitle variant with the same labels on every chapter
+    And selecting a variant applies the matching stream on the current chapter
 ```
 
 ## Notes
 - Word and letter overlaps use multiset intersections of alphanumeric tokens and characters (`track_label_match`). Each subtitle row compares the seed to both list text and bare language markers and keeps the stronger score.
-- `sub-color` / `sub-border-color` are passed as `#RRGGBB` strings (libmpv ignores int forms here).
+- `sub-color` / `sub-border-color` are passed as `#RRGGBB` strings (libmpv ignores int forms here). The **Text Color** row is hidden when the active subtitle stream (or every stream while **Off**) is a bitmap codec (`dvd_sub`, PGS, DVB, …); `sub-color` is not pushed to mpv in that case.
 - `sub-ass-override=force` makes ASS subs follow Rhino’s style overrides.
 - Errors from setting sub properties are logged only; no UI notification.
+- **DVD chapter `.vob`:** subtitle rows come from title-set info via [`playback_entity::sub_menu_rows`](../features/31-playback-entity.md) (see [08-tracks](08-tracks.md) screenshot and Notes).

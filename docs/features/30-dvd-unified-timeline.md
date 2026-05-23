@@ -33,9 +33,11 @@ Feature: DVD unified timeline
 
   Scenario: Scrubbing jumps to the correct chapter and offset
     Given multiple chapters exist in the transport folder
-    When the user scrubs to a time inside a later chapter
+    And playback was running before the scrub
+    When the user scrubs to a time inside another chapter file in that title
     Then the matching chapter file loads if it is not already open
     And playback resumes at the offset within that chapter
+    And playback continues without the user pressing play again
 
   Scenario: Chapter boundaries appear on the seek bar
     Given more than one chapter is in the active list
@@ -44,8 +46,10 @@ Feature: DVD unified timeline
 
   Scenario: Chapter EOF advances within the same title
     Given unified timeline mode is active for one title set
+    And playback was running when the current chapter ends
     When a chapter ends before the whole title ends
     Then the next chapter file in that same title set loads automatically
+    And playback continues without the user pressing play again
     And chapters from a different title on the same disc do not load until the title is finished
 
   Scenario: Prev and Next jump sibling disc folders
@@ -69,6 +73,8 @@ Feature: DVD unified timeline
 - **Persistence:** multi-part DVD titles use one [playback entity](31-playback-entity.md) row (disc folder containing `VIDEO_TS/`); `time_pos_sec` and `duration_sec` are **whole-title** seconds. Per-chapter `.vob` rows are purged on write. Resume on load maps global time → chapter file + local offset (`playback_entity` → `dvd_entity::resume_chapter_and_local`).
 - Chapter lengths for the bar: stored **entity** `duration_sec` (whole title) always wins over the open chapter’s mpv `duration` when building the timeline; per-chapter rows in SQLite, Rust IFO parse (`dvd_ifo_parse`), in-session `grow_chapter_dur`, or `.vob` byte-size bootstrap fill gaps. Bar cache (`DvdBarState`) rebuilt on `FileLoaded` with live mpv duration. Scrub uses `dvd_hold_global` until resume applies.
 - **IFO files on disk** (`dvd_ifo_parse`): `VIDEO_TS.IFO` **TT_SRPT** picks the main feature title (`pick_main` / `dvd_first_playable_vob`); `VTS_XX_0.IFO` **PGC** cell `playback_time` + **PTT** build the unified bar (`from_chapter_ifo`) even when only some `.vob` files are on disk. When the IFO lists fewer VOB ids than chapter files present (`VTS_02_1` … `VTS_02_N`), `expand_on_disk_chapters` maps the title duration across on-disk files by byte size so EOF advance and the seek bar include every rip segment. PTT marks on the seek bar. Without IFO: SQLite + `.vob` byte bootstrap. Cross-chapter scrub uses the cached bar timeline (`seek_global` + shared `dvd_bar` slot); `load_chapter_seek` stashes chapter-local seconds in `pending_resume`; `apply_pending_resume` waits until mpv `path` matches the shell path and `duration` is known (`FileLoaded`, `path`, `duration`). Mid-title EOF: `advance_title_chapter_eof` + `eof-reached` / local tail; sibling fallback uses chapter-local tail when the unified bar is not at title end. Debug: `RHINO_DVD_SEEK=1`.
+- Mid-title chapter EOF: `load_chapter_seek(..., resume_playing=true, chapter_eof=true)` unpause after resume seek even when mpv is paused at `eof-reached`.
+- Cross-chapter scrub: `seek_global` passes scrub-time **`resume_playing`** (from transport, not mpv pause at EOF); seek-bar release uses the thumb value, not stale hover time.
 - Implementation owner: `src/dvd_vob_timeline.rs` — map global time ↔ `(chapter path, local time)`; transport + seek wiring.
-- Seek bar preview ([18](18-thumbnail-preview.md)): uses the chapter file for the scrub target once mapped.
+- Seek bar preview ([18](18-thumbnail-preview.md)): uses the chapter file for the scrub target once mapped; hover labels use `chapter_preview_labels` (includes **Chapter 1** at title start when there are two or more chapters — hidden for single-chapter titles).
 - Distinct from `dvd://` / libdvdread (optional future if the engine exposes one native timeline).

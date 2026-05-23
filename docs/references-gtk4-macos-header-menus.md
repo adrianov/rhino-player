@@ -2,7 +2,7 @@
 
 Standard **[Gtk.MenuButton](https://docs.gtk.org/gtk4/class.MenuButton.html)** + **[Gtk.Popover](https://docs.gtk.org/gtk4/class.Popover.html)** in **windowed** mode (same widgets and `theme.rs` classes as Linux). macOS adds a small platform binding layer only where gdk-macos needs it.
 
-Speed, sound, and subtitles share one content widget per menu — **no duplicated menu trees**.
+Speed, sound, and subtitles share one content widget per menu — **no duplicated menu trees**. Windowed mode shows it in [`Gtk.Popover`](https://docs.gtk.org/gtk4/class.Popover.html); native fullscreen **reparents that same child** into an overlay [`Frame`](https://docs.gtk.org/gtk4/class.Frame.html) (gdk-macos cannot host a working popover popup surface in theater mode). Track lists rebuild synchronously on open in both paths before layout.
 
 ## Standard GTK / Adwaita contract (windowed)
 
@@ -38,7 +38,7 @@ Observed failure modes when forcing GtkPopover in theater:
 | Clicks inside menu ignored / menu closes instantly | Outside-dismiss used **`ToolbarView.pick`** — overlay panel is **not** under `ToolbarView`; picks looked like “outside” |
 | Header buttons look disabled | **`set_popover(None)`** without CSS — Adwaita greys `MenuButton` with no popover |
 | Full-screen flash on open | **`invalidate_window_layers`** + compositing refresh on overlay open (removed) |
-| Traffic lights bunch up (yellow near red) | **`sync_traffic_lights_vertical`** subtracting shift X on every compositing pass (fixed: shift once) |
+| Traffic lights drift after menu close | AppKit resets stoplight frames during compositing refresh after our sync (fixed: remember exact per-button X/Y on first draw; re-apply cached frames after every sync and post-invalidate idle) |
 
 ## Native fullscreen — shipped solution (Overlay reparent)
 
@@ -72,7 +72,7 @@ Wiring: `chrome_header_menubtns.rs` → `HeaderMenuOverlay::wire(outer_ovl, win,
 4. Anchor panel under the pressed button (`macos_header_menu_overlay_place.rs`: margins on `outer_ovl`).
 5. **`show_panel`** — `can_target(true)` on panel + **`enable_target_tree`** on content; **`raise_panel_top`** (unparent + re-`add_overlay`) so menu sits above seek preview.
 6. Open state: CSS **`rp-header-menu-open`** (not `MenuButton.set_active` — avoids fighting overlay toggle).
-7. Speed: **`arm_list_pick_on_open`** (same 300 ms guard as windowed map/show).
+7. Speed: **`arm_list_pick_on_open`** (same 300 ms guard as windowed map/show). **Audio / subtitles:** **`header_menu_tracks::refresh_*_on_open`** before panel layout (same synchronous rebuild as windowed **`Popover.connect_show`**).
 
 **Close menu** — toggle same button, outside click, sibling switch, exit fullscreen, `popdown_all`:
 
@@ -134,12 +134,14 @@ Dismiss controller lives on **`outer_ovl`**, not `ToolbarView`:
 | `chrome_macos_header_popovers.rs` | Outside-click dismiss on **`outer_ovl`** |
 | `chrome_header_menubtns.rs` | Cluster wiring: switch (windowed) + overlay + dismiss |
 | `header_popovers.rs` / `speed_menu.rs` | Popover content trees (single widget reparented in theater) |
+| `header_menu_scroll.rs` | Shared scroll max heights + **`rp-header-scroll-*`** CSS tags for overlay restore |
 | `theme_macos_header_compact.css` | **`rp-header-menu-fs`** styling |
 
 ## Debug
 
-- `macos_header_menu_debug.rs` — open/close events + optional backtraces on stderr (temporary).
-- `RUST_BACKTRACE=1` for symbols when tracing dismiss/popdown paths.
+- **`RHINO_MACOS_MENU_DEBUG=1`** — open/close / active trace on stderr (`macos_header_menu_debug.rs`).
+- **`RHINO_MACOS_MENU_DEBUG=trace`** (or value containing **`backtrace`**) — same logs plus **`std::backtrace::Backtrace`** on each event.
+- Unset or **`0`** — no trace hooks, no log overhead.
 
 ## See also
 

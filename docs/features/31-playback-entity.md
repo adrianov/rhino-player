@@ -54,6 +54,19 @@ Feature: Playback entity
     Then the persistent store records whole-title seconds on the entity key
     And not a separate row for the currently open chapter file
     And reopening any chapter in that entity resumes at the stored whole-title position
+
+  Scenario: Title-set track menus use entity stream list
+    Given a multi-part entity is playing any chapter
+    When the user opens the Sound or Subtitles control
+    Then the listed audio and subtitle variants match the title-set info for that entity
+    And the same variants appear on every chapter of the entity
+    And choosing a variant applies the matching stream on the current chapter
+
+  Scenario: Window title follows the active entity
+    Given playback advances to a different DVD title entity
+    When the new title begins playing
+    Then the window title shows the new entity name
+    And the title is not blank
 ```
 
 ## Notes
@@ -63,3 +76,5 @@ Feature: Playback entity
 - All resume / duration writes: `playback_entity::persist_from_mpv` / `persist_playback` / `clear_entity_resume` (`playback_entity_persist.rs`); never per-chapter `.vob` rows after write.
 - `db::history_key`, `history::record`, `media_probe::record_playback_for_current`, and `MpvBundle::load_file_path` go through `playback_entity`.
 - Continue grid percent / resume: `playback_entity::card_resume_duration` reads only the **entity** SQLite row; legacy per-chapter `.vob` rows are migrated to whole-title seconds and purged.
+- Title-set **Sound** / **Subtitles** menus: `playback_entity_tracks.rs` (`title_set_streams`, `audio_menu_rows`, `sub_menu_rows`, slot → mpv id resolve); wired from `audio_tracks.rs` / `sub_tracks.rs`. Screenshot: [`docs/screenshots/02-dvd-title-tracks.webp`](../screenshots/02-dvd-title-tracks.webp).
+- Window / header title: `playback_entity_title.rs` (`window_title_for`); synced on `try_load` and on transport `FileLoaded` / `path` change.
