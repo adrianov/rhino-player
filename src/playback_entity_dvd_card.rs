@@ -60,44 +60,12 @@ fn chapter_media_keys(chapter: &Path) -> Vec<String> {
     keys
 }
 
-fn title_timeline_for_entity(
-    ent: &PlaybackEntity,
-    dur_by_path: &HashMap<String, f64>,
-) -> Option<crate::dvd_vob_timeline::DvdVobTimeline> {
-    let PlaybackEntityKind::DvdTitle { db_key, chapters } = &ent.kind else {
-        return None;
-    };
-    let probe = chapters.first()?.as_path();
-    let live = entity_db_lookup_keys(db_key)
+fn chapter_live_dur(chapter: &Path, durs: &HashMap<String, f64>) -> f64 {
+    chapter_media_keys(chapter)
         .iter()
-        .find_map(|k| {
-            dur_by_path
-                .get(k)
-                .copied()
-                .filter(|d| d.is_finite() && *d > 0.0)
-        })
-        .unwrap_or(0.0);
-    let mut tl = crate::dvd_vob_timeline::DvdVobTimeline::from_chapter_ifo(probe)
-        .or_else(|| {
-            crate::dvd_vob_timeline::DvdVobTimeline::from_chapter(
-                probe,
-                dur_by_path,
-                probe,
-                live,
-            )
-        })?;
-    if let Some(on_disk) = crate::dvd_entity::title_chapter_paths(probe) {
-        tl.expand_on_disk_chapters(&on_disk);
-    }
-    for k in entity_db_lookup_keys(db_key) {
-        if let Some(total) = dur_by_path.get(&k).copied() {
-            if total.is_finite() && total > tl.total_sec {
-                tl.apply_entity_total(total);
-                break;
-            }
-        }
-    }
-    (tl.total_sec > 0.0).then_some(tl)
+        .find_map(|k| durs.get(k).copied())
+        .filter(|d| d.is_finite() && *d > 0.0)
+        .unwrap_or(0.0)
 }
 
 fn migrate_dvd_from_chapter_rows(
@@ -151,26 +119,29 @@ fn normalize_dvd_entity_row(
     duration: f64,
     durs: &HashMap<String, f64>,
 ) -> (f64, f64) {
-    let Some(tl) = title_timeline_for_entity(ent, durs) else {
+    let chapter = dvd_timeline_probe(ent, probe);
+    let live = chapter_live_dur(&chapter, durs);
+    let Some(tl) = crate::dvd_entity::build_title_timeline(&chapter, durs, live) else {
         return (resume, duration);
     };
     if tl.vobs.len() <= 1 {
         return (resume, duration);
     }
-    let chapter = dvd_timeline_probe(ent, probe);
-    let mut total = duration;
+    let mut total = duration.max(tl.total_sec);
     let mut global = resume;
-    if tl.total_sec > duration + 60.0 {
-        total = tl.total_sec;
-        let idx = tl
-            .vobs
-            .iter()
-            .position(|p| crate::video_ext::paths_same_file(p, &chapter))
-            .unwrap_or(0);
-        let ch_dur = tl.chapter_dur_at(idx);
-        if resume <= ch_dur + 5.0 {
-            global = tl.global_pos(&chapter, resume);
-        }
+    let idx0 = tl
+        .vobs
+        .iter()
+        .position(|p| crate::video_ext::paths_same_file(p, &chapter))
+        .unwrap_or(0);
+    let ch0_dur = tl.chapter_dur_at(idx0);
+    if resume <= ch0_dur + 5.0 {
+        global = tl.global_pos(&chapter, resume);
+    }
+    if global > total {
+        total = global.max(tl.total_sec);
+    }
+    if (total - duration).abs() > 0.5 || (global - resume).abs() > 0.5 {
         crate::db::set_playback(&ent.db_path(), total, global);
         ent.purge_extra_db_rows();
     }

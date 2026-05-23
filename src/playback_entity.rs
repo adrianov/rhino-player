@@ -133,8 +133,8 @@ mod tracks {
 }
 pub use tracks::{
     audio_ifo_slot_for_aid, audio_menu_rows, entity_from_mpv, entity_has_subtitles,
-    resolve_audio_mpv_id, resolve_sub_mpv_id, sub_ifo_slot_for_sid, sub_menu_rows, AudioMenuRow,
-    SubMenuRow,
+    resolve_audio_mpv_id, resolve_sub_mpv_id, sub_ifo_slot_for_sid, sub_menu_rows,
+    sub_menu_snapshot, AudioMenuRow, SubMenuRow,
 };
 
 mod title {
@@ -244,6 +244,30 @@ mod tests {
             .expect("chapter target");
         assert!(crate::video_ext::paths_same_file(&load, &p2));
         assert!((local - 20.0).abs() < 1e-3);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn card_resume_keeps_global_past_stale_entity_duration() {
+        let base = std::env::temp_dir().join(format!("rhino-pe-stale-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let vts = base.join("VIDEO_TS");
+        fs::create_dir_all(&vts).expect("mkdir");
+        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
+        for (i, n) in [(1, 100usize), (2, 200), (3, 300), (4, 400)] {
+            fs::write(vts.join(format!("VTS_02_{i}.VOB")), vec![b'x'; n]).expect("vob");
+        }
+        let p1 = vts.join("VTS_02_1.VOB");
+        let entity = db_path_for(&p1);
+        let ek = entity.to_string_lossy().into_owned();
+        let mut durs = HashMap::new();
+        let mut tpos = HashMap::new();
+        durs.insert(ek.clone(), 100.0);
+        tpos.insert(ek, 130.0);
+        durs.insert(p1.to_string_lossy().into_owned(), 100.0);
+        let (resume, duration) = card_resume_duration(&entity, &durs, &tpos);
+        assert!(resume > 100.0, "resume should stay global, got {resume}");
+        assert!(duration >= resume, "duration {duration} should cover resume {resume}");
         let _ = fs::remove_dir_all(&base);
     }
 
