@@ -57,6 +57,7 @@ pub fn init() {
         return;
     }
     migrate_media_decode_columns(&conn);
+    migrate_media_thumb_load_path(&conn);
     migrate_legacy_smooth_max_area_round_mil(&conn);
     migrate_smooth_max_area_legacy_adaptive_pollution(&conn);
     if DB.set(Mutex::new(conn)).is_err() {
@@ -79,6 +80,13 @@ fn migrate_media_decode_columns(conn: &Connection) {
     );
     let _ = conn.execute(
         "ALTER TABLE media ADD COLUMN smooth_me_budget_updated_at INTEGER",
+        rusqlite::params![],
+    );
+}
+
+fn migrate_media_thumb_load_path(conn: &Connection) {
+    let _ = conn.execute(
+        "ALTER TABLE media ADD COLUMN thumb_load_path TEXT",
         rusqlite::params![],
     );
 }

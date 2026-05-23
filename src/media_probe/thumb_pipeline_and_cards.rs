@@ -8,9 +8,33 @@ pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
         return Some(t);
     }
     let mtime = db::file_mtime_sec(&target.load)?;
-    let b = run_libmpv_image_frame(&target.load, path_tag(&db_key), target.seek_sec)?;
-    db::set_thumb(&db_key, &b, mtime, target.cache_time);
+    let b = run_libmpv_image_frame(
+        &target.load,
+        path_tag(&db_key),
+        target.seek_sec,
+        target.chapter_dur,
+    )?;
+    db::set_thumb(
+        &db_key,
+        &b,
+        mtime,
+        target.cache_time,
+        target.load.to_str(),
+    );
     Some(b)
+}
+
+fn is_thumb_file(p: &Path) -> bool {
+    p.extension().is_some_and(|e| {
+        e.eq_ignore_ascii_case("png")
+            || e.eq_ignore_ascii_case("jpg")
+            || e.eq_ignore_ascii_case("jpeg")
+    })
+}
+
+fn read_nonempty(src: &Path) -> Option<Vec<u8>> {
+    let b = std::fs::read(src).ok()?;
+    (!b.is_empty()).then_some(b)
 }
 
 /// One `vo=image` still (writes into [tmp_dir]), with [loadfile] already applied by the caller, or
@@ -51,8 +75,13 @@ fn run_vo_image_after_load(m: &mut Mpv, tmp: &Path, deadline_secs: u64) -> Optio
     None
 }
 
-/// Thumbnail: resume-position keyframe seek + small scale for continue cards.
-fn run_libmpv_image_frame(src: &Path, path_tag: u64, start_sec: f64) -> Option<Vec<u8>> {
+/// Thumbnail: resume-position seek + small scale for continue cards.
+fn run_libmpv_image_frame(
+    src: &Path,
+    path_tag: u64,
+    start_sec: f64,
+    chapter_dur: f64,
+) -> Option<Vec<u8>> {
     use std::time::{SystemTime, UNIX_EPOCH};
     let tmp = std::env::temp_dir().join(format!(
         "rhino-mpv-{}-{}",
@@ -66,6 +95,7 @@ fn run_libmpv_image_frame(src: &Path, path_tag: u64, start_sec: f64) -> Option<V
         src,
         &tmp,
         start_sec,
+        chapter_dur,
         &format!("scale={GRID_THUMB_W}:-2:force_original_aspect_ratio=decrease:flags=bilinear"),
         12,
     );
@@ -73,55 +103,7 @@ fn run_libmpv_image_frame(src: &Path, path_tag: u64, start_sec: f64) -> Option<V
     r
 }
 
-fn run_vo_image_one_frame(
-    src: &Path,
-    tmp: &Path,
-    start_sec: f64,
-    vf: &str,
-    wait_secs: u64,
-) -> Option<Vec<u8>> {
-    let out_s = tmp.to_str()?;
-    let src_s = src.to_str()?;
-    std::fs::create_dir_all(tmp).ok()?;
-    let start = format!("{:.3}", start_sec);
-    let mut m = Mpv::with_initializer(|i| {
-        i.set_option("vo", "image")?;
-        i.set_option("ao", "null")?;
-        let _ = i.set_option("vd-lavc-threads", "0");
-        let _ = i.set_option("vd-lavc-fast", true);
-        let _ = i.set_option("vd-lavc-skiploopfilter", "all");
-        let _ = i.set_option("demuxer-readahead-secs", 0.0f64);
-        let _ = i.set_option("demuxer-max-bytes", "128KiB");
-        i.set_option("load-scripts", false)?;
-        i.set_option("resume-playback", false)?;
-        i.set_option("hr-seek", false)?;
-        let _ = i.set_option("aid", "no");
-        let _ = i.set_option("sid", "no");
-        let _ = i.set_option("autoload-files", "no");
-        let _ = i.set_option("audio-file-auto", "no");
-        let _ = i.set_option("sub-auto", "no");
-        i.set_option("vo-image-format", "jpg")?;
-        i.set_option("vo-image-outdir", out_s)?;
-        i.set_option("vo-image-jpeg-quality", "82")?;
-        i.set_option("vf", vf)?;
-        i.set_option("start", start.as_str())?;
-        i.set_option("frames", 1i64)?;
-        Ok(())
-    })
-    .ok()?;
-    if m.command("loadfile", &[src_s, "replace"]).is_err() {
-        return None;
-    }
-    run_vo_image_after_load(&mut m, tmp, wait_secs)
-}
-
-fn is_thumb_file(p: &Path) -> bool {
-    p.extension().is_some_and(|e| {
-        e.eq_ignore_ascii_case("png")
-            || e.eq_ignore_ascii_case("jpg")
-            || e.eq_ignore_ascii_case("jpeg")
-    })
-}
+include!("thumb_vo_image.rs");
 
 fn first_image_in(dir: &Path) -> Option<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
@@ -145,11 +127,6 @@ fn pick_vo_out(dir: &Path) -> Option<PathBuf> {
         }
         None
     })
-}
-
-fn read_nonempty(src: &Path) -> Option<Vec<u8>> {
-    let b = std::fs::read(src).ok()?;
-    (!b.is_empty()).then_some(b)
 }
 
 /// Turn mpv [path] / [filename] into a local [PathBuf]. Rejects `http(s)://` etc. Accepts `file://`.

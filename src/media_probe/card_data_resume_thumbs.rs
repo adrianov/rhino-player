@@ -147,7 +147,8 @@ fn grid_thumb_cache_time(resume: f64, duration: f64) -> f64 {
     } else {
         GRID_FALLBACK_SEC
     };
-    if duration.is_finite() && duration > 1.0 {
+    // Global DVD resume can exceed a stale entity `duration_sec` (first-chapter length only).
+    if duration.is_finite() && duration > 1.0 && resume <= duration + 0.5 {
         target.clamp(0.0, (duration - 0.5).max(0.0))
     } else {
         target.max(0.0)
@@ -158,6 +159,8 @@ struct GridThumbTarget {
     load: PathBuf,
     /// Seconds to seek inside [Self::load] for `vo=image`.
     seek_sec: f64,
+    /// Chapter length used to cap the seek (preview uses the same rule).
+    chapter_dur: f64,
     /// Whole-title seconds stored in `thumb_time_pos_sec` for cache freshness.
     cache_time: f64,
 }
@@ -174,18 +177,34 @@ fn grid_thumb_target(entity: &Path) -> Option<GridThumbTarget> {
     let (resume, duration) = crate::playback_entity::card_resume_duration(&db_key, &durs, &tpos);
     let cache_time = grid_thumb_cache_time(resume, duration);
     let open_hint = crate::video_ext::resolve_open_media_path(entity);
-    let (load, seek_sec) = if let Some((target, local)) =
-        pe.resume_load_target(&open_hint, cache_time, &durs)
-    {
-        (target, local)
-    } else {
-        let load = std::fs::canonicalize(open_hint).ok()?;
-        (load, cache_time)
-    };
-    let load = std::fs::canonicalize(&load).ok()?;
+    if pe.has_unified_timeline() {
+        let still =
+            crate::dvd_entity::still_target_from_global(&open_hint, cache_time, &durs)?;
+        let load = std::fs::canonicalize(&still.load).ok()?;
+        let cap = if still.chapter_dur > 0.0 {
+            still.chapter_dur
+        } else {
+            still.local_sec + 1.0
+        };
+        let seek_sec =
+            crate::seek_bar_preview::cap_preview_seek_time(still.local_sec, cap);
+        crate::dvd_vob_log::dvd_seek_log(format!(
+            "grid_thumb global={cache_time:.2} -> {} local={seek_sec:.2} ch_dur={:.2}",
+            load.display(),
+            still.chapter_dur
+        ));
+        return Some(GridThumbTarget {
+            load,
+            seek_sec,
+            chapter_dur: still.chapter_dur,
+            cache_time,
+        });
+    }
+    let load = std::fs::canonicalize(open_hint).ok()?;
     Some(GridThumbTarget {
         load,
-        seek_sec,
+        seek_sec: cache_time,
+        chapter_dur: duration,
         cache_time,
     })
 }
@@ -207,22 +226,19 @@ pub(crate) fn db_thumb_for_entity_key(
     cache_time: f64,
 ) -> Option<Vec<u8>> {
     let mtime = db::file_mtime_sec(load)?;
-    db::take_thumb_if_fresh(db_key, mtime, cache_time)
+    let load_s = load.to_str();
+    db::take_thumb_if_fresh(db_key, mtime, cache_time, load_s)
 }
 
 /// Display fallback: entity-keyed thumb (mtime from the chapter file mpv loads).
 fn cached_thumbnail_for_display(path: &Path) -> Option<Vec<u8>> {
     let entity = crate::playback_entity::db_path_for(path);
-    if let Some(k) = crate::db::history_key(&entity) {
-        if let Some(target) = grid_thumb_target(&entity) {
-            if let Some(t) = db_thumb_for_entity_key(&k, &target.load, target.cache_time) {
-                return Some(t);
-            }
-        }
-        if let Some(t) = db::stored_thumb_png(&entity) {
-            return Some(t);
-        }
-    }
-    let can = std::fs::canonicalize(path).ok()?;
-    db_thumb_for_canon_path(&can)
+    let Some(k) = crate::db::history_key(&entity) else {
+        let can = std::fs::canonicalize(path).ok()?;
+        return db_thumb_for_canon_path(&can);
+    };
+    let Some(target) = grid_thumb_target(&entity) else {
+        return db::stored_thumb_png(&entity);
+    };
+    db_thumb_for_entity_key(&k, &target.load, target.cache_time)
 }

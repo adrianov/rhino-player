@@ -99,26 +99,33 @@ pub fn take_thumb_if_current(path: &str, file_mtime_sec: i64) -> Option<Vec<u8>>
     .flatten()
 }
 
-type ThumbRow = (Option<Vec<u8>>, Option<i64>, Option<f64>);
+type ThumbRow = (Option<Vec<u8>>, Option<i64>, Option<f64>, Option<String>);
 
-/// Thumb bytes if the file mtime matches and the stored frame is near the wanted continue time.
-pub fn take_thumb_if_fresh(path: &str, file_mtime_sec: i64, time_pos: f64) -> Option<Vec<u8>> {
+/// Thumb bytes if the file mtime matches, the stored frame is near the wanted continue time,
+/// and the cached chapter load path matches (DVD multi-VOB titles).
+pub fn take_thumb_if_fresh(
+    path: &str,
+    file_mtime_sec: i64,
+    time_pos: f64,
+    load_path: Option<&str>,
+) -> Option<Vec<u8>> {
     if !time_pos.is_finite() || time_pos < 0.0 {
         return take_thumb_if_current(path, file_mtime_sec);
     }
     with_conn(|c| {
         let row: Option<ThumbRow> = c
             .query_row(
-                "SELECT thumb_png, source_mtime_sec, thumb_time_pos_sec FROM media WHERE path = ?1",
+                "SELECT thumb_png, source_mtime_sec, thumb_time_pos_sec, thumb_load_path FROM media WHERE path = ?1",
                 params![path],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()?;
         Ok(match row {
-            Some((Some(png), Some(m), Some(tp)))
+            Some((Some(png), Some(m), Some(tp), stored_load))
                 if m == file_mtime_sec
                     && tp.is_finite()
-                    && (time_pos - tp).abs() < THUMB_TPOS_SKIP_EPS =>
+                    && (time_pos - tp).abs() < THUMB_TPOS_SKIP_EPS
+                    && load_path_matches(load_path, stored_load.as_deref()) =>
             {
                 Some(png)
             }
@@ -128,19 +135,35 @@ pub fn take_thumb_if_fresh(path: &str, file_mtime_sec: i64, time_pos: f64) -> Op
     .flatten()
 }
 
-/// `thumb_time_pos` is the libmpv [time-pos] (seconds) of the frame in [png] (the stored raster).
-pub fn set_thumb(path: &str, png: &[u8], source_mtime_sec: i64, thumb_time_pos: f64) {
+fn load_path_matches(want: Option<&str>, stored: Option<&str>) -> bool {
+    match (want, stored) {
+        (None, None) => true,
+        (Some(w), Some(s)) => w == s,
+        (Some(_), None) => false,
+        (None, Some(_)) => false,
+    }
+}
+
+/// `thumb_time_pos` is whole-title seconds; [load_path] is the chapter file mpv loaded for the frame.
+pub fn set_thumb(
+    path: &str,
+    png: &[u8],
+    source_mtime_sec: i64,
+    thumb_time_pos: f64,
+    load_path: Option<&str>,
+) {
     if png.is_empty() {
         return;
     }
     let _ = with_conn(|c| {
         c.execute(
-            "INSERT INTO media (path, thumb_png, source_mtime_sec, thumb_time_pos_sec) VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO media (path, thumb_png, source_mtime_sec, thumb_time_pos_sec, thumb_load_path) VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(path) DO UPDATE SET
                thumb_png = excluded.thumb_png,
                source_mtime_sec = excluded.source_mtime_sec,
-               thumb_time_pos_sec = excluded.thumb_time_pos_sec",
-            params![path, png, source_mtime_sec, thumb_time_pos],
+               thumb_time_pos_sec = excluded.thumb_time_pos_sec,
+               thumb_load_path = excluded.thumb_load_path",
+            params![path, png, source_mtime_sec, thumb_time_pos, load_path],
         )?;
         Ok(())
     });
