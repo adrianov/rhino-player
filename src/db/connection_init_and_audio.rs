@@ -58,6 +58,7 @@ pub fn init() {
     }
     migrate_media_decode_columns(&conn);
     migrate_media_thumb_load_path(&conn);
+    migrate_dvd_thumb_vo_start_recapture(&conn);
     migrate_legacy_smooth_max_area_round_mil(&conn);
     migrate_smooth_max_area_legacy_adaptive_pollution(&conn);
     if DB.set(Mutex::new(conn)).is_err() {
@@ -88,6 +89,32 @@ fn migrate_media_thumb_load_path(conn: &Connection) {
     let _ = conn.execute(
         "ALTER TABLE media ADD COLUMN thumb_load_path TEXT",
         rusqlite::params![],
+    );
+}
+
+/// Wrong-frame DVD thumbs from load-then-seek capture; force one backfill per title.
+const K_DVD_THUMB_VO_START_RECAPTURE_V1: &str = "dvd_thumb_vo_start_recapture_v1";
+
+fn migrate_dvd_thumb_vo_start_recapture(conn: &Connection) {
+    let done: Option<String> = conn
+        .query_row(
+            "SELECT v FROM settings WHERE k = ?1",
+            params![K_DVD_THUMB_VO_START_RECAPTURE_V1],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap_or(None);
+    if done.as_deref() == Some("1") {
+        return;
+    }
+    let _ = conn.execute(
+        "UPDATE media SET thumb_png = NULL, thumb_time_pos_sec = NULL WHERE thumb_load_path IS NOT NULL",
+        rusqlite::params![],
+    );
+    let _ = conn.execute(
+        "INSERT INTO settings (k, v) VALUES (?1, ?2)
+         ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+        params![K_DVD_THUMB_VO_START_RECAPTURE_V1, "1"],
     );
 }
 
