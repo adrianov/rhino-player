@@ -51,11 +51,13 @@ include!("video_pref/mvtools_video_log_env.rs");
 include!("video_pref/open_media_env.rs");
 include!("video_pref/smooth_me_budget_resolve.rs");
 include!("video_pref/bluray_playback.rs");
+include!("video_pref/bluray_deinterlace.rs");
 include!("video_pref/smooth_vf_me_budget_applied.rs");
 include!("video_pref/smooth_vf_swap_timing.rs");
 include!("video_pref/mpv_escape_path.rs");
 include!("video_pref/smooth_vapoursynth_vf_attach.rs");
 include!("video_pref/mvtools_speed_vf_setup.rs");
+include!("video_pref/decode_apply_vf_lifecycle.rs");
 #[cfg(test)]
 include!("video_pref/vf_chain_token_tests.rs");
 include!("video_pref/smooth_off_playhead_refresh.rs");

@@ -2,30 +2,28 @@
 
 use std::sync::Mutex;
 
-/// After `loadfile`, `estimated-vf-fps` can still reflect the previous clip longer than one idle tick.
-/// Pairing that stale value with the new file’s `container-fps` (often ~24) incorrectly triggers the
-/// NTSC film tie-break. Drop `estimated-vf-fps` for the first `FPS_EST_IGNORE_READS_AFTER_PATH_CHANGE`
-/// `source_fps_from_mpv` reads after `path` changes (several rebuilds / resyncs can run before mpv updates).
-const FPS_EST_IGNORE_READS_AFTER_PATH_CHANGE: u32 = 6;
-/// Consecutive plausible cadence reads before MVTools on a disc (interleaved titles need settle time).
-const CADENCE_STABLE_READS: u32 = 3;
-const CADENCE_JUMP_FRAC: f64 = 0.12;
-
-#[derive(Debug, Clone, Default)]
-struct FpsPickGateState {
-    last_path: Option<String>,
-    ignore_est_left: u32,
-    /// Blu-ray / AVCHD: ignore wild `estimated-vf-fps` once a plausible container rate is known.
-    locked_disc_fps: Option<f64>,
-    /// Interleaved / VFR: use mpv **display-resample** instead of VapourSynth (no cadence rebuild loop).
-    interleaved_smooth: bool,
-    stable_streak: u32,
-    last_stable_fps: Option<f64>,
-}
-
 pub(crate) fn mpv_path_is_disc(path: &str) -> bool {
     let p = path.trim().to_ascii_lowercase();
-    p.starts_with("bd://") || p.starts_with("bluray://")
+    p.starts_with("bd://")
+        || p.starts_with("bluray://")
+        || p.starts_with("dvd://")
+}
+
+fn path_str_is_dvd_vob(path: Option<&str>) -> bool {
+    path.and_then(crate::media_probe::local_path_from_mpv_str)
+        .is_some_and(|p| crate::video_ext::is_dvd_vob_path(&p))
+}
+
+fn shell_path_is_dvd_vob(shell: Option<&std::path::Path>) -> bool {
+    shell.is_some_and(crate::video_ext::is_dvd_vob_path)
+}
+
+fn media_is_dvd_vob(
+    mpv: &libmpv2::Mpv,
+    bundle: Option<&crate::mpv_embed::MpvBundle>,
+) -> bool {
+    crate::video_pref::me_budget_local_path(mpv, bundle)
+        .is_some_and(|p| crate::video_ext::is_dvd_vob_path(&p))
 }
 
 /// True when mpv's `vf` chain includes a **vapoursynth** filter.
@@ -35,154 +33,7 @@ pub(crate) fn vf_chain_has_vapoursynth(mpv: &libmpv2::Mpv) -> bool {
         .unwrap_or(false)
 }
 
-/// Ignore `estimated-vf-fps` when it would describe vf **output** (~60 Hz) or unstable disc demux.
-fn ignore_est_for_source_pick(path: Option<&str>, mpv: &libmpv2::Mpv) -> bool {
-    path.is_some_and(mpv_path_is_disc) || vf_chain_has_vapoursynth(mpv)
-}
-
-fn is_plausible_broadcast_fps(f: f64) -> bool {
-    const RATES: [f64; 6] = [
-        24000.0 / 1001.0,
-        24.0,
-        25.0,
-        30000.0 / 1001.0,
-        29.97,
-        30.0,
-    ];
-    RATES.iter().any(|r| (f - r).abs() < 0.2)
-}
-
-fn stabilize_disc_source_fps(
-    path: Option<&str>,
-    picked: Option<f64>,
-    gate: &mut FpsPickGateState,
-) -> Option<f64> {
-    if !path.is_some_and(mpv_path_is_disc) {
-        gate.locked_disc_fps = None;
-        return picked;
-    }
-    match picked {
-        Some(f) if is_plausible_broadcast_fps(f) => {
-            gate.locked_disc_fps = Some(f);
-            Some(f)
-        }
-        Some(_) => gate.locked_disc_fps,
-        None => gate.locked_disc_fps,
-    }
-}
-
-static FPS_PICK_GATE: Mutex<FpsPickGateState> = Mutex::new(FpsPickGateState {
-    last_path: None,
-    ignore_est_left: 0,
-    locked_disc_fps: None,
-    interleaved_smooth: false,
-    stable_streak: 0,
-    last_stable_fps: None,
-});
-
-/// After a **seek**, mpv cadence readings fluctuate on interleaved Blu-ray — stay on display-resample until stable.
-pub(crate) fn mark_smooth_cadence_unstable_after_seek() {
-    let mut g = FPS_PICK_GATE.lock().unwrap_or_else(|e| e.into_inner());
-    g.interleaved_smooth = true;
-    g.stable_streak = 0;
-    g.last_stable_fps = None;
-    g.locked_disc_fps = None;
-}
-
-/// True when Smooth 60 should use mpv **display-resample** only (no VapourSynth / cadence rebuild).
-pub(crate) fn smooth_prefers_display_resample(
-    mpv: &libmpv2::Mpv,
-    shell_disc: Option<&std::path::Path>,
-) -> bool {
-    let path_now = mpv
-        .get_property::<String>("path")
-        .ok()
-        .filter(|s| !s.trim().is_empty());
-    let disc = path_now
-        .as_deref()
-        .is_some_and(mpv_path_is_disc)
-        || shell_disc.is_some_and(crate::video_ext::is_bluray_disc_path);
-    let g = FPS_PICK_GATE.lock().unwrap_or_else(|e| e.into_inner());
-    if g.interleaved_smooth {
-        return true;
-    }
-    disc && g.stable_streak < CADENCE_STABLE_READS
-}
-
-fn cadence_rates_jump(prev: f64, f: f64) -> bool {
-    let jump = (f - prev).abs();
-    let rel = (f / prev - 1.0).abs();
-    rel > CADENCE_JUMP_FRAC || jump > (prev * CADENCE_JUMP_FRAC).max(1.5)
-}
-
-fn note_plausible_cadence(f: f64, gate: &mut FpsPickGateState) -> bool {
-    let mut cadence_jump = false;
-    if let Some(prev) = gate.last_stable_fps {
-        if cadence_rates_jump(prev, f) {
-            gate.interleaved_smooth = true;
-            gate.stable_streak = 0;
-            cadence_jump = true;
-        } else if (f - prev).abs() < 0.03 {
-            gate.stable_streak = gate.stable_streak.saturating_add(1);
-        } else {
-            gate.stable_streak = 1;
-        }
-    } else {
-        gate.stable_streak = 1;
-    }
-    gate.last_stable_fps = Some(f);
-    if !cadence_jump && gate.stable_streak >= CADENCE_STABLE_READS {
-        gate.interleaved_smooth = false;
-    }
-    cadence_jump
-}
-
-pub(super) fn update_interleaved_cadence_gate(
-    path: Option<&str>,
-    picked: Option<f64>,
-    gate: &mut FpsPickGateState,
-) -> Option<f64> {
-    let disc = path.is_some_and(mpv_path_is_disc);
-    match picked {
-        None => {
-            if disc || gate.last_stable_fps.is_some() {
-                gate.interleaved_smooth = true;
-            }
-            gate.stable_streak = 0;
-        }
-        Some(f) if !is_plausible_broadcast_fps(f) => {
-            gate.interleaved_smooth = true;
-            gate.stable_streak = 0;
-            gate.last_stable_fps = Some(f);
-        }
-        Some(f) => {
-            let _ = note_plausible_cadence(f, gate);
-        }
-    }
-    picked.or(gate.locked_disc_fps)
-}
-
-fn mask_est_for_path_change_with_state(
-    path_now: Option<String>,
-    est: Option<f64>,
-    gate: &mut FpsPickGateState,
-) -> Option<f64> {
-    let path_changed = gate.last_path != path_now;
-    if path_changed {
-        gate.last_path.clone_from(&path_now);
-        gate.ignore_est_left = FPS_EST_IGNORE_READS_AFTER_PATH_CHANGE;
-        gate.locked_disc_fps = None;
-        gate.stable_streak = 0;
-        gate.last_stable_fps = None;
-        gate.interleaved_smooth = path_now.as_deref().is_some_and(mpv_path_is_disc);
-    }
-    if gate.ignore_est_left > 0 {
-        gate.ignore_est_left -= 1;
-        None
-    } else {
-        est
-    }
-}
+include!("mvtools_cadence_gate.rs");
 
 pub(crate) fn video_log() -> bool {
     std::env::var("RHINO_VIDEO_LOG")
@@ -248,7 +99,11 @@ fn apply_mvtools_env(v: &mut crate::db::VideoPrefs) -> bool {
 /// Demux often reports ~24 Hz before `~24000/1001` film cadence stabilizes; when `estimated-vf-fps`
 /// `estimated-vf-fps` may still describe the previous file — `mask_est_for_path_change` drops it briefly.
 #[must_use]
-pub(super) fn source_fps_from_mpv(mpv: &libmpv2::Mpv) -> Option<f64> {
+pub(super) fn source_fps_from_mpv(
+    mpv: &libmpv2::Mpv,
+    bundle: Option<&crate::mpv_embed::MpvBundle>,
+) -> Option<f64> {
+    let shell_media = crate::video_pref::me_budget_local_path(mpv, bundle);
     let cfps = mpv
         .get_property::<f64>("container-fps")
         .ok()
@@ -263,15 +118,37 @@ pub(super) fn source_fps_from_mpv(mpv: &libmpv2::Mpv) -> Option<f64> {
         .map(|s| s.trim().to_owned())
         .filter(|s| !s.is_empty());
     let mut gate = FPS_PICK_GATE.lock().unwrap_or_else(|e| e.into_inner());
-    let est = mask_est_for_path_change_with_state(path_now.clone(), est, &mut gate);
-    let est = if ignore_est_for_source_pick(path_now.as_deref(), mpv) {
+    let est = mask_est_for_path_change_with_state(
+        path_now.clone(),
+        est,
+        &mut gate,
+        shell_media.as_deref(),
+    );
+    let est = if ignore_est_for_source_pick(path_now.as_deref(), mpv, shell_media.as_deref()) {
         None
     } else {
         est
     };
-    let picked = source_fps_from_container_and_estimated(cfps, est);
-    let picked = stabilize_disc_source_fps(path_now.as_deref(), picked, &mut gate);
+    let mut picked = source_fps_from_container_and_estimated(cfps, est);
+    picked = stabilize_disc_source_fps(path_now.as_deref(), picked, &mut gate);
+    if media_is_dvd_vob(mpv, bundle) {
+        let fps =
+            crate::video_ext::dvd_vob_broadcast_fps(crate::video_pref::decode_wh_from_mpv(mpv))
+                .or(Some(25.0));
+        picked = fps;
+        gate.interleaved_smooth = false;
+        gate.stable_streak = CADENCE_STABLE_READS;
+        gate.last_stable_fps = fps;
+    }
     update_interleaved_cadence_gate(path_now.as_deref(), picked, &mut gate)
+}
+
+/// Gate-only cadence pick for [super::apply_mpv_video]; publish env via [apply_source_fps_env] once.
+pub(super) fn refresh_smooth_cadence_gate(
+    mpv: &libmpv2::Mpv,
+    bundle: Option<&crate::mpv_embed::MpvBundle>,
+) -> Option<f64> {
+    source_fps_from_mpv(mpv, bundle)
 }
 
 #[must_use]
@@ -339,12 +216,12 @@ mod source_fps_pick_tests {
         let ntsc = 24000.0 / 1001.0;
         for _ in 0..super::FPS_EST_IGNORE_READS_AFTER_PATH_CHANGE {
             assert_eq!(
-                mask_est_for_path_change_with_state(Some("/a".into()), Some(ntsc), &mut g),
+                mask_est_for_path_change_with_state(Some("/a".into()), Some(ntsc), &mut g, None),
                 None
             );
         }
         assert_eq!(
-            mask_est_for_path_change_with_state(Some("/a".into()), Some(ntsc), &mut g),
+            mask_est_for_path_change_with_state(Some("/a".into()), Some(ntsc), &mut g, None),
             Some(ntsc)
         );
     }
@@ -381,6 +258,7 @@ mod source_fps_pick_tests {
     fn mpv_path_is_disc_helper() {
         assert!(mpv_path_is_disc("bd://foo"));
         assert!(mpv_path_is_disc("bluray://bar"));
+        assert!(mpv_path_is_disc("dvd://1"));
         assert!(!mpv_path_is_disc("/movie.mkv"));
     }
 
@@ -390,22 +268,22 @@ mod source_fps_pick_tests {
         let ntsc = 24000.0 / 1001.0;
         for _ in 0..super::FPS_EST_IGNORE_READS_AFTER_PATH_CHANGE {
             assert_eq!(
-                mask_est_for_path_change_with_state(Some("/sp.mkv".into()), Some(ntsc), &mut g),
+                mask_est_for_path_change_with_state(Some("/sp.mkv".into()), Some(ntsc), &mut g, None),
                 None
             );
         }
         assert_eq!(
-            mask_est_for_path_change_with_state(Some("/sp.mkv".into()), Some(ntsc), &mut g),
+            mask_est_for_path_change_with_state(Some("/sp.mkv".into()), Some(ntsc), &mut g, None),
             Some(ntsc)
         );
         for _ in 0..super::FPS_EST_IGNORE_READS_AFTER_PATH_CHANGE {
             assert_eq!(
-                mask_est_for_path_change_with_state(Some("/holmes.mkv".into()), Some(ntsc), &mut g),
+                mask_est_for_path_change_with_state(Some("/holmes.mkv".into()), Some(ntsc), &mut g, None),
                 None
             );
         }
         assert_eq!(
-            mask_est_for_path_change_with_state(Some("/holmes.mkv".into()), Some(24.0), &mut g),
+            mask_est_for_path_change_with_state(Some("/holmes.mkv".into()), Some(24.0), &mut g, None),
             Some(24.0)
         );
         assert!((source_fps_from_container_and_estimated(Some(24.0), Some(24.0)).unwrap() - 24.0).abs()
@@ -418,13 +296,23 @@ mod source_fps_pick_tests {
 pub(super) fn apply_source_fps_env(fps: Option<f64>) {
     match fps {
         Some(fps) => {
-            std::env::set_var(crate::paths::RHINO_SOURCE_FPS_VAR, format!("{fps:.6}"));
+            let s = format!("{fps:.6}");
+            if std::env::var(crate::paths::RHINO_SOURCE_FPS_VAR).ok().as_deref() == Some(s.as_str()) {
+                return;
+            }
+            std::env::set_var(crate::paths::RHINO_SOURCE_FPS_VAR, &s);
             eprintln!(
                 "[rhino] video: source fps -> {fps:.6} ({})",
                 crate::paths::RHINO_SOURCE_FPS_VAR
             );
         }
         None => {
+            if std::env::var_os(crate::paths::RHINO_SOURCE_FPS_VAR).is_none() {
+                eprintln!(
+                    "[rhino] video: source fps unknown (mpv has no `container-fps` / `estimated-vf-fps`) — script will passthrough"
+                );
+                return;
+            }
             std::env::remove_var(crate::paths::RHINO_SOURCE_FPS_VAR);
             eprintln!(
                 "[rhino] video: source fps unknown (mpv has no `container-fps` / `estimated-vf-fps`) — script will passthrough"

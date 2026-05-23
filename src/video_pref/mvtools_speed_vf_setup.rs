@@ -168,6 +168,10 @@ pub(crate) fn vf_smooth_matches_prefs(
     if !(path_matches || base_matches) {
         return false;
     }
+    let want_deint = wants_bluray_bob_deinterlace(mpv, bundle);
+    if want_deint && !bluray_deinterlace_in_vf(&vf) {
+        return false;
+    }
     if !vf_smooth_queue_chain_ok(&vf) {
         return false;
     }
@@ -217,6 +221,7 @@ fn add_smooth_60(
     v: &mut VideoPrefs,
     speed_hint: Option<f64>,
     bundle: Option<&crate::mpv_embed::MpvBundle>,
+    cadence_hz: Option<f64>,
 ) -> bool {
     if !v.smooth_60 {
         return false;
@@ -232,12 +237,14 @@ fn add_smooth_60(
     if !smooth_wants_vapoursynth_vf(mpv, bundle, speed_hint) {
         return false;
     }
+    ensure_hwdec_vf_copy(mpv);
+    sync_bluray_deinterlace_mpv(mpv, bundle);
     match speed_hint {
         Some(s) => set_playback_speed_env(s),
         None => set_playback_speed_env_from_mpv(mpv),
     }
     let cap_px = effective_smooth_me_budget_px(mpv, v, bundle);
-    let fps_opt = source_fps_from_mpv(mpv);
+    let fps_opt = cadence_hz.or_else(|| refresh_smooth_cadence_gate(mpv, bundle));
     if v.vs_path.trim().is_empty() {
         publish_smooth_me_budget_env(cap_px);
         if video_log() {

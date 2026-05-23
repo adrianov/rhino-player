@@ -24,7 +24,9 @@ pub(crate) fn decode_wh_from_mpv(mpv: &Mpv) -> Option<(i32, i32)> {
         let h = mpv.get_property::<i64>(hk).ok()?;
         (w > 0 && h > 0).then_some((w as i32, h as i32))
     }
-    pair(mpv, "video-params/w", "video-params/h").or_else(|| pair(mpv, "width", "height"))
+    pair(mpv, "video-params/w", "video-params/h")
+        .or_else(|| pair(mpv, "dwidth", "dheight"))
+        .or_else(|| pair(mpv, "width", "height"))
 }
 
 /// ME budget for the current mpv media: [crate::db::resolve_media_smooth_me_budget].

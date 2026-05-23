@@ -1,12 +1,4 @@
-// Blu-ray / AVCHD shell path (cadence policy: `smooth_prefers_display_resample`).
-
-#[must_use]
-pub(crate) fn is_bluray_playback(
-    mpv: &libmpv2::Mpv,
-    bundle: Option<&crate::mpv_embed::MpvBundle>,
-) -> bool {
-    shell_disc_path(mpv, bundle).is_some()
-}
+// Optical-disc shell path (Blu-ray / DVD; cadence: `smooth_prefers_display_resample`).
 
 #[must_use]
 pub(crate) fn shell_disc_path(
@@ -21,7 +13,7 @@ pub(crate) fn shell_disc_path(
     {
         return me_budget_local_path(mpv, bundle);
     }
-    me_budget_local_path(mpv, bundle).filter(|p| crate::video_ext::is_bluray_disc_path(p))
+    me_budget_local_path(mpv, bundle).filter(|p| crate::video_ext::is_optical_disc_path(p))
 }
 
 #[must_use]
@@ -29,6 +21,11 @@ pub(crate) fn smooth_prefers_display_resample_bundle(
     mpv: &libmpv2::Mpv,
     bundle: Option<&crate::mpv_embed::MpvBundle>,
 ) -> bool {
+    let shell_media = me_budget_local_path(mpv, bundle);
     let shell_path = shell_disc_path(mpv, bundle);
-    smooth_prefers_display_resample(mpv, shell_path.as_deref())
+    smooth_prefers_display_resample(
+        mpv,
+        shell_path.as_deref(),
+        shell_media.as_deref(),
+    )
 }
