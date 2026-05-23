@@ -13,7 +13,9 @@ fn persist_media_path(&self) -> Option<std::path::PathBuf> {
 
 /// Remember [Path] the shell just opened for ME budget + **`media`** row lookup (not read from mpv).
 pub(crate) fn set_me_budget_shell_path(&self, path: &Path) {
-    *self.me_budget_shell_path.borrow_mut() = std::fs::canonicalize(path).ok();
+    *self.me_budget_shell_path.borrow_mut() = Some(
+        std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
+    );
 }
 
 pub(crate) fn set_skip_media_persist(&self, skip: bool) {
@@ -141,13 +143,16 @@ pub fn load_chapter_seek(
     self.begin_chapter_scrub_pause_hold(resume_playing);
     self.pending_resume.set(Some(local_sec.max(0.0)));
     self.set_me_budget_shell_path(&canonical);
+    crate::video_pref::strip_vapoursynth_before_replace_media(self);
     crate::dvd_vob_log::dvd_seek_log(format!(
         "load_chapter_seek file={} local={local_sec:.2} hold_global={hold_global:.2}",
         canonical.display()
     ));
-    self.mpv
-        .command("loadfile", &[s, "replace"])
-        .map_err(|e| format!("{e:?}"))
+    if let Err(e) = self.mpv.command("loadfile", &[s, "replace"]) {
+        self.abort_chapter_load(true);
+        return Err(format!("{e:?}"));
+    }
+    Ok(())
 }
 
 /// Open mpv `path` matches [Self::set_me_budget_shell_path] (set before `loadfile`).
@@ -182,19 +187,22 @@ pub fn apply_pending_resume(&self) -> Option<f64> {
         ));
         return None;
     }
-    let dur = self
+    let chapter_scrub = self.chapter_scrub_resume.get();
+    let mut dur = self
         .mpv
         .get_property::<f64>("duration")
         .ok()
         .filter(|d| d.is_finite() && *d > 0.0)
         .unwrap_or(0.0);
+    if dur <= 0.0 && chapter_scrub {
+        dur = self.chapter_scrub_demux_duration();
+    }
     if dur <= 0.0 {
         crate::dvd_vob_log::dvd_seek_log(format!(
             "apply_pending_resume: wait duration (target={t:.2})"
         ));
         return None;
     }
-    let chapter_scrub = self.chapter_scrub_resume.get();
     if !chapter_scrub {
         let path = self.persist_media_path();
         if let Some(ref p) = path {
@@ -202,20 +210,10 @@ pub fn apply_pending_resume(&self) -> Option<f64> {
         }
     }
     let t = self.pending_resume.get()?;
-    let pos = self.mpv.get_property::<f64>("time-pos").unwrap_or(f64::NAN);
     if chapter_scrub {
-        if self.complete_chapter_scrub_if_at_target(t) {
-            return Some(t);
-        }
-        self.chapter_scrub_seek_to(t);
-        if self.complete_chapter_scrub_if_at_target(t) {
-            return Some(t);
-        }
-        crate::dvd_vob_log::dvd_seek_log(format!(
-            "apply_pending_resume: chapter scrub seek {t:.2} (pos={pos:.2}, retry)"
-        ));
-        return Some(t);
+        return self.apply_chapter_scrub_pending_resume(t);
     }
+    let pos = self.mpv.get_property::<f64>("time-pos").unwrap_or(f64::NAN);
     if resume_seek::resume_already_at(&self.mpv, t) {
         self.pending_resume.set(None);
         self.dvd_hold_global.set(None);

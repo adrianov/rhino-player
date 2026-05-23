@@ -210,6 +210,20 @@ fn maybe_advance_dvd_chapter_eof(ctx: &Rc<TransportCtx>) -> bool {
     if crate::app::browse_overlay_active(&ctx.eof.recent) {
         return false;
     }
+    {
+        let Ok(g) = ctx.player.try_borrow() else {
+            return false;
+        };
+        let Some(b) = g.as_ref() else {
+            return false;
+        };
+        let shell = b.me_budget_shell_path.borrow();
+        crate::dvd_vob_timeline::refresh_dvd_bar_at_chapter_eof(
+            &ctx.dvd_bar,
+            &b.mpv,
+            shell.as_deref(),
+        );
+    }
     let advanced = {
         let bar = ctx.dvd_bar.borrow();
         let Some(ref bar) = *bar else {
@@ -225,23 +239,19 @@ fn maybe_advance_dvd_chapter_eof(ctx: &Rc<TransportCtx>) -> bool {
 }
 
 fn dvd_eof_tail(ctx: &TransportCtx, bar_dur: f64, bar_pos: f64) -> bool {
-    if bar_dur > 0.0 && (bar_dur - bar_pos) <= TICK_EOF_TAIL_SEC {
-        return true;
-    }
-    if ctx.dvd_bar.borrow().is_some() {
-        return mpv_chapter_eof(ctx);
-    }
-    false
-}
-
-fn mpv_chapter_eof(ctx: &TransportCtx) -> bool {
     let Ok(g) = ctx.player.try_borrow() else {
         return false;
     };
     let Some(b) = g.as_ref() else {
         return false;
     };
-    crate::dvd_vob_timeline::chapter_local_at_eof(&b.mpv)
+    let bar = ctx.dvd_bar.borrow();
+    crate::dvd_vob_timeline::title_eof_for_sibling_advance(
+        &b.mpv,
+        bar.as_ref(),
+        bar_dur,
+        bar_pos,
+    )
 }
 
 fn schedule_transport_resync_on_idle(ctx: &Rc<TransportCtx>) {

@@ -65,6 +65,7 @@ fn schedule_chapter_scrub_resume_retries(ctx: &Rc<TransportCtx>) {
                     transport_tick(&c);
                     refresh_play_button(&c);
                 } else if is_last {
+                    schedule_smooth_60_resync_idle(&c);
                     transport_tick(&c);
                     refresh_play_button(&c);
                 }

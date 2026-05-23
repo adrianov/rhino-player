@@ -32,6 +32,40 @@ impl MpvBundle {
         resume_seek::seek_to_resume_sec(&self.mpv, t);
     }
 
+    /// Paused cross-chapter `loadfile` may keep mpv `duration` at 0 until demux runs; kick it.
+    pub(super) fn chapter_scrub_demux_duration(&self) -> f64 {
+        if self.chapter_scrub_hold_pause.get() {
+            let _ = self.mpv.set_property("pause", false);
+        }
+        self.mpv
+            .get_property::<f64>("duration")
+            .ok()
+            .filter(|d| d.is_finite() && *d > 0.0)
+            .unwrap_or_else(|| {
+                self.mpv
+                    .get_property::<f64>("time-pos")
+                    .ok()
+                    .filter(|p| p.is_finite() && *p >= 0.0)
+                    .map(|p| p + 1.0)
+                    .unwrap_or(0.0)
+            })
+    }
+
+    pub(super) fn apply_chapter_scrub_pending_resume(&self, t: f64) -> Option<f64> {
+        if self.complete_chapter_scrub_if_at_target(t) {
+            return Some(t);
+        }
+        self.chapter_scrub_seek_to(t);
+        if self.complete_chapter_scrub_if_at_target(t) {
+            return Some(t);
+        }
+        let pos = self.mpv.get_property::<f64>("time-pos").unwrap_or(f64::NAN);
+        crate::dvd_vob_log::dvd_seek_log(format!(
+            "apply_pending_resume: chapter scrub seek {t:.2} (pos={pos:.2}, retry)"
+        ));
+        Some(t)
+    }
+
     pub(super) fn complete_chapter_scrub_if_at_target(&self, t: f64) -> bool {
         if !self.chapter_scrub_resume.get() {
             return false;
@@ -84,6 +118,16 @@ impl MpvBundle {
     pub(crate) fn clear_chapter_scrub_resume(&self) {
         self.chapter_scrub_resume.set(false);
         self.pending_resume.set(None);
+        self.finish_chapter_scrub_pause_hold();
+    }
+
+    /// Drop a failed or stale cross-chapter load without unpausing (EOF retry stays at tail).
+    pub(crate) fn abort_chapter_load(&self, keep_paused: bool) {
+        self.chapter_scrub_resume.set(false);
+        self.pending_resume.set(None);
+        self.chapter_eof_load.set(false);
+        self.dvd_hold_global.set(None);
+        self.chapter_scrub_unpause_after.set(!keep_paused);
         self.finish_chapter_scrub_pause_hold();
     }
 }

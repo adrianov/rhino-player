@@ -63,6 +63,12 @@ impl DvdBarState {
             None => computed,
         }
     }
+
+    fn mpv_chapter_duration(&self, mpv: &libmpv2::Mpv) -> Option<f64> {
+        mpv.get_property::<f64>("duration")
+            .ok()
+            .filter(|d| d.is_finite() && *d > 0.0)
+    }
 }
 
 pub(crate) fn dur_from_map(
@@ -111,6 +117,59 @@ pub fn maybe_refresh_dvd_bar(
     if stale {
         refresh_dvd_bar(slot, mpv, shell);
     }
+}
+
+/// Before chapter EOF advance: rebuild when the bar still looks like a single-chapter title.
+pub fn refresh_dvd_bar_at_chapter_eof(
+    slot: &std::cell::RefCell<Option<DvdBarState>>,
+    mpv: &libmpv2::Mpv,
+    shell: Option<&Path>,
+) {
+    let Some(chapter) = open_dvd_chapter_path(mpv, shell) else {
+        return;
+    };
+    if !chapter_local_at_eof(mpv) {
+        return;
+    }
+    let on_disk_n = crate::dvd_entity::title_chapter_paths(&chapter)
+        .map(|c| c.len())
+        .unwrap_or(0);
+    if on_disk_n <= 1 {
+        return;
+    }
+    let stale = slot.borrow().as_ref().is_none_or(|b| {
+        b.tl.vobs.len() < on_disk_n
+            || b.tl.next_chapter_after(&chapter).is_none()
+            || (b.mpv_chapter_duration(mpv).is_some_and(|live| {
+                live > 0.0 && b.total_sec() <= live * 1.05
+            }))
+    });
+    if stale {
+        refresh_dvd_bar(slot, mpv, shell);
+    }
+}
+
+/// True when sibling-folder EOF advance may run (title finished, not mid-chapter tail).
+pub(crate) fn title_eof_for_sibling_advance(
+    mpv: &libmpv2::Mpv,
+    bar: Option<&DvdBarState>,
+    bar_dur: f64,
+    bar_pos: f64,
+) -> bool {
+    if bar_dur > 0.0 && (bar_dur - bar_pos) > crate::app::TICK_EOF_TAIL_SEC {
+        return false;
+    }
+    if let Some(bar) = bar {
+        if let Some(ch) = open_dvd_chapter_path(mpv, None) {
+            if bar.tl.next_chapter_after(&ch).is_some() {
+                return false;
+            }
+        }
+    }
+    if bar_dur > 0.0 && (bar_dur - bar_pos) <= crate::app::TICK_EOF_TAIL_SEC {
+        return true;
+    }
+    bar.is_some() && chapter_local_at_eof(mpv)
 }
 
 /// Rebuild cached bar state after `FileLoaded` / path change (not on every transport tick).

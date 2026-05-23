@@ -170,6 +170,59 @@ mod tests {
     }
 
     #[test]
+    fn eof_continue_uses_live_tail_beyond_stored_chapter_dur() {
+        let base = std::env::temp_dir().join(format!("rhino-dvd-eof-tail-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let vts = base.join("VIDEO_TS");
+        fs::create_dir_all(&vts).expect("mkdir");
+        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
+        write_vob(&vts, "VTS_02_1.VOB");
+        write_vob(&vts, "VTS_02_2.VOB");
+        let p1 = vts.join("VTS_02_1.VOB");
+        let p2 = vts.join("VTS_02_2.VOB");
+        let mut map = HashMap::new();
+        map.insert(p1.to_string_lossy().into_owned(), 1102.3);
+        map.insert(p2.to_string_lossy().into_owned(), 1100.0);
+        let tl = DvdVobTimeline::from_chapter(&p1, &map, &p1, 1102.3).expect("tl");
+        let (next, local, g) = tl
+            .continue_after_vob_eof(&p1, 1104.78)
+            .expect("continue");
+        assert!(
+            crate::video_ext::paths_same_file(&next, &p2),
+            "expected vob2 got {}",
+            next.display()
+        );
+        assert!(
+            (local - 2.53).abs() < 0.1,
+            "local spill into vob2, got {local}"
+        );
+        assert!((g - 1104.83).abs() < 0.1, "hold global {g}");
+        let (_, local0, _) = tl.continue_after_vob_eof(&p1, 1102.3).expect("at stored end");
+        assert!(local0 < 0.1, "stored end lands at next vob start");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn stale_total_still_lists_next_chapter() {
+        let base = std::env::temp_dir().join(format!("rhino-dvd-eof-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let vts = base.join("VIDEO_TS");
+        fs::create_dir_all(&vts).expect("mkdir");
+        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
+        write_vob(&vts, "VTS_02_1.VOB");
+        write_vob(&vts, "VTS_02_2.VOB");
+        let p1 = vts.join("VTS_02_1.VOB");
+        let mut map = HashMap::new();
+        map.insert(p1.to_string_lossy().into_owned(), 1105.0);
+        let tl = DvdVobTimeline::from_chapter(&p1, &map, &p1, 1105.0).expect("tl");
+        assert!(
+            tl.next_chapter_after(&p1).is_some(),
+            "second chapter must remain reachable when total equals first chapter only"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn preview_labels_empty_for_single_chapter_vob() {
         let base = std::env::temp_dir().join(format!("rhino-dvd-one-ch-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
