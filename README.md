@@ -68,6 +68,8 @@ cargo build --release
 ./target/release/rhino-player
 ```
 
+**stolendata-mpv cask** (`brew install --cask stolendata-mpv`) does not install `libmpv.dylib`; use the formula `brew install mpv` for Rhino.
+
 Or use the project helper (same exports):
 
 ```bash

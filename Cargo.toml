@@ -2,7 +2,6 @@
 name = "rhino-player"
 version = "1.3.0"
 edition = "2021"
-default-run = "rhino-player"
 authors = ["Peter Adrianov"]
 description = "Rhino Player — mpv with GTK4 / libadwaita (Linux primary; macOS via Homebrew, experimental)"
 license = "GPL-3.0-or-later"
@@ -10,6 +9,7 @@ readme = "README.md"
 homepage = "https://github.com/adrianov/rhino-player"
 repository = "https://github.com/adrianov/rhino-player"
 rust-version = "1.74"
+default-run = "rhino-player"
 
 [dependencies]
 gtk = { version = "0.9", package = "gtk4", features = ["v4_14"] } # window, header, dialogs
@@ -46,8 +46,10 @@ objc2-app-kit = { version = "0.3.2", features = [
     "NSCursor",
     "NSOpenPanel",
     "NSSavePanel",
+    "objc2-uniform-type-identifiers",
     "block2",
 ] }
+objc2-uniform-type-identifiers = { version = "0.3.2", features = ["UTType", "UTCoreTypes"] }
 objc2-foundation = { version = "0.3.2", features = [
     "NSArray",
     "NSDictionary",

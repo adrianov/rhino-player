@@ -47,6 +47,9 @@ fn maybe_advance_sibling_on_eof(
     drop(g);
     seof.done.set(true);
     if let Some(np) = next {
+        if crate::video_ext::paths_same_file(&np, &finished) {
+            return;
+        }
         let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
             video_pref: Rc::clone(video_pref),
             last_path: Rc::clone(last_path),

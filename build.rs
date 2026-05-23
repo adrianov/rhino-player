@@ -1,5 +1,5 @@
 //! Linux: embed `DT_RUNPATH` so a local **libmpv** in `/usr/local` is preferred without `LD_LIBRARY_PATH`.
-//! macOS: add Homebrew **lib** dirs so `libmpv` links when crates only emit `-lmpv`.
+//! macOS: Homebrew **opt/mpv/lib**, **Cellar/mpv/**/lib, then generic **lib** dirs for `-lmpv`.
 
 use std::path::{Path, PathBuf};
 
@@ -32,21 +32,58 @@ fn linux_runpath() {
 }
 
 fn macos_libmpv_search() {
-    let roots = homebrew_lib_roots();
-    if roots.is_empty() {
-        println!("cargo:warning=No Homebrew lib directory found (/opt/homebrew/lib or /usr/local/lib). Install mpv (`brew install mpv`) and ensure the library is on the linker path.");
-        return;
-    }
-    for lib in &roots {
-        if mpv_dylib_present(lib) {
-            println!("cargo:rustc-link-search=native={}", lib.display());
+    for lib in homebrew_opt_mpv_lib_dirs()
+        .into_iter()
+        .chain(homebrew_cellar_mpv_lib_dirs())
+        .chain(homebrew_lib_roots())
+    {
+        if mpv_dylib_present(&lib) {
+            emit_mpv_link(&lib);
             return;
         }
     }
+    let roots = homebrew_lib_roots();
+    if roots.is_empty() {
+        println!("cargo:warning=No Homebrew lib directory found. Install libmpv: `brew install mpv`.");
+        return;
+    }
     println!(
-        "cargo:warning=libmpv not found under Homebrew lib paths ({:?}). Run `brew install mpv`.",
+        "cargo:warning=libmpv not found ({:?}). Run `brew install mpv`.",
         roots
     );
+}
+
+fn emit_mpv_link(lib: &Path) {
+    let dir = lib.display();
+    println!("cargo:rustc-link-search=native={dir}");
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{dir}");
+}
+
+fn homebrew_opt_mpv_lib_dirs() -> Vec<PathBuf> {
+    ["/opt/homebrew/opt/mpv/lib", "/usr/local/opt/mpv/lib"]
+        .into_iter()
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .collect()
+}
+
+fn homebrew_cellar_mpv_lib_dirs() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for cellar in ["/opt/homebrew/Cellar/mpv", "/usr/local/Cellar/mpv"] {
+        let Ok(read) = std::fs::read_dir(cellar) else {
+            continue;
+        };
+        let mut vers: Vec<PathBuf> = read
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        vers.sort();
+        if let Some(lib) = vers.last().map(|p| p.join("lib")).filter(|p| p.is_dir()) {
+            out.push(lib);
+        }
+    }
+    out
 }
 
 fn homebrew_lib_roots() -> Vec<PathBuf> {

@@ -5,18 +5,19 @@ fn preload_continue_path(
     recent: &impl IsA<gtk::Widget>,
     last_path: &Rc<RefCell<Option<PathBuf>>>,
 ) -> PreloadOutcome {
+    let path = crate::video_ext::resolve_open_media_path(path);
     if !recent.is_visible() || !path.is_file() || player.borrow().is_none() {
         return PreloadOutcome::Failed;
     }
-    if mpv_has_open_target(path, player) {
+    if mpv_has_open_target(&path, player) {
         return PreloadOutcome::Ready;
     }
-    let canon = std::fs::canonicalize(path).ok();
+    let canon = std::fs::canonicalize(&path).ok();
     *last_path.borrow_mut() = canon;
     if let Some(b) = player.borrow().as_ref() {
-        b.set_me_budget_shell_path(path);
+        b.set_me_budget_shell_path(&path);
     }
-    transport_sync_warm_browse(path);
+    transport_sync_warm_browse(&path);
     let o = LoadOpts {
         video_pref: Rc::clone(video_pref),
         record: false,
@@ -30,7 +31,7 @@ fn preload_continue_path(
         playback_focus: None,
         warm_preload: true,
     };
-    let warm_hit = match load_file_into_player(path, player, recent, &o) {
+    let warm_hit = match load_file_into_player(&path, player, recent, &o) {
         Err(_) => return PreloadOutcome::Failed,
         Ok(hit) => hit,
     };

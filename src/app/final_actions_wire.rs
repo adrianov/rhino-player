@@ -51,7 +51,7 @@ fn wire_final_open_dialog(ctx: &FinalActionCtx) {
                 };
                 if !crate::video_ext::is_openable_media_path(&path) {
                     eprintln!(
-                        "[rhino] open: not a video file or Blu-ray folder: {}",
+                        "[rhino] open: not a video file or optical-disc folder: {}",
                         path.display()
                     );
                     return;

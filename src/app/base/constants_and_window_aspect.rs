@@ -114,13 +114,9 @@ fn win_normal_size(win: &adw::ApplicationWindow) -> (i32, i32) {
 }
 
 fn same_open_target(a: &Path, b: &Path) -> bool {
-    if a == b {
-        return true;
-    }
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
-        (Ok(x), Ok(y)) => x == y,
-        _ => false,
-    }
+    let ra = crate::video_ext::resolve_open_media_path(a);
+    let rb = crate::video_ext::resolve_open_media_path(b);
+    crate::video_ext::paths_same_file(&ra, &rb)
 }
 
 /// `RHINO_ASPECT_DEBUG=1` — extra aspect logs (resize-end, sync poll).

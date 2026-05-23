@@ -9,6 +9,7 @@ use block2::RcBlock;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{NSModalResponseOK, NSOpenPanel, NSWindow};
 use objc2_foundation::{NSArray, NSString, NSURL};
+use objc2_uniform_type_identifiers::UTType;
 
 use crate::video_ext;
 
@@ -16,21 +17,33 @@ thread_local! {
     static OPEN_PICK: RefCell<Option<Box<dyn FnOnce(Option<PathBuf>)>>> = const { RefCell::new(None) };
 }
 
-fn panel_allowed_file_types() -> objc2::rc::Retained<NSArray<NSString>> {
-    let mut types: Vec<objc2::rc::Retained<NSString>> = Vec::new();
+fn push_uti_id(types: &mut Vec<objc2::rc::Retained<UTType>>, id: &str) {
+    if let Some(t) = UTType::typeWithIdentifier(&NSString::from_str(id)) {
+        types.push(t);
+    }
+}
+
+fn push_filename_ext(types: &mut Vec<objc2::rc::Retained<UTType>>, ext: &str) {
+    if let Some(t) = UTType::typeWithFilenameExtension(&NSString::from_str(ext)) {
+        types.push(t);
+    }
+}
+
+fn panel_allowed_content_types() -> objc2::rc::Retained<NSArray<UTType>> {
+    let mut types: Vec<objc2::rc::Retained<UTType>> = Vec::new();
     for uti in [
         "public.movie",
+        "public.folder",
         "public.avchd-collection",
         "public.avchd-content",
-        "public.folder",
     ] {
-        types.push(NSString::from_str(uti));
+        push_uti_id(&mut types, uti);
     }
     for ext in video_ext::SUFFIX {
-        types.push(NSString::from_str(ext));
+        push_filename_ext(&mut types, ext);
     }
-    for ext in ["bdmv", "bdm"] {
-        types.push(NSString::from_str(ext));
+    for ext in ["bdmv", "bdm", "ifo"] {
+        push_filename_ext(&mut types, ext);
     }
     NSArray::from_retained_slice(&types)
 }
@@ -70,7 +83,7 @@ fn present_open_video_sheet_ns(ns_win: objc2::rc::Retained<NSWindow>) {
     panel.setCanChooseDirectories(true);
     panel.setAllowsMultipleSelection(false);
     panel.setTreatsFilePackagesAsDirectories(false);
-    panel.setAllowedFileTypes(Some(&panel_allowed_file_types()));
+    panel.setAllowedContentTypes(&panel_allowed_content_types());
 
     let panel_ret = panel.clone();
     let handler = RcBlock::new(move |response| {
