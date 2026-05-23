@@ -49,10 +49,55 @@ impl DvdVobTimeline {
         if on_disk.len() <= self.vobs.len() {
             return;
         }
-        let total = self.total_sec;
+        let old_vobs = std::mem::take(&mut self.vobs);
+        let old_durs = std::mem::take(&mut self.durs);
         self.vobs = on_disk.to_vec();
         self.durs = vec![0.0; self.vobs.len()];
-        self.split_duration_by_file_bytes(total);
+        for (vob, dur) in old_vobs.iter().zip(old_durs.iter()) {
+            if *dur <= 0.0 || !dur.is_finite() {
+                continue;
+            }
+            let Some(vid) = crate::dvd_entity::vob_part_id(vob) else {
+                continue;
+            };
+            let parts: Vec<usize> = self
+                .vobs
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| crate::dvd_entity::vob_part_id(p) == Some(vid))
+                .map(|(i, _)| i)
+                .collect();
+            if parts.is_empty() {
+                continue;
+            }
+            let bytes: Vec<u64> = parts
+                .iter()
+                .map(|&i| {
+                    self.vobs[i]
+                        .metadata()
+                        .ok()
+                        .map(|m| m.len())
+                        .unwrap_or(0)
+                })
+                .collect();
+            let sum: u64 = bytes.iter().copied().sum();
+            if sum == 0 {
+                let each = *dur / parts.len() as f64;
+                for i in parts {
+                    self.durs[i] = each;
+                }
+            } else {
+                for (&i, b) in parts.iter().zip(bytes.iter()) {
+                    self.durs[i] = *dur * (*b as f64) / (sum as f64);
+                }
+            }
+        }
+        if self.durs.iter().any(|d| *d <= 0.0) {
+            let total: f64 = old_durs.iter().filter(|d| **d > 0.0).sum();
+            if total > 0.0 {
+                self.split_duration_by_file_bytes(total);
+            }
+        }
         self.recompute_starts();
     }
 
@@ -75,6 +120,83 @@ impl DvdVobTimeline {
         for (i, b) in bytes.iter().enumerate() {
             self.durs[i] = total * (*b as f64) / (sum as f64);
         }
+    }
+
+    /// Assign [total] across chapters with unknown length only; keep stored per-chapter values.
+    fn fill_missing_chapter_durs(&mut self, total: f64, live_chapter: &Path, live_dur: f64) {
+        let missing: Vec<usize> = self
+            .durs
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| !d.is_finite() || **d <= 0.0)
+            .map(|(i, _)| i)
+            .collect();
+        if missing.is_empty() {
+            return;
+        }
+        let bytes: Vec<u64> = self
+            .vobs
+            .iter()
+            .map(|p| p.metadata().ok().map(|m| m.len()).unwrap_or(0))
+            .collect();
+        let known: f64 = self.durs.iter().filter(|d| d.is_finite() && **d > 0.0).sum();
+        if total.is_finite() && total > known + 0.5 {
+            let remain = total - known;
+            let miss_bytes: u64 = missing.iter().map(|&i| bytes[i]).sum();
+            if miss_bytes > 0 {
+                for &i in &missing {
+                    self.durs[i] = remain * bytes[i] as f64 / miss_bytes as f64;
+                }
+                return;
+            }
+        }
+        if known <= 0.0 {
+            if total.is_finite() && total > 0.0 {
+                self.split_duration_by_file_bytes(total);
+            } else {
+                self.bootstrap_from_bytes(live_chapter, live_dur);
+            }
+            return;
+        }
+        let miss_n = missing.len() as f64;
+        let each = (self.total_sec.max(known) - known).max(0.0) / miss_n;
+        if each > 0.0 {
+            for i in missing {
+                self.durs[i] = each;
+            }
+        }
+    }
+
+    /// Fill missing per-chapter lengths when a title spans several `.vob` files.
+    pub(crate) fn ensure_chapter_dur_coverage(
+        &mut self,
+        title_total: f64,
+        live_chapter: &Path,
+        live_dur: f64,
+    ) {
+        if self.vobs.len() <= 1 {
+            return;
+        }
+        let known: f64 = self.durs.iter().filter(|d| **d > 0.0).copied().sum();
+        let need = self.durs.iter().any(|d| *d <= 0.0)
+            || !(self.total_sec.is_finite() && self.total_sec > 0.0)
+            || (title_total.is_finite() && title_total > known + 0.5);
+        if !need {
+            return;
+        }
+        self.fill_missing_chapter_durs(title_total, live_chapter, live_dur);
+        self.recompute_starts();
+    }
+
+    /// Overwrite chapter lengths from SQLite / mpv per-file entries.
+    pub(crate) fn apply_map_chapter_durs(&mut self, dur_by_path: &HashMap<String, f64>) {
+        for (i, vob) in self.vobs.iter().enumerate() {
+            let mapped = crate::dvd_vob_timeline::dur_from_map(dur_by_path, vob);
+            if mapped > 0.0 {
+                self.durs[i] = mapped;
+            }
+        }
+        self.recompute_starts();
     }
 
     /// Prefer mpv `duration` on the open chapter when it is shorter than the byte estimate.

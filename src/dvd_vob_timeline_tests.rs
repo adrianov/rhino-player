@@ -70,6 +70,37 @@ mod tests {
     }
 
     #[test]
+    fn fill_missing_keeps_known_chapter_lengths() {
+        let base = std::env::temp_dir().join(format!("rhino-dvd-fill-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let vts = base.join("VIDEO_TS");
+        fs::create_dir_all(&vts).expect("mkdir");
+        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
+        fs::write(vts.join("VTS_02_1.VOB"), vec![0u8; 1000]).expect("write");
+        fs::write(vts.join("VTS_02_2.VOB"), vec![0u8; 2000]).expect("write");
+        fs::write(vts.join("VTS_02_3.VOB"), vec![0u8; 3000]).expect("write");
+        fs::write(vts.join("VTS_02_4.VOB"), vec![0u8; 4000]).expect("write");
+        let p1 = vts.join("VTS_02_1.VOB");
+        let p3 = vts.join("VTS_02_3.VOB");
+        let entity = crate::playback_entity::db_path_for(&p1);
+        let mut map = HashMap::new();
+        map.insert(entity.to_string_lossy().into_owned(), 4000.0);
+        map.insert(p1.to_string_lossy().into_owned(), 600.0);
+        map.insert(
+            vts.join("VTS_02_2.VOB").to_string_lossy().into_owned(),
+            500.0,
+        );
+        let still = crate::dvd_entity::still_target_from_global(&p1, 1500.0, &map).expect("still");
+        assert!(
+            crate::video_ext::paths_same_file(&still.load, &p3),
+            "expected vob3 got {}",
+            still.load.display()
+        );
+        assert!((still.local_sec - 400.0).abs() < 2.0, "local={}", still.local_sec);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn multi_chapter_bootstraps_from_bytes_without_db_total() {
         let base = std::env::temp_dir().join(format!("rhino-dvd-bytes-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);

@@ -156,55 +156,7 @@ pub(crate) fn purge_chapter_media_rows(entity: &Path) {
     }
 }
 
-/// Global title time and total duration for persistence (seconds).
-pub(crate) fn playback_snapshot(
-    chapter: &Path,
-    local_pos: f64,
-    local_dur: f64,
-    dur_by_path: &HashMap<String, f64>,
-) -> Option<(f64, f64)> {
-    if !crate::video_ext::is_dvd_vob_path(chapter) {
-        return None;
-    }
-    let entity = crate::playback_entity::db_path_for(chapter);
-    let entity_key = entity.to_string_lossy();
-    let mut tl = DvdVobTimeline::from_chapter_ifo(chapter)
-        .or_else(|| DvdVobTimeline::from_chapter(chapter, dur_by_path, chapter, local_dur))?;
-    if let Some(on_disk) = title_chapter_paths(chapter) {
-        tl.expand_on_disk_chapters(&on_disk);
-    }
-    if let Some(total) = dur_by_path.get(entity_key.as_ref()).copied() {
-        if total.is_finite() && total > tl.total_sec {
-            tl.apply_entity_total(total);
-        }
-    }
-    let global = tl.global_pos(chapter, local_pos);
-    let total = tl.total_sec.max(local_dur);
-    Some((total, global))
-}
-
-/// Map stored global resume to `(chapter path, local offset)` for `loadfile`.
-pub(crate) fn resume_chapter_and_local(
-    chapter: &Path,
-    global_sec: f64,
-    dur_by_path: &HashMap<String, f64>,
-) -> Option<(PathBuf, f64)> {
-    let mut tl = DvdVobTimeline::from_chapter_ifo(chapter)
-        .or_else(|| DvdVobTimeline::from_chapter_db_only(chapter, dur_by_path))?;
-    let entity = crate::playback_entity::db_path_for(chapter);
-    let key = entity.to_string_lossy();
-    if let Some(total) = dur_by_path.get(key.as_ref()).copied() {
-        if total.is_finite() && total > 0.0 {
-            tl.apply_entity_total(total);
-        }
-    }
-    if tl.total_sec <= 0.0 {
-        return None;
-    }
-    let (idx, local) = tl.resolve_global(global_sec);
-    let target = tl.path_at(idx)?.to_path_buf();
-    Some((target, local))
-}
+include!("dvd_entity_timeline.rs");
 
 #[cfg(test)]
 mod tests {
@@ -229,6 +181,52 @@ mod tests {
             title_entity_path(&p1).as_deref(),
             title_entity_path(&p2).as_deref()
         );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn resume_maps_past_first_vob_with_entity_total_only() {
+        let base = std::env::temp_dir().join(format!("rhino-dvd-res-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let vts = base.join("VIDEO_TS");
+        fs::create_dir_all(&vts).expect("mkdir");
+        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
+        let sizes = [100usize, 200, 300, 400];
+        for (i, n) in sizes.iter().enumerate() {
+            fs::write(vts.join(format!("VTS_02_{}.VOB", i + 1)), vec![b'x'; *n]).expect("vob");
+        }
+        let p1 = vts.join("VTS_02_1.VOB");
+        let p3 = vts.join("VTS_02_3.VOB");
+        let entity = crate::playback_entity::db_path_for(&p1);
+        let mut durs = HashMap::new();
+        durs.insert(entity.to_string_lossy().into_owned(), 400.0);
+        durs.insert(p1.to_string_lossy().into_owned(), 100.0);
+        let (load, local) = resume_chapter_and_local(&p1, 250.0, &durs).expect("target");
+        assert!(crate::video_ext::paths_same_file(&load, &p3));
+        assert!((local - 83.0).abs() < 5.0, "local={local}");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn still_target_past_first_vob_when_entity_duration_stale() {
+        let base = std::env::temp_dir().join(format!("rhino-dvd-stale-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let vts = base.join("VIDEO_TS");
+        fs::create_dir_all(&vts).expect("mkdir");
+        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
+        let sizes = [100usize, 200, 300, 400];
+        for (i, n) in sizes.iter().enumerate() {
+            fs::write(vts.join(format!("VTS_02_{}.VOB", i + 1)), vec![b'x'; *n]).expect("vob");
+        }
+        let p1 = vts.join("VTS_02_1.VOB");
+        let p3 = vts.join("VTS_02_3.VOB");
+        let entity = crate::playback_entity::db_path_for(&p1);
+        let mut durs = HashMap::new();
+        durs.insert(entity.to_string_lossy().into_owned(), 400.0);
+        durs.insert(p1.to_string_lossy().into_owned(), 100.0);
+        let still = still_target_from_global(&p1, 250.0, &durs).expect("still");
+        assert!(crate::video_ext::paths_same_file(&still.load, &p3));
+        assert!((still.local_sec - 83.0).abs() < 5.0, "local={}", still.local_sec);
         let _ = fs::remove_dir_all(&base);
     }
 
