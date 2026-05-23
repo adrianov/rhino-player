@@ -132,6 +132,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             refresh_dvd_bar_cache(ctx);
             ctx.eof.sibling_seof.done.set(false);
             refresh_sibling_nav(ctx);
+            sync_window_title_from_context(ctx);
             if !ctx.recent_visible.get() {
                 try_apply_pending_resume(ctx);
             }

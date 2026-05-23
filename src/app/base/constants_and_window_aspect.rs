@@ -29,14 +29,7 @@ fn menu_append_action_icon(
 }
 
 fn title_for_open_path(path: &Path) -> String {
-    let display = crate::playback_entity::db_path_for(path);
-    match display.file_name().and_then(|n| n.to_str()) {
-        Some(name) => format!(
-            "{} — {APP_WIN_TITLE}",
-            crate::human_media_title::human_media_title(name)
-        ),
-        None => format!("{} — {APP_WIN_TITLE}", display.display()),
-    }
+    crate::playback_entity::window_title_for(path)
 }
 
 /// Keeps [`gtk::ApplicationWindow::title`] and an optional GTK header-bar label aligned (macOS title
@@ -46,9 +39,14 @@ fn sync_app_window_title(
     mirror: Option<&gtk::Label>,
     title: Option<&str>,
 ) {
-    win.set_title(title);
-    let Some(l) = mirror else { return };
-    l.set_label(title.filter(|t| !t.is_empty()).unwrap_or(APP_WIN_TITLE));
+    let text = title
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .unwrap_or(APP_WIN_TITLE);
+    win.set_title(Some(text));
+    if let Some(l) = mirror {
+        l.set_label(text);
+    }
 }
 const IDLE_3S: Duration = Duration::from_secs(3);
 /// After chrome hides, GTK often emits spurious pointer motion/enter; ignore for this long.

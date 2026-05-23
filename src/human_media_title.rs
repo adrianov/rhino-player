@@ -293,4 +293,13 @@ mod tests {
         assert_eq!(human_media_title(""), "");
         assert_eq!(human_media_title("   "), "");
     }
+
+    #[test]
+    fn dvd_folder_basename_keeps_label() {
+        let t = human_media_title("17_Mgnoveniy_DVD2");
+        assert!(
+            !t.trim().is_empty(),
+            "DVD rip folder names must not humanize to empty: {t:?}"
+        );
+    }
 }
