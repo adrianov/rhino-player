@@ -134,14 +134,15 @@ pub fn seek_global(
     player: &std::rc::Rc<std::cell::RefCell<Option<crate::mpv_embed::MpvBundle>>>,
     global_sec: f64,
     dvd_bar: Option<&std::rc::Rc<std::cell::RefCell<Option<DvdBarState>>>>,
+    resume_playing: bool,
 ) -> bool {
     let outcome = match player.try_borrow_mut() {
-        Ok(mut g) => seek_global_borrowed(&mut g, global_sec, dvd_bar),
+        Ok(mut g) => seek_global_borrowed(&mut g, global_sec, dvd_bar, resume_playing),
         Err(_) => {
             let p = std::rc::Rc::clone(player);
             let bar = dvd_bar.map(std::rc::Rc::clone);
             let _ = glib::idle_add_local_once(move || {
-                let _ = seek_global(&p, global_sec, bar.as_ref());
+                let _ = seek_global(&p, global_sec, bar.as_ref(), resume_playing);
             });
             return true;
         }
@@ -214,6 +215,7 @@ fn seek_global_borrowed(
     g: &mut Option<crate::mpv_embed::MpvBundle>,
     global_sec: f64,
     dvd_bar: Option<&std::rc::Rc<std::cell::RefCell<Option<DvdBarState>>>>,
+    resume_playing: bool,
 ) -> SeekGlobalOutcome {
     let Some(b) = g.as_mut() else {
         crate::dvd_vob_log::dvd_seek_log("seek_global: no player bundle");
@@ -263,7 +265,7 @@ fn seek_global_borrowed(
     let target = target.as_path();
     if cross {
         crate::video_pref::strip_vapoursynth_before_replace_media(b);
-        if b.load_chapter_seek(target, local, g_target, false).is_err() {
+        if b.load_chapter_seek(target, local, g_target, resume_playing, false).is_err() {
             b.dvd_hold_global.set(None);
             b.clear_chapter_scrub_resume();
             crate::dvd_vob_log::dvd_seek_log("seek_global: load_chapter_seek failed");

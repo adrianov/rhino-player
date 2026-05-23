@@ -123,7 +123,8 @@ pub fn load_chapter_seek(
     path: &Path,
     local_sec: f64,
     hold_global: f64,
-    play_after: bool,
+    resume_playing: bool,
+    chapter_eof: bool,
 ) -> Result<(), String> {
     {
         let shell = self.me_budget_shell_path.borrow();
@@ -135,9 +136,9 @@ pub fn load_chapter_seek(
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let s = canonical.to_str().ok_or("media path is not valid UTF-8")?;
     self.dvd_hold_global.set(Some(hold_global));
-    self.chapter_eof_load.set(play_after);
+    self.chapter_eof_load.set(chapter_eof);
     self.chapter_scrub_resume.set(true);
-    self.begin_chapter_scrub_pause_hold();
+    self.begin_chapter_scrub_pause_hold(resume_playing);
     self.pending_resume.set(Some(local_sec.max(0.0)));
     self.set_me_budget_shell_path(&canonical);
     crate::dvd_vob_log::dvd_seek_log(format!(
@@ -150,13 +151,12 @@ pub fn load_chapter_seek(
 }
 
 /// Pause through cross-chapter `loadfile` until [apply_pending_resume] reaches the target.
-fn begin_chapter_scrub_pause_hold(&self) {
-    let was_playing = !self.mpv.get_property::<bool>("pause").unwrap_or(true);
-    self.chapter_scrub_unpause_after.set(was_playing);
+fn begin_chapter_scrub_pause_hold(&self, resume_playing: bool) {
+    self.chapter_scrub_unpause_after.set(resume_playing);
     self.chapter_scrub_hold_pause.set(true);
     let _ = self.mpv.set_property("pause", true);
     crate::dvd_vob_log::dvd_seek_log(format!(
-        "chapter_scrub: pause hold (resume playing={was_playing})"
+        "chapter_scrub: pause hold (resume playing={resume_playing})"
     ));
 }
 

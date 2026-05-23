@@ -83,14 +83,14 @@ fn seek_keyframes_after_command(
     }
 }
 
-fn try_dvd_global_seek(p: &SeekKeyframeParams<'_>, seconds: &str) -> bool {
+fn try_dvd_global_seek(p: &SeekKeyframeParams<'_>, seconds: &str, resume_playing: bool) -> bool {
     let Ok(t) = seconds.parse::<f64>() else {
         return false;
     };
     if !t.is_finite() {
         return false;
     }
-    let ok = crate::dvd_vob_timeline::seek_global(p.player, t, p.dvd_bar);
+    let ok = crate::dvd_vob_timeline::seek_global(p.player, t, p.dvd_bar, resume_playing);
     if !ok {
         crate::dvd_vob_log::dvd_seek_log(format!(
             "try_dvd_global_seek: seek_global returned false for t={t:.2} bar={}",
@@ -122,7 +122,7 @@ fn main_player_seek_keyframes(p: &SeekKeyframeParams<'_>, kind: SeekKeyframeKind
             let _ = apply_mpv_pause(p.play_toggle, true);
         }
     }
-    if try_dvd_global_seek(p, seconds) {
+    if try_dvd_global_seek(p, seconds, !paused_before) {
         seek_keyframes_after_command(p, kind, paused_before);
         return;
     }

@@ -62,7 +62,7 @@ pub fn advance_title_chapter_eof(
         next.display()
     ));
     let (_, local) = bar.resolve_global(next_global);
-    if b.load_chapter_seek(&next, local, next_global, true).is_err() {
+    if b.load_chapter_seek(&next, local, next_global, true, true).is_err() {
         b.dvd_hold_global.set(None);
         return false;
     }

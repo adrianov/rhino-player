@@ -38,7 +38,7 @@ pub struct MpvBundle {
     chapter_scrub_resume: std::cell::Cell<bool>,
     /// Hold `pause=yes` until cross-chapter resume seek lands (avoids playing from file start).
     chapter_scrub_hold_pause: std::cell::Cell<bool>,
-    /// Unpause when hold ends only if the user was playing before [load_chapter_seek].
+    /// Unpause when hold ends when [load_chapter_seek] was called with `resume_playing=true`.
     chapter_scrub_unpause_after: std::cell::Cell<bool>,
 
     #[cfg(not(target_os = "macos"))]

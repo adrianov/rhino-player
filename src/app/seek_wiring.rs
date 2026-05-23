@@ -1,7 +1,7 @@
 /// Bottom seek bar wiring.
 ///
-/// **Release** seeks to **`preview_hover_t`**: **`cursor_x / bar_width × duration`**, same formula as
-/// **`seek_bar_preview`** (label + thumbnail scrubber).
+/// **Release** seeks to the scale thumb position (whole-title seconds on DVD unified timeline).
+/// While **`seek_grabbed`**, motion hover still drives preview; the thumb value is authoritative on release.
 ///
 /// While **`seek_grabbed`** (pointer down), thumb or trough **`value_changed`** adjusts the scale and
 /// elapsed label locally; **`quick_seek`** runs on **release** only. When **not** grabbed,
@@ -80,6 +80,7 @@ fn wire_value_changed(ctx: &Rc<SeekCtx>) {
         if !c.seek_grabbed.get() {
             quick_seek(&c, v);
         } else {
+            c.preview_hover_t.set(v);
             c.gl.queue_render();
         }
     });
@@ -124,7 +125,8 @@ fn commit_preview_seek(ctx: &SeekCtx) {
         ctx.gl.queue_render();
         return;
     }
-    let t = ctx.preview_hover_t.get().clamp(0.0, upper);
+    let t = ctx.seek.value().clamp(0.0, upper);
+    ctx.preview_hover_t.set(t);
     ctx.seek_sync.set(true);
     ctx.seek.set_value(t);
     ctx.seek_sync.set(false);

@@ -200,11 +200,14 @@ fn maybe_advance_dvd_chapter_eof(ctx: &Rc<TransportCtx>) -> bool {
     if crate::app::browse_overlay_active(&ctx.eof.recent) {
         return false;
     }
-    let bar = ctx.dvd_bar.borrow();
-    let Some(ref bar) = *bar else {
-        return false;
+    let advanced = {
+        let bar = ctx.dvd_bar.borrow();
+        let Some(ref bar) = *bar else {
+            return false;
+        };
+        crate::dvd_vob_timeline::advance_title_chapter_eof(&ctx.player, bar)
     };
-    if !crate::dvd_vob_timeline::advance_title_chapter_eof(&ctx.player, bar) {
+    if !advanced {
         return false;
     }
     crate::app::transport_drain_after_loadfile();
