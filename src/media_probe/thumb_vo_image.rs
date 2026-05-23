@@ -1,7 +1,3 @@
-fn vo_image_drain(m: &mut Mpv) {
-    while m.wait_event(0.0).is_some() {}
-}
-
 fn run_vo_image_one_frame(
     src: &Path,
     tmp: &Path,
