@@ -1,25 +1,28 @@
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 fn video_file_filter() -> gtk::FileFilter {
     let f = gtk::FileFilter::new();
     f.set_name(Some("Video Files"));
-    #[cfg(not(target_os = "macos"))]
     {
         f.add_mime_type("video/*");
         for s in video_ext::SUFFIX {
             f.add_suffix(s);
         }
+        f.add_suffix("bdmv");
+        f.add_suffix("bdm");
     }
     #[cfg(target_os = "macos")]
     {
-        // Native macOS panel: `video/*` often resolves to no UTTypes, so everything stays visible.
-        // Glob patterns + suffixes map reliably to allowed file types.
         for s in video_ext::SUFFIX {
-            f.add_suffix(s);
             f.add_pattern(&format!("*.{s}"));
             let up = s.to_uppercase();
             if up.as_str() != *s {
                 f.add_pattern(&format!("*.{up}"));
             }
         }
+        f.add_pattern("*.bdmv");
+        f.add_pattern("*.BDMV");
+        f.add_pattern("*.bdm");
+        f.add_pattern("*.BDM");
     }
     f
 }

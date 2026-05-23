@@ -27,20 +27,14 @@ fn wire_final_open_dialog(ctx: &FinalActionCtx) {
         playback_open,
         #[strong]
         video_pref_open,
-        move |_, _| {            let Some(w) = app.active_window() else {
+        move |_, _| {
+            let Some(w) = app.active_window() else {
                 return;
             };
-            let vf = video_file_filter();
-            let filters = gio::ListStore::new::<gtk::FileFilter>();
-            filters.append(&vf);
-            let dialog = gtk::FileDialog::builder()
-                .title("Open Video")
-                .modal(true)
-                .filters(&filters)
-                .default_filter(&vf)
-                .build();
+            let Some(aw) = w.clone().downcast::<adw::ApplicationWindow>().ok() else {
+                return;
+            };
             let p_c = p_open.clone();
-            let w_f = w.clone();
             let gl_w = gl_w.clone();
             let recent_choose = recent_choose.clone();
             let last_fp = last_filepicker.clone();
@@ -50,17 +44,18 @@ fn wire_final_open_dialog(ctx: &FinalActionCtx) {
             let mirror_pick = hdr_mirror_o.clone();
             let pf_pick = Rc::clone(&playback_open);
             let vp_pick = video_pref_open.clone();
-            dialog.open(Some(&w), None::<&gio::Cancellable>, move |res| {
-                let Ok(file) = res else {
+            let aw_load = aw.clone();
+            let on_path = move |path: Option<std::path::PathBuf>| {
+                let Some(path) = path else {
                     return;
                 };
-                let Some(path) = file.path() else {
-                    eprintln!("[rhino] open: non-path URIs not implemented yet");
+                if !crate::video_ext::is_openable_media_path(&path) {
+                    eprintln!(
+                        "[rhino] open: not a video file or Blu-ray folder: {}",
+                        path.display()
+                    );
                     return;
-                };
-                let Some(aw) = w_f.downcast_ref::<adw::ApplicationWindow>() else {
-                    return;
-                };
+                }
                 let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
                     video_pref: Rc::clone(&vp_pick),
                     last_path: last_fp.clone(),
@@ -72,17 +67,33 @@ fn wire_final_open_dialog(ctx: &FinalActionCtx) {
                     hdr_title_mirror: mirror_pick.clone(),
                 });
                 o.playback_focus = Some(Rc::clone(&pf_pick));
-                if let Err(e) = try_load(
-                    &path,
-                    &p_c,
-                    aw,
-                    &gl_w,
-                    &recent_choose,
-                    &o,
-                ) {
+                if let Err(e) = try_load(&path, &p_c, &aw_load, &gl_w, &recent_choose, &o) {
                     eprintln!("[rhino] open: try_load: {e}");
                 }
-            });
+            };
+            #[cfg(target_os = "macos")]
+            {
+                let _ = crate::macos_open_video::present_open_video_sheet(&aw, on_path);
+                return;
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let vf = video_file_filter();
+                let filters = gio::ListStore::new::<gtk::FileFilter>();
+                filters.append(&vf);
+                let dialog = gtk::FileDialog::builder()
+                    .title("Open Video")
+                    .modal(true)
+                    .filters(&filters)
+                    .default_filter(&vf)
+                    .build();
+                dialog.open(Some(&aw), None::<&gio::Cancellable>, move |res| {
+                    let Ok(file) = res else {
+                        return;
+                    };
+                    on_path(file.path());
+                });
+            }
         }
     ));
     ctx.app.add_action(&open);

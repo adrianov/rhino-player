@@ -20,6 +20,8 @@ mod macos_fs_debug;
 #[cfg(target_os = "macos")]
 mod macos_fs_exit;
 #[cfg(target_os = "macos")]
+mod macos_open_video;
+#[cfg(target_os = "macos")]
 mod macos_window;
 mod media_probe;
 mod mpris;
