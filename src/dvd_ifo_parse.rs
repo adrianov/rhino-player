@@ -1,12 +1,25 @@
-//! DVD IFO parsing (VIDEO_TS / VTS_xx_0) without libdvdread.
+//! DVD IFO parsing (VIDEO_TS / VTS_xx_0) without linking libdvdread.
 
 mod buf;
+mod bitreader;
 mod pgc;
+mod streams;
+mod sub_mpv_id;
 mod time;
 mod vts;
 
 use std::path::Path;
 
+pub use streams::{
+    audio_slot_for_meta, match_audio_label, match_sub_label, streams_from_vob, sub_slot_for_src_id,
+    DvdIfoStreams, MpvTrackMeta,
+};
+pub use sub_mpv_id::{mpv_sub_id_for_ifo_slot, MpvSubTrackMeta};
+
+/// Title-set audio/sub lists from any chapter VOB path (reads `VTS_xx_0.IFO`).
+pub fn ifo_streams_for_vob(vob: &Path) -> Option<DvdIfoStreams> {
+    streams_from_vob(vob)
+}
 pub use vts::timeline_from_vob;
 
 pub(super) const BLOCK: usize = 2048;

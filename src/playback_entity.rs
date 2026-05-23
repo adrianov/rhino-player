@@ -128,6 +128,20 @@ mod dvd_card {
 }
 pub use dvd_card::card_resume_duration;
 
+mod tracks {
+    include!("playback_entity_tracks.rs");
+}
+pub use tracks::{
+    audio_ifo_slot_for_aid, audio_menu_rows, entity_from_mpv, entity_has_subtitles,
+    resolve_audio_mpv_id, resolve_sub_mpv_id, sub_ifo_slot_for_sid, sub_menu_rows, AudioMenuRow,
+    SubMenuRow,
+};
+
+mod title {
+    include!("playback_entity_title.rs");
+}
+pub use title::window_title_for;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,5 +221,49 @@ mod tests {
         assert!(duration > 100.0, "expected title duration, got {duration}");
         assert!(resume > 50.0 || resume == 0.0);
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn resume_load_target_maps_global_to_chapter_vob() {
+        let base = std::env::temp_dir().join(format!("rhino-pe-thumb-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let vts = base.join("VIDEO_TS");
+        fs::create_dir_all(&vts).expect("mkdir");
+        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
+        fs::write(vts.join("VTS_02_1.VOB"), b"a").expect("vob1");
+        fs::write(vts.join("VTS_02_2.VOB"), b"b").expect("vob2");
+        let p1 = vts.join("VTS_02_1.VOB");
+        let p2 = vts.join("VTS_02_2.VOB");
+        let entity = PlaybackEntity::resolve(&p1);
+        let mut durs = HashMap::new();
+        durs.insert(entity.db_path().to_string_lossy().into_owned(), 150.0);
+        durs.insert(p1.to_string_lossy().into_owned(), 100.0);
+        durs.insert(p2.to_string_lossy().into_owned(), 50.0);
+        let (load, local) = entity
+            .resume_load_target(&p1, 120.0, &durs)
+            .expect("chapter target");
+        assert!(crate::video_ext::paths_same_file(&load, &p2));
+        assert!((local - 20.0).abs() < 1e-3);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn title_set_streams_match_on_every_chapter() {
+        let vob = Path::new(
+            "/Volumes/SanDisk/Torrents/17_Mgnoveniy_vesni/17_Mgnoveniy_DVD2/Video_ts/VTS_02_1.VOB",
+        );
+        if !vob.is_file() {
+            return;
+        }
+        let p2 = vob.with_file_name("VTS_02_2.VOB");
+        if !p2.is_file() {
+            return;
+        }
+        let e1 = PlaybackEntity::resolve(vob);
+        let e2 = PlaybackEntity::resolve(&p2);
+        let s1 = e1.title_set_streams();
+        let s2 = e2.title_set_streams();
+        assert!(s1.is_some());
+        assert_eq!(s1, s2);
     }
 }
