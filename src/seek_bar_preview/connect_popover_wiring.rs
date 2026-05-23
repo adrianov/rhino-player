@@ -122,14 +122,7 @@ pub fn connect(
 
             set_preview_size(&st);
 
-            let path_ok = st
-                .player
-                .borrow()
-                .as_ref()
-                .and_then(|b| local_file_from_mpv(&b.mpv))
-                .or_else(|| st.last_path.borrow().clone())
-                .is_some_and(|p| p.is_file());
-            if !path_ok {
+            if preview_open_path(&st.player, &st.last_path).is_none() {
                 st.hide();
                 return;
             }
@@ -158,6 +151,18 @@ pub fn connect(
     st
 }
 
+fn preview_open_path(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    last_path: &Rc<RefCell<Option<PathBuf>>>,
+) -> Option<PathBuf> {
+    let g = player.borrow();
+    let b = g.as_ref()?;
+    let raw = crate::media_probe::shell_media_path(&b.mpv, b.me_budget_shell_path.borrow().as_deref())
+        .or_else(|| last_path.borrow().clone())?;
+    crate::video_ext::is_openable_media_path(&raw)
+        .then(|| crate::video_ext::resolve_open_media_path(&raw))
+}
+
 fn schedule_preview_seek(st: Rc<SeekPreviewState>) {
     let run_id = st.serial.get();
     let st2 = Rc::clone(&st);
@@ -169,14 +174,7 @@ fn schedule_preview_seek(st: Rc<SeekPreviewState>) {
             if st2.serial.get() != run_id || !st2.enabled.get() {
                 return glib::ControlFlow::Break;
             }
-            let pth = st2
-                .player
-                .borrow()
-                .as_ref()
-                .and_then(|b| local_file_from_mpv(&b.mpv))
-                .or_else(|| st2.last_path.borrow().clone())
-                .filter(|p| p.is_file());
-            let Some(pth) = pth else {
+            let Some(pth) = preview_open_path(&st2.player, &st2.last_path) else {
                 st2.hide();
                 return glib::ControlFlow::Break;
             };

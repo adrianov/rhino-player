@@ -19,9 +19,9 @@ fn back_to_browse(
     c.sibling_seof.done.set(false);
     // Keep last_path set to the warm preload target so prev/next remain active
     // on the browse screen and the sibling nav works immediately after warm resume.
-    let warm_path = c.player.borrow().as_ref()
-        .and_then(|b| local_file_from_mpv(&b.mpv))
-        .and_then(|p| std::fs::canonicalize(&p).ok());
+    let warm_path = c.player.borrow().as_ref().and_then(|b| {
+        crate::media_probe::shell_media_path(&b.mpv, b.me_budget_shell_path.borrow().as_deref())
+    });
     *c.last_path.borrow_mut() = warm_path.clone();
     c.sibling_nav.refresh(warm_path.as_deref(), &c.sibling_seof);
     let paths: Vec<PathBuf> = history::load().into_iter().take(5).collect();
@@ -116,10 +116,11 @@ const CLOSE_VIDEO_PLAYBACK_TIP: &str = "Close Video (Cmd+W)";
 #[cfg(not(target_os = "macos"))]
 const CLOSE_VIDEO_PLAYBACK_TIP: &str = "Close Video (Ctrl+W)";
 
-/// True when mpv has a local regular file loaded (warm preload, playing, or paused behind the grid).
+/// True when a local file or Blu-ray disc tree is loaded (warm preload, playing, or paused behind the grid).
 pub(crate) fn has_loaded_local_media(player: &Rc<RefCell<Option<MpvBundle>>>) -> bool {
     player.borrow().as_ref().is_some_and(|b| {
-        local_file_from_mpv(&b.mpv).is_some_and(|p| p.is_file())
+        crate::media_probe::shell_media_path(&b.mpv, b.me_budget_shell_path.borrow().as_deref())
+            .is_some_and(|p| crate::video_ext::is_openable_media_path(&p))
     })
 }
 

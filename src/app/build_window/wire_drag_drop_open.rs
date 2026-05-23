@@ -29,8 +29,8 @@ fn consume_dropped_paths(
     for p in paths {
         if is_subtitle_path(&p) {
             subs.push(p);
-        } else {
-            media.push(p);
+        } else if crate::video_ext::is_openable_media_path(&p) {
+            media.push(crate::video_ext::resolve_open_media_path(&p));
         }
     }
 

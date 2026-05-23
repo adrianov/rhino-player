@@ -9,6 +9,7 @@ fn try_load(
     recent_layer: &impl IsA<gtk::Widget>,
     o: &LoadOpts,
 ) -> Result<(), String> {
+    let path = crate::video_ext::resolve_open_media_path(path);
     eprintln!(
         "[rhino] try_load: path={} exists={} record={} player_ready={} play={}",
         path.display(),
@@ -17,12 +18,12 @@ fn try_load(
         player.borrow().is_some(),
         o.play_on_start
     );
-    let warm_hit = load_file_into_player(path, player, recent_layer, o)?;
-    *o.last_path.borrow_mut() = std::fs::canonicalize(path).ok();
+    let warm_hit = load_file_into_player(&path, player, recent_layer, o)?;
+    *o.last_path.borrow_mut() = std::fs::canonicalize(&path).ok();
     if o.record {
-        history::record(path);
+        history::record(&path);
     }
-    let ttl = title_for_open_path(path);
+    let ttl = title_for_open_path(&path);
     sync_app_window_title(win, o.hdr_title_mirror.as_deref(), Some(ttl.as_str()));
     // Drain `FileLoaded` / `path` before `reveal_ui_after_load` unpause so transport runs
     // `forget_bundled_me_budget_vf_apply_on_new_media` and resume/audio restore before `Pause(false)`
@@ -73,7 +74,9 @@ fn load_file_into_player(
     }
     // Only EOF / last ~3s ([is_natural_end]): the old "mostly watched" (~85%) heuristic could drop
     // the previous continue entry while switching files if duration/`time-pos` was misleading.
-    let clear_resume = is_natural_end(&b.mpv) && local_file_from_mpv(&b.mpv).is_some();
+    let clear_resume = is_natural_end(&b.mpv)
+        && crate::media_probe::shell_media_path(&b.mpv, b.me_budget_shell_path.borrow().as_deref())
+            .is_some();
     let drop_prev = prev.as_ref().is_some_and(|p| {
         !same_open_target(p, path) && is_natural_end(&b.mpv)
     });

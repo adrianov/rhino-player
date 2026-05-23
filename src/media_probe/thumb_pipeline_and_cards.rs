@@ -171,6 +171,17 @@ fn path_from_mpv_str(path_s: &str) -> Option<PathBuf> {
     can.is_file().then_some(can)
 }
 
+/// Local filesystem path for the open item: mpv `path` when it is a file, else the shell path
+/// ([`crate::mpv_embed::MpvBundle::me_budget_shell_path`]) for `bd://` / disc trees.
+pub(crate) fn shell_media_path(mpv: &Mpv, shell: Option<&std::path::Path>) -> Option<PathBuf> {
+    if let Some(p) = local_file_from_mpv(mpv) {
+        return Some(p);
+    }
+    shell
+        .and_then(|p| std::fs::canonicalize(p).ok().or_else(|| Some(p.to_path_buf())))
+        .filter(|p| p.exists())
+}
+
 /// Loaded local file, canonical, or `None` (idle, stream, or missing file).
 pub(crate) fn local_file_from_mpv(mpv: &Mpv) -> Option<PathBuf> {
     let s = match mpv.get_property::<String>("path") {
@@ -183,10 +194,11 @@ pub(crate) fn local_file_from_mpv(mpv: &Mpv) -> Option<PathBuf> {
     path_from_mpv_str(&s)
 }
 
-/// Store `duration` and `time-pos` in [crate::db] for the open local file. Use before switching
-/// files or on close so the recent grid can show %.
-pub fn record_playback_for_current(mpv: &Mpv) {
-    let Some(can) = local_file_from_mpv(mpv) else {
+/// Store `duration` and `time-pos` in [crate::db] for the open item. Use before switching
+/// media or on close so the recent grid can show %. Pass [shell_media_path]'s `shell` when mpv
+/// reports `bd://` (Blu-ray) instead of a filesystem path.
+pub fn record_playback_for_current(mpv: &Mpv, shell: Option<&std::path::Path>) {
+    let Some(can) = shell_media_path(mpv, shell) else {
         return;
     };
     let d = mpv.get_property::<f64>("duration");

@@ -11,7 +11,6 @@ use std::time::Duration;
 use gtk::prelude::*;
 
 use crate::format_time;
-use crate::media_probe::local_file_from_mpv;
 use crate::mpv_embed::{set_preview_tracks, MpvBundle, MpvPreviewGl};
 
 include!("seek_bar_preview/state_and_vo_pump.rs");

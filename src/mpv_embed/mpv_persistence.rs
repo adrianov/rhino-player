@@ -4,6 +4,13 @@
 
 impl MpvBundle {
 
+fn persist_media_path(&self) -> Option<std::path::PathBuf> {
+    media_probe::shell_media_path(
+        &self.mpv,
+        self.me_budget_shell_path.borrow().as_deref(),
+    )
+}
+
 /// Remember [Path] the shell just opened for ME budget + **`media`** row lookup (not read from mpv).
 pub(crate) fn set_me_budget_shell_path(&self, path: &Path) {
     *self.me_budget_shell_path.borrow_mut() = std::fs::canonicalize(path).ok();
@@ -29,13 +36,15 @@ pub fn stop_playback(&self) {
 }
 
 fn snapshot_playback_inner(&self) {
-    if let Some(p) = media_probe::local_file_from_mpv(&self.mpv) {
+    let shell = self.me_budget_shell_path.borrow();
+    let path = media_probe::shell_media_path(&self.mpv, shell.as_deref());
+    if let Some(ref p) = path {
         if media_probe::is_natural_end(&self.mpv) {
-            media_probe::clear_resume_for_path(&p);
+            media_probe::clear_resume_for_path(p);
             return;
         }
     }
-    media_probe::record_playback_for_current(&self.mpv);
+    media_probe::record_playback_for_current(&self.mpv, shell.as_deref());
 }
 
 /// Persist `duration` + `time-pos` unless [Self::skip_media_persist] (continue-grid warm hover).
@@ -78,12 +87,14 @@ pub fn load_file_path(
     snapshot_outgoing: bool,
     warm_preload: bool,
 ) -> Result<(), String> {
+    let shell = self.me_budget_shell_path.borrow();
+    let outgoing = media_probe::shell_media_path(&self.mpv, shell.as_deref());
     if clear_outgoing_resume && !warm_preload {
-        if let Some(p) = media_probe::local_file_from_mpv(&self.mpv) {
+        if let Some(p) = outgoing {
             media_probe::clear_resume_for_path(&p);
         }
     } else if snapshot_outgoing && !warm_preload {
-        media_probe::record_playback_for_current(&self.mpv);
+        media_probe::record_playback_for_current(&self.mpv, shell.as_deref());
     }
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let s = canonical.to_str().ok_or("media path is not valid UTF-8")?;
@@ -101,7 +112,7 @@ pub fn load_file_path(
 /// Uses **`absolute+exact`** so the demuxer lands on the saved time (keyframe-only seeks can
 /// sit at 0s briefly on load and fight the continue grid).
 pub fn apply_pending_resume(&self) -> Option<f64> {
-    let Some(path) = crate::media_probe::local_file_from_mpv(&self.mpv) else {
+    let Some(path) = self.persist_media_path() else {
         return None;
     };
     resume_seek::stash_near_start_resume(&self.mpv, &self.pending_resume, &path);

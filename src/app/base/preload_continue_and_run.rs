@@ -1,7 +1,7 @@
 /// CLI path for first launch; ignore macOS `-psn_*` and other non-media argv tails.
 fn boot_path_from_argv() -> Option<PathBuf> {
     let p = std::env::args().nth(1).map(PathBuf::from)?;
-    if crate::video_ext::is_video_path(&p) || p.is_file() {
+    if crate::video_ext::is_openable_media_path(&p) {
         Some(p)
     } else {
         None
