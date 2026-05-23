@@ -115,6 +115,7 @@ pub fn refresh_gdk_shell_compositing(
         if !crate::macos_header_menu::defer_layer_invalidate() {
             invalidate_window_layers(&win2);
         }
+        sync_traffic_lights_vertical(&header2, header2.height());
     });
 }
 

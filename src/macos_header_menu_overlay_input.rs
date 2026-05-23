@@ -1,8 +1,6 @@
 // Fullscreen overlay: capture MenuButton press and block orphan popover surfaces.
 
-use gtk::prelude::*;
-
-pub(super) fn wire_btn_fullscreen_block(win: &adw::ApplicationWindow, btn: &gtk::MenuButton) {
+fn wire_btn_fullscreen_block(win: &adw::ApplicationWindow, btn: &gtk::MenuButton) {
     let win2 = win.clone();
     btn.connect_activate(move |b| {
         if win2.is_fullscreen() {
@@ -11,7 +9,7 @@ pub(super) fn wire_btn_fullscreen_block(win: &adw::ApplicationWindow, btn: &gtk:
     });
 }
 
-pub(super) fn wire_popover_fullscreen_guard(win: &adw::ApplicationWindow, pop: &gtk::Popover) {
+fn wire_popover_fullscreen_guard(win: &adw::ApplicationWindow, pop: &gtk::Popover) {
     let win_map = win.clone();
     pop.connect_map(move |p| {
         if win_map.is_fullscreen() {
@@ -26,7 +24,7 @@ pub(super) fn wire_popover_fullscreen_guard(win: &adw::ApplicationWindow, pop: &
     });
 }
 
-pub(super) fn wire_btn_press(ov: Rc<HeaderMenuOverlay>, idx: usize, entry: &MenuEntry) {
+fn wire_btn_press(ov: Rc<HeaderMenuOverlay>, idx: usize, entry: &MenuEntry) {
     let btn = entry.btn.clone();
     let btn_press = btn.clone();
     let ov_press = Rc::clone(&ov);

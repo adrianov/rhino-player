@@ -231,6 +231,11 @@ impl HeaderMenuOverlay {
         };
         crate::macos_header_menu_debug::log_event(entry.name, "open", "reason=overlay");
         prep_fs_menu_layout(&self.root, &self.header, &self.shell);
+        if entry.name == "audio" {
+            crate::header_menu_tracks::refresh_audio_on_open();
+        } else if entry.name == "subtitles" {
+            crate::header_menu_tracks::refresh_sub_on_open();
+        }
         entry.pop.set_child(Some(&entry.pop_ph));
         entry.pop.popdown();
         self.panel.set_child(Some(&child));

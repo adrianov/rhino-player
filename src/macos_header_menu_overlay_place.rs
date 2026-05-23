@@ -4,10 +4,6 @@ const MENU_GAP_PX: i32 = 4;
 const PANEL_MIN_W: i32 = 180;
 const PANEL_MIN_H: i32 = 80;
 
-const AUDIO_TRACKS_MAX_H: i32 = 480;
-const SUB_TRACKS_MAX_H: i32 = 280;
-const SPEED_LIST_MAX_H: i32 = 320;
-
 pub(super) fn prep_fs_menu_layout(root: &adw::ToolbarView, header: &adw::HeaderBar, shell: &gtk::Overlay) {
     root.set_reveal_top_bars(true);
     header.queue_allocate();
@@ -63,13 +59,7 @@ fn cap_scrolled_heights(w: &gtk::Widget, max_h: i32) {
 }
 
 fn restore_scrolled_max(scrl: &gtk::ScrolledWindow) {
-    let min_w = scrl.min_content_width();
-    let restore = match min_w {
-        400 => AUDIO_TRACKS_MAX_H,
-        360 => SUB_TRACKS_MAX_H,
-        _ => SPEED_LIST_MAX_H,
-    };
-    scrl.set_max_content_height(restore);
+    scrl.set_max_content_height(crate::header_menu_scroll::max_content_height_for(scrl));
 }
 
 pub(super) fn reset_scrolled_heights(w: &gtk::Widget) {
