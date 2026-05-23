@@ -23,14 +23,14 @@ The auxiliary preview is video-only: `ao=null`, `pause=yes`, `aid=no`, `sid=no`,
 @status:done @priority:p1 @layer:ui @area:preview
 Feature: Seek bar thumbnail preview
 
-  Scenario: Preview only for local files when enabled
-    Given seek_bar_preview is true and the loaded path is a local regular file
+  Scenario: Preview for openable local media when enabled
+    Given seek bar preview is on and the open item is a local file or disc tree the shell opened
     When the user hovers the seek bar at any position
     Then a popover above the bar shows a small GL thumbnail at the hovered time
     And the centred label shows formatted hover time
 
-  Scenario: Streams and non-file paths show no preview
-    Given the loaded path is not a local regular file
+  Scenario: Streams and non-openable paths show no preview
+    Given the open item is not local openable media (e.g. a remote stream)
     When the user hovers the seek bar
     Then no popover appears
     And no preview seek runs
@@ -61,3 +61,4 @@ Feature: Seek bar thumbnail preview
 - Debounce 120 ms; the debounce SourceId must be taken when the timeout runs to avoid a stale-id remove later.
 - The `Progress Bar Preview` row is the only preview-related preference; no separate preferences window.
 - Recent grid thumbnails use `vo=image` plus DB JPEG cache via `media_probe` / `jpeg_texture`; this feature does not feed the grid.
+- When the main player reports a non-filesystem path (e.g. disc playback), preview resolves the shell path via `shell_media_path` + `resolve_open_media_path` (same as main `loadfile`).

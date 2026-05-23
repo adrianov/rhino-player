@@ -29,6 +29,12 @@ Feature: Open files and CLI integration
     Then the listed extensions match the shared video suffix list
     And still-image and other unrelated types are excluded
 
+  Scenario: Open Video accepts a Blu-ray disc folder
+    Given the user activates Open Video with the video file filter
+    When the user selects a directory that contains a valid disc index for Blu-ray or AVCHD
+    Then that disc loads through the standard open path
+    And sibling-folder navigation does not treat the disc as a normal video file in a folder
+
   Scenario: Command-line startup loads first argv path
     Given the user launches the app with one or more argv paths
     When the first window paints with no conflicting session restore
@@ -53,6 +59,6 @@ Feature: Open files and CLI integration
 ```
 
 ## Notes
-- The shared video suffix list lives in `src/video_ext.rs` and is reused by **Open Video** and sibling scanning.
+- The shared video suffix list lives in `src/video_ext.rs` and is reused by **Open Video** and sibling scanning. **BDMV** / AVCHD: `bluray_disc_root`, `resolve_open_media_path`, `is_openable_media_path`. macOS **Open Video** uses `src/macos_open_video.rs` (`NSOpenPanel` + `allowedFileTypes` UTIs including `public.avchd-collection`, `canChooseDirectories`) because GTK `FileDialog` maps mime rules to internal `dyn.*` types that do not enable AVCHD packages. Linux keeps GTK `FileDialog`. Playback: `loadfile` on disc root; requires libbluray in mpv.
 - `--new-window` and `HANDLES_OPEN` (or the Rust equivalent) are planned but not shipped.
 - Drag-and-drop is owned by [11-drag-and-drop](11-drag-and-drop.md); URL input by [12-url-and-streams](12-url-and-streams.md).
