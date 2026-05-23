@@ -102,7 +102,7 @@ fn clear_vf(mpv: &Mpv, bundle: Option<&MpvBundle>, vlog: bool) {
 /// Clear **`vf vapoursynth`** before mpv **`loadfile`** replaces media so the new file is not decoded
 /// through the previous clip's warm script (avoids wrong **`RHINO_SOURCE_FPS`** / duplicate preset lines).
 pub fn strip_vapoursynth_before_replace_media(b: &MpvBundle) {
-    if !vf_string_has_vapoursynth(&b.mpv) {
+    if !vf_chain_has_vapoursynth(&b.mpv) {
         return;
     }
     clear_vf(&b.mpv, Some(b), video_log());
@@ -137,27 +137,16 @@ pub fn reapply_60_if_still_missing(b: &MpvBundle, v: &mut VideoPrefs) -> MpvVide
         return MpvVideoApply::default();
     }
     if smooth_prefers_display_resample_bundle(mpv, Some(b)) {
-        if vf_string_has_vapoursynth(mpv) {
+        if vf_chain_has_vapoursynth(mpv) {
             apply_interleaved_display_resample(mpv, Some(b), video_log());
         }
         return MpvVideoApply::default();
     }
-    if vf_string_has_vapoursynth(mpv) {
+    if vf_chain_has_vapoursynth(mpv) {
         return MpvVideoApply::default();
     }
     eprintln!("[rhino] video: reapply_60_if_still_missing → apply_mpv_video");
     apply_mpv_video(b, v, None)
-}
-
-pub(crate) fn vf_chain_has_vapoursynth(mpv: &Mpv) -> bool {
-    vf_string_has_vapoursynth(mpv)
-}
-
-fn vf_string_has_vapoursynth(mpv: &Mpv) -> bool {
-    match mpv.get_property::<String>("vf") {
-        Ok(s) => s.to_lowercase().contains("vapoursynth"),
-        Err(_) => false,
-    }
 }
 
 /// Drop the vapoursynth `vf` immediately before a **seek** (or similar position jump) when it is
@@ -165,7 +154,7 @@ fn vf_string_has_vapoursynth(mpv: &Mpv) -> bool {
 /// does not call this.
 pub fn unload_smooth_on_pause(mpv: &Mpv) -> bool {
     mark_smooth_cadence_unstable_after_seek();
-    if !vf_string_has_vapoursynth(mpv) {
+    if !vf_chain_has_vapoursynth(mpv) {
         return false;
     }
     let vlog = video_log();
@@ -202,7 +191,7 @@ pub fn apply_mpv_video(b: &MpvBundle, v: &mut VideoPrefs, speed_hint: Option<f64
 
 /// Interleaved / unstable cadence: strip VapourSynth; mpv **display-resample** only.
 fn apply_interleaved_display_resample(mpv: &Mpv, bundle: Option<&MpvBundle>, vlog: bool) {
-    if vf_string_has_vapoursynth(mpv) {
+    if vf_chain_has_vapoursynth(mpv) {
         clear_vf(mpv, bundle, vlog);
     }
     apply_source_fps_env(None);
@@ -256,7 +245,7 @@ fn apply_mpv_video_impl(
     let display_only = smooth_prefers_display_resample_bundle(mpv, bundle);
     let display_resample = want_60 && eligible_1x && display_only && !paused;
     let use_mvtools = want_60 && smooth_wants_vapoursynth_vf(mpv, bundle, speed_hint) && !paused;
-    let had_vapoursynth = vf_string_has_vapoursynth(mpv);
+    let had_vapoursynth = vf_chain_has_vapoursynth(mpv);
     if display_resample {
         apply_interleaved_display_resample(mpv, bundle, vlog);
         post_smooth_60_state(mpv, v, want_60, false, vlog);

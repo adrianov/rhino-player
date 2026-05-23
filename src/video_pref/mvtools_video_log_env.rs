@@ -28,7 +28,8 @@ pub(crate) fn mpv_path_is_disc(path: &str) -> bool {
     p.starts_with("bd://") || p.starts_with("bluray://")
 }
 
-fn mpv_has_vapoursynth_vf(mpv: &libmpv2::Mpv) -> bool {
+/// True when mpv's `vf` chain includes a **vapoursynth** filter.
+pub(crate) fn vf_chain_has_vapoursynth(mpv: &libmpv2::Mpv) -> bool {
     mpv.get_property::<String>("vf")
         .map(|s| s.to_ascii_lowercase().contains("vapoursynth"))
         .unwrap_or(false)
@@ -36,7 +37,7 @@ fn mpv_has_vapoursynth_vf(mpv: &libmpv2::Mpv) -> bool {
 
 /// Ignore `estimated-vf-fps` when it would describe vf **output** (~60 Hz) or unstable disc demux.
 fn ignore_est_for_source_pick(path: Option<&str>, mpv: &libmpv2::Mpv) -> bool {
-    path.is_some_and(mpv_path_is_disc) || mpv_has_vapoursynth_vf(mpv)
+    path.is_some_and(mpv_path_is_disc) || vf_chain_has_vapoursynth(mpv)
 }
 
 fn is_plausible_broadcast_fps(f: f64) -> bool {
