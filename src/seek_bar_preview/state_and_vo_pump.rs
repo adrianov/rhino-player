@@ -15,6 +15,7 @@ pub struct SeekPreviewState {
     pub pump: Rc<RefCell<Option<glib::SourceId>>>,
     pub serial: Rc<Cell<u64>>,
     pub loaded_path: Rc<RefCell<Option<PathBuf>>>,
+    pub loaded_target: Rc<RefCell<Option<String>>>,
     pub enabled: Rc<Cell<bool>>,
     pub seek: gtk::Scale,
     pub seek_adj: gtk::Adjustment,
@@ -83,28 +84,30 @@ pub(crate) fn set_preview_size(st: &SeekPreviewState) {
     }
 }
 
-pub(crate) fn start_vo_pump(
+pub(crate) fn start_preview_frame_pump(
     gl: &gtk::GLArea,
     preview: &Rc<RefCell<Option<MpvPreviewGl>>>,
     pump: &Rc<RefCell<Option<glib::SourceId>>>,
     serial: &Rc<Cell<u64>>,
     run_id: u64,
+    content_dur: f64,
     seek_sec: f64,
+    optical: bool,
 ) {
     crate::glib_source_drop::drop_glib_source(pump.as_ref());
-    let t_s = format!("{seek_sec:.3}");
     let gl2 = gl.clone();
     let pr2 = Rc::clone(preview);
     let pump2 = Rc::clone(pump);
     let serial2 = Rc::clone(serial);
     let n = Rc::new(Cell::new(0i32));
+    let max_ticks = if optical { 180 } else { 90 };
     let id = glib::source::timeout_add_local_full(VO_PUMP_STEP, glib::Priority::LOW, move || {
         if serial2.get() != run_id {
             *pump2.borrow_mut() = None;
             return glib::ControlFlow::Break;
         }
         n.set(n.get() + 1);
-        if n.get() > 90 {
+        if n.get() > max_ticks {
             *pump2.borrow_mut() = None;
             return glib::ControlFlow::Break;
         }
@@ -114,14 +117,16 @@ pub(crate) fn start_vo_pump(
             return glib::ControlFlow::Break;
         };
         while pr.mpv.wait_event(0.0).is_some() {}
-        if pr.mpv.get_property::<bool>("vo-configured") == Ok(true) {
-            let _ = pr.mpv.command("seek", &[t_s.as_str(), "absolute+keyframes"]);
-            gl2.queue_render();
-            *pump2.borrow_mut() = None;
-            glib::ControlFlow::Break
-        } else {
-            glib::ControlFlow::Continue
+        if pr.mpv.get_property::<bool>("vo-configured") != Ok(true) {
+            return glib::ControlFlow::Continue;
         }
+        let dur = preview_hover_duration(content_dur, &pr.mpv, Some(&pr.mpv));
+        let t = cap_preview_seek_time(seek_sec, dur);
+        if preview_run_seek(&pr.mpv, t, optical) {
+            gl2.queue_render();
+        }
+        *pump2.borrow_mut() = None;
+        glib::ControlFlow::Break
     });
     *pump.borrow_mut() = Some(id);
 }

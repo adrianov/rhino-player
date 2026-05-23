@@ -13,5 +13,6 @@ use gtk::prelude::*;
 use crate::format_time;
 use crate::mpv_embed::{set_preview_tracks, MpvBundle, MpvPreviewGl};
 
+include!("seek_bar_preview/preview_media_load.rs");
 include!("seek_bar_preview/state_and_vo_pump.rs");
 include!("seek_bar_preview/connect_popover_wiring.rs");

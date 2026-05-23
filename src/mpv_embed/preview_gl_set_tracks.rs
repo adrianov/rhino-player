@@ -23,6 +23,8 @@ impl MpvPreviewGl {
             init.set_option("config", "no")?;
             init.set_option("ytdl", false)?;
             init.set_option("pause", true)?;
+            // Thumbnail seeks near EOF must not unload the clip (default EOF → idle/black).
+            let _ = init.set_option("keep-open", "always");
             let _ = init.set_option("autoload-files", "no");
             let _ = init.set_option("audio-file-auto", "no");
             let _ = init.set_option("sub-auto", "no");

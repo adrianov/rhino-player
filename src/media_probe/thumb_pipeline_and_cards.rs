@@ -157,7 +157,7 @@ fn read_nonempty(src: &Path) -> Option<Vec<u8>> {
 }
 
 /// Turn mpv [path] / [filename] into a local [PathBuf]. Rejects `http(s)://` etc. Accepts `file://`.
-fn path_from_mpv_str(path_s: &str) -> Option<PathBuf> {
+pub(crate) fn local_path_from_mpv_str(path_s: &str) -> Option<PathBuf> {
     let rest = if let Some(r) = path_s.strip_prefix("file://") {
         r.strip_prefix("localhost/")
             .or_else(|| r.strip_prefix("localhost"))
@@ -167,8 +167,17 @@ fn path_from_mpv_str(path_s: &str) -> Option<PathBuf> {
     } else {
         path_s
     };
-    let can = std::fs::canonicalize(Path::new(rest)).ok()?;
-    can.is_file().then_some(can)
+    let raw = Path::new(rest);
+    if let Ok(can) = std::fs::canonicalize(raw) {
+        if can.is_file() {
+            return Some(can);
+        }
+    }
+    raw.is_file().then(|| raw.to_path_buf())
+}
+
+fn path_from_mpv_str(path_s: &str) -> Option<PathBuf> {
+    local_path_from_mpv_str(path_s)
 }
 
 /// Local filesystem path for the open item: mpv `path` when it is a file, else the shell path

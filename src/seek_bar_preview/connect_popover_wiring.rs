@@ -75,6 +75,7 @@ pub fn connect(
         pump: Rc::new(RefCell::new(None)),
         serial: Rc::new(Cell::new(0)),
         loaded_path: Rc::new(RefCell::new(None)),
+        loaded_target: Rc::new(RefCell::new(None)),
         enabled,
         seek: seek.clone(),
         seek_adj: seek_adj.clone(),
@@ -99,15 +100,32 @@ pub fn connect(
             }
             *st.last_xy.borrow_mut() = Some((x, y));
 
-            let dur = st.seek_adj.upper();
-            if dur <= 0.0 {
+            let bar_d = st.seek_adj.upper();
+            if bar_d <= 0.0 {
+                st.hide();
+                return;
+            }
+            let main_dur = st
+                .player
+                .borrow()
+                .as_ref()
+                .map(|b| {
+                    preview_hover_duration(
+                        bar_d,
+                        &b.mpv,
+                        st.preview.borrow().as_ref().map(|p| &p.mpv),
+                    )
+                })
+                .unwrap_or(bar_d);
+            if main_dur <= 0.0 {
                 st.hide();
                 return;
             }
 
-            let t = (x / f64::from(st.seek.width().max(1)))
-                .clamp(0.0, 1.0)
-                * dur;
+            let t = cap_preview_seek_time(
+                (x / f64::from(st.seek.width().max(1))).clamp(0.0, 1.0) * bar_d,
+                main_dur,
+            );
             st.hover_t.set(t);
             st.time_lbl.set_text(&format_time(t));
             let ch = st.chapters.borrow();
@@ -128,7 +146,6 @@ pub fn connect(
             }
 
             st.show_at(x);
-            st.serial.set(st.serial.get().wrapping_add(1));
             crate::glib_source_drop::drop_glib_source(st.deb.as_ref());
             crate::glib_source_drop::drop_glib_source(st.pump.as_ref());
             schedule_preview_seek(Rc::clone(&st));
@@ -143,6 +160,8 @@ pub fn connect(
             crate::glib_source_drop::drop_glib_source(st.deb.as_ref());
             crate::glib_source_drop::drop_glib_source(st.pump.as_ref());
             *st.last_xy.borrow_mut() = None;
+            *st.loaded_target.borrow_mut() = None;
+            *st.loaded_path.borrow_mut() = None;
             st.hide();
         }
     ));
@@ -157,14 +176,21 @@ fn preview_open_path(
 ) -> Option<PathBuf> {
     let g = player.borrow();
     let b = g.as_ref()?;
-    let raw = crate::media_probe::shell_media_path(&b.mpv, b.me_budget_shell_path.borrow().as_deref())
-        .or_else(|| last_path.borrow().clone())?;
-    crate::video_ext::is_openable_media_path(&raw)
-        .then(|| crate::video_ext::resolve_open_media_path(&raw))
+    let shell = b.me_budget_shell_path.borrow();
+    if let Some(s) = preview_load_path(&b.mpv, shell.as_deref()) {
+        return Some(preview_cache_path(&s));
+    }
+    let raw = last_path.borrow().clone()?;
+    if !crate::video_ext::is_openable_media_path(&raw) {
+        return None;
+    }
+    let resolved = crate::video_ext::resolve_open_media_path(&raw);
+    resolved.to_str().map(preview_cache_path)
 }
 
 fn schedule_preview_seek(st: Rc<SeekPreviewState>) {
-    let run_id = st.serial.get();
+    let run_id = st.serial.get().wrapping_add(1);
+    st.serial.set(run_id);
     let st2 = Rc::clone(&st);
     let id = glib::source::timeout_add_local_full(
         PREVIEW_DEBOUNCE,
@@ -174,55 +200,89 @@ fn schedule_preview_seek(st: Rc<SeekPreviewState>) {
             if st2.serial.get() != run_id || !st2.enabled.get() {
                 return glib::ControlFlow::Break;
             }
-            let Some(pth) = preview_open_path(&st2.player, &st2.last_path) else {
+            let load_s = {
+                let g = st2.player.borrow();
+                let Some(b) = g.as_ref() else {
+                    st2.hide();
+                    return glib::ControlFlow::Break;
+                };
+                let shell = b.me_budget_shell_path.borrow().clone();
+                preview_load_path(&b.mpv, shell.as_deref())
+            };
+            let Some(load_s) = load_s else {
                 st2.hide();
                 return glib::ControlFlow::Break;
             };
-            let canon = std::fs::canonicalize(&pth).unwrap_or(pth);
-            let up = st2.seek_adj.upper();
-            let mpv_d = st2
+            let bar_d = st2.seek_adj.upper();
+            let content_dur = st2
                 .player
                 .borrow()
                 .as_ref()
-                .and_then(|b| b.mpv.get_property::<f64>("duration").ok())
-                .filter(|d| d.is_finite() && *d > 0.0)
-                .unwrap_or(up);
-            let t = st2.hover_t.get().clamp(0.0, (mpv_d - 0.01).max(0.0));
-            do_preview_seek(&st2, &canon, t, run_id);
+                .map(|b| {
+                    preview_hover_duration(
+                        bar_d,
+                        &b.mpv,
+                        st2.preview.borrow().as_ref().map(|p| &p.mpv),
+                    )
+                })
+                .unwrap_or(bar_d);
+            let t = cap_preview_seek_time(st2.hover_t.get(), content_dur);
+            do_preview_seek(&st2, &load_s, content_dur, t, run_id);
             glib::ControlFlow::Break
         },
     );
     *st.deb.borrow_mut() = Some(id);
 }
 
-fn do_preview_seek(st: &Rc<SeekPreviewState>, canon: &std::path::Path, t: f64, run_id: u64) {
+fn do_preview_seek(
+    st: &Rc<SeekPreviewState>,
+    load_s: &str,
+    content_dur: f64,
+    t: f64,
+    run_id: u64,
+) {
     let mut g = st.preview.borrow_mut();
     let Some(pr) = g.as_mut() else {
         return;
     };
-    let need_load = st
-        .loaded_path
-        .borrow()
-        .as_ref()
-        .map(|c| c != canon)
-        .unwrap_or(true);
+    if load_s.is_empty() {
+        return;
+    }
+    let cache = preview_cache_path(load_s);
+    let need_load = st.loaded_target.borrow().as_deref() != Some(load_s);
+    let optical = preview_media_is_optical(load_s);
 
     if need_load {
-        let Some(s) = canon.to_str() else {
-            return;
-        };
-        if pr.mpv.command("loadfile", &[s, "replace"]).is_err() {
+        prepare_preview_player(&pr.mpv, load_s);
+        if let Err(e) = pr.mpv.command("loadfile", &[load_s, "replace"]) {
+            eprintln!("[rhino] seek preview: loadfile failed: {e:?} ({load_s})");
             return;
         }
-        set_preview_tracks(&pr.mpv);
-        *st.loaded_path.borrow_mut() = Some(canon.to_path_buf());
+        *st.loaded_path.borrow_mut() = Some(cache);
+        *st.loaded_target.borrow_mut() = Some(load_s.to_string());
         drop(g);
-        start_vo_pump(&st.gl, &st.preview, &st.pump, &st.serial, run_id, t);
+        start_preview_frame_pump(
+            &st.gl,
+            &st.preview,
+            &st.pump,
+            &st.serial,
+            run_id,
+            content_dur,
+            t,
+            optical,
+        );
     } else {
         set_preview_tracks(&pr.mpv);
-        let t_s = format!("{t:.3}");
-        let _ = pr.mpv.command("seek", &[t_s.as_str(), "absolute+keyframes"]);
         drop(g);
-        st.gl.queue_render();
+        start_preview_frame_pump(
+            &st.gl,
+            &st.preview,
+            &st.pump,
+            &st.serial,
+            run_id,
+            content_dur,
+            t,
+            optical,
+        );
     }
 }
