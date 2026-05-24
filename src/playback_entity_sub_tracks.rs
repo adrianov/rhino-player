@@ -84,19 +84,16 @@ fn sub_codecs_from_nodes(nodes: &[TrackNode]) -> Vec<(i64, String)> {
 /// Subtitle menu rows and `(id, codec)` pairs from one `track-list` parse.
 #[must_use]
 pub fn sub_menu_snapshot(mpv: &Mpv) -> (Vec<SubMenuRow>, Vec<(i64, String)>) {
-    let Some((entity, _)) = entity_from_mpv(mpv) else {
+    let Some((entity, chapter)) = entity_from_mpv(mpv) else {
         return (vec![], vec![]);
     };
     let nodes = track_nodes(mpv);
     let codecs = sub_codecs_from_nodes(&nodes);
-    let rows = if let Some(ifo) = entity.title_set_streams() {
-        if !ifo.sub.is_empty() {
-            ifo_sub_rows(&nodes, &ifo)
-        } else {
-            mpv_sub_rows(&nodes, entity.title_set_streams().as_ref())
-        }
-    } else {
-        mpv_sub_rows(&nodes, entity.title_set_streams().as_ref())
+    let ifo = entity.title_set_streams(&chapter);
+    let rows = match ifo.as_ref() {
+        Some(ifo) if !ifo.sub.is_empty() => ifo_sub_rows(&nodes, ifo),
+        Some(ifo) => mpv_sub_rows(&nodes, Some(ifo)),
+        None => mpv_sub_rows(&nodes, None),
     };
     (rows, codecs)
 }

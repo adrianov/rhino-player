@@ -287,8 +287,8 @@ mod tests {
         }
         let e1 = PlaybackEntity::resolve(vob);
         let e2 = PlaybackEntity::resolve(&p2);
-        let s1 = e1.title_set_streams();
-        let s2 = e2.title_set_streams();
+        let s1 = e1.title_set_streams(vob);
+        let s2 = e2.title_set_streams(&p2);
         assert!(s1.is_some());
         assert_eq!(s1, s2);
     }

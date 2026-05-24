@@ -1,11 +1,11 @@
 // Title-set audio/sub menus: IFO lists for DVD entities, mpv track-list otherwise.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use libmpv2::Mpv;
 use serde::Deserialize;
 
-use super::{PlaybackEntity, PlaybackEntityKind};
+use super::PlaybackEntity;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AudioMenuRow {
@@ -42,15 +42,18 @@ struct TrackNode {
 }
 
 impl PlaybackEntity {
-    /// `VTS_xx_0.IFO` stream list for a multi-part DVD title (same on every chapter).
+    /// `VTS_xx_0.IFO` stream list for the open chapter's title set (same on every chapter of that set).
     #[must_use]
-    pub fn title_set_streams(&self) -> Option<crate::dvd_ifo_parse::DvdIfoStreams> {
-        let PlaybackEntityKind::DvdTitle { chapters, .. } = &self.kind else {
+    pub fn title_set_streams(&self, chapter: &Path) -> Option<crate::dvd_ifo_parse::DvdIfoStreams> {
+        if !matches!(self.kind, super::PlaybackEntityKind::DvdTitle { .. }) {
             return None;
-        };
-        let probe = chapters.first()?;
-        crate::dvd_ifo_parse::ifo_streams_for_vob(probe)
+        }
+        crate::dvd_ifo_parse::ifo_streams_for_vob(chapter)
     }
+}
+
+fn audio_stream_src_id(n: &TrackNode) -> Option<i64> {
+    n.src_id.or(n.demuxer_src_id)
 }
 
 /// Resolve entity + local path from the playback engine.
@@ -89,7 +92,7 @@ fn mpv_aid_for_slot(nodes: &[TrackNode], ifo: &crate::dvd_ifo_parse::DvdIfoStrea
             continue;
         }
         let meta = crate::dvd_ifo_parse::MpvTrackMeta {
-            src_id: n.src_id,
+            src_id: audio_stream_src_id(n),
             codec: n.codec.as_deref(),
             demux_channels: n.demux_channel_count,
         };
@@ -107,7 +110,7 @@ fn audio_ifo_slot_for_aid_nodes(
 ) -> Option<u8> {
     let n = nodes.iter().find(|n| n.kind == "audio" && n.id == aid)?;
     let meta = crate::dvd_ifo_parse::MpvTrackMeta {
-        src_id: n.src_id,
+        src_id: audio_stream_src_id(n),
         codec: n.codec.as_deref(),
         demux_channels: n.demux_channel_count,
     };
@@ -117,7 +120,8 @@ fn audio_ifo_slot_for_aid_nodes(
 /// Map current mpv `aid` to a title-set IFO audio slot (DVD only).
 #[must_use]
 pub fn audio_ifo_slot_for_aid(mpv: &Mpv, entity: &PlaybackEntity, aid: i64) -> Option<u8> {
-    let ifo = entity.title_set_streams()?;
+    let chapter = crate::media_probe::local_file_from_mpv(mpv)?;
+    let ifo = entity.title_set_streams(&chapter)?;
     audio_ifo_slot_for_aid_nodes(&track_nodes(mpv), &ifo, aid)
 }
 
@@ -128,7 +132,8 @@ pub fn resolve_audio_mpv_id(mpv: &Mpv, entity: &PlaybackEntity, row: &AudioMenuR
         return Some(row.mpv_id);
     }
     let slot = row.ifo_slot?;
-    let ifo = entity.title_set_streams()?;
+    let chapter = crate::media_probe::local_file_from_mpv(mpv)?;
+    let ifo = entity.title_set_streams(&chapter)?;
     mpv_aid_for_slot(&track_nodes(mpv), &ifo, slot)
 }
 
@@ -156,7 +161,7 @@ fn mpv_audio_rows(nodes: &[TrackNode], ifo: Option<&crate::dvd_ifo_parse::DvdIfo
             crate::dvd_ifo_parse::match_audio_label(
                 &s.audio,
                 crate::dvd_ifo_parse::MpvTrackMeta {
-                    src_id: n.src_id,
+                    src_id: audio_stream_src_id(n),
                     codec: n.codec.as_deref(),
                     demux_channels: n.demux_channel_count,
                 },
@@ -175,16 +180,17 @@ fn mpv_audio_rows(nodes: &[TrackNode], ifo: Option<&crate::dvd_ifo_parse::DvdIfo
 /// Sound popover rows for the current entity (IFO title-set list on DVD).
 #[must_use]
 pub fn audio_menu_rows(mpv: &Mpv) -> Vec<AudioMenuRow> {
-    let Some((entity, _)) = entity_from_mpv(mpv) else {
+    let Some((entity, chapter)) = entity_from_mpv(mpv) else {
         return vec![];
     };
     let nodes = track_nodes(mpv);
-    if let Some(ifo) = entity.title_set_streams() {
+    let ifo = entity.title_set_streams(&chapter);
+    if let Some(ifo) = &ifo {
         if !ifo.audio.is_empty() {
-            return ifo_audio_rows(&nodes, &ifo);
+            return ifo_audio_rows(&nodes, ifo);
         }
     }
-    mpv_audio_rows(&nodes, entity.title_set_streams().as_ref())
+    mpv_audio_rows(&nodes, ifo.as_ref())
 }
 
 include!("playback_entity_sub_tracks.rs");
@@ -192,7 +198,8 @@ include!("playback_entity_sub_tracks.rs");
 /// Map current mpv `sid` to a title-set IFO sub slot (DVD only).
 #[must_use]
 pub fn sub_ifo_slot_for_sid(mpv: &Mpv, entity: &PlaybackEntity, sid: i64) -> Option<u8> {
-    let ifo = entity.title_set_streams()?;
+    let chapter = crate::media_probe::local_file_from_mpv(mpv)?;
+    let ifo = entity.title_set_streams(&chapter)?;
     let nodes = track_nodes(mpv);
     let sub_nodes: Vec<_> = nodes.iter().filter(|n| n.kind == "sub").collect();
     let n = sub_nodes.iter().find(|n| n.id == sid)?;
@@ -213,7 +220,8 @@ pub fn resolve_sub_mpv_id(mpv: &Mpv, entity: &PlaybackEntity, mpv_id: i64, ifo_s
         return Some(mpv_id);
     }
     let slot = ifo_slot?;
-    let ifo = entity.title_set_streams()?;
+    let chapter = crate::media_probe::local_file_from_mpv(mpv)?;
+    let ifo = entity.title_set_streams(&chapter)?;
     mpv_sid_for_slot(&nodes, &ifo, slot)
 }
 

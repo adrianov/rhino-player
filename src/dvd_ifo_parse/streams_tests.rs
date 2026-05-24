@@ -123,6 +123,37 @@ fn sub_slot_for_src_id_maps_dvd_subpicture() {
 }
 
 #[test]
+fn streams_from_mounted_treasure_island_vts04() {
+    let vob = Path::new(
+        "/Volumes/SanDisk/Torrents/TREASURE_ISLAND/VIDEO_TS/VTS_04_1.VOB",
+    );
+    if !vob.is_file() {
+        return;
+    }
+    let s = streams_from_vob(vob).expect("streams");
+    assert_eq!(s.audio.len(), 4, "VTS_04 should expose four audio streams");
+    assert!(s.audio.iter().any(|a| a.lang == "ru" && a.channels >= 5));
+    assert!(s.audio.iter().any(|a| a.lang == "en"));
+    assert!(s.audio.iter().any(|a| a.lang == "fr"));
+    assert_eq!(s.sub.len(), 6);
+}
+
+#[test]
+fn treasure_island_vts04_not_vts02_ifo() {
+    let v04 = Path::new("/Volumes/SanDisk/Torrents/TREASURE_ISLAND/VIDEO_TS/VTS_04_1.VOB");
+    let v02 = Path::new("/Volumes/SanDisk/Torrents/TREASURE_ISLAND/VIDEO_TS/VTS_02_1.VOB");
+    if !v04.is_file() || !v02.is_file() {
+        return;
+    }
+    let e = crate::playback_entity::PlaybackEntity::resolve(v04);
+    let main = e.title_set_streams(v04).expect("vts04 ifo");
+    let wrong = e.title_set_streams(v02).expect("vts02 ifo");
+    assert_eq!(main.audio.len(), 4);
+    assert_eq!(wrong.audio.len(), 1);
+    assert_ne!(main, wrong);
+}
+
+#[test]
 fn streams_from_mounted_dvd2_vts02() {
     let vob = Path::new(
         "/Volumes/SanDisk/Torrents/17_Mgnoveniy_vesni/17_Mgnoveniy_DVD2/Video_ts/VTS_02_1.VOB",
