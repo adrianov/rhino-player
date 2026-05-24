@@ -53,9 +53,12 @@ fn set_aid(mpv: &Mpv, id: i64) {
 
 fn save_choice(mpv: &Mpv, id: i64, text: &str) {
     db::save_audio_track_name(text);
-    if let Some(path) = media_probe::local_file_from_mpv(mpv) {
-        db::set_audio_aid(&playback_entity::db_path_for(&path), id);
-    }
+    let Some(path) = media_probe::local_file_from_mpv(mpv) else {
+        return;
+    };
+    let entity = playback_entity::PlaybackEntity::resolve(&path);
+    let slot = playback_entity::audio_ifo_slot_for_aid(mpv, &entity, id);
+    db::set_audio_track(&entity.db_path(), id, slot);
 }
 
 fn norm_label(s: &str) -> String {
@@ -95,7 +98,35 @@ fn resolve_id(mpv: &Mpv, row: &Row) -> Option<i64> {
     )
 }
 
-/// Restore per-file track first, otherwise use the closest saved audio-track label.
+fn restore_audio_by_label(mpv: &Mpv, rows: &[Row]) {
+    if rows.len() < 2 {
+        return;
+    }
+    if let Some(row) = db::load_audio_track_name().and_then(|s| closest_label(rows, &s)) {
+        if let Some(aid) = resolve_id(mpv, row) {
+            if current_aid(mpv) != Some(aid) {
+                set_aid(mpv, aid);
+            }
+        }
+    }
+}
+
+fn restore_audio_by_slot(mpv: &Mpv, entity: &playback_entity::PlaybackEntity, slot: u8) -> bool {
+    let menu = AudioMenuRow {
+        mpv_id: -1,
+        label: String::new(),
+        ifo_slot: Some(slot),
+    };
+    let Some(aid) = resolve_audio_mpv_id(mpv, entity, &menu) else {
+        return false;
+    };
+    if current_aid(mpv) != Some(aid) {
+        set_aid(mpv, aid);
+    }
+    true
+}
+
+/// Restore per-entity track first (IFO slot on DVD, mpv id otherwise), else global label.
 pub fn restore_saved_audio(mpv: &Mpv) {
     let rows = audio_rows(mpv);
     if rows.is_empty() {
@@ -105,37 +136,28 @@ pub fn restore_saved_audio(mpv: &Mpv) {
         return;
     };
     let entity = playback_entity::PlaybackEntity::resolve(&path);
-    let db_key = entity.db_path();
-    if let Some(saved) = db::load_audio_aid(&db_key) {
-        if current_aid(mpv) == Some(saved) {
+    let Some((saved, saved_slot)) = db::load_audio_track(&entity.db_path()) else {
+        restore_audio_by_label(mpv, &rows);
+        return;
+    };
+    if let Some(slot) = saved_slot {
+        if restore_audio_by_slot(mpv, &entity, slot) {
             return;
-        }
-        if rows.iter().any(|r| r.id == saved) {
-            set_aid(mpv, saved);
-            return;
-        }
-        if let Some(slot) = audio_ifo_slot_for_aid(mpv, &entity, saved) {
-            let menu = AudioMenuRow {
-                mpv_id: -1,
-                label: String::new(),
-                ifo_slot: Some(slot),
-            };
-            if let Some(aid) = resolve_audio_mpv_id(mpv, &entity, &menu) {
-                set_aid(mpv, aid);
-                return;
-            }
         }
     }
-    if rows.len() < 2 {
+    if saved > 0 && rows.iter().any(|r| r.id == saved) {
+        if current_aid(mpv) != Some(saved) {
+            set_aid(mpv, saved);
+        }
         return;
     }
-    if let Some(row) = db::load_audio_track_name().and_then(|s| closest_label(&rows, &s)) {
-        if let Some(aid) = resolve_id(mpv, row) {
-            if current_aid(mpv) != Some(aid) {
-                set_aid(mpv, aid);
-            }
-        }
-    }
+    restore_audio_by_label(mpv, &rows);
+}
+
+/// Reapply saved audio after cross-chapter DVD `loadfile` once resume seek finishes.
+pub fn reapply_after_chapter_load(mpv: &Mpv) {
+    restore_saved_audio(mpv);
+    ensure_playable_audio(mpv);
 }
 
 /// After [loadfile], make sure an audio stream is actually selected. With **one** [audio] track

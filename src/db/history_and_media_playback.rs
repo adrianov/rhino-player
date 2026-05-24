@@ -198,37 +198,47 @@ pub fn set_playback(path: &Path, duration_sec: f64, time_pos_sec: f64) {
     crate::playback_entity::purge_extra_db_rows(path);
 }
 
-/// Store the chosen audio track id immediately so SIGTERM / `kill` does not reset it.
-pub fn set_audio_aid(path: &Path, aid: i64) {
+/// Store the chosen audio track immediately so SIGTERM / `kill` does not reset it.
+pub fn set_audio_track(path: &Path, aid: i64, ifo_slot: Option<u8>) {
     if aid <= 0 {
         return;
     }
     let Some(s) = history_key(path) else {
         return;
     };
+    let slot = ifo_slot.map(i64::from);
     let _ = with_conn(|c| {
         c.execute(
-            "INSERT INTO media (path, audio_aid) VALUES (?1, ?2)
-             ON CONFLICT(path) DO UPDATE SET audio_aid = excluded.audio_aid",
-            params![&s, aid],
+            "INSERT INTO media (path, audio_aid, audio_ifo_slot) VALUES (?1, ?2, ?3)
+             ON CONFLICT(path) DO UPDATE SET
+               audio_aid = excluded.audio_aid,
+               audio_ifo_slot = excluded.audio_ifo_slot",
+            params![&s, aid, slot],
         )?;
         Ok(())
     });
 }
 
-pub fn load_audio_aid(path: &Path) -> Option<i64> {
+pub fn load_audio_track(path: &Path) -> Option<(i64, Option<u8>)> {
     let s = history_key(path)?;
     with_conn(|c| {
         c.query_row(
-            "SELECT audio_aid FROM media WHERE path = ?1",
+            "SELECT audio_aid, audio_ifo_slot FROM media WHERE path = ?1",
             params![&s],
-            |row| row.get::<_, Option<i64>>(0),
+            |row| {
+                let aid: Option<i64> = row.get(0)?;
+                let slot: Option<i64> = row.get(1)?;
+                Ok((aid, slot))
+            },
         )
         .optional()
     })
     .flatten()
-    .flatten()
-    .filter(|aid| *aid > 0)
+    .and_then(|(aid, slot)| {
+        let aid = aid.filter(|n| *n > 0)?;
+        let slot = slot.and_then(|n| u8::try_from(n).ok());
+        Some((aid, slot))
+    })
 }
 
 /// Last hand-picked subtitle on this playback entity (`sid` + optional DVD IFO slot).
