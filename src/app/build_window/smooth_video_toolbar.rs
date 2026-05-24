@@ -4,7 +4,7 @@ struct SmoothToolbarWidgets {
 }
 
 /// Header toolbar control: icon + rounded **playing FPS** readout; full title lives in the tooltip.
-fn build_smooth_video_toolbar(app: &adw::Application) -> SmoothToolbarWidgets {
+fn build_smooth_video_toolbar() -> SmoothToolbarWidgets {
     let smooth_btn = gtk::Button::new();
     smooth_btn.add_css_class("flat");
     smooth_btn.add_css_class("rp-smooth-mbtn");
@@ -27,18 +27,6 @@ fn build_smooth_video_toolbar(app: &adw::Application) -> SmoothToolbarWidgets {
     face.append(&smooth_status);
 
     smooth_btn.set_child(Some(&face));
-
-    let app_click = app.clone();
-    smooth_btn.connect_clicked(move |_| {
-        let Some(a) = app_click
-            .lookup_action("smooth-60")
-            .and_then(|x| x.downcast::<gio::SimpleAction>().ok())
-        else {
-            return;
-        };
-        let cur = a.state().and_then(|v| v.get::<bool>()).unwrap_or(false);
-        a.change_state(&(!cur).to_variant());
-    });
 
     SmoothToolbarWidgets {
         smooth_btn,

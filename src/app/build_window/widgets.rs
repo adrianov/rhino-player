@@ -21,6 +21,7 @@ struct WindowWidgets {
     sub_readout: gtk::Label,
     speed_mbtn: gtk::MenuButton,
     speed_readout: gtk::Label,
+    smooth_btn: gtk::Button,
     smooth_status: gtk::Label,
     speed_list: gtk::ListBox,
     speed_sync: Rc<Cell<bool>>,
@@ -94,7 +95,7 @@ fn build_widgets(
         speed_sync,
     } = build_speed_menu(player, &gl_area, video_pref, app);
 
-    let SmoothToolbarWidgets { smooth_btn, smooth_status } = build_smooth_video_toolbar(app);
+    let SmoothToolbarWidgets { smooth_btn, smooth_status } = build_smooth_video_toolbar();
     let (recent_scrl, flow_recent, recent_spacers, undo_bar) = recent_view::new_scroll();
     recent_scrl.set_vexpand(true);
     recent_scrl.set_hexpand(true);
@@ -156,7 +157,7 @@ fn build_widgets(
         #[cfg(target_os = "macos")]
         bottom_shell,
         play_pause, sibling_nav,
-        menu_btn, vol_menu, vol_header_img, vol_readout, sub_menu, sub_readout, smooth_status,
+        menu_btn, vol_menu, vol_header_img, vol_readout, sub_menu, sub_readout, smooth_btn, smooth_status,
         speed_mbtn, speed_readout,
         speed_list, speed_sync,
         seek, seek_adj, time_left, time_right,

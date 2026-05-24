@@ -30,6 +30,7 @@ struct FinalActionCtx {
     mpv_teardown_after_draw: Rc<Cell<bool>>,
     hdr_csd_baseline: Rc<Cell<Option<(bool, bool)>>>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
+    smooth_toolbar_btn: gtk::Button,
     smooth_toolbar_status: gtk::Label,
 }
 
@@ -60,6 +61,7 @@ fn wire_final_actions(ctx: FinalActionCtx) {
         VideoAppMenuWire {
             pref_menu: ctx.pref_menu.clone(),
             seek_bar_on: Rc::clone(&ctx.seek_bar_on),
+            smooth_toolbar_btn: Some(ctx.smooth_toolbar_btn.clone()),
             smooth_toolbar_status: Some(ctx.smooth_toolbar_status.clone()),
         },
     );

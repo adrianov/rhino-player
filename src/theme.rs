@@ -32,6 +32,9 @@ const APP_CSS: &str = r#"
         .rpb-header menubutton.flat.rp-header-menu-open > button {
             background-color: rgba(255, 255, 255, 0.1);
         }
+        .rpb-header button.rp-smooth-mbtn.flat.rp-smooth-on {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
         .rpb-header menubutton.flat image,
         .rpb-header button.rp-smooth-mbtn.flat image,
         .rpb-header button.rp-blackout-mbtn.flat image {

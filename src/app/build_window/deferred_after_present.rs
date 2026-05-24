@@ -300,6 +300,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
         hdr_csd_baseline: Rc::clone(&hdr_csd_baseline),
         hdr_title_mirror,
+        smooth_toolbar_btn: w.smooth_btn.clone(),
         smooth_toolbar_status: w.smooth_status.clone(),
     });
 
