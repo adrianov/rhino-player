@@ -270,8 +270,5 @@ pub fn refresh_dvd_bar(
 }
 
 fn open_dvd_chapter_path(mpv: &libmpv2::Mpv, shell: Option<&Path>) -> Option<std::path::PathBuf> {
-    let path = crate::media_probe::local_file_from_mpv(mpv).or_else(|| {
-        shell.and_then(|p| std::fs::canonicalize(p).ok().or_else(|| Some(p.to_path_buf())))
-    })?;
-    crate::video_ext::is_dvd_vob_path(&path).then_some(path)
+    crate::playback_entity::unified_timeline_chapter(mpv, shell)
 }

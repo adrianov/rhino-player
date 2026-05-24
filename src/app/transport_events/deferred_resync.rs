@@ -190,20 +190,21 @@ fn read_transport_state(ctx: &TransportCtx) -> Option<(bool, bool, f64, f64)> {
     let dur = if dur.is_finite() { dur.max(0.0) } else { 0.0 };
     let mut pos = b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
     pos = if pos.is_finite() { pos.max(0.0) } else { 0.0 };
-    let shell = if ctx.recent_visible.get() {
-        ctx.eof.last_path.borrow().clone()
-    } else {
-        crate::media_probe::shell_media_path(
-            &b.mpv,
-            b.me_budget_shell_path.borrow().as_deref(),
-        )
-    };
-    let chapter = shell.clone();
-    let (mut pos, mut dur, pos_from_entity_snap) = browse_pause_snap(ctx, &shell, pause, pos, dur);
-    if let (Some(bar), Some(ch)) = (ctx.dvd_bar.borrow().as_ref(), chapter.as_ref()) {
-        dur = bar.total_sec();
-        if !pos_from_entity_snap {
-            pos = bar.transport_global_pos(b, ch, pos);
+    let shell = b.me_budget_shell_path.borrow().clone();
+    let chapter = crate::playback_entity::transport_chapter_path(
+        ctx.recent_visible.get(),
+        ctx.eof.last_path.borrow().clone(),
+        Some(&b.mpv),
+        shell.as_deref(),
+    );
+    let (mut pos, mut dur, pos_from_entity_snap) = browse_pause_snap(ctx, &chapter, pause, pos, dur);
+    if let Some(ch) = chapter {
+        let entity = crate::playback_entity::PlaybackEntity::resolve(&ch);
+        let bar = ctx.dvd_bar.borrow();
+        if pos_from_entity_snap {
+            dur = entity.transport_bar(&ch, pos, dur, bar.as_ref(), Some(b)).0;
+        } else {
+            (dur, pos) = entity.transport_bar(&ch, pos, dur, bar.as_ref(), Some(b));
         }
     }
     Some((pause, core_idle, dur, pos))

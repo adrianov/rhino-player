@@ -118,7 +118,21 @@ fn sync_seek_chapters(ctx: &Rc<TransportCtx>) {
 }
 
 fn dvd_bar_duration(ctx: &TransportCtx) -> Option<f64> {
-    ctx.dvd_bar.borrow().as_ref().map(crate::dvd_vob_timeline::DvdBarState::total_sec)
+    let chapter = transport_chapter_path_for_ctx(ctx)?;
+    let bar = ctx.dvd_bar.borrow();
+    let bar = bar.as_ref()?;
+    crate::playback_entity::PlaybackEntity::resolve(&chapter)
+        .transport_duration_from_bar(&chapter, bar)
+}
+
+fn transport_chapter_path_for_ctx(ctx: &TransportCtx) -> Option<std::path::PathBuf> {
+    if ctx.recent_visible.get() {
+        return ctx.eof.last_path.borrow().clone();
+    }
+    let g = ctx.player.try_borrow().ok()?;
+    let b = g.as_ref()?;
+    let shell = b.me_budget_shell_path.borrow().clone();
+    crate::playback_entity::transport_chapter_path(false, None, Some(&b.mpv), shell.as_deref())
 }
 
 /// Refresh window / header title when mpv `path` changes (sibling DVD advance, etc.).
