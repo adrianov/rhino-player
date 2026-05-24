@@ -31,6 +31,7 @@ fn apply_sub_pick(
 ) {
     if let Some(sid) = resolve_sub_id(mpv, id, ifo_slot) {
         set_sub_id(mpv, sid);
+        save_sub_choice(mpv, sid, ifo_slot);
     }
     if let Some(f) = on_pick {
         f(label);

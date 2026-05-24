@@ -58,6 +58,7 @@ pub fn init() {
     }
     migrate_media_decode_columns(&conn);
     migrate_media_thumb_load_path(&conn);
+    migrate_media_sub_track_columns(&conn);
     migrate_dvd_thumb_vo_start_recapture(&conn);
     migrate_legacy_smooth_max_area_round_mil(&conn);
     migrate_smooth_max_area_legacy_adaptive_pollution(&conn);
@@ -90,6 +91,15 @@ fn migrate_media_thumb_load_path(conn: &Connection) {
         "ALTER TABLE media ADD COLUMN thumb_load_path TEXT",
         rusqlite::params![],
     );
+}
+
+fn migrate_media_sub_track_columns(conn: &Connection) {
+    for sql in [
+        "ALTER TABLE media ADD COLUMN sub_sid INTEGER",
+        "ALTER TABLE media ADD COLUMN sub_ifo_slot INTEGER",
+    ] {
+        let _ = conn.execute(sql, rusqlite::params![]);
+    }
 }
 
 /// Wrong-frame DVD thumbs from load-then-seek capture; force one backfill per title.

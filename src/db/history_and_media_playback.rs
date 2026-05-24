@@ -231,6 +231,49 @@ pub fn load_audio_aid(path: &Path) -> Option<i64> {
     .filter(|aid| *aid > 0)
 }
 
+/// Last hand-picked subtitle on this playback entity (`sid` + optional DVD IFO slot).
+pub fn set_sub_track(path: &Path, sid: i64, ifo_slot: Option<u8>) {
+    if sid <= 0 {
+        return;
+    }
+    let Some(s) = history_key(path) else {
+        return;
+    };
+    let slot = ifo_slot.map(i64::from);
+    let _ = with_conn(|c| {
+        c.execute(
+            "INSERT INTO media (path, sub_sid, sub_ifo_slot) VALUES (?1, ?2, ?3)
+             ON CONFLICT(path) DO UPDATE SET
+               sub_sid = excluded.sub_sid,
+               sub_ifo_slot = excluded.sub_ifo_slot",
+            params![&s, sid, slot],
+        )?;
+        Ok(())
+    });
+}
+
+pub fn load_sub_track(path: &Path) -> Option<(i64, Option<u8>)> {
+    let s = history_key(path)?;
+    with_conn(|c| {
+        c.query_row(
+            "SELECT sub_sid, sub_ifo_slot FROM media WHERE path = ?1",
+            params![&s],
+            |row| {
+                let sid: Option<i64> = row.get(0)?;
+                let slot: Option<i64> = row.get(1)?;
+                Ok((sid, slot))
+            },
+        )
+        .optional()
+    })
+    .flatten()
+    .and_then(|(sid, slot)| {
+        let sid = sid.filter(|n| *n > 0)?;
+        let slot = slot.and_then(|n| u8::try_from(n).ok());
+        Some((sid, slot))
+    })
+}
+
 /// Clear stored resume so the next open starts from 0.
 /// Uses the same path key as [remove_history] so deleted-on-disk files still match DB rows.
 pub fn clear_resume_position(path: &Path) {

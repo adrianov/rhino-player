@@ -157,6 +157,14 @@ fn sub_header_compact(mpv: &Mpv) -> String {
 }
 
 include!("sub_tracks_dvd.rs");
+include!("sub_tracks_restore.rs");
+
+/// Reapply saved styling + track after load; fuzzy auto-pick only when nothing is stored yet.
+pub fn reapply_saved_or_autopick(mpv: &Mpv, prefs: &SubPrefs) {
+    if !restore_saved_sub(mpv, prefs) {
+        autopick_sub_track(mpv, prefs);
+    }
+}
 
 /// `track-list` has at least one `type: sub` entry (or title-set IFO subs on DVD).
 pub fn has_subtitle_tracks(mpv: &Mpv) -> bool {

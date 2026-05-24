@@ -79,4 +79,4 @@ Feature: Subtitles styling and selection
 - `sub-color` / `sub-border-color` are passed as `#RRGGBB` strings (libmpv ignores int forms here). The **Text Color** row is hidden when the active subtitle stream (or every stream while **Off**) is a bitmap codec (`dvd_sub`, PGS, DVB, …); `sub-color` is not pushed to mpv in that case.
 - `sub-ass-override=force` makes ASS subs follow Rhino’s style overrides.
 - Errors from setting sub properties are logged only; no UI notification.
-- **DVD chapter `.vob`:** subtitle rows come from title-set info via [`playback_entity::sub_menu_rows`](../features/31-playback-entity.md) (see [08-tracks](08-tracks.md) screenshot and Notes).
+- **DVD chapter `.vob`:** subtitle rows come from title-set info via [`playback_entity::sub_menu_rows`](../features/31-playback-entity.md) (see [08-tracks](08-tracks.md) screenshot and Notes). Hand-picked streams persist on the **playback-entity** SQLite row (`media.sub_sid` + `media.sub_ifo_slot`, resolved across chapter files like audio `audio_aid`); fuzzy auto-pick runs only when no stored choice exists yet.

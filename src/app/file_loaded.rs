@@ -195,7 +195,7 @@ fn on_320ms_tick(c: On320Ctx) {
         // Audio track restore runs synchronously on the FileLoaded transport event (see
         // dispatch_sync_ui.rs) so the saved `aid` is in place *before* unpause. Repeating it
         // here would re-open the audio path mid-playback and reintroduce the A/V drift.
-        sub_tracks::autopick_sub_track(&b.mpv, &pr);
+        sub_tracks::reapply_saved_or_autopick(&b.mpv, &pr);
         let listed = playback_speed::sync_list(&b.mpv, &c.speed_sync_flag, &c.speed_list, &c.speed_readout);
         let mut g = c.video_pref.borrow_mut();
         if g.smooth_60 {

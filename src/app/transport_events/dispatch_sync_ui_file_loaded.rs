@@ -81,6 +81,8 @@ fn apply_file_loaded_resume_and_audio(player: &Rc<RefCell<Option<MpvBundle>>>) {
         b.apply_pending_resume();
         audio_tracks::restore_saved_audio(&b.mpv);
         audio_tracks::ensure_playable_audio(&b.mpv);
+        let pr = crate::db::load_sub();
+        let _ = sub_tracks::restore_saved_sub(&b.mpv, &pr);
     });
 }
 

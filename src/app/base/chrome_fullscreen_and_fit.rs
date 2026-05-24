@@ -288,6 +288,10 @@ fn schedule_sub_button_scan(player: Rc<RefCell<Option<MpvBundle>>>, button: gtk:
             .is_some_and(|b| sub_tracks::has_subtitle_tracks(&b.mpv));
         button.set_visible(has_subs);
         if has_subs {
+            if let Some(b) = player.borrow().as_ref() {
+                let pr = crate::db::load_sub();
+                sub_tracks::reapply_saved_or_autopick(&b.mpv, &pr);
+            }
             return glib::ControlFlow::Break;
         }
         let next = tries.get().saturating_add(1);
