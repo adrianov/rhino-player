@@ -222,6 +222,7 @@ fn wire_handlers_before_mpv(
         win_aspect: win_aspect.clone(), sub_menu: Some(w.sub_menu.clone()),
         play_pause: w.play_pause.clone(),
         hdr_title_mirror: w.hdr_title_mirror.clone(),
+        playback_focus: Rc::clone(playback_focus),
     };
     wire_play_toggles(&w.play_pause, play_ctx.clone());
     let browse_chrome = rc_on_browse_chrome(BrowseChromeRefs {

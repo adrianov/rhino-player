@@ -48,7 +48,14 @@ fn install_transport_tick(ctx: &Rc<TransportCtx>) {
 }
 
 /// Keep mpv paused while the continue strip is up and playback has not been revealed.
-fn hold_browse_pause(player: &Rc<RefCell<Option<MpvBundle>>>, browse: bool) {
+fn hold_browse_pause(ctx: &TransportCtx, browse: bool) {
+    if !browse || ctx.eof.playback_focus.get() {
+        return;
+    }
+    hold_browse_pause_player(&ctx.player, browse);
+}
+
+fn hold_browse_pause_player(player: &Rc<RefCell<Option<MpvBundle>>>, browse: bool) {
     if !browse {
         return;
     }
@@ -113,7 +120,7 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     }
     sync_decode_size_on_tick(&ctx.player);
     let browse = crate::app::browse_overlay_active(&ctx.eof.recent);
-    hold_browse_pause(&ctx.player, browse);
+    hold_browse_pause(ctx, browse);
     // Mid-title DVD chapter EOF: detect local tail every tick — mpv often keeps `core-idle=false`
     // and `eof-reached=false` with `keep-open=yes` (and Smooth `vf`) at a `.vob` boundary.
     if !browse && maybe_advance_dvd_chapter_eof(ctx) {

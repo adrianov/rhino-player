@@ -40,6 +40,13 @@ impl WarmPreloadGate {
         self.inflight.get()
     }
 
+    /// User opened for playback — drop in-flight warm preload without running the queued hover target.
+    pub(crate) fn cancel(&self) {
+        self.disarm_watchdog();
+        self.inflight.set(false);
+        *self.queued.borrow_mut() = None;
+    }
+
     pub(crate) fn arm_watchdog(
         &self,
         player: Rc<RefCell<Option<MpvBundle>>>,
@@ -93,7 +100,20 @@ pub(crate) fn warm_preload_gate_busy() -> bool {
 /// Continue grid visible or a warm `loadfile` in flight — no EOF sibling advance or unpause.
 #[must_use]
 pub(crate) fn browse_overlay_active(recent: &impl gtk::prelude::WidgetExt) -> bool {
-    recent.is_visible() || warm_preload_gate_busy()
+    recent.is_visible()
+}
+
+/// Stop warm preload bookkeeping when the user opens a continue card for playback.
+pub(crate) fn cancel_warm_preload_for_playback() {
+    disarm_warm_path_settle();
+    WARM_CTX.with(|s| {
+        let guard = s.borrow();
+        let Some(c) = guard.as_ref() else {
+            return;
+        };
+        c.gate.cancel();
+        crate::glib_source_drop::drop_glib_source(c.hover_idle.as_ref());
+    });
 }
 
 pub(crate) fn disarm_warm_path_settle() {
@@ -146,6 +166,14 @@ pub(crate) fn warm_preload_hold_browse_pause(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     gl: &gtk::GLArea,
 ) {
+    let hold = WARM_CTX.with(|s| {
+        s.borrow()
+            .as_ref()
+            .is_some_and(|c| c.recent.is_visible())
+    });
+    if !hold {
+        return;
+    }
     if let Ok(g) = player.try_borrow() {
         if let Some(b) = g.as_ref() {
             let _ = b.mpv.set_property("pause", true);
@@ -174,9 +202,17 @@ pub(crate) fn warm_preload_finish_load(player: &Rc<RefCell<Option<MpvBundle>>>, 
     warm_preload_apply_resume_audio(player, gl.as_ref());
     transport_nudge_tick();
     let _ = glib::idle_add_local_once(transport_drain_after_loadfile);
-    if let Some(gl) = gl {
-        let player2 = Rc::clone(player);
-        let _ = glib::idle_add_local_once(move || warm_preload_hold_browse_pause(&player2, &gl));
+    if gl.as_ref().is_some_and(|_| {
+        WARM_CTX.with(|s| {
+            s.borrow()
+                .as_ref()
+                .is_some_and(|c| c.recent.is_visible())
+        })
+    }) {
+        if let Some(gl) = gl {
+            let player2 = Rc::clone(player);
+            let _ = glib::idle_add_local_once(move || warm_preload_hold_browse_pause(&player2, &gl));
+        }
     }
     warm_preload_notify_loaded();
 }
@@ -190,6 +226,8 @@ fn warm_preload_apply_resume_audio(
             b.apply_pending_resume();
             crate::audio_tracks::restore_saved_audio(&b.mpv);
             crate::audio_tracks::ensure_playable_audio(&b.mpv);
+            let pr = crate::db::load_sub();
+            let _ = crate::sub_tracks::restore_saved_sub(&b.mpv, &pr);
         }
     }
     if let Some(gl) = gl {

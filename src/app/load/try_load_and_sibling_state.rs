@@ -27,6 +27,12 @@ fn try_load(
         player.borrow().is_some(),
         o.play_on_start
     );
+    if o.play_on_start && !o.warm_preload {
+        crate::app::cancel_warm_preload_for_playback();
+        if let Some(pf) = o.playback_focus.as_ref() {
+            pf.set(true);
+        }
+    }
     let warm_hit = load_file_into_player(&path, player, recent_layer, o)?;
     *o.last_path.borrow_mut() = std::fs::canonicalize(&path).ok();
     if o.record {

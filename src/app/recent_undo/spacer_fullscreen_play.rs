@@ -38,6 +38,7 @@ struct PlayToggleCtx {
     win_aspect: Rc<Cell<Option<f64>>>,
     sub_menu: Option<gtk::MenuButton>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
+    playback_focus: Rc<Cell<bool>>,
     /// Bottom-bar play/pause button. The toggle handler updates its icon
     /// optimistically so the click feels instant; the 1 Hz transport tick
     /// reconciles with mpv's actual state right after.
@@ -169,6 +170,8 @@ fn flip_play_icon(btn: &gtk::Button, now_paused: bool) {
 }
 
 fn schedule_warm_reveal(ctx: PlayToggleCtx) {
+    crate::app::cancel_warm_preload_for_playback();
+    ctx.playback_focus.set(true);
     let _ = glib::timeout_add_local(Duration::from_millis(WARM_REVEAL_DELAY_MS), move || {
         ctx.recent.set_visible(false);
         (ctx.on_video_chrome)();
