@@ -301,4 +301,9 @@ pub fn ensure_resume_before_unpause(&self) -> Option<f64> {
     self.apply_pending_resume_on_warm_open()
 }
 
+#[must_use]
+pub(crate) fn resume_seek_pending(&self) -> bool {
+    self.pending_resume.get().is_some()
+}
+
 }

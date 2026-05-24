@@ -12,8 +12,17 @@ fn schedule_resume_after_unpause(player: Rc<RefCell<Option<MpvBundle>>>) {
     for &ms in RESUME_AFTER_UNPAUSE_MS {
         let p = Rc::clone(&player);
         let _ = glib::timeout_add_local_once(Duration::from_millis(ms), move || {
-            if let Some(b) = p.borrow().as_ref() {
-                let _ = b.ensure_resume_before_unpause();
+            let g = p.borrow();
+            let Some(b) = g.as_ref() else {
+                return;
+            };
+            // Later retries only run while a stashed seek is still pending; ms=0 may still warm-open from DB.
+            if ms > 0 && !b.resume_seek_pending() {
+                return;
+            }
+            let _ = b.ensure_resume_before_unpause();
+            if !b.resume_seek_pending() {
+                return;
             }
             transport_nudge_tick();
         });
