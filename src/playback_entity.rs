@@ -212,9 +212,11 @@ mod tests {
         let entity = db_path_for(&p1);
         let disc_key = std::fs::canonicalize(&base).unwrap_or(base.clone());
         assert!(crate::video_ext::paths_same_file(&entity, &disc_key));
+        let p1k = p1.to_string_lossy().into_owned();
         let p2k = p2.to_string_lossy().into_owned();
         let mut durs = HashMap::new();
         let mut tpos = HashMap::new();
+        durs.insert(p1k, 100.0);
         durs.insert(p2k.clone(), 100.0);
         tpos.insert(p2k, 50.0);
         let (resume, duration) = card_resume_duration(&p2, &durs, &tpos);

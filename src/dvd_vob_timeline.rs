@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Upper bound for one playable title `.vob` (part ≥ 1); rejects byte-bootstrap garbage.
-const MAX_VOB_DUR_SEC: f64 = 14_400.0;
+/// Upper bound for one playable title `.vob` (part ≥ 1); rejects garbage probe values.
+pub(crate) const MAX_VOB_DUR_SEC: f64 = 14_400.0;
 
 /// Sorted `.vob` paths for one DVD title (`VTS_XX_*`) and cumulative timing.
 pub struct DvdVobTimeline {
@@ -45,16 +45,12 @@ impl DvdVobTimeline {
             total_sec: 0.0,
         };
         tl.apply_map_chapter_durs(dur_by_path);
-        if let Some(entity_total) = tl.entity_total_for_split(&chapter, dur_by_path) {
-            tl.split_entity_total_by_bytes(entity_total);
-        }
-        if let Some(live) = live_path {
+        tl.fill_missing_durs_from_ffprobe();
+        let live_on_queue = live_path.filter(|p| tl.index_of(p).is_some());
+        if let Some(live) = live_on_queue {
             if live_local_dur > 0.0 {
                 tl.apply_live_chapter_dur(live, live_local_dur);
             }
-        }
-        if tl.durs.iter().any(|d| *d <= 0.0) {
-            tl.fill_missing_durs_from_bytes(live_path.unwrap_or(&chapter), live_local_dur);
         }
         tl.recompute_starts();
         (tl.total_sec > 0.0).then_some(tl)
@@ -71,46 +67,14 @@ impl DvdVobTimeline {
         self.recompute_starts();
     }
 
-    /// Fill unknown segment lengths from `.vob` sizes; requires mpv live time or another known segment.
-    pub fn fill_missing_durs_from_bytes(&mut self, anchor_vob: &Path, anchor_dur: f64) {
-        if self.vobs.len() <= 1 {
-            return;
-        }
-        let bytes: Vec<u64> = self
-            .vobs
-            .iter()
-            .map(|p| p.metadata().ok().map(|m| m.len()).unwrap_or(0))
-            .collect();
-        if bytes.iter().all(|&b| b == 0) {
-            return;
-        }
-        let scale = if anchor_dur > 0.0 {
-            self.index_of(anchor_vob)
-                .filter(|&i| bytes[i] > 0)
-                .map(|i| anchor_dur / bytes[i] as f64)
-        } else {
-            None
-        };
-        let byte_rate = scale.or_else(|| {
-            let mut sum_d = 0.0_f64;
-            let mut sum_b = 0_u64;
-            for (i, &d) in self.durs.iter().enumerate() {
-                if d > 0.0 && bytes[i] > 0 {
-                    sum_d += d;
-                    sum_b += bytes[i];
-                }
+    /// `ffprobe` any queued `.vob` still missing a segment length.
+    fn fill_missing_durs_from_ffprobe(&mut self) {
+        for (i, vob) in self.vobs.iter().enumerate() {
+            if self.durs[i] > 0.0 {
+                continue;
             }
-            (sum_b > 0 && sum_d > 0.0).then_some(sum_d / sum_b as f64)
-        });
-        let Some(rate) = byte_rate.filter(|r| r.is_finite() && *r > 0.0) else {
-            return;
-        };
-        for (i, b) in bytes.iter().enumerate() {
-            if self.durs[i] <= 0.0 {
-                let est = (*b as f64) * rate;
-                if plausible_vob_dur(est) {
-                    self.durs[i] = est;
-                }
+            if let Some(d) = crate::dvd_vob_ffprobe::probe_vob_duration(vob) {
+                self.durs[i] = d;
             }
         }
         self.recompute_starts();
@@ -231,8 +195,6 @@ impl DvdVobTimeline {
     }
 }
 
-include!("dvd_vob_timeline_entity_durs.rs");
-
 /// Cached DVD title timeline for the transport bar (rebuilt on `FileLoaded`, not every tick).
 pub struct DvdBarState {
     pub(super) tl: DvdVobTimeline,
@@ -244,10 +206,6 @@ include!("dvd_vob_chapter_marks.rs");
 include!("dvd_vob_bar.rs");
 include!("dvd_vob_timeline_transport.rs");
 include!("dvd_chapter_eof.rs");
-
-fn plausible_vob_dur(d: f64) -> bool {
-    d.is_finite() && d > 0.0 && d <= MAX_VOB_DUR_SEC
-}
 
 fn chapter_duration(
     path: &Path,

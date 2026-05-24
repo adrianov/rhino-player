@@ -80,7 +80,7 @@ mod tests {
     }
 
     #[test]
-    fn resume_maps_global_with_entity_total_only() {
+    fn resume_maps_global_with_per_vob_durations() {
         let base = std::env::temp_dir().join(format!("rhino-dvd-ent-res-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let vts = base.join("VIDEO_TS");
@@ -92,9 +92,11 @@ mod tests {
         }
         let p1 = vts.join("VTS_02_1.VOB");
         let p3 = vts.join("VTS_02_3.VOB");
-        let disc_key = std::fs::canonicalize(&base).unwrap_or(base.clone());
         let mut map = HashMap::new();
-        map.insert(disc_key.to_string_lossy().into_owned(), 1000.0);
+        map.insert(p1.to_string_lossy().into_owned(), 100.0);
+        map.insert(vts.join("VTS_02_2.VOB").to_string_lossy().into_owned(), 200.0);
+        map.insert(p3.to_string_lossy().into_owned(), 300.0);
+        map.insert(vts.join("VTS_02_4.VOB").to_string_lossy().into_owned(), 400.0);
         let still = crate::dvd_entity::still_target_from_global(&p1, 350.0, &map).expect("still");
         assert!(crate::video_ext::paths_same_file(&still.load, &p3));
         assert!((still.local_sec - 50.0).abs() < 1.0, "local={}", still.local_sec);
@@ -105,7 +107,7 @@ mod tests {
     }
 
     #[test]
-    fn fill_missing_keeps_known_chapter_lengths() {
+    fn map_durations_resolve_global() {
         let base = std::env::temp_dir().join(format!("rhino-dvd-fill-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let vts = base.join("VIDEO_TS");
@@ -125,13 +127,21 @@ mod tests {
             vts.join("VTS_02_2.VOB").to_string_lossy().into_owned(),
             500.0,
         );
-        let still = crate::dvd_entity::still_target_from_global(&p1, 1500.0, &map).expect("still");
+        map.insert(
+            vts.join("VTS_02_3.VOB").to_string_lossy().into_owned(),
+            400.0,
+        );
+        map.insert(
+            vts.join("VTS_02_4.VOB").to_string_lossy().into_owned(),
+            400.0,
+        );
+        let still = crate::dvd_entity::still_target_from_global(&p1, 1400.0, &map).expect("still");
         assert!(
             crate::video_ext::paths_same_file(&still.load, &p3),
             "expected vob3 got {}",
             still.load.display()
         );
-        assert!((still.local_sec - 400.0).abs() < 2.0, "local={}", still.local_sec);
+        assert!((still.local_sec - 300.0).abs() < 2.0, "local={}", still.local_sec);
         let _ = fs::remove_dir_all(&base);
     }
 
@@ -174,7 +184,8 @@ mod tests {
     }
 
     #[test]
-    fn byte_fill_without_anchor_does_not_inflate() {
+    fn no_guess_without_durs_or_ffprobe() {
+        crate::dvd_vob_ffprobe::clear_probe_cache();
         let base = std::env::temp_dir().join(format!("rhino-dvd-noanchor-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let vts = base.join("VIDEO_TS");
@@ -183,41 +194,44 @@ mod tests {
         fs::write(vts.join("VTS_02_2.VOB"), vec![0u8; 2000]).expect("write");
         let p1 = vts.join("VTS_02_1.VOB");
         let tl = DvdVobTimeline::from_title_vobs(&p1, &HashMap::new(), None, 0.0);
-        assert!(tl.is_none(), "must not guess ~9h from bytes without mpv anchor");
+        assert!(tl.is_none(), "invalid .vob bytes must not invent a timeline");
         let _ = fs::remove_dir_all(&base);
     }
 
+    /// Skips when the local sample rip is not mounted.
     #[test]
-    fn byte_fill_without_live_uses_known_segment() {
-        let base = std::env::temp_dir().join(format!("rhino-dvd-known-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
-        let vts = base.join("VIDEO_TS");
-        fs::create_dir_all(&vts).expect("mkdir");
-        fs::write(vts.join("VTS_02_1.VOB"), vec![0u8; 1000]).expect("write");
-        fs::write(vts.join("VTS_02_2.VOB"), vec![0u8; 2000]).expect("write");
-        let p1 = vts.join("VTS_02_1.VOB");
+    fn dvd5_ffprobe_fills_full_timeline() {
+        let vob = std::path::Path::new(
+            "/Volumes/SanDisk/Torrents/17_Mgnoveniy_vesni/17_Mgnoveniy_DVD5/VIDEO_TS/VTS_02_1.VOB",
+        );
+        if !vob.is_file() {
+            return;
+        }
+        let list = crate::dvd_entity::list_feature_vobs(vob);
+        assert_eq!(list.len(), 9, "DVD5 should queue VTS_02 and VTS_03 chapter files");
+        assert!(
+            list.iter()
+                .any(|p| p.file_name().and_then(|n| n.to_str()) == Some("VTS_03_1.VOB"))
+        );
+        crate::dvd_vob_ffprobe::clear_probe_cache();
+        let disc = crate::video_ext::dvd_disc_root(vob).expect("disc");
         let mut map = HashMap::new();
-        map.insert(p1.to_string_lossy().into_owned(), 100.0);
-        let tl = DvdVobTimeline::from_title_vobs(&p1, &map, None, 0.0).expect("tl");
-        assert!((tl.total_sec - 300.0).abs() < 1e-6);
-        let _ = fs::remove_dir_all(&base);
-    }
-
-    #[test]
-    fn multi_chapter_bootstraps_from_bytes_without_db_total() {
-        let base = std::env::temp_dir().join(format!("rhino-dvd-bytes-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
-        let vts = base.join("VIDEO_TS");
-        fs::create_dir_all(&vts).expect("mkdir");
-        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
-        fs::write(vts.join("VTS_02_1.VOB"), vec![0u8; 1000]).expect("write");
-        fs::write(vts.join("VTS_02_2.VOB"), vec![0u8; 2000]).expect("write");
-        let p1 = vts.join("VTS_02_1.VOB");
-        let tl = DvdVobTimeline::from_title_vobs(&p1, &std::collections::HashMap::new(), Some(&p1), 50.0)
-            .expect("tl");
-        assert!(tl.total_sec > 100.0);
-        assert_eq!(tl.vobs.len(), 2);
-        let _ = fs::remove_dir_all(&base);
+        map.insert(disc.to_string_lossy().into_owned(), 1131.1);
+        let tl = DvdVobTimeline::from_title_vobs(vob, &map, Some(vob), 1129.0).expect("tl");
+        assert!(
+            tl.total_sec > 5000.0,
+            "DVD5 bar should span all nine chapter files, got {:.1}s",
+            tl.total_sec
+        );
+        let vts03 = vob.with_file_name("VTS_03_1.VOB");
+        let (idx, _) = tl.resolve_global(tl.total_sec * 0.72);
+        let target = tl.path_at(idx).expect("path");
+        assert_eq!(
+            crate::dvd_entity::vob_title_id(target),
+            crate::dvd_entity::vob_title_id(&vts03),
+            "seek target should reach VTS_03, got {:?}",
+            target.file_name()
+        );
     }
 
     /// Skips when the local sample rip is not mounted.
