@@ -100,6 +100,27 @@
     }
 
     #[test]
+    fn local_sixty_hz_est_ignored_for_source_pick() {
+        assert!(source_fps_from_container_and_estimated(None, Some(60.0)).is_none());
+        let mut g = FpsPickGateState::default();
+        update_interleaved_cadence_gate(None, Some(60.0), &mut g);
+        assert!(!g.interleaved_smooth);
+    }
+
+    #[test]
+    fn local_cadence_jump_keeps_mvtools() {
+        let mut g = FpsPickGateState::default();
+        let film = 24000.0 / 1001.0;
+        let video = 30000.0 / 1001.0;
+        for _ in 0..CADENCE_STABLE_READS {
+            update_interleaved_cadence_gate(None, Some(film), &mut g);
+        }
+        assert!(!g.interleaved_smooth);
+        update_interleaved_cadence_gate(None, Some(video), &mut g);
+        assert!(!g.interleaved_smooth);
+    }
+
+    #[test]
     fn mpv_path_is_disc_helper() {
         assert!(mpv_path_is_disc("bd://foo"));
         assert!(mpv_path_is_disc("bluray://bar"));
