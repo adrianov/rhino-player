@@ -55,7 +55,7 @@ Feature: Seek bar thumbnail preview
 
 ## Notes
 - Settings: SQLite `seek_bar_preview` defaults to **on**; toggled from main menu Preferences (gio stateful action `seek-bar-preview`).
-- Hover time is computed as `(x / width) * duration` in widget coordinates.
+- Hover time is `(x / width) * bar_upper` capped by [seek_bar_label_time] (same duration margin as main seek on release).
 - Popover is non-modal and arrowless; `set_pointing_to` targets a small rect just above the pointer; the `GLArea` is realised before first show.
 - Thumbnail long edge clamps around 180–320 px; aspect follows current `dwidth`/`dheight`.
 - Debounce 120 ms; the debounce SourceId must be taken when the timeout runs to avoid a stale-id remove later.

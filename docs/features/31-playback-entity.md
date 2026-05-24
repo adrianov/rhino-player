@@ -73,8 +73,8 @@ Feature: Playback entity
 - Module: `src/playback_entity.rs` (`PlaybackEntity`, `PlaybackEntityKind::SingleFile` | `DvdTitle`).
 - DVD structure helpers remain in `src/dvd_entity.rs`; unified timeline in `src/dvd_vob_timeline.rs`.
 - Multi-part DVD entity key: disc root folder containing `VIDEO_TS/` (`dvd_entity::title_playback_entity`). Legacy first-chapter `.vob` SQLite keys are still read via `entity_db_lookup_keys` and purged on write.
-- All resume / duration writes: `playback_entity::persist_from_mpv` / `persist_playback` / `clear_entity_resume` (`playback_entity_persist.rs`); never per-chapter `.vob` rows after write.
+- All resume / duration writes: `playback_entity::persist_from_mpv` / `persist_playback` / `clear_entity_resume` (`playback_entity_persist.rs`); entity row only — `purge_chapter_media_rows` deletes legacy per-`.vob` rows.
 - `db::history_key`, `history::record`, `media_probe::record_playback_for_current`, and `MpvBundle::load_file_path` go through `playback_entity`.
-- Continue grid percent / resume: `playback_entity::card_resume_duration` reads only the **entity** SQLite row; legacy per-chapter `.vob` rows are migrated to whole-title seconds and purged.
-- Title-set **Sound** / **Subtitles** menus: `playback_entity_tracks.rs` (`title_set_streams`, `audio_menu_rows`, `sub_menu_rows`, slot → mpv id resolve); wired from `audio_tracks.rs` / `sub_tracks.rs`. Screenshot: [`docs/screenshots/02-dvd-title-tracks.webp`](../screenshots/02-dvd-title-tracks.webp).
+- Continue grid percent / resume: `playback_entity::card_resume_duration` reads only the **entity** SQLite row; legacy per-chapter `.vob` rows are migrated once then deleted.
+- Title-set **Sound** / **Subtitles** menus: `playback_entity_tracks.rs` (`title_set_streams`, `audio_menu_rows`, `sub_menu_rows`, slot → mpv id resolve); wired from `audio_tracks.rs` / `sub_tracks.rs`. Audio track choice persists on the entity key (`set_audio_aid`); subtitle menus use title-set IFO slots at runtime. Screenshot: [`docs/screenshots/02-dvd-title-tracks.webp`](../screenshots/02-dvd-title-tracks.webp).
 - Window / header title: `playback_entity_title.rs` (`window_title_for`); synced on `try_load` and on transport `FileLoaded` / `path` change.
