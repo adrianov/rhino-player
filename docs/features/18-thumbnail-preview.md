@@ -56,9 +56,10 @@ Feature: Seek bar thumbnail preview
 ## Notes
 - Settings: SQLite `seek_bar_preview` defaults to **on**; toggled from main menu Preferences (gio stateful action `seek-bar-preview`).
 - Hover time is `(x / width) * bar_upper` capped by [seek_bar_label_time] (same duration margin as main seek on release).
-- Popover is non-modal and arrowless; `set_pointing_to` targets a small rect just above the pointer; the `GLArea` is realised before first show.
+- Preview **`GtkFrame`** on **`outer_ovl`** above the bottom bar; positioned from seek-bar pointer x; the preview **`GLArea`** is realised before first show.
 - Thumbnail long edge clamps around 180–320 px; aspect follows current `dwidth`/`dheight`.
 - Debounce 120 ms; the debounce SourceId must be taken when the timeout runs to avoid a stale-id remove later.
 - The `Progress Bar Preview` row is the only preview-related preference; no separate preferences window.
 - Recent grid thumbnails use `vo=image` plus DB JPEG cache via `media_probe` / `jpeg_texture`; this feature does not feed the grid.
 - Load target: prefer main mpv `path` when it is a local stream file (e.g. Blu-ray `.m2ts` under `STREAM/`) or `bd://` / `bluray://`; else `shell_media_path` + `resolve_open_media_path`. Optical media uses `hwdec=auto` + `hr-seek=yes` on the preview player only; preview always `vf clr` before `loadfile` and `keep-open=always` so EOF does not unload. Hover/seek times use the minimum of seek-bar upper, main `duration`, and preview `duration`, capped ~1–4 s before the end. Debounced seeks use `absolute+exact` on optical / `absolute+keyframes` otherwise; a frame pump waits for `vo-configured` then renders (scrub reuses the same pump).
+- UI: preview is a **`GtkFrame`** overlay on **`outer_ovl`** (not **`GtkPopover`**) — no separate compositor surface. **macOS theater:** `seek_bar_preview/macos_compositing.rs` — widget-level opaque CSS (gray frame `#2d2d2d`, black preview **`GLArea`**), **`raise_overlay_child`**, **`on_overlay_surface_opened`** / **`on_menu_surface_closed`** on hide; see [`references-gtk4-macos-header-menus.md`](../references-gtk4-macos-header-menus.md) (**Theater overlay compositing**).

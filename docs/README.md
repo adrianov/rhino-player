@@ -56,7 +56,7 @@ Feature numbers **05**, **16**, and **19** are unused (withdrawn playlist / sess
 
 Some UX targets were attempted in code but did not validate in manual testing on the maintainer’s GNOME / Wayland setup. They are documented as **not achieved in the current Cursor / Composer 2 Fast pass** (revisit with a different model or deeper GTK review): one-click switch between header `MenuButton` popovers — see [17-window-behavior](features/17-window-behavior.md).
 
-**macOS hybrid UI:** simplified repaint paths deliberately avoid aggressive chrome redraws during resize/maximize churn (risk of AppKit ↔ GDK fullscreen/recursion trouble). Bottom toolbar occasionally shows **through** stale compositing until some other redraw clears it — **documented as an unresolved glitch** under `## Notes` in [17-window-behavior](features/17-window-behavior.md).
+**macOS hybrid UI:** simplified repaint paths deliberately avoid aggressive chrome redraws during resize/maximize churn (risk of AppKit ↔ GDK fullscreen/recursion trouble). **Theater overlay compositing** (header menus + seek preview in native fullscreen) is documented in [`references-gtk4-macos-header-menus.md`](references-gtk4-macos-header-menus.md). Bottom toolbar can still occasionally show through stale compositing after fit-on-open or VapourSynth attach — see `## Notes` in [17-window-behavior](features/17-window-behavior.md).
 
 ## Architecture and product context
 
@@ -66,5 +66,5 @@ Some UX targets were attempted in code but did not validate in manual testing on
 ## Technical references (upstream APIs)
 
 - [GTK4 / GDK4: toplevel size, `compute-size`, and aspect-related notes](references-gtk4-toplevel-aspect.md)
-- [GTK4 header menus on macOS (theater Overlay reparent; windowed Popover)](references-gtk4-macos-header-menus.md)
+- [GTK4 header menus on macOS (theater Overlay reparent; overlay compositing refresh)](references-gtk4-macos-header-menus.md)
 - [MVTools `Super` pyramid **`levels`**: smoothness vs cost](references-mvtools-super-levels.md)
