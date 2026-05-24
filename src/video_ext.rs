@@ -384,8 +384,12 @@ mod tests {
             dvd_first_playable_vob(&disc).as_deref(),
             Some(vts.join("VTS_02_1.VOB").as_path())
         );
-        let title_vobs =
-            crate::dvd_entity::list_title_vobs(&vts, &vts.join("VTS_02_1.VOB"));
+        let p21 = vts.join("VTS_02_1.VOB");
+        let title = crate::dvd_entity::vob_title_id(&p21);
+        let title_vobs: Vec<_> = crate::dvd_entity::list_feature_vobs(&p21)
+            .into_iter()
+            .filter(|p| crate::dvd_entity::vob_title_id(p) == title)
+            .collect();
         assert_eq!(title_vobs.len(), 2);
         assert_eq!(title_vobs[1], vts.join("VTS_02_2.VOB"));
         let ch2 = vts.join("VTS_01_2.VOB");

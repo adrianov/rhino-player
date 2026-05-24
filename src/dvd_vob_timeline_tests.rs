@@ -50,8 +50,13 @@ mod tests {
             list.iter()
                 .any(|p| p.file_name().and_then(|n| n.to_str()) == Some("VTS_03_1.VOB"))
         );
-        let one_set = crate::dvd_entity::list_title_vobs(&vts, &p21);
-        assert_eq!(one_set.len(), 2);
+        let title = crate::dvd_entity::vob_title_id(&p21);
+        assert_eq!(
+            list.iter()
+                .filter(|p| crate::dvd_entity::vob_title_id(p) == title)
+                .count(),
+            2
+        );
         let _ = fs::remove_dir_all(&base);
     }
 

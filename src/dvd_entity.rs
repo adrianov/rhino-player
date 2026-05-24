@@ -74,17 +74,6 @@ pub(crate) fn list_feature_vobs(current: &Path) -> Vec<PathBuf> {
     v
 }
 
-/// Chapter `.vob` files for one `VTS_XX` title set only (helpers/tests).
-pub(crate) fn list_title_vobs(_vts: &Path, current: &Path) -> Vec<PathBuf> {
-    let Some(title) = vob_title_id(current) else {
-        return Vec::new();
-    };
-    list_feature_vobs(current)
-        .into_iter()
-        .filter(|p| vob_title_id(p) == Some(title))
-        .collect()
-}
-
 /// First on-disk chapter `.vob` for a title set (`part` 1 if present).
 pub(crate) fn first_chapter_vob(vts: &Path, title_id: u32) -> Option<PathBuf> {
     let vts_dir = video_ts_for_vob(vts)?;
