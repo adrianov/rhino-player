@@ -1,6 +1,16 @@
-# Project-local Cargo aliases. See README “Code quality” and `.cursor/rules/complexity-and-module-design.mdc`.
+# Project-local Cargo config. See README “Developer Checks”.
 
 [alias]
-# Full crate Clippy run; respects clippy.toml and [lints] in Cargo.toml. Module length is policed
-# by `.cursor/rules/refactor-touched-longest.mdc` and `clippy::too_many_lines` (300-line soft target).
-qcheck = "run --quiet --bin qcheck --"
+# Clippy directly — avoids rebuilding the qcheck wrapper bin on every run.
+qcheck = "clippy --all-targets --all-features"
+
+# mold is Linux-only (brew/apt: `mold` + `clang`). Speeds dev/test/qcheck links a lot.
+[target.'cfg(target_os = "linux")']
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+# macOS: mold cannot link Mach-O binaries. Optional LLD after `brew install llvm`:
+# [target.aarch64-apple-darwin]
+# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm/bin/ld64.lld"]
+# [target.x86_64-apple-darwin]
+# rustflags = ["-C", "link-arg=-fuse-ld=/usr/local/opt/llvm/bin/ld64.lld"]

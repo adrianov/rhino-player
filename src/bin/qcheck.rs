@@ -1,7 +1,4 @@
-//! Cargo entry point for Rhino's full quality check.
-//!
-//! Runs Clippy on the whole crate. Module length is governed by
-//! `.cursor/rules/refactor-touched-longest.mdc` and `clippy::too_many_lines`.
+//! Legacy entry point — prefer `cargo qcheck` (Clippy alias in `.cargo/config.toml`).
 
 use std::process::{self, Command};
 

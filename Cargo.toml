@@ -92,3 +92,7 @@ too_many_lines = "deny"
 [profile.release]
 lto = true
 codegen-units = 1
+
+[profile.dev]
+# Faster incremental links on macOS (ignored on Linux).
+split-debuginfo = "unpacked"

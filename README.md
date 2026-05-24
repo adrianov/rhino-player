@@ -250,8 +250,10 @@ Before submitting changes, run:
 
 ```bash
 cargo test
-cargo qcheck   # cargo clippy --all-targets --all-features
+cargo qcheck   # clippy --all-targets --all-features (see .cargo/config.toml)
 ```
+
+**Faster builds:** Linux uses the [mold](https://github.com/rui314/mold) linker via `.cargo/config.toml` (`brew install mold` / `apt install mold clang`). mold is Linux-only; on macOS, dev builds use `split-debuginfo = "unpacked"` in `Cargo.toml`. Optional macOS linker: `brew install llvm` and uncomment the `ld64.lld` block in `.cargo/config.toml`.
 
 The project keeps detailed feature specs and implementation notes under [docs/](docs/). Start with [docs/README.md](docs/README.md).
 
