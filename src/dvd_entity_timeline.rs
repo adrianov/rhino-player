@@ -98,10 +98,11 @@ pub(crate) fn still_target_from_global(
 
 /// Map stored global resume to `(vob path, local offset)` for `loadfile`.
 pub(crate) fn resume_chapter_and_local(
-    chapter: &Path,
+    opened: &Path,
     global_sec: f64,
     dur_by_path: &HashMap<String, f64>,
 ) -> Option<(PathBuf, f64)> {
-    still_target_from_global(chapter, global_sec, dur_by_path)
+    let chapter = timeline_chapter_probe(opened)?;
+    still_target_from_global(&chapter, global_sec, dur_by_path)
         .map(|t| (t.load, t.local_sec))
 }

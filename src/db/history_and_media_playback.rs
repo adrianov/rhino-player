@@ -44,13 +44,17 @@ pub(crate) fn history_key(path: &Path) -> Option<String> {
         .or_else(|| key.to_str().map(str::to_string))
 }
 
-/// Remove `media` row for this exact path string (no DVD entity remap).
-pub fn delete_media_row_exact(path: &Path) {
-    let s = std::fs::canonicalize(path)
+/// SQLite `media.path` for one filesystem object — no playback-entity remap.
+pub(crate) fn media_path_key_exact(path: &Path) -> Option<String> {
+    std::fs::canonicalize(path)
         .ok()
         .and_then(|p| p.to_str().map(str::to_string))
-        .or_else(|| path.to_str().map(str::to_string));
-    let Some(s) = s else {
+        .or_else(|| path.to_str().map(str::to_owned))
+}
+
+/// Remove `media` row for this exact path string (no DVD entity remap).
+pub fn delete_media_row_exact(path: &Path) {
+    let Some(s) = media_path_key_exact(path) else {
         return;
     };
     let _ = with_conn(|c| {
@@ -121,20 +125,6 @@ pub fn set_duration(path: &Path, sec: f64) {
             "INSERT INTO media (path, duration_sec) VALUES (?1, ?2)
              ON CONFLICT(path) DO UPDATE SET duration_sec = excluded.duration_sec",
             params![&s, sec],
-        )?;
-        Ok(())
-    });
-}
-
-/// Clear per-chapter resume while keeping a measured chapter length for the unified DVD bar.
-pub fn clear_chapter_resume_row(path: &Path) {
-    let Some(s) = history_key(path) else {
-        return;
-    };
-    let _ = with_conn(|c| {
-        c.execute(
-            "UPDATE media SET time_pos_sec = NULL WHERE path = ?1",
-            params![&s],
         )?;
         Ok(())
     });

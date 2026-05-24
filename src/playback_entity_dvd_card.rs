@@ -119,6 +119,7 @@ fn normalize_dvd_entity_row(
     duration: f64,
     durs: &HashMap<String, f64>,
 ) -> (f64, f64) {
+    let duration = duration.max(resume);
     let chapter = dvd_timeline_probe(ent, probe);
     let live = chapter_live_dur(&chapter, durs);
     let Some(tl) = crate::dvd_entity::build_title_timeline(&chapter, durs, live) else {

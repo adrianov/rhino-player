@@ -32,10 +32,8 @@ impl DvdVobTimeline {
         live_path: Option<&Path>,
         live_local_dur: f64,
     ) -> Option<Self> {
-        if !crate::video_ext::is_dvd_vob_path(current) {
-            return None;
-        }
-        let vobs = crate::dvd_entity::list_title_vobs(current.parent()?, current);
+        let chapter = crate::dvd_entity::timeline_chapter_probe(current)?;
+        let vobs = crate::dvd_entity::list_feature_vobs(&chapter);
         let n = vobs.len();
         if n == 0 {
             return None;
@@ -47,13 +45,16 @@ impl DvdVobTimeline {
             total_sec: 0.0,
         };
         tl.apply_map_chapter_durs(dur_by_path);
+        if let Some(entity_total) = tl.entity_total_for_split(&chapter, dur_by_path) {
+            tl.split_entity_total_by_bytes(entity_total);
+        }
         if let Some(live) = live_path {
             if live_local_dur > 0.0 {
                 tl.apply_live_chapter_dur(live, live_local_dur);
             }
         }
         if tl.durs.iter().any(|d| *d <= 0.0) {
-            tl.fill_missing_durs_from_bytes(live_path.unwrap_or(current), live_local_dur);
+            tl.fill_missing_durs_from_bytes(live_path.unwrap_or(&chapter), live_local_dur);
         }
         tl.recompute_starts();
         (tl.total_sec > 0.0).then_some(tl)
@@ -229,6 +230,8 @@ impl DvdVobTimeline {
         self.recompute_starts();
     }
 }
+
+include!("dvd_vob_timeline_entity_durs.rs");
 
 /// Cached DVD title timeline for the transport bar (rebuilt on `FileLoaded`, not every tick).
 pub struct DvdBarState {

@@ -38,7 +38,8 @@ fn preview_plan_from_bar(
     let g = global_t.clamp(0.0, total);
     let (idx, local) = bar.resolve_global(g);
     let load = bar.path_at(idx)?.to_path_buf();
-    let mut chapter_dur = bar.chapter_dur_at(idx);
+    let map = crate::db::load_duration_map();
+    let mut chapter_dur = preview_chapter_dur(bar, g, idx, local, load.as_path(), &map);
     let mut local = local;
     if let Some(open) = open_dvd_chapter_path(mpv, shell) {
         if crate::video_ext::paths_same_file(&load, &open) {
@@ -72,17 +73,19 @@ fn preview_plan_fallback(
         .unwrap_or(0.0);
     let (idx, local) = tl.resolve_global(global_t);
     let load = tl.path_at(idx)?.to_path_buf();
-    let chapter_dur = chapter_duration(
+    let map = crate::db::load_duration_map();
+    let seg_dur = chapter_duration(
         load.as_path(),
-        &crate::db::load_duration_map(),
+        &map,
         Some(&path),
         local_dur,
     )
     .max(tl.chapter_dur_at(idx));
+    let chapter_dur = seg_dur.max(0.0);
     Some(PreviewPlan {
         load,
         local,
-        chapter_dur: chapter_dur.max(0.0),
+        chapter_dur,
     })
 }
 

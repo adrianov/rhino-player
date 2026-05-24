@@ -37,20 +37,33 @@ pub(crate) fn video_ts_for_vob(current: &Path) -> Option<PathBuf> {
     parent.is_dir().then(|| parent.to_path_buf())
 }
 
-/// Chapter `.vob` files for the same DVD title as `current` (not the whole `VIDEO_TS/` tree).
-pub(crate) fn list_title_vobs(vts: &Path, current: &Path) -> Vec<PathBuf> {
-    let Some(title) = vob_title_id(current) else {
+/// All feature chapter `.vob` files on the disc (`VTS_02_1` … `VTS_03_N`, …). Skips menu
+/// `VTS_01_*` when any `VTS_02+` set exists (same rule as main-title pick).
+pub(crate) fn list_feature_vobs(current: &Path) -> Vec<PathBuf> {
+    let Some(parent) = current.parent() else {
         return Vec::new();
     };
-    let vts = video_ts_for_vob(current).unwrap_or_else(|| vts.to_path_buf());
+    let vts = video_ts_for_vob(current).unwrap_or_else(|| parent.to_path_buf());
     let Ok(read) = std::fs::read_dir(&vts) else {
         return Vec::new();
     };
-    let mut v: Vec<PathBuf> = read
+    let playable: Vec<PathBuf> = read
         .flatten()
         .map(|e| e.path())
         .filter(|p| is_playable_chapter_vob(p))
-        .filter(|p| vob_title_id(p) == Some(title))
+        .collect();
+    let skip_menu = playable
+        .iter()
+        .filter_map(|p| vob_title_id(p))
+        .any(|t| t >= 2);
+    let mut v: Vec<PathBuf> = playable
+        .into_iter()
+        .filter(|p| {
+            let Some(tid) = vob_title_id(p) else {
+                return false;
+            };
+            !skip_menu || tid >= 2
+        })
         .collect();
     v.sort_by(|a, b| {
         lexical_sort::natural_lexical_cmp(
@@ -59,6 +72,17 @@ pub(crate) fn list_title_vobs(vts: &Path, current: &Path) -> Vec<PathBuf> {
         )
     });
     v
+}
+
+/// Chapter `.vob` files for one `VTS_XX` title set only (helpers/tests).
+pub(crate) fn list_title_vobs(_vts: &Path, current: &Path) -> Vec<PathBuf> {
+    let Some(title) = vob_title_id(current) else {
+        return Vec::new();
+    };
+    list_feature_vobs(current)
+        .into_iter()
+        .filter(|p| vob_title_id(p) == Some(title))
+        .collect()
 }
 
 /// First on-disk chapter `.vob` for a title set (`part` 1 if present).
@@ -87,9 +111,17 @@ pub(crate) fn title_chapter_paths(path: &Path) -> Option<Vec<PathBuf>> {
     if !crate::video_ext::is_dvd_vob_path(path) {
         return None;
     }
-    let vts = path.parent()?;
-    let vobs = list_title_vobs(vts, path);
+    let vobs = list_feature_vobs(path);
     (!vobs.is_empty()).then_some(vobs)
+}
+
+/// First chapter `.vob` used to build a title timeline from a disc folder or chapter path.
+pub(crate) fn timeline_chapter_probe(path: &Path) -> Option<PathBuf> {
+    if crate::video_ext::is_dvd_vob_path(path) {
+        return Some(path.to_path_buf());
+    }
+    let disc = crate::video_ext::dvd_disc_root(path)?;
+    crate::video_ext::dvd_main_chapter_vob(&disc)
 }
 
 /// Disc root containing `VIDEO_TS/` (SQLite / history key) and chapter list for one title.
@@ -115,7 +147,7 @@ pub(crate) fn title_entity_path(path: &Path) -> Option<PathBuf> {
         .and_then(|p| std::fs::canonicalize(&p).ok().or(Some(p)))
 }
 
-/// Drop per-chapter `media` rows after consolidating onto the title entity.
+/// Drop legacy per-chapter `.vob` `media` rows after consolidating onto the title entity.
 pub(crate) fn purge_chapter_media_rows(entity: &Path) {
     let Some((disc_key, chapters)) = title_playback_entity(entity).or_else(|| {
         let chapters = title_chapter_paths(entity)?;
@@ -123,16 +155,13 @@ pub(crate) fn purge_chapter_media_rows(entity: &Path) {
     }) else {
         return;
     };
-    let entity_s = crate::db::history_key(&disc_key);
     for ch in &chapters {
         if crate::video_ext::paths_same_file(ch, &disc_key) {
             continue;
         }
-        crate::db::clear_chapter_resume_row(ch);
+        crate::db::delete_media_row_exact(ch);
         if let Ok(c) = std::fs::canonicalize(ch) {
-            if entity_s.as_deref() != c.to_str() {
-                crate::db::clear_chapter_resume_row(&c);
-            }
+            crate::db::delete_media_row_exact(&c);
         }
     }
     if let Some(vob) = crate::video_ext::dvd_first_playable_vob(&disc_key) {
@@ -224,6 +253,23 @@ mod tests {
         let still = still_target_from_global(&p1, 350.0, &durs).expect("still");
         assert!(crate::video_ext::paths_same_file(&still.load, &p3));
         assert!((still.local_sec - 50.0).abs() < 1e-6, "local={}", still.local_sec);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn purge_targets_chapter_vob_rows_not_entity() {
+        let base = std::env::temp_dir().join(format!("rhino-dvd-purge-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let vts = base.join("VIDEO_TS");
+        fs::create_dir_all(&vts).expect("mkdir");
+        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
+        fs::write(vts.join("VTS_02_1.VOB"), b"v").expect("write");
+        fs::write(vts.join("VTS_02_2.VOB"), b"v").expect("write");
+        let p1 = vts.join("VTS_02_1.VOB");
+        let entity = crate::playback_entity::db_path_for(&p1);
+        let exact = crate::db::media_path_key_exact(&p1).expect("exact");
+        let entity_k = crate::db::history_key(&entity).expect("entity");
+        assert_ne!(exact, entity_k);
         let _ = fs::remove_dir_all(&base);
     }
 

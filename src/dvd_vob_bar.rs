@@ -13,7 +13,7 @@ impl DvdBarState {
         map: &std::collections::HashMap<String, f64>,
     ) -> Option<Self> {
         let tl = crate::dvd_entity::build_title_timeline(chapter, map, live_dur)?;
-        let chapter_labels = chapter_labels_from_ifo(chapter, tl.total_sec);
+        let chapter_labels = chapter_labels_for_timeline(&tl);
         Some(Self { tl, chapter_labels })
     }
 
@@ -101,15 +101,6 @@ fn merge_prior_durs(map: &mut std::collections::HashMap<String, f64>, prior: &Dv
         map.entry(vob.to_string_lossy().into_owned()).or_insert(d);
         if let Ok(c) = std::fs::canonicalize(vob) {
             map.entry(c.to_string_lossy().into_owned()).or_insert(d);
-        }
-    }
-}
-
-fn persist_vob_durs(bar: &DvdBarState) {
-    for (i, vob) in bar.tl.vobs.iter().enumerate() {
-        let d = bar.tl.chapter_dur_at(i);
-        if d.is_finite() && d > 0.0 && d <= MAX_VOB_DUR_SEC {
-            crate::db::set_duration(vob, d);
         }
     }
 }
@@ -252,11 +243,7 @@ pub fn refresh_dvd_bar(
             }
         }
     }
-    if live > 0.0 && crate::video_ext::is_dvd_vob_path(&chapter) {
-        crate::db::set_duration(&chapter, live);
-    }
     if let Some(ref b) = bar {
-        persist_vob_durs(b);
         crate::dvd_vob_log::dvd_seek_log(format!(
             "refresh_dvd_bar: total={:.1}s vobs={} on_disk={on_disk_n} file={}",
             b.total_sec(),

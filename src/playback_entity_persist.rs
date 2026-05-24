@@ -28,13 +28,6 @@ pub fn persist_playback(
         return;
     }
     crate::db::set_playback(&ent.db_path(), total, global);
-    if ent.has_unified_timeline()
-        && local_dur.is_finite()
-        && local_dur > 0.0
-        && crate::video_ext::is_dvd_vob_path(playing)
-    {
-        crate::db::set_duration(playing, local_dur);
-    }
 }
 
 /// Snapshot mpv transport into the entity row (unified timeline for multi-part DVDs).
