@@ -57,6 +57,7 @@ pub fn init() {
         return;
     }
     migrate_media_decode_columns(&conn);
+    migrate_media_source_fps_column(&conn);
     migrate_media_thumb_load_path(&conn);
     migrate_media_sub_track_columns(&conn);
     migrate_media_audio_ifo_slot(&conn);
@@ -83,6 +84,13 @@ fn migrate_media_decode_columns(conn: &Connection) {
     );
     let _ = conn.execute(
         "ALTER TABLE media ADD COLUMN smooth_me_budget_updated_at INTEGER",
+        rusqlite::params![],
+    );
+}
+
+fn migrate_media_source_fps_column(conn: &Connection) {
+    let _ = conn.execute(
+        "ALTER TABLE media ADD COLUMN source_fps_hz REAL",
         rusqlite::params![],
     );
 }
