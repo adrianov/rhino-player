@@ -83,9 +83,13 @@ pub(super) fn enable_target_tree(w: &gtk::Widget) {
     }
 }
 
+pub(crate) fn raise_overlay_top(shell: &gtk::Overlay, w: &impl IsA<gtk::Widget>) {
+    w.unparent();
+    shell.add_overlay(w);
+}
+
 pub(super) fn raise_panel_top(shell: &gtk::Overlay, panel: &gtk::Frame) {
-    panel.unparent();
-    shell.add_overlay(panel);
+    raise_overlay_top(shell, panel);
 }
 
 pub(super) fn show_panel(panel: &gtk::Frame, shell: &gtk::Overlay) {

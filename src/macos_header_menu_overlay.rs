@@ -74,6 +74,10 @@ pub fn register_overlay(ov: Rc<HeaderMenuOverlay>) {
     OVERLAY.with(|s| *s.borrow_mut() = Some(ov));
 }
 
+pub fn raise_overlay_child(shell: &gtk::Overlay, w: &impl IsA<gtk::Widget>) {
+    raise_overlay_top(shell, w);
+}
+
 pub fn overlay_visible() -> bool {
     OVERLAY.with(|s| {
         s.borrow()
@@ -251,6 +255,8 @@ impl HeaderMenuOverlay {
         self.open.set(Some(idx));
         set_btn_open(&entry.btn, true);
         show_panel(&self.panel, &self.shell);
+        self.panel.queue_allocate();
+        crate::macos_header_menu::on_overlay_surface_opened();
     }
 
     fn close_siblings(&self, keep: usize) {
@@ -265,20 +271,6 @@ impl HeaderMenuOverlay {
             self.hide_panel();
         }
     }
-}
-
-fn find_list_box(w: &gtk::Widget) -> Option<gtk::ListBox> {
-    if let Ok(list) = w.clone().downcast::<gtk::ListBox>() {
-        return Some(list);
-    }
-    let mut child = w.first_child();
-    while let Some(c) = child {
-        if let Some(list) = find_list_box(&c) {
-            return Some(list);
-        }
-        child = c.next_sibling();
-    }
-    None
 }
 
 pub fn overlay_contains(widget: &gtk::Widget) -> bool {

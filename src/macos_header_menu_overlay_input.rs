@@ -51,3 +51,17 @@ fn wire_btn_press(ov: Rc<HeaderMenuOverlay>, idx: usize, entry: &MenuEntry) {
     });
     btn.add_controller(g);
 }
+
+pub(super) fn find_list_box(w: &gtk::Widget) -> Option<gtk::ListBox> {
+    if let Ok(list) = w.clone().downcast::<gtk::ListBox>() {
+        return Some(list);
+    }
+    let mut child = w.first_child();
+    while let Some(c) = child {
+        if let Some(list) = find_list_box(&c) {
+            return Some(list);
+        }
+        child = c.next_sibling();
+    }
+    None
+}

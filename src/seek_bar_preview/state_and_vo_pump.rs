@@ -32,6 +32,7 @@ pub struct SeekPreviewState {
 
 impl SeekPreviewState {
     pub(crate) fn show_at(&self, x: f64) {
+        let was_visible = self.container.is_visible();
         // frame: padding 3px + border 1px per side = 8px over gl width; use allocated width when ready.
         let preview_w = self.container.width().max(self.gl.width_request() + 8).max(1) as f64;
         let ovl_w = self.ovl.width().max(1) as f64;
@@ -47,10 +48,19 @@ impl SeekPreviewState {
         self.container.set_margin_bottom(margin_bottom);
         self.container.set_can_target(false);
         self.container.set_visible(true);
+        #[cfg(target_os = "macos")]
+        if !was_visible {
+            macos_compositing::on_open(self);
+        }
     }
 
     pub(crate) fn hide(&self) {
+        let was_visible = self.container.is_visible();
         self.container.set_visible(false);
+        #[cfg(target_os = "macos")]
+        if was_visible {
+            macos_compositing::on_close();
+        }
     }
 }
 
@@ -130,4 +140,9 @@ pub(crate) fn start_preview_frame_pump(
         glib::ControlFlow::Break
     });
     *pump.borrow_mut() = Some(id);
+}
+
+#[cfg(target_os = "macos")]
+mod macos_compositing {
+    include!("macos_compositing.rs");
 }

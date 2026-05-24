@@ -60,6 +60,21 @@ fn disarm_compositing_hold() {
     COMPOSITING_ARMED.set(false);
 }
 
+pub fn arm_shell_compositing_hold() {
+    arm_compositing_hold();
+}
+
+/// Fullscreen overlay opened (header menu or seek preview): queue shell repaint, then full refresh
+/// after the compositing arm window (avoids stale gdk-macos header tiles on the video layer).
+pub fn on_overlay_surface_opened() {
+    arm_shell_compositing_hold();
+    crate::app::refresh_registered_shell_compositing();
+    let _ = glib::timeout_add_local_once(
+        std::time::Duration::from_millis(u64::from(MENU_HOLD_MS) + 32),
+        crate::app::refresh_registered_shell_compositing,
+    );
+}
+
 pub fn on_header_menu_press(_btn: &gtk::MenuButton) {
     pause_dismiss();
     arm_compositing_hold();
