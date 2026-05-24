@@ -142,6 +142,11 @@ mod title {
 }
 pub use title::window_title_for;
 
+mod transport {
+    include!("playback_entity_transport.rs");
+}
+pub use transport::{transport_chapter_path, unified_timeline_chapter};
+
 #[cfg(test)]
 mod tests {
     use super::*;
