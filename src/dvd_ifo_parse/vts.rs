@@ -2,27 +2,29 @@ use std::path::Path;
 
 use super::buf::IfoBuf;
 use super::pgc::{
-    accumulate_vob_secs, fill_ptt_marks, parse_pgcit, pgc_has_vob, title_pgc_cells, Pgcit,
+    fill_ptt_marks, parse_pgcit, pgc_has_vob, title_pgc_cells, title_playback_sec, Pgcit,
 };
 use super::{BLOCK, VTS_PGCIT_OFF, VTS_PTT_OFF};
 
-/// Per-VOB seconds and optional PTT chapter marks (global title time).
-pub struct IfoTimeline {
-    pub vob_secs: Vec<(u32, f64)>,
-    pub ptt_marks: Vec<f64>,
+/// PTT chapter boundaries from `VTS_xx_0.IFO` (IFO clock seconds; display only).
+pub struct IfoChapterMarks {
+    /// Start time of each chapter after the first, in IFO playback time.
+    pub mark_secs: Vec<f64>,
+    /// Whole-title length in the same IFO clock (for scaling marks onto the VOB timeline).
+    pub title_sec: f64,
 }
 
-/// Parse IFO for the title set of `chapter_vob` (e.g. `VTS_02_1.VOB`).
-pub fn timeline_from_vob(chapter_vob: &Path) -> Option<IfoTimeline> {
+/// Read PTT chapter marks for the title set of `chapter_vob` (e.g. `VTS_02_1.VOB`).
+pub fn chapter_marks_from_vob(chapter_vob: &Path) -> Option<IfoChapterMarks> {
     let disc = crate::video_ext::dvd_disc_root(chapter_vob)?;
     let vts_dir = crate::video_ext::dvd_video_ts_dir(&disc)?;
     let vts_id = super::vts_id_from_path(chapter_vob)?;
     let hint = crate::dvd_entity::vob_part_id(chapter_vob).unwrap_or(1);
     let ifo = vts_dir.join(format!("VTS_{vts_id:02}_0.IFO"));
-    timeline_from_vts_ifo(&ifo, hint)
+    chapter_marks_from_vts_ifo(&ifo, hint)
 }
 
-fn timeline_from_vts_ifo(ifo_path: &Path, hint_vob_id: u32) -> Option<IfoTimeline> {
+fn chapter_marks_from_vts_ifo(ifo_path: &Path, hint_vob_id: u32) -> Option<IfoChapterMarks> {
     let buf = IfoBuf::load(ifo_path)?;
     let ptt_sec = buf.be32(VTS_PTT_OFF) as usize;
     let pgcit_sec = buf.be32(VTS_PGCIT_OFF) as usize;
@@ -35,22 +37,15 @@ fn timeline_from_vts_ifo(ifo_path: &Path, hint_vob_id: u32) -> Option<IfoTimelin
     let title = ptt.titles.get(vts_ttn - 1)?;
     let (pgcn, pgn) = title.ptt.first().copied()?;
     let (pgc, pgc_id, start_cell, end_cell) = title_pgc_cells(&pgcit, pgcn, pgn)?;
-    let mut out_vobs = Vec::new();
-    let mut out_secs = Vec::new();
-    accumulate_vob_secs(pgc, start_cell, end_cell, &mut out_vobs, &mut out_secs);
-    let mut marks = Vec::new();
-    fill_ptt_marks(&title.ptt, pgc, pgc_id, start_cell, end_cell, &mut marks);
-    if out_vobs.is_empty() {
+    let title_sec = title_playback_sec(pgc, start_cell, end_cell);
+    if !(title_sec.is_finite() && title_sec > 0.0) {
         return None;
     }
-    let vob_secs: Vec<(u32, f64)> = out_vobs
-        .into_iter()
-        .zip(out_secs)
-        .filter(|(_, s)| s.is_finite() && *s > 0.0)
-        .collect();
-    (!vob_secs.is_empty()).then_some(IfoTimeline {
-        vob_secs,
-        ptt_marks: marks,
+    let mut mark_secs = Vec::new();
+    fill_ptt_marks(&title.ptt, pgc, pgc_id, start_cell, end_cell, &mut mark_secs);
+    Some(IfoChapterMarks {
+        mark_secs,
+        title_sec,
     })
 }
 

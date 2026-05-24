@@ -15,12 +15,12 @@ pub use streams::{
     DvdIfoStreams, MpvTrackMeta,
 };
 pub use sub_mpv_id::{mpv_sub_id_for_ifo_slot, MpvSubTrackMeta};
+pub use vts::{chapter_marks_from_vob, IfoChapterMarks};
 
 /// Title-set audio/sub lists from any chapter VOB path (reads `VTS_xx_0.IFO`).
 pub fn ifo_streams_for_vob(vob: &Path) -> Option<DvdIfoStreams> {
     streams_from_vob(vob)
 }
-pub use vts::timeline_from_vob;
 
 pub(super) const BLOCK: usize = 2048;
 const TT_SRPT_OFF: usize = 196;
@@ -29,9 +29,9 @@ pub(super) const VTS_PGCIT_OFF: usize = 204;
 pub(super) const PGC_SIZE: usize = 236;
 pub(super) const CELL_PB_SIZE: usize = 24;
 pub(super) const CELL_POS_SIZE: usize = 4;
-const TITLE_INFO_SIZE: usize = 12;
-pub(super) const MAX_VOBS: usize = 32;
 pub(super) const MAX_MARKS: usize = 99;
+
+const TITLE_INFO_SIZE: usize = 12;
 
 use buf::IfoBuf;
 

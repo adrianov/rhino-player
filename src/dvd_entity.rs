@@ -82,15 +82,6 @@ pub(crate) fn first_chapter_vob(vts: &Path, title_id: u32) -> Option<PathBuf> {
     v.into_iter().next()
 }
 
-/// Chapter path for `title` / `part` when the file exists under `vts`.
-pub(crate) fn chapter_vob_if_exists(vts: &Path, title: u32, part: u32) -> Option<PathBuf> {
-    let probe = vts.join(format!("VTS_{title:02}_1.VOB"));
-    let vts = video_ts_for_vob(&probe)?;
-    list_title_vobs(&vts, &probe)
-        .into_iter()
-        .find(|p| vob_part_id(p) == Some(part))
-}
-
 /// All chapter paths for the same title as `path`.
 pub(crate) fn title_chapter_paths(path: &Path) -> Option<Vec<PathBuf>> {
     if !crate::video_ext::is_dvd_vob_path(path) {
@@ -137,10 +128,10 @@ pub(crate) fn purge_chapter_media_rows(entity: &Path) {
         if crate::video_ext::paths_same_file(ch, &disc_key) {
             continue;
         }
-        crate::db::delete_media_row_exact(ch);
+        crate::db::clear_chapter_resume_row(ch);
         if let Ok(c) = std::fs::canonicalize(ch) {
             if entity_s.as_deref() != c.to_str() {
-                crate::db::delete_media_row_exact(&c);
+                crate::db::clear_chapter_resume_row(&c);
             }
         }
     }
@@ -185,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn resume_maps_past_first_vob_with_entity_total_only() {
+    fn resume_maps_past_first_vob_with_per_file_durs() {
         let base = std::env::temp_dir().join(format!("rhino-dvd-res-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let vts = base.join("VIDEO_TS");
@@ -197,18 +188,21 @@ mod tests {
         }
         let p1 = vts.join("VTS_02_1.VOB");
         let p3 = vts.join("VTS_02_3.VOB");
-        let entity = crate::playback_entity::db_path_for(&p1);
         let mut durs = HashMap::new();
-        durs.insert(entity.to_string_lossy().into_owned(), 400.0);
         durs.insert(p1.to_string_lossy().into_owned(), 100.0);
-        let (load, local) = resume_chapter_and_local(&p1, 250.0, &durs).expect("target");
+        durs.insert(
+            vts.join("VTS_02_2.VOB").to_string_lossy().into_owned(),
+            200.0,
+        );
+        durs.insert(p3.to_string_lossy().into_owned(), 300.0);
+        let (load, local) = resume_chapter_and_local(&p1, 350.0, &durs).expect("target");
         assert!(crate::video_ext::paths_same_file(&load, &p3));
-        assert!((local - 83.0).abs() < 5.0, "local={local}");
+        assert!((local - 50.0).abs() < 1e-6, "local={local}");
         let _ = fs::remove_dir_all(&base);
     }
 
     #[test]
-    fn still_target_past_first_vob_when_entity_duration_stale() {
+    fn still_target_past_first_vob_with_per_file_durs() {
         let base = std::env::temp_dir().join(format!("rhino-dvd-stale-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let vts = base.join("VIDEO_TS");
@@ -220,13 +214,16 @@ mod tests {
         }
         let p1 = vts.join("VTS_02_1.VOB");
         let p3 = vts.join("VTS_02_3.VOB");
-        let entity = crate::playback_entity::db_path_for(&p1);
         let mut durs = HashMap::new();
-        durs.insert(entity.to_string_lossy().into_owned(), 400.0);
         durs.insert(p1.to_string_lossy().into_owned(), 100.0);
-        let still = still_target_from_global(&p1, 250.0, &durs).expect("still");
+        durs.insert(
+            vts.join("VTS_02_2.VOB").to_string_lossy().into_owned(),
+            200.0,
+        );
+        durs.insert(p3.to_string_lossy().into_owned(), 300.0);
+        let still = still_target_from_global(&p1, 350.0, &durs).expect("still");
         assert!(crate::video_ext::paths_same_file(&still.load, &p3));
-        assert!((still.local_sec - 83.0).abs() < 5.0, "local={}", still.local_sec);
+        assert!((still.local_sec - 50.0).abs() < 1e-6, "local={}", still.local_sec);
         let _ = fs::remove_dir_all(&base);
     }
 

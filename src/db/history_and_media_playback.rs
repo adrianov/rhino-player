@@ -124,7 +124,20 @@ pub fn set_duration(path: &Path, sec: f64) {
         )?;
         Ok(())
     });
-    crate::playback_entity::purge_extra_db_rows(path);
+}
+
+/// Clear per-chapter resume while keeping a measured chapter length for the unified DVD bar.
+pub fn clear_chapter_resume_row(path: &Path) {
+    let Some(s) = history_key(path) else {
+        return;
+    };
+    let _ = with_conn(|c| {
+        c.execute(
+            "UPDATE media SET time_pos_sec = NULL WHERE path = ?1",
+            params![&s],
+        )?;
+        Ok(())
+    });
 }
 
 /// Resume position (seconds) for one file. Used by `loadfile` to pass `start=<sec>`.

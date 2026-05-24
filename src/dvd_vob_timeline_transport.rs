@@ -8,17 +8,7 @@ fn open_timeline(mpv: &libmpv2::Mpv, shell: Option<&Path>) -> Option<(PathBuf, D
         .filter(|d| d.is_finite() && *d > 0.0)
         .unwrap_or(0.0);
     let map = crate::db::load_duration_map();
-    let mut tl = DvdVobTimeline::from_chapter_ifo(&path)
-        .or_else(|| DvdVobTimeline::from_chapter_db_only(&path, &map))?;
-    if let Some(on_disk) = crate::dvd_entity::title_chapter_paths(&path) {
-        tl.expand_on_disk_chapters(&on_disk);
-    }
-    if live_dur > 0.0 {
-        tl.apply_live_chapter_dur(&path, live_dur);
-    }
-    if tl.total_sec <= 0.0 {
-        return None;
-    }
+    let tl = crate::dvd_entity::build_title_timeline(&path, &map, live_dur)?;
     Some((path, tl))
 }
 
@@ -191,14 +181,7 @@ fn seek_plan_fallback(mpv: &libmpv2::Mpv, shell: Option<&std::path::Path>, globa
         .filter(|d| d.is_finite() && *d > 0.0)
         .unwrap_or(0.0);
     let map = crate::db::load_duration_map();
-    let mut tl = DvdVobTimeline::from_chapter_ifo(&path)
-        .or_else(|| DvdVobTimeline::from_chapter_db_only(&path, &map))?;
-    if local_dur > 0.0 {
-        tl.grow_chapter_dur(&path, local_dur);
-    }
-    if tl.total_sec <= 0.0 {
-        return None;
-    }
+    let tl = crate::dvd_entity::build_title_timeline(&path, &map, local_dur)?;
     let g_target = global_sec.clamp(0.0, tl.total_sec);
     let (idx, local) = tl.resolve_global(g_target);
     let target = tl.path_at(idx)?.to_path_buf();
@@ -224,6 +207,13 @@ fn seek_global_borrowed(
             drain_transport: false,
         };
     };
+    if b.chapter_cross_load_busy() {
+        b.apply_pending_resume();
+        if b.chapter_cross_load_busy() {
+            crate::dvd_vob_log::dvd_seek_log("seek_global: abort stale chapter scrub");
+            b.abort_chapter_load(false);
+        }
+    }
     let shell = b.me_budget_shell_path.borrow().clone();
     let Some(path) = open_dvd_chapter_path(&b.mpv, shell.as_deref()) else {
         crate::dvd_vob_log::dvd_seek_log("seek_global: not a DVD chapter path");
@@ -274,8 +264,6 @@ fn seek_global_borrowed(
                 drain_transport: false,
             };
         }
-        // Drain on the next main-loop turn so `FileLoaded` is for the new chapter, not the
-        // outgoing one (sync drain was applying / clearing pending_resume too early).
         crate::app::transport_drain_after_loadfile_idle();
         return SeekGlobalOutcome {
             handled: true,
@@ -291,4 +279,3 @@ fn seek_global_borrowed(
         drain_transport: false,
     }
 }
-

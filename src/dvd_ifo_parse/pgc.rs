@@ -1,6 +1,6 @@
 use super::buf::IfoBuf;
 use super::time::dvdtime_to_sec;
-use super::{CELL_PB_SIZE, CELL_POS_SIZE, MAX_MARKS, MAX_VOBS, PGC_SIZE};
+use super::{CELL_PB_SIZE, CELL_POS_SIZE, MAX_MARKS, PGC_SIZE};
 
 pub(super) struct Pgc {
     pub(super) nr_cells: u8,
@@ -83,11 +83,11 @@ fn read_pgc(buf: &IfoBuf, off: usize) -> Option<Pgc> {
     })
 }
 
-pub(super) fn title_pgc_cells<'a>(
-    pgcit: &'a Pgcit,
+pub(super) fn title_pgc_cells(
+    pgcit: &Pgcit,
     pgcn: u16,
     pgn: u16,
-) -> Option<(&'a Pgc, u16, usize, usize)> {
+) -> Option<(&Pgc, u16, usize, usize)> {
     let pgc = find_pgc_by_id(pgcit, pgcn)?;
     if pgn < 1 || pgn as usize > pgc.program_map.len() {
         return None;
@@ -101,7 +101,7 @@ pub(super) fn title_pgc_cells<'a>(
     Some((pgc, pgcn, start, end))
 }
 
-fn find_pgc_by_id<'a>(pgcit: &'a Pgcit, pgcn: u16) -> Option<&'a Pgc> {
+fn find_pgc_by_id(pgcit: &Pgcit, pgcn: u16) -> Option<&Pgc> {
     if pgcn == 0 {
         return None;
     }
@@ -115,33 +115,15 @@ pub(super) fn pgc_has_vob(pgc: &Pgc, start: usize, end: usize, hint: u16) -> boo
     })
 }
 
-pub(super) fn accumulate_vob_secs(
-    pgc: &Pgc,
-    start: usize,
-    end: usize,
-    out_id: &mut Vec<u32>,
-    out_sec: &mut Vec<f64>,
-) {
+pub(super) fn title_playback_sec(pgc: &Pgc, start: usize, end: usize) -> f64 {
+    let mut total = 0.0_f64;
     for c in start..=end.min(pgc.cell_playback.len().saturating_sub(1)) {
         let sec = dvdtime_to_sec(&pgc.cell_playback[c][4..8]);
-        if sec <= 0.0 || !sec.is_finite() {
-            continue;
-        }
-        let vid = if c < pgc.cell_position.len() {
-            u16::from_be_bytes([
-                pgc.cell_position[c][0],
-                pgc.cell_position[c][1],
-            ]) as u32
-        } else {
-            1
-        };
-        if let Some(i) = out_id.iter().position(|&id| id == vid) {
-            out_sec[i] += sec;
-        } else if out_id.len() < MAX_VOBS {
-            out_id.push(vid);
-            out_sec.push(sec);
+        if sec.is_finite() && sec > 0.0 {
+            total += sec;
         }
     }
+    total
 }
 
 pub(super) fn fill_ptt_marks(

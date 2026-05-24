@@ -16,7 +16,7 @@ fn dvdtime_pal_25fps() {
 
 /// Skips when the local sample rip is not mounted.
 #[test]
-fn timeline_from_mounted_dvd_sample() {
+fn chapter_marks_from_mounted_dvd_sample() {
     let vob = Path::new(
         "/Volumes/SanDisk/Torrents/17_Mgnoveniy_vesni/17_Mgnoveniy_DVD1/Video_ts/VTS_02_1.VOB",
     );
@@ -26,8 +26,6 @@ fn timeline_from_mounted_dvd_sample() {
     let disc = vob.parent().unwrap().parent().unwrap();
     let main = main_title_from_disc(disc).expect("VIDEO_TS.IFO main title");
     assert_eq!(main.0, 2, "expected VTS_02 main feature");
-    let tl = timeline_from_vob(vob).expect("VTS_02_0.IFO timeline");
-    assert!(!tl.vob_secs.is_empty());
-    let total: f64 = tl.vob_secs.iter().map(|(_, s)| s).sum();
-    assert!(total > 60.0, "title should be longer than one chapter");
+    let marks = chapter_marks_from_vob(vob).expect("VTS_02_0.IFO PTT marks");
+    assert!(marks.title_sec > 60.0);
 }

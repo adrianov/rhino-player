@@ -3,17 +3,18 @@
 impl DvdBarState {
     #[must_use]
     pub fn build(chapter: &Path, live_dur: f64) -> Option<Self> {
-        let mut tl = DvdVobTimeline::from_chapter_ifo(chapter).or_else(|| {
-            let map = crate::db::load_duration_map();
-            DvdVobTimeline::from_chapter(chapter, &map, chapter, live_dur)
-        })?;
-        if let Some(on_disk) = crate::dvd_entity::title_chapter_paths(chapter) {
-            tl.expand_on_disk_chapters(&on_disk);
-        }
-        if live_dur > 0.0 {
-            tl.apply_live_chapter_dur(chapter, live_dur);
-        }
-        (tl.total_sec > 0.0).then_some(Self { tl })
+        let map = crate::db::load_duration_map();
+        Self::build_with_map(chapter, live_dur, &map)
+    }
+
+    fn build_with_map(
+        chapter: &Path,
+        live_dur: f64,
+        map: &std::collections::HashMap<String, f64>,
+    ) -> Option<Self> {
+        let tl = crate::dvd_entity::build_title_timeline(chapter, map, live_dur)?;
+        let chapter_labels = chapter_labels_from_ifo(chapter, tl.total_sec);
+        Some(Self { tl, chapter_labels })
     }
 
     #[must_use]
@@ -23,7 +24,7 @@ impl DvdBarState {
 
     #[must_use]
     pub fn chapter_preview_labels(&self) -> Vec<(f64, String)> {
-        self.tl.chapter_preview_labels()
+        self.chapter_labels.clone()
     }
 
     #[must_use]
@@ -80,14 +81,40 @@ pub(crate) fn dur_from_map(
         keys.push(c.to_string_lossy().into_owned());
     }
     for k in keys {
-        if let Some(d) = map.get(&k).copied().filter(|d| d.is_finite() && *d > 0.0) {
+        if let Some(d) = map
+            .get(&k)
+            .copied()
+            .filter(|d| d.is_finite() && *d > 0.0 && *d <= MAX_VOB_DUR_SEC)
+        {
             return d;
         }
     }
     0.0
 }
 
-/// Rebuild when the bar is missing or still capped at the open chapter's mpv `duration`.
+fn merge_prior_durs(map: &mut std::collections::HashMap<String, f64>, prior: &DvdBarState) {
+    for (i, vob) in prior.tl.vobs.iter().enumerate() {
+        let d = prior.tl.chapter_dur_at(i);
+        if !(d.is_finite() && d > 0.0 && d <= MAX_VOB_DUR_SEC) {
+            continue;
+        }
+        map.entry(vob.to_string_lossy().into_owned()).or_insert(d);
+        if let Ok(c) = std::fs::canonicalize(vob) {
+            map.entry(c.to_string_lossy().into_owned()).or_insert(d);
+        }
+    }
+}
+
+fn persist_vob_durs(bar: &DvdBarState) {
+    for (i, vob) in bar.tl.vobs.iter().enumerate() {
+        let d = bar.tl.chapter_dur_at(i);
+        if d.is_finite() && d > 0.0 && d <= MAX_VOB_DUR_SEC {
+            crate::db::set_duration(vob, d);
+        }
+    }
+}
+
+/// Rebuild when the bar is missing or still capped at the open `.vob` mpv `duration`.
 pub fn maybe_refresh_dvd_bar(
     slot: &std::cell::RefCell<Option<DvdBarState>>,
     mpv: &libmpv2::Mpv,
@@ -96,10 +123,10 @@ pub fn maybe_refresh_dvd_bar(
     let Some(chapter) = open_dvd_chapter_path(mpv, shell) else {
         return;
     };
-    let Some(chapters) = crate::dvd_entity::title_chapter_paths(&chapter) else {
+    let Some(vobs) = crate::dvd_entity::title_chapter_paths(&chapter) else {
         return;
     };
-    if chapters.len() <= 1 {
+    if vobs.len() <= 1 {
         return;
     }
     let live = mpv
@@ -107,11 +134,12 @@ pub fn maybe_refresh_dvd_bar(
         .ok()
         .filter(|d| d.is_finite() && *d > 0.0)
         .unwrap_or(0.0);
-    let on_disk_n = chapters.len();
+    let on_disk_n = vobs.len();
     let open = open_dvd_chapter_path(mpv, shell);
     let stale = slot.borrow().as_ref().is_none_or(|b| {
         b.tl.vobs.len() < on_disk_n
             || (live > 0.0 && b.total_sec() <= live * 1.05)
+            || b.total_sec() > live * on_disk_n as f64 * 1.5
             || open.as_ref().is_some_and(|p| b.tl.index_of(p).is_none())
     });
     if stale {
@@ -119,7 +147,7 @@ pub fn maybe_refresh_dvd_bar(
     }
 }
 
-/// Before chapter EOF advance: rebuild when the bar still looks like a single-chapter title.
+/// Before `.vob` EOF advance: rebuild when the bar still looks like a single-file title.
 pub fn refresh_dvd_bar_at_chapter_eof(
     slot: &std::cell::RefCell<Option<DvdBarState>>,
     mpv: &libmpv2::Mpv,
@@ -143,13 +171,18 @@ pub fn refresh_dvd_bar_at_chapter_eof(
             || (b.mpv_chapter_duration(mpv).is_some_and(|live| {
                 live > 0.0 && b.total_sec() <= live * 1.05
             }))
+            || b.mpv_chapter_duration(mpv).is_some_and(|live| {
+                b.tl
+                    .index_of(&chapter)
+                    .is_some_and(|i| live + 0.5 < b.tl.chapter_dur_at(i))
+            })
     });
     if stale {
         refresh_dvd_bar(slot, mpv, shell);
     }
 }
 
-/// True when sibling-folder EOF advance may run (title finished, not mid-chapter tail).
+/// True when sibling-folder EOF advance may run (title finished, not mid-`.vob` tail).
 pub(crate) fn title_eof_for_sibling_advance(
     mpv: &libmpv2::Mpv,
     bar: Option<&DvdBarState>,
@@ -194,10 +227,38 @@ pub fn refresh_dvd_bar(
     let on_disk_n = crate::dvd_entity::title_chapter_paths(&chapter)
         .map(|c| c.len())
         .unwrap_or(0);
-    let bar = DvdBarState::build(&chapter, live);
+    let mut map = crate::db::load_duration_map();
+    let prior_meta = {
+        let guard = slot.borrow();
+        if let Some(old) = guard.as_ref() {
+            merge_prior_durs(&mut map, old);
+            Some((old.total_sec(), old.tl.vobs.len()))
+        } else {
+            None
+        }
+    };
+    let bar = DvdBarState::build_with_map(&chapter, live, &map);
+    if live == 0.0 {
+        if let (Some(ref new_b), Some((old_total, old_n))) = (&bar, prior_meta) {
+            if new_b.tl.vobs.len() == old_n
+                && old_total > 60.0
+                && new_b.total_sec() > old_total * 1.5
+            {
+                crate::dvd_vob_log::dvd_seek_log(format!(
+                    "refresh_dvd_bar: keep prior total={old_total:.1}s (new={:.1}s live=0)",
+                    new_b.total_sec()
+                ));
+                return;
+            }
+        }
+    }
+    if live > 0.0 && crate::video_ext::is_dvd_vob_path(&chapter) {
+        crate::db::set_duration(&chapter, live);
+    }
     if let Some(ref b) = bar {
+        persist_vob_durs(b);
         crate::dvd_vob_log::dvd_seek_log(format!(
-            "refresh_dvd_bar: total={:.1}s chapters={} on_disk={on_disk_n} file={}",
+            "refresh_dvd_bar: total={:.1}s vobs={} on_disk={on_disk_n} file={}",
             b.total_sec(),
             b.tl.vobs.len(),
             chapter.file_name().and_then(|n| n.to_str()).unwrap_or("?")

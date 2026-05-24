@@ -1,44 +1,32 @@
-//! Virtual DVD timeline: all `.vob` files in one `VIDEO_TS/` as one seek range.
+//! Virtual DVD timeline: queued `.vob` files for one title set and cumulative timing.
 //! See `docs/features/30-dvd-unified-timeline.md`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Sorted chapter paths for one DVD title (`VTS_XX_*`) and cumulative timing.
+/// Upper bound for one playable title `.vob` (part ≥ 1); rejects byte-bootstrap garbage.
+const MAX_VOB_DUR_SEC: f64 = 14_400.0;
+
+/// Sorted `.vob` paths for one DVD title (`VTS_XX_*`) and cumulative timing.
 pub struct DvdVobTimeline {
     pub vobs: Vec<PathBuf>,
     starts: Vec<f64>,
     durs: Vec<f64>,
     pub total_sec: f64,
-    /// PTT chapter marks (global seconds); empty → VOB file boundaries.
-    ptt_marks: Vec<f64>,
 }
 
 impl DvdVobTimeline {
-    /// Build from SQLite / stored chapter lengths only (stable seek-bar range).
-    pub fn from_chapter_db_only(
+    /// Build from on-disk title `.vob` files and per-file durations (SQLite / mpv live).
+    pub fn from_title_vobs(
         current: &Path,
         dur_by_path: &HashMap<String, f64>,
-    ) -> Option<Self> {
-        Self::from_chapter_inner(current, dur_by_path, None, 0.0)
-    }
-
-    /// Build from any chapter path and per-file durations (seconds). Missing entries count as `0`.
-    pub fn from_chapter(
-        current: &Path,
-        dur_by_path: &HashMap<String, f64>,
-        live_path: &Path,
+        live_path: Option<&Path>,
         live_local_dur: f64,
     ) -> Option<Self> {
-        Self::from_chapter_inner(
-            current,
-            dur_by_path,
-            Some(live_path),
-            live_local_dur,
-        )
+        Self::from_title_vobs_inner(current, dur_by_path, live_path, live_local_dur)
     }
 
-    fn from_chapter_inner(
+    fn from_title_vobs_inner(
         current: &Path,
         dur_by_path: &HashMap<String, f64>,
         live_path: Option<&Path>,
@@ -48,50 +36,42 @@ impl DvdVobTimeline {
             return None;
         }
         let vobs = crate::dvd_entity::list_title_vobs(current.parent()?, current);
-        if vobs.is_empty() {
+        let n = vobs.len();
+        if n == 0 {
             return None;
         }
-        let mut durs: Vec<f64> = vobs
-            .iter()
-            .map(|p| chapter_duration(p, dur_by_path, live_path, live_local_dur))
-            .collect();
-        if let Some(i) = live_path.and_then(|live| {
-            vobs.iter()
-                .position(|p| crate::video_ext::paths_same_file(p, live))
-        }) {
-            durs[i] = durs[i].max(live_local_dur.max(0.0));
-        }
-        let entity_key = crate::playback_entity::db_path_for(current);
-        let entity_total = entity_key.to_str().and_then(|k| {
-            dur_by_path
-                .get(k)
-                .copied()
-                .filter(|d| d.is_finite() && *d > 0.0)
-        });
         let mut tl = Self {
             vobs,
             starts: Vec::new(),
-            durs,
+            durs: vec![0.0; n],
             total_sec: 0.0,
-            ptt_marks: Vec::new(),
         };
-        if tl.vobs.len() > 1 {
-            if let Some(total) = entity_total {
-                tl.apply_entity_total(total);
-            } else {
-                tl.recompute_starts();
-                if tl.durs.iter().any(|d| *d <= 0.0) || tl.total_sec <= 0.0 {
-                    tl.bootstrap_from_bytes(current, live_local_dur);
-                }
+        tl.apply_map_chapter_durs(dur_by_path);
+        if let Some(live) = live_path {
+            if live_local_dur > 0.0 {
+                tl.apply_live_chapter_dur(live, live_local_dur);
             }
-            return Some(tl);
+        }
+        if tl.durs.iter().any(|d| *d <= 0.0) {
+            tl.fill_missing_durs_from_bytes(live_path.unwrap_or(current), live_local_dur);
         }
         tl.recompute_starts();
         (tl.total_sec > 0.0).then_some(tl)
     }
 
-    /// Estimate missing chapter lengths from `.vob` file sizes (scaled to `live_dur` on `live_chapter`).
-    pub fn bootstrap_from_bytes(&mut self, live_chapter: &Path, live_dur: f64) {
+    /// Overwrite segment lengths from SQLite / mpv per-`.vob` entries.
+    pub(crate) fn apply_map_chapter_durs(&mut self, dur_by_path: &HashMap<String, f64>) {
+        for (i, vob) in self.vobs.iter().enumerate() {
+            let mapped = dur_from_map(dur_by_path, vob);
+            if mapped > 0.0 {
+                self.durs[i] = mapped;
+            }
+        }
+        self.recompute_starts();
+    }
+
+    /// Fill unknown segment lengths from `.vob` sizes; requires mpv live time or another known segment.
+    pub fn fill_missing_durs_from_bytes(&mut self, anchor_vob: &Path, anchor_dur: f64) {
         if self.vobs.len() <= 1 {
             return;
         }
@@ -100,55 +80,58 @@ impl DvdVobTimeline {
             .iter()
             .map(|p| p.metadata().ok().map(|m| m.len()).unwrap_or(0))
             .collect();
-        let total_b: u64 = bytes.iter().copied().sum();
-        if total_b == 0 {
+        if bytes.iter().all(|&b| b == 0) {
             return;
         }
-        let scale = self
-            .index_of(live_chapter)
-            .filter(|&i| live_dur > 0.0 && bytes[i] > 0)
-            .map(|i| live_dur / bytes[i] as f64)
-            .unwrap_or(8.0 / 1_000_000.0);
-        for (i, b) in bytes.iter().enumerate() {
-            let est = (*b as f64) * scale;
-            if self.durs[i] <= 0.0 {
-                self.durs[i] = est;
+        let scale = if anchor_dur > 0.0 {
+            self.index_of(anchor_vob)
+                .filter(|&i| bytes[i] > 0)
+                .map(|i| anchor_dur / bytes[i] as f64)
+        } else {
+            None
+        };
+        let byte_rate = scale.or_else(|| {
+            let mut sum_d = 0.0_f64;
+            let mut sum_b = 0_u64;
+            for (i, &d) in self.durs.iter().enumerate() {
+                if d > 0.0 && bytes[i] > 0 {
+                    sum_d += d;
+                    sum_b += bytes[i];
+                }
             }
-        }
-        self.recompute_starts();
-    }
-
-    /// Apply one stored title duration (equal split when chapter lengths are unknown).
-    pub fn apply_entity_total(&mut self, total: f64) {
-        if !(total.is_finite() && total > 0.0) {
+            (sum_b > 0 && sum_d > 0.0).then_some(sum_d / sum_b as f64)
+        });
+        let Some(rate) = byte_rate.filter(|r| r.is_finite() && *r > 0.0) else {
             return;
-        }
-        let n = self.vobs.len();
-        if n == 0 {
-            return;
-        }
-        let known: f64 = self.durs.iter().filter(|d| **d > 0.0).sum();
-        if known <= 0.0 {
-            let each = total / n as f64;
-            self.durs.fill(each);
-        } else if known < total - 0.5 {
-            let scale = total / known;
-            for d in &mut self.durs {
-                if *d > 0.0 {
-                    *d *= scale;
+        };
+        for (i, b) in bytes.iter().enumerate() {
+            if self.durs[i] <= 0.0 {
+                let est = (*b as f64) * rate;
+                if plausible_vob_dur(est) {
+                    self.durs[i] = est;
                 }
             }
         }
         self.recompute_starts();
-        if self.total_sec < total - 0.5 {
-            if let Some(last) = self.durs.last_mut() {
-                *last += total - self.total_sec;
-            }
-            self.recompute_starts();
-        }
     }
 
-    /// Whole-title position for an open chapter and local `time-pos`.
+    /// Prefer mpv `duration` on the open `.vob` when it differs from the stored value.
+    pub(crate) fn apply_live_chapter_dur(&mut self, chapter: &Path, live_dur: f64) {
+        if !(live_dur.is_finite() && live_dur > 0.0) {
+            return;
+        }
+        let Some(i) = self.index_of(chapter) else {
+            return;
+        };
+        if live_dur + 0.5 < self.durs[i] {
+            self.durs[i] = live_dur;
+        } else {
+            self.grow_chapter_dur(chapter, live_dur);
+        }
+        self.recompute_starts();
+    }
+
+    /// Prefer mpv `duration` on the open `.vob` when it differs from the stored value.
     #[must_use]
     pub fn global_pos(&self, current: &Path, local_pos: f64) -> f64 {
         let Some(i) = self.index_of(current) else {
@@ -157,7 +140,7 @@ impl DvdVobTimeline {
         (self.starts[i] + local_pos.max(0.0)).min(self.total_sec)
     }
 
-    /// Map a whole-title time to chapter index and local offset.
+    /// Map unified time to `.vob` index and local offset.
     #[must_use]
     pub fn resolve_global(&self, global: f64) -> (usize, f64) {
         let g = global.clamp(0.0, self.total_sec);
@@ -202,7 +185,7 @@ impl DvdVobTimeline {
             .unwrap_or(0.0)
     }
 
-    /// Next chapter file and its whole-title start time (for EOF advance within one title).
+    /// Next `.vob` file and its whole-title start time (for EOF advance within one title).
     #[must_use]
     pub fn next_chapter_after(&self, current: &Path) -> Option<(PathBuf, f64)> {
         let i = self.index_of(current)?;
@@ -213,59 +196,7 @@ impl DvdVobTimeline {
         Some((self.vobs[j].clone(), self.starts[j]))
     }
 
-    /// Chapter boundary times for seek marks (skip `0.0`).
-    pub fn chapter_mark_times(&self) -> Vec<(f64, String)> {
-        if !self.ptt_marks.is_empty() {
-            return self
-                .ptt_marks
-                .iter()
-                .enumerate()
-                .map(|(i, &t)| (t, format!("Chapter {}", i + 2)))
-                .collect();
-        }
-        self.starts
-            .iter()
-            .enumerate()
-            .skip(1)
-            .filter_map(|(i, &t)| {
-                self.vobs[i]
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|name| (t, name.to_string()))
-            })
-            .collect()
-    }
-
-    /// Seek-preview hover labels: same boundaries as [Self::chapter_mark_times] plus chapter 1 at `0.0`.
-    /// Empty when the title has only one chapter (no redundant “Chapter 1”).
-    pub fn chapter_preview_labels(&self) -> Vec<(f64, String)> {
-        let chapter_n = if !self.ptt_marks.is_empty() {
-            self.ptt_marks.len() + 1
-        } else {
-            self.vobs.len()
-        };
-        if chapter_n <= 1 {
-            return Vec::new();
-        }
-        let mut out = self.chapter_mark_times();
-        if out.is_empty() {
-            return out;
-        }
-        let first = if self.ptt_marks.is_empty() {
-            self.vobs
-                .first()
-                .and_then(|p| p.file_name())
-                .and_then(|n| n.to_str())
-                .unwrap_or("Chapter 1")
-                .to_string()
-        } else {
-            "Chapter 1".to_string()
-        };
-        out.insert(0, (0.0, first));
-        out
-    }
-
-    fn index_of(&self, path: &Path) -> Option<usize> {
+    pub(crate) fn index_of(&self, path: &Path) -> Option<usize> {
         self.vobs
             .iter()
             .position(|p| crate::video_ext::paths_same_file(p, path))
@@ -283,7 +214,7 @@ impl DvdVobTimeline {
         self.total_sec = total.max(0.0);
     }
 
-    /// Extend one chapter when live mpv duration exceeds the stored value.
+    /// Extend one segment when live mpv duration exceeds the stored value.
     pub fn grow_chapter_dur(&mut self, chapter: &Path, live_dur: f64) {
         if !(live_dur.is_finite() && live_dur > 0.0) {
             return;
@@ -299,16 +230,21 @@ impl DvdVobTimeline {
     }
 }
 
-include!("dvd_vob_ifo_build.rs");
-
 /// Cached DVD title timeline for the transport bar (rebuilt on `FileLoaded`, not every tick).
 pub struct DvdBarState {
     pub(super) tl: DvdVobTimeline,
+    /// IFO PTT chapter marks scaled onto the VOB timeline (seek-bar labels only).
+    chapter_labels: Vec<(f64, String)>,
 }
 
+include!("dvd_vob_chapter_marks.rs");
 include!("dvd_vob_bar.rs");
 include!("dvd_vob_timeline_transport.rs");
 include!("dvd_chapter_eof.rs");
+
+fn plausible_vob_dur(d: f64) -> bool {
+    d.is_finite() && d > 0.0 && d <= MAX_VOB_DUR_SEC
+}
 
 fn chapter_duration(
     path: &Path,
