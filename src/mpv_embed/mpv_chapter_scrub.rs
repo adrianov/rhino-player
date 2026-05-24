@@ -37,18 +37,31 @@ impl MpvBundle {
         if self.chapter_scrub_hold_pause.get() {
             let _ = self.mpv.set_property("pause", false);
         }
-        self.mpv
+        let mut dur = self
+            .mpv
             .get_property::<f64>("duration")
             .ok()
             .filter(|d| d.is_finite() && *d > 0.0)
-            .unwrap_or_else(|| {
-                self.mpv
-                    .get_property::<f64>("time-pos")
-                    .ok()
-                    .filter(|p| p.is_finite() && *p >= 0.0)
-                    .map(|p| p + 1.0)
-                    .unwrap_or(0.0)
-            })
+            .unwrap_or(0.0);
+        if dur <= 0.0 {
+            let _ = self.mpv.command("seek", &["0", "absolute"]);
+            dur = self
+                .mpv
+                .get_property::<f64>("duration")
+                .ok()
+                .filter(|d| d.is_finite() && *d > 0.0)
+                .unwrap_or(0.0);
+        }
+        if dur <= 0.0 {
+            dur = self
+                .mpv
+                .get_property::<f64>("time-pos")
+                .ok()
+                .filter(|p| p.is_finite() && *p >= 0.0)
+                .map(|p| p + 1.0)
+                .unwrap_or(0.0);
+        }
+        dur
     }
 
     pub(super) fn apply_chapter_scrub_pending_resume(&self, t: f64) -> Option<f64> {

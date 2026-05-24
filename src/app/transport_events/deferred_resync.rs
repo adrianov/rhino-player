@@ -114,13 +114,16 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     sync_decode_size_on_tick(&ctx.player);
     let browse = crate::app::browse_overlay_active(&ctx.eof.recent);
     hold_browse_pause(&ctx.player, browse);
-    if natural_eof_for_advance(ctx, core_idle) && !browse {
-        if !maybe_advance_dvd_chapter_eof(ctx)
-            && !chapter_cross_load_busy(ctx)
-            && dvd_eof_tail(ctx, dur, pos)
-        {
-            run_sibling_eof(ctx);
-        }
+    // Mid-title DVD chapter EOF: detect local tail every tick — mpv often keeps `core-idle=false`
+    // and `eof-reached=false` with `keep-open=yes` (and Smooth `vf`) at a `.vob` boundary.
+    if !browse && maybe_advance_dvd_chapter_eof(ctx) {
+        // advanced; skip title-end sibling advance this tick
+    } else if natural_eof_for_advance(ctx, core_idle)
+        && !browse
+        && !chapter_cross_load_busy(ctx)
+        && dvd_eof_tail(ctx, dur, pos)
+    {
+        run_sibling_eof(ctx);
     }
     sync_sub_header_readout(&ctx.player, &ctx.widgets.sub_readout);
     stamp_smooth_toolbar_readout(

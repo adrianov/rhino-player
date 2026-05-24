@@ -9,13 +9,14 @@ fn try_apply_pending_resume(ctx: &Rc<TransportCtx>) {
     with_bundle(&ctx.player, |b| {
         b.apply_pending_resume();
     });
-    if was_pending
-        && !ctx
-            .player
-            .borrow()
-            .as_ref()
-            .is_some_and(|b| b.chapter_scrub_resume_pending())
-    {
+    let still_pending = ctx
+        .player
+        .borrow()
+        .as_ref()
+        .is_some_and(|b| b.chapter_scrub_resume_pending());
+    if still_pending {
+        schedule_chapter_scrub_resume_retries(ctx);
+    } else if was_pending {
         schedule_smooth_60_resync_idle(ctx);
         transport_tick(ctx);
         refresh_play_button(ctx);

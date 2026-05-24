@@ -188,6 +188,7 @@ pub fn apply_pending_resume(&self) -> Option<f64> {
         return None;
     }
     let chapter_scrub = self.chapter_scrub_resume.get();
+    let pending_t = self.pending_resume.get().unwrap_or(0.0);
     let mut dur = self
         .mpv
         .get_property::<f64>("duration")
@@ -197,9 +198,20 @@ pub fn apply_pending_resume(&self) -> Option<f64> {
     if dur <= 0.0 && chapter_scrub {
         dur = self.chapter_scrub_demux_duration();
     }
+    if dur <= 0.0 && chapter_scrub {
+        if let Some(shell) = self.me_budget_shell_path.borrow().clone() {
+            dur = crate::dvd_vob_timeline::dur_from_map(
+                &crate::db::load_duration_map(),
+                shell.as_path(),
+            );
+        }
+    }
+    if dur <= 0.0 && chapter_scrub && pending_t > 0.0 {
+        dur = pending_t + 1.0;
+    }
     if dur <= 0.0 {
         crate::dvd_vob_log::dvd_seek_log(format!(
-            "apply_pending_resume: wait duration (target={t:.2})"
+            "apply_pending_resume: wait duration (target={pending_t:.2})"
         ));
         return None;
     }
