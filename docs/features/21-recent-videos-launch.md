@@ -48,15 +48,19 @@ Feature: Recent videos grid on empty launch
 
   Scenario: Clicking a card opens and unpauses
     Given a continue card is visible and references a local file
+    And the persistent store holds a resume position past the start for that file
     When the user activates the card
     Then loadfile completes for that path
-    And mpv pause becomes false
+    And playback position is at or near the stored resume position
+    And playback is running
     And the grid hides after the warm-reveal delay
 
   Scenario: Warm preload reveal on Space
     Given the recent grid is visible and the first card is warm-preloaded paused
+    And the persistent store holds a resume position past the start for that file
     When the user presses Space
-    Then after WARM_REVEAL_DELAY_MS the grid hides, chrome reveals, the window presents, and pause clears
+    Then after the warm-reveal delay the grid hides, chrome reveals, the window presents, and playback is running
+    And playback position is at or near the stored resume position
 
   Scenario: Hover warm-preloads a continue card in the background
     Given the recent grid is visible and the playback engine is ready
@@ -65,6 +69,14 @@ Feature: Recent videos grid on empty launch
     Then that file loads paused behind the grid without hiding the continue strip
     And activating that card reveals playback with the warm-reveal delay
     And stored resume positions for any hovered files remain unchanged in the persistent store
+
+  Scenario: Blu-ray continue card opens and plays
+    Given a continue card references a Blu-ray disc folder
+    And the persistent store holds a resume position past the start for that disc
+    When the user activates the card
+    Then playback is running
+    And playback position is at or near the stored resume position
+    And the seek preview shows the same title as the open disc
 
   Scenario: Card layout uses human-readable title and percent
     Given a card is rendered for an existing file
@@ -119,7 +131,7 @@ Feature: Recent videos grid on empty launch
 - Card UI: each card uses about 40% of the strip width with a minimum size, with a fixed **16:9** thumbnail frame (width drives height); image uses cover style (no letterboxing); title and progress sit in a soft bottom gradient overlay; the percentage is a small translucent pill; the trash icon sits left of the close icon on hover. Hover warm preload is immediate via `warm_hover_hooks` / `run_continue_warm_preload_path` (`preload_continue_and_run.rs`). While the continue grid is visible and warm hover is active, `MpvBundle::skip_media_persist` blocks SQLite `media` writes (resume, decode size, smooth ME budget); close / back-from-playback / quit after real playback use `save_playback_state_for_close`. The card title uses `human_media_title` on the basename (Transmission-style cleanup; window title uses the same helper). The leading **Open Video** tile uses the same footprint and `rp-recent-card` chrome plus dashed border styling in `theme_continue_grid.css`; it activates `app.open` (same flow as the **Open Video** menu entry).
 - Snackbar: pill-shaped at the bottom; auto-hide after 10 s; remove and trash share one session LIFO stack; Undo snapshots include watch-later sidecar bytes plus the full media row; trash entries also store the `Trash/files/…` path for untrash.
 - `back_to_browse` clears the session undo stack except for trash (so the snackbar can offer untrash).
-- Length and progress: write libmpv `duration` and `time-pos` to the DB on file switch and window close (no `ffprobe`); fall back to watch-later (`start=` / `# path`) before showing 0%. When mpv reports `bd://`, keys use `shell_media_path` + `me_budget_shell_path` (disc root), same as history. Warm `loadfile` skips outgoing SQLite snapshots (`warm_preload`); near-start mpv reads must not overwrite an existing resume (`db::set_playback`, `media_probe::NEAR_END_SEC`). Hover warm preload is scheduled on a low-priority GTK idle (coalesced per pointer enter, so scrolling the continue row stays smooth); at most one `loadfile` runs at a time with a single queued path after the previous title is fully loaded (`WarmPreloadGate`, `warm_preload_notify_loaded` on warm `FileLoaded` including superseded loads, debounced `schedule_warm_path_settle` on `path`/`duration` when `FileLoaded` is dropped during churn, 4s watchdog, or immediate gate release when mpv already has the hover target and the gate is idle). Re-hovering the same card while mpv still has that file is a no-op; switching away and back issues a new `loadfile` when mpv holds a different title. Card click / Space warm reopen is a hit only when mpv’s open path already matches the target (`load_file_into_player` — not `last_path` alone, which hover sets before `loadfile`). `card_data_list` reads resume/duration once per grid fill; `ContinueGridCache` (`ContinueSnap` per canonical path) is refreshed in `fill_row` and shared with transport (`continue_grid_cache_lookup` in `read_transport_state` — no per-tick SQLite). `last_path` is updated via `transport_sync_warm_browse` on hover/load start. Rapid hover uses `warm_file_gen` so stale `FileLoaded` idles do not resume the wrong title. Modules: `warm_preload_idle.rs`, `warm_preload_path.rs`, `preload_continue_and_run.rs`.
+- Length and progress: write libmpv `duration` and `time-pos` to the DB on file switch and window close (no `ffprobe`); fall back to watch-later (`start=` / `# path`) before showing 0%. When mpv reports `bd://`, keys use `shell_media_path` + `me_budget_shell_path` (disc root), same as history; resume seek and warm-hit matching also use `media_probe::mpv_matches_open_target` (not raw mpv `path`, which is not a filesystem path on Blu-ray). **`mpv_warm_hit_ready`** matches only mpv’s **local** open path (`mpv_local_open_path`) — never `me_budget_shell_path`, which hover updates via `last_path` / `transport_sync_warm_browse` before `loadfile` lands (otherwise a `bd://` title falsely warm-hits the hovered DVD). Warm `loadfile` skips outgoing SQLite snapshots (`warm_preload`); near-start mpv reads must not overwrite an existing resume (`db::set_playback`, `media_probe::NEAR_END_SEC`). Hover warm preload is scheduled on a low-priority GTK idle (coalesced per pointer enter, so scrolling the continue row stays smooth); at most one `loadfile` runs at a time with a single queued path after the previous title is fully loaded (`WarmPreloadGate`, `warm_preload_notify_loaded` on warm `FileLoaded` including superseded loads, debounced `schedule_warm_path_settle` on `path`/`duration` when `FileLoaded` is dropped during churn, 4s watchdog, or immediate gate release when mpv already has the hover target and the gate is idle). Re-hovering the same card while mpv still has that file is a no-op; switching away and back issues a new `loadfile` when mpv holds a different title. Card click / Space warm reopen is a hit only when mpv’s open title already matches the target (`mpv_warm_hit_ready` in `load_file_into_player` — not `last_path` alone, which hover sets before `loadfile`). While the continue grid is visible, transport snap reads `last_path` (hover/card intent), not `me_budget_shell_path`. `card_data_list` reads resume/duration once per grid fill; `ContinueGridCache` (`ContinueSnap` per canonical path) is refreshed in `fill_row` and shared with transport (`continue_grid_cache_lookup` in `read_transport_state` — no per-tick SQLite). `last_path` is updated via `transport_sync_warm_browse` on hover/load start. Rapid hover uses `warm_file_gen` so stale `FileLoaded` idles do not resume the wrong title. Modules: `warm_preload_idle.rs`, `warm_preload_path.rs`, `preload_continue_and_run.rs`.
 - Thumbnails: `vo=image` libmpv; scale to ~960 px wide with `force_original_aspect_ratio=decrease`; JPEG quality ~82; video-only player with no audio / subtitles / external autoload / scripts / resume; loop-filter skipping only. DVD titles: `still_target_from_global` picks the resume chapter `.vob` and local offset (same timeline as preview/resume); one frame via `--start` + `--frames=1` with high-resolution seek (`hr-seek`) on that chapter file (same cap as seek-bar preview). Cache key includes `thumb_load_path` so a thumb from the wrong VOB is not reused.
 - Acceptance (manual): with ≥3 valid history entries, launch with no args → Open tile plus three cards in correct order, percentages match reopen behaviour, click loads + seeks. Empty history → browse strip shows Open tile only. With a CLI file, this grid is not the first view.
 - Out of scope (v1): editing history order, hiding entries, streaming-art thumbs for remote URLs.

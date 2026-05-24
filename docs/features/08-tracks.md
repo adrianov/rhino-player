@@ -65,13 +65,14 @@ Feature: Audio track selection
     Then the popover lists every title-set audio variant with the same labels on every chapter
     And selecting a variant applies the matching stream on the current chapter
     And the same variant stays selected after advancing to another chapter of the title
+    And the same variant stays selected after scrubbing the seek bar to another chapter file of that title
 ```
 
 ## Notes
 - The per-file aid is stored before the watch-later path so it survives SIGTERM / kill.
 - No "None" / no-audio row in the popover; **mute** covers that.
 - Errors setting `aid` are ignored in the UI (logs only).
-- **DVD chapter `.vob`:** Sound and Subtitles popovers list streams from **`VTS_xx_0.IFO`** via [`playback_entity::title_set_streams`](../features/31-playback-entity.md) (same rows on every chapter VOB of that title). Chapter `track-list` maps IFO slots to engine ids when the user picks a row (`playback_entity_tracks.rs`; wired in `audio_tracks.rs` / `sub_tracks.rs`).
+- **DVD chapter `.vob`:** Sound and Subtitles popovers list streams from **`VTS_xx_0.IFO`** for the **open chapter’s** title set via [`playback_entity::title_set_streams(chapter)`](../features/31-playback-entity.md). Chapter `track-list` maps IFO slots to engine ids when the user picks a row (`playback_entity_tracks.rs`; wired in `audio_tracks.rs` / `sub_tracks.rs`). The entity row stores **`audio_aid`** + **`audio_ifo_slot`** (like subtitles); cross-chapter seek reapplies the slot after resume seek completes (`audio_tracks::reapply_after_chapter_load`).
 
 ![DVD title-set audio tracks in the Sound popover](../screenshots/02-dvd-title-tracks.webp)
 - Video-track switching is reserved for a later iteration; show the control only if more than one non-album-art video track exists and update on `track-list` change without requiring a popover re-open.
