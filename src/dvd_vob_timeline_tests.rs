@@ -32,8 +32,8 @@ mod tests {
     }
 
     #[test]
-    fn title_scope_excludes_other_vts_numbers() {
-        let base = std::env::temp_dir().join(format!("rhino-dvd-title-{}", std::process::id()));
+    fn feature_queue_includes_every_title_set_excludes_menu() {
+        let base = std::env::temp_dir().join(format!("rhino-dvd-feat-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let vts = base.join("VIDEO_TS");
         fs::create_dir_all(&vts).expect("mkdir");
@@ -41,12 +41,17 @@ mod tests {
         write_vob(&vts, "VTS_01_1.VOB");
         write_vob(&vts, "VTS_02_1.VOB");
         write_vob(&vts, "VTS_02_2.VOB");
+        write_vob(&vts, "VTS_03_1.VOB");
+        write_vob(&vts, "VTS_03_2.VOB");
         let p21 = vts.join("VTS_02_1.VOB");
-        let list = crate::dvd_entity::list_title_vobs(&vts, &p21);
-        assert_eq!(list.len(), 2);
-        assert!(list.iter().all(|p| {
-            crate::dvd_entity::vob_part_id(p).is_some()
-        }));
+        let list = crate::dvd_entity::list_feature_vobs(&p21);
+        assert_eq!(list.len(), 4);
+        assert!(
+            list.iter()
+                .any(|p| p.file_name().and_then(|n| n.to_str()) == Some("VTS_03_1.VOB"))
+        );
+        let one_set = crate::dvd_entity::list_title_vobs(&vts, &p21);
+        assert_eq!(one_set.len(), 2);
         let _ = fs::remove_dir_all(&base);
     }
 
@@ -66,6 +71,31 @@ mod tests {
         map.insert(p2.to_string_lossy().into_owned(), 50.0);
         let tl = DvdVobTimeline::from_title_vobs(&p1, &map, Some(&p1), 100.0).expect("tl");
         assert!((tl.total_sec - 150.0).abs() < 1e-6);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn resume_maps_global_with_entity_total_only() {
+        let base = std::env::temp_dir().join(format!("rhino-dvd-ent-res-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let vts = base.join("VIDEO_TS");
+        fs::create_dir_all(&vts).expect("mkdir");
+        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
+        let sizes = [100usize, 200, 300, 400];
+        for (i, n) in sizes.iter().enumerate() {
+            fs::write(vts.join(format!("VTS_02_{}.VOB", i + 1)), vec![b'x'; *n]).expect("vob");
+        }
+        let p1 = vts.join("VTS_02_1.VOB");
+        let p3 = vts.join("VTS_02_3.VOB");
+        let disc_key = std::fs::canonicalize(&base).unwrap_or(base.clone());
+        let mut map = HashMap::new();
+        map.insert(disc_key.to_string_lossy().into_owned(), 1000.0);
+        let still = crate::dvd_entity::still_target_from_global(&p1, 350.0, &map).expect("still");
+        assert!(crate::video_ext::paths_same_file(&still.load, &p3));
+        assert!((still.local_sec - 50.0).abs() < 1.0, "local={}", still.local_sec);
+        let still2 = crate::dvd_entity::still_target_from_global(&base, 350.0, &map).expect("disc");
+        assert!(crate::video_ext::paths_same_file(&still2.load, &p3));
+        assert!((still2.local_sec - 50.0).abs() < 1.0, "local2={}", still2.local_sec);
         let _ = fs::remove_dir_all(&base);
     }
 
@@ -97,6 +127,28 @@ mod tests {
             still.load.display()
         );
         assert!((still.local_sec - 400.0).abs() < 2.0, "local={}", still.local_sec);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn preview_chapter_dur_caps_at_next_mark() {
+        let base = std::env::temp_dir().join(format!("rhino-dvd-prev-cap-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let vts = base.join("VIDEO_TS");
+        fs::create_dir_all(&vts).expect("mkdir");
+        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
+        write_vob(&vts, "VTS_02_1.VOB");
+        write_vob(&vts, "VTS_02_2.VOB");
+        let p1 = vts.join("VTS_02_1.VOB");
+        let mut map = HashMap::new();
+        map.insert(p1.to_string_lossy().into_owned(), 100.0);
+        map.insert(
+            vts.join("VTS_02_2.VOB").to_string_lossy().into_owned(),
+            50.0,
+        );
+        let bar = DvdBarState::build(&p1, 100.0).expect("bar");
+        let dur = preview_chapter_dur(&bar, 90.0, 0, 90.0, &p1, &map);
+        assert!((dur - 100.0).abs() < 1e-6, "cap at ch2, got {dur}");
         let _ = fs::remove_dir_all(&base);
     }
 
@@ -161,6 +213,27 @@ mod tests {
         assert!(tl.total_sec > 100.0);
         assert_eq!(tl.vobs.len(), 2);
         let _ = fs::remove_dir_all(&base);
+    }
+
+    /// Skips when the local sample rip is not mounted.
+    #[test]
+    fn dvd4_lists_all_feature_vobs() {
+        let vob = std::path::Path::new(
+            "/Volumes/SanDisk/Torrents/17_Mgnoveniy_vesni/17_Mgnoveniy_DVD4/Video_ts/VTS_02_1.VOB",
+        );
+        if !vob.is_file() {
+            return;
+        }
+        let list = crate::dvd_entity::list_feature_vobs(vob);
+        assert!(
+            list.len() >= 8,
+            "DVD4 should queue VTS_02 and VTS_03 chapter files, got {}",
+            list.len()
+        );
+        assert!(
+            list.iter()
+                .any(|p| p.file_name().and_then(|n| n.to_str()) == Some("VTS_03_1.VOB"))
+        );
     }
 
     /// Skips when the local sample rip is not mounted.
@@ -320,5 +393,59 @@ mod tests {
             "3307 resume should map to ch4, got idx={idx} local={local:.2}"
         );
         assert!(local < 10.0, "local={local}");
+    }
+
+    /// Skips when the local sample rip is not mounted.
+    #[test]
+    fn dvd4_multi_ifo_preview_caps_at_chapter_marks() {
+        let vob = std::path::Path::new(
+            "/Volumes/SanDisk/Torrents/17_Mgnoveniy_vesni/17_Mgnoveniy_DVD4/Video_ts/VTS_02_1.VOB",
+        );
+        if !vob.is_file() {
+            return;
+        }
+        let p1 = vob.to_path_buf();
+        let p4 = vob.with_file_name("VTS_02_4.VOB");
+        let p5 = vob.with_file_name("VTS_03_1.VOB");
+        let mut map = HashMap::new();
+        map.insert(p1.to_string_lossy().into_owned(), 1102.0);
+        map.insert(
+            vob.with_file_name("VTS_02_2.VOB")
+                .to_string_lossy()
+                .into_owned(),
+            1103.0,
+        );
+        map.insert(
+            vob.with_file_name("VTS_02_3.VOB")
+                .to_string_lossy()
+                .into_owned(),
+            1098.0,
+        );
+        map.insert(p4.to_string_lossy().into_owned(), 924.0);
+        map.insert(p5.to_string_lossy().into_owned(), 1100.0);
+        let tl = crate::dvd_entity::build_title_timeline(&p1, &map, 1102.0).expect("tl");
+        let labels = chapter_labels_for_timeline(&tl);
+        assert!(
+            labels.len() >= 3,
+            "expected IFO chapter marks across VTS sets, got {}",
+            labels.len()
+        );
+        let vts03_start = tl.global_pos(&p5, 0.0);
+        assert!(
+            labels.iter().any(|(t, _)| (*t - vts03_start).abs() < 1.0),
+            "VTS_03 block should add a chapter mark at {vts03_start}"
+        );
+        let bar = DvdBarState {
+            tl,
+            chapter_labels: labels,
+        };
+        let g = bar.global_pos(&p4, 900.0);
+        let (idx, local) = bar.resolve_global(g);
+        let dur = preview_chapter_dur(&bar, g, idx, local, &p4, &map);
+        let remain_to_vts03 = vts03_start - g;
+        assert!(
+            dur <= local + remain_to_vts03 + 1.0,
+            "preview cap should stop at next chapter (dur={dur}, remain={remain_to_vts03})"
+        );
     }
 }
