@@ -1,5 +1,14 @@
 const CHAPTER_SCRUB_RESUME_RETRY_MS: &[u64] = &[0, 40, 80, 120, 200, 320, 500, 800];
 
+fn finish_chapter_scrub_load(ctx: &Rc<TransportCtx>) {
+    with_bundle(&ctx.player, |b| {
+        audio_tracks::reapply_after_chapter_load(&b.mpv);
+    });
+    schedule_smooth_60_resync_idle(ctx);
+    transport_tick(ctx);
+    refresh_play_button(ctx);
+}
+
 fn try_apply_pending_resume(ctx: &Rc<TransportCtx>) {
     let was_pending = ctx
         .player
@@ -17,9 +26,7 @@ fn try_apply_pending_resume(ctx: &Rc<TransportCtx>) {
     if still_pending {
         schedule_chapter_scrub_resume_retries(ctx);
     } else if was_pending {
-        schedule_smooth_60_resync_idle(ctx);
-        transport_tick(ctx);
-        refresh_play_button(ctx);
+        finish_chapter_scrub_load(ctx);
     }
 }
 
@@ -61,14 +68,8 @@ fn schedule_chapter_scrub_resume_retries(ctx: &Rc<TransportCtx>) {
                     .borrow()
                     .as_ref()
                     .is_some_and(|b| b.chapter_scrub_resume_pending());
-                if was_pending && !still_pending {
-                    schedule_smooth_60_resync_idle(&c);
-                    transport_tick(&c);
-                    refresh_play_button(&c);
-                } else if is_last {
-                    schedule_smooth_60_resync_idle(&c);
-                    transport_tick(&c);
-                    refresh_play_button(&c);
+                if (was_pending && !still_pending) || is_last {
+                    finish_chapter_scrub_load(&c);
                 }
             }
             c.eof.gl.queue_render();

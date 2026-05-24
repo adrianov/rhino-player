@@ -190,8 +190,14 @@ fn read_transport_state(ctx: &TransportCtx) -> Option<(bool, bool, f64, f64)> {
     let dur = if dur.is_finite() { dur.max(0.0) } else { 0.0 };
     let mut pos = b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
     pos = if pos.is_finite() { pos.max(0.0) } else { 0.0 };
-    let shell = crate::media_probe::local_file_from_mpv(&b.mpv)
-        .or_else(|| b.me_budget_shell_path.borrow().clone());
+    let shell = if ctx.recent_visible.get() {
+        ctx.eof.last_path.borrow().clone()
+    } else {
+        crate::media_probe::shell_media_path(
+            &b.mpv,
+            b.me_budget_shell_path.borrow().as_deref(),
+        )
+    };
     let chapter = shell.clone();
     let (mut pos, mut dur, pos_from_entity_snap) = browse_pause_snap(ctx, &shell, pause, pos, dur);
     if let (Some(bar), Some(ch)) = (ctx.dvd_bar.borrow().as_ref(), chapter.as_ref()) {

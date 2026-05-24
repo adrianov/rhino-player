@@ -204,11 +204,6 @@ fn wire_transport_events(s: TransportSetup) {
     let ctx_browse = Rc::clone(&ctx);
     WARM_BROWSE_SYNC.with(|slot| {
         *slot.borrow_mut() = Some(Rc::new(move |path: PathBuf| {
-            if let Ok(g) = ctx_browse.player.try_borrow() {
-                if let Some(b) = g.as_ref() {
-                    b.set_me_budget_shell_path(&path);
-                }
-            }
             *ctx_browse.eof.last_path.borrow_mut() = Some(path);
             refresh_sibling_nav(&ctx_browse);
             transport_tick(&ctx_browse);
