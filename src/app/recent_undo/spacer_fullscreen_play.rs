@@ -180,9 +180,7 @@ fn schedule_warm_reveal(ctx: PlayToggleCtx) {
             schedule_sub_button_scan(ctx.player.clone(), button.clone());
         }
         ctx.win.present();
-        if let Some(b) = ctx.player.borrow().as_ref() {
-            let _ = b.mpv.set_property("pause", false);
-        }
+        unpause_and_finish_resume(&ctx.player);
         ctx.gl.queue_render();
         (ctx.on_file_loaded)();
         glib::ControlFlow::Break

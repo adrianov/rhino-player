@@ -15,9 +15,7 @@ fn mpv_has_open_target(path: &Path, player: &Rc<RefCell<Option<MpvBundle>>>) -> 
     let Ok(g) = player.try_borrow() else {
         return false;
     };
-    g.as_ref().is_some_and(|b| {
-        local_file_from_mpv(&b.mpv).is_some_and(|m| same_open_target(&m, path))
-    })
+    g.as_ref().is_some_and(|b| crate::media_probe::mpv_warm_hit_ready(&b.mpv, path))
 }
 
 pub(crate) struct WarmPreloadCtx {

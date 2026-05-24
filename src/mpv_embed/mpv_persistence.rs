@@ -155,16 +155,81 @@ pub fn load_chapter_seek(
     Ok(())
 }
 
+/// Chapter-local resume seconds from SQLite for the open shell path (warm reopen fallback).
+fn stored_resume_local_for_shell(&self) -> Option<f64> {
+    let shell = self.me_budget_shell_path.borrow().clone()?;
+    let canonical = std::fs::canonicalize(&shell).unwrap_or(shell);
+    let entity = crate::playback_entity::PlaybackEntity::resolve(&canonical);
+    let stored = db::resume_pos(&entity.db_path())?;
+    let map = db::load_duration_map();
+    let (target, local) = entity.resume_load_target(&canonical, stored, &map)?;
+    let open = media_probe::shell_media_path(
+        &self.mpv,
+        self.me_budget_shell_path.borrow().as_deref(),
+    )?;
+    if !crate::video_ext::paths_same_file(&target, &open) {
+        return None;
+    }
+    Some(local)
+}
+
+fn clear_pending_resume_done(&self) {
+    self.pending_resume.set(None);
+    self.dvd_hold_global.set(None);
+}
+
+fn resume_wait_duration(&self, chapter_scrub: bool, pending_t: f64) -> f64 {
+    let mut dur = self
+        .mpv
+        .get_property::<f64>("duration")
+        .ok()
+        .filter(|d| d.is_finite() && *d > 0.0)
+        .unwrap_or(0.0);
+    if dur <= 0.0 && chapter_scrub {
+        dur = self.chapter_scrub_demux_duration();
+    }
+    if dur <= 0.0 && chapter_scrub {
+        if let Some(shell) = self.me_budget_shell_path.borrow().clone() {
+            dur = crate::dvd_vob_timeline::dur_from_map(
+                &crate::db::load_duration_map(),
+                shell.as_path(),
+            );
+        }
+    }
+    if dur <= 0.0 && chapter_scrub && pending_t > 0.0 {
+        dur = pending_t + 1.0;
+    }
+    dur
+}
+
+fn apply_file_pending_resume(&self) -> Option<f64> {
+    if let Some(ref p) = self.persist_media_path() {
+        resume_seek::stash_near_start_resume(&self.mpv, &self.pending_resume, p);
+    }
+    let t = self.pending_resume.get()?;
+    let pos = self.mpv.get_property::<f64>("time-pos").unwrap_or(f64::NAN);
+    if resume_seek::resume_already_at(&self.mpv, t) {
+        self.clear_pending_resume_done();
+        crate::dvd_vob_log::dvd_seek_log(format!(
+            "apply_pending_resume: at target {t:.2} (pos={pos:.2})"
+        ));
+        return Some(t);
+    }
+    resume_seek::seek_to_resume_sec(&self.mpv, t);
+    if resume_seek::resume_already_at(&self.mpv, t) {
+        self.clear_pending_resume_done();
+    }
+    crate::dvd_vob_log::dvd_seek_log(format!("apply_pending_resume: seek {t:.2} (was pos={pos:.2})"));
+    Some(t)
+}
+
 /// Open mpv `path` matches [Self::set_me_budget_shell_path] (set before `loadfile`).
 fn mpv_path_matches_shell(&self) -> bool {
     let shell = self.me_budget_shell_path.borrow();
     let Some(ref target) = *shell else {
         return true;
     };
-    let Some(open) = media_probe::local_file_from_mpv(&self.mpv) else {
-        return false;
-    };
-    crate::video_ext::paths_same_file(target.as_path(), &open)
+    media_probe::mpv_matches_open_target(&self.mpv, shell.as_deref(), target.as_path())
 }
 
 /// Apply the resume stashed by the most recent [load_file_path] or [load_chapter_seek]. Idempotent
@@ -189,56 +254,18 @@ pub fn apply_pending_resume(&self) -> Option<f64> {
     }
     let chapter_scrub = self.chapter_scrub_resume.get();
     let pending_t = self.pending_resume.get().unwrap_or(0.0);
-    let mut dur = self
-        .mpv
-        .get_property::<f64>("duration")
-        .ok()
-        .filter(|d| d.is_finite() && *d > 0.0)
-        .unwrap_or(0.0);
-    if dur <= 0.0 && chapter_scrub {
-        dur = self.chapter_scrub_demux_duration();
-    }
-    if dur <= 0.0 && chapter_scrub {
-        if let Some(shell) = self.me_budget_shell_path.borrow().clone() {
-            dur = crate::dvd_vob_timeline::dur_from_map(
-                &crate::db::load_duration_map(),
-                shell.as_path(),
-            );
-        }
-    }
-    if dur <= 0.0 && chapter_scrub && pending_t > 0.0 {
-        dur = pending_t + 1.0;
-    }
+    let dur = self.resume_wait_duration(chapter_scrub, pending_t);
     if dur <= 0.0 {
         crate::dvd_vob_log::dvd_seek_log(format!(
             "apply_pending_resume: wait duration (target={pending_t:.2})"
         ));
         return None;
     }
-    if !chapter_scrub {
-        let path = self.persist_media_path();
-        if let Some(ref p) = path {
-            resume_seek::stash_near_start_resume(&self.mpv, &self.pending_resume, p);
-        }
-    }
     let t = self.pending_resume.get()?;
     if chapter_scrub {
         return self.apply_chapter_scrub_pending_resume(t);
     }
-    let pos = self.mpv.get_property::<f64>("time-pos").unwrap_or(f64::NAN);
-    if resume_seek::resume_already_at(&self.mpv, t) {
-        self.pending_resume.set(None);
-        self.dvd_hold_global.set(None);
-        crate::dvd_vob_log::dvd_seek_log(format!(
-            "apply_pending_resume: at target {t:.2} (pos={pos:.2})"
-        ));
-        return Some(t);
-    }
-    resume_seek::seek_to_resume_sec(&self.mpv, t);
-    self.pending_resume.set(None);
-    self.dvd_hold_global.set(None);
-    crate::dvd_vob_log::dvd_seek_log(format!("apply_pending_resume: seek {t:.2} (was pos={pos:.2})"));
-    Some(t)
+    self.apply_file_pending_resume()
 }
 
 /// True when the pending `loadfile` is a same-title DVD chapter advance (EOF auto-load).
@@ -247,19 +274,31 @@ pub fn take_chapter_eof_load(&self) -> bool {
     self.chapter_eof_load.replace(false)
 }
 
-/// Warm reopen (card click / Space): only seek when hover preload never applied [pending_resume].
+/// Warm reopen (card click / Space): SQLite fallback when preload cleared pending before seek landed.
 pub fn apply_pending_resume_on_warm_open(&self) -> Option<f64> {
-    if !self.mpv_path_matches_shell() {
+    if !self.mpv_path_matches_shell() || self.pending_resume.get().is_some() {
         return None;
     }
-    let Some(t) = self.pending_resume.replace(None) else {
+    if !media_probe::mpv_has_known_duration(&self.mpv) {
         return None;
-    };
+    }
+    let t = self.stored_resume_local_for_shell()?;
     if resume_seek::resume_already_at(&self.mpv, t) {
         return Some(t);
     }
     resume_seek::seek_to_resume_sec(&self.mpv, t);
     Some(t)
+}
+
+/// Continue-grid reveal / card open: apply stashed or SQLite resume before unpausing.
+pub fn ensure_resume_before_unpause(&self) -> Option<f64> {
+    if let Some(t) = self.apply_pending_resume() {
+        return Some(t);
+    }
+    if self.pending_resume.get().is_some() {
+        return None;
+    }
+    self.apply_pending_resume_on_warm_open()
 }
 
 }

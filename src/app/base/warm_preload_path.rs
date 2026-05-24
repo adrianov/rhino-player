@@ -25,9 +25,6 @@ fn preload_continue_path(
     }
     let canon = std::fs::canonicalize(&path).ok();
     *last_path.borrow_mut() = canon;
-    if let Some(b) = player.borrow().as_ref() {
-        b.set_me_budget_shell_path(&path);
-    }
     transport_sync_warm_browse(&path);
     let o = LoadOpts {
         video_pref: Rc::clone(video_pref),

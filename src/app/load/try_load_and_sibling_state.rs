@@ -62,10 +62,14 @@ fn load_file_into_player(
 ) -> Result<bool, String> {
     let mut g = player.borrow_mut();
     let b = g.as_mut().ok_or("Player not ready. Wait for GL init.")?;
-    let prev = local_file_from_mpv(&b.mpv).or_else(|| o.last_path.borrow().clone());
+    let prev = crate::media_probe::shell_media_path(
+        &b.mpv,
+        b.me_budget_shell_path.borrow().as_deref(),
+    )
+    .or_else(|| o.last_path.borrow().clone());
     // Warm hit only when mpv already has this file (not `last_path` alone — hover sets that before `loadfile`).
     if recent_layer.is_visible()
-        && local_file_from_mpv(&b.mpv).is_some_and(|cur| same_open_target(&cur, path))
+        && crate::media_probe::mpv_warm_hit_ready(&b.mpv, path)
     {
         eprintln!("[rhino] warm_preload: warm hit (same file)");
         b.set_me_budget_shell_path(path);
@@ -73,7 +77,7 @@ fn load_file_into_player(
         if o.play_on_start {
             b.set_skip_media_persist(false);
         }
-        let _ = b.apply_pending_resume_on_warm_open();
+        let _ = b.ensure_resume_before_unpause();
         if !o.play_on_start {
             let _ = b.mpv.set_property("pause", true);
         }
@@ -172,6 +176,7 @@ fn start_playback(
 ) {
     if let Some(b) = player.borrow().as_ref() {
         b.set_skip_media_persist(false);
+        let _ = b.ensure_resume_before_unpause();
     }
     if delayed_warm {
         let recent = recent_layer.as_ref().clone();
@@ -187,24 +192,14 @@ fn start_playback(
             }
             if let Some(f) = on_start.as_ref() { f(); }
             win2.present();
-            if let Some(b) = player2.borrow().as_ref() {
-                let _ = b.mpv.set_property("pause", false);
-            }
+            unpause_and_finish_resume(&player2);
             gl2.queue_render();
             glib::ControlFlow::Break
         });
     } else {
         win.present();
-        if let Some(b) = player.borrow().as_ref() {
-            let _ = b.mpv.set_property("pause", false);
-        }
-        let p2 = Rc::clone(player);
-        let _ = glib::source::timeout_add_local(std::time::Duration::from_millis(100), move || {
-            if let Some(b) = p2.borrow().as_ref() {
-                let _ = b.mpv.set_property("pause", false);
-            }
-            glib::ControlFlow::Break
-        });
+        unpause_and_finish_resume(player);
+        gl.queue_render();
     }
 }
 
