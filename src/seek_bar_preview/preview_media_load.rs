@@ -87,6 +87,44 @@ pub(crate) fn cap_preview_seek_time(t: f64, dur: f64) -> f64 {
     t.clamp(0.0, (dur - margin).max(0.0))
 }
 
+fn hover_cap_duration(bar_upper: f64, main: Option<&Mpv>, preview: Option<&Mpv>) -> Option<f64> {
+    if !(bar_upper.is_finite() && bar_upper > 0.0) {
+        return None;
+    }
+    let main_dur = main
+        .map(|m| preview_hover_duration(bar_upper, m, preview))
+        .filter(|d| d.is_finite() && *d > 0.0)
+        .unwrap_or(bar_upper);
+    (main_dur > 0.0).then_some(main_dur)
+}
+
+/// Bar pointer x → seconds shown on the seek preview time label (and main seek on release).
+#[must_use]
+pub(crate) fn seek_bar_label_time(
+    bar_upper: f64,
+    bar_width: i32,
+    x: f64,
+    main: Option<&Mpv>,
+    preview: Option<&Mpv>,
+) -> Option<f64> {
+    let main_dur = hover_cap_duration(bar_upper, main, preview)?;
+    let w = f64::from(bar_width.max(1));
+    let raw = (x / w).clamp(0.0, 1.0) * bar_upper;
+    Some(cap_preview_seek_time(raw, main_dur))
+}
+
+/// Scale thumb value → same capped seconds as [seek_bar_label_time].
+#[must_use]
+pub(crate) fn seek_bar_label_time_from_value(
+    bar_upper: f64,
+    value: f64,
+    main: Option<&Mpv>,
+    preview: Option<&Mpv>,
+) -> Option<f64> {
+    let main_dur = hover_cap_duration(bar_upper, main, preview)?;
+    Some(cap_preview_seek_time(value.clamp(0.0, bar_upper), main_dur))
+}
+
 fn preview_seek_mode(optical: bool) -> &'static str {
     if optical {
         "absolute+exact"

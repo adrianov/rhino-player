@@ -305,8 +305,7 @@ pub fn apply() {
     // Enter / menu use `toggle_fullscreen` only; disabling GDK's built-in action keeps parity.
     if let Some(settings) = gtk::Settings::default() {
         settings.set_gtk_titlebar_double_click(Some("none"));
-        // GtkScale / GtkRange: primary click on trough jumps the thumb under the pointer and
-        // keeps dragging until release (macOS Homebrew GTK often defaults this to false).
+        // GtkScale / GtkRange: primary click jumps the slider under the pointer (volume + seek).
         settings.set_gtk_primary_button_warps_slider(true);
     }
 }

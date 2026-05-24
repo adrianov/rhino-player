@@ -71,7 +71,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
     let want_warm_preload =
         file_boot.borrow().is_none() && last_path.borrow().is_none();
 
-    let preview_hover_t = if seek_bar_on.get() {
+    let (preview_hover_t, preview_player) = if seek_bar_on.get() {
         let seek_preview = seek_bar_preview::connect(
             &w.seek,
             &w.seek_adj,
@@ -86,9 +86,15 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
             },
         );
         w.outer_ovl.add_overlay(&seek_preview.container);
-        Rc::clone(&seek_preview.hover_t)
+        (
+            Rc::clone(&seek_preview.hover_t),
+            Rc::clone(&seek_preview.preview),
+        )
     } else {
-        Rc::new(Cell::new(0.0))
+        (
+            Rc::new(Cell::new(0.0)),
+            Rc::new(RefCell::new(None)),
+        )
     };
 
     let fs_clock_tick = Rc::new(RefCell::new(None::<glib::SourceId>));
@@ -169,6 +175,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
 
     wire_seek_control(&w.seek, SeekControlDeps {
         player: player.clone(),
+        preview_player: preview_player.clone(),
         gl: w.gl_area.clone(),
         seek_sync: seek_sync.clone(),
         seek_grabbed: seek_grabbed.clone(),

@@ -1,16 +1,14 @@
 /// Bottom seek bar wiring.
 ///
-/// **Release** seeks to the scale thumb position (whole-title seconds on DVD unified timeline).
-/// While **`seek_grabbed`**, motion hover still drives preview; the thumb value is authoritative on release.
+/// Trough / thumb interaction uses stock **`GtkRange`** behavior with
+/// **`gtk-primary-button-warps-slider`** (see `theme::apply`, same as the volume scale).
+/// While **`seek_grabbed`**, **`value_changed`** updates labels only; **`quick_seek`** runs on
+/// **release**. When not grabbed, **`value_changed`** seeks immediately (keyboard / scroll).
 ///
-/// While **`seek_grabbed`** (pointer down), thumb or trough **`value_changed`** adjusts the scale and
-/// elapsed label locally; **`quick_seek`** runs on **release** only. When **not** grabbed,
-/// **`value_changed`** still **`quick_seek`** (keyboard/scroll or other inputs that skip the latch).
-///
-/// Motion over the bar always updates **`hover_t`**. When hover preview is off, **`seek_bar_preview`**
-/// skips **`loadfile`** / GL **only** — **`hover_t`** still tracks the pointer.
+/// Release time matches the preview label via [seek_bar_preview::seek_bar_label_time_from_value].
 struct SeekControlDeps {
     player: Rc<RefCell<Option<MpvBundle>>>,
+    preview_player: Rc<RefCell<Option<crate::mpv_embed::MpvPreviewGl>>>,
     gl: gtk::GLArea,
     seek_sync: Rc<Cell<bool>>,
     seek_grabbed: Rc<Cell<bool>>,
@@ -25,6 +23,7 @@ struct SeekControlDeps {
 struct SeekCtx {
     seek: gtk::Scale,
     player: Rc<RefCell<Option<MpvBundle>>>,
+    preview_player: Rc<RefCell<Option<crate::mpv_embed::MpvPreviewGl>>>,
     gl: gtk::GLArea,
     seek_sync: Rc<Cell<bool>>,
     seek_grabbed: Rc<Cell<bool>>,
@@ -39,6 +38,7 @@ struct SeekCtx {
 fn wire_seek_control(seek: &gtk::Scale, d: SeekControlDeps) {
     let SeekControlDeps {
         player,
+        preview_player,
         gl,
         seek_sync,
         seek_grabbed,
@@ -52,6 +52,7 @@ fn wire_seek_control(seek: &gtk::Scale, d: SeekControlDeps) {
     let ctx = Rc::new(SeekCtx {
         seek: seek.clone(),
         player,
+        preview_player,
         gl,
         seek_sync,
         seek_grabbed,
@@ -66,6 +67,18 @@ fn wire_seek_control(seek: &gtk::Scale, d: SeekControlDeps) {
     wire_press_release(&ctx);
 }
 
+fn bar_label_time_from_value(ctx: &SeekCtx, value: f64) -> Option<f64> {
+    let upper = ctx.seek.adjustment().upper();
+    let main = ctx.player.borrow();
+    let preview = ctx.preview_player.borrow();
+    crate::seek_bar_preview::seek_bar_label_time_from_value(
+        upper,
+        value,
+        main.as_ref().map(|b| &b.mpv),
+        preview.as_ref().map(|p| &p.mpv),
+    )
+}
+
 fn wire_value_changed(ctx: &Rc<SeekCtx>) {
     let c = Rc::clone(ctx);
     ctx.seek.connect_value_changed(move |r| {
@@ -73,14 +86,15 @@ fn wire_value_changed(ctx: &Rc<SeekCtx>) {
             return;
         }
         let v = r.value();
-        let s = format_time(v);
+        let t = bar_label_time_from_value(&c, v).unwrap_or(v);
+        let s = format_time(t);
         if c.time_left.text().as_str() != s {
             c.time_left.set_text(&s);
         }
         if !c.seek_grabbed.get() {
-            quick_seek(&c, v);
+            quick_seek(&c, t);
         } else {
-            c.preview_hover_t.set(v);
+            c.preview_hover_t.set(t);
             c.gl.queue_render();
         }
     });
@@ -88,6 +102,7 @@ fn wire_value_changed(ctx: &Rc<SeekCtx>) {
 
 fn wire_press_release(ctx: &Rc<SeekCtx>) {
     let leg = gtk::EventControllerLegacy::new();
+    // Capture: latch grab before GtkRange warp `value_changed` (defer seek until release).
     leg.set_propagation_phase(gtk::PropagationPhase::Capture);
     let c = Rc::clone(ctx);
     leg.connect_event(move |_, ev| {
@@ -125,7 +140,10 @@ fn commit_preview_seek(ctx: &SeekCtx) {
         ctx.gl.queue_render();
         return;
     }
-    let t = ctx.seek.value().clamp(0.0, upper);
+    let raw = ctx.seek.value();
+    let t = bar_label_time_from_value(ctx, raw)
+        .unwrap_or(raw)
+        .clamp(0.0, upper);
     ctx.preview_hover_t.set(t);
     ctx.seek_sync.set(true);
     ctx.seek.set_value(t);

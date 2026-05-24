@@ -108,6 +108,23 @@ impl MpvPreviewGl {
             self.render.report_swap();
         }
     }
+
+    /// Tear down render context + mpv without running [`Mpv`]'s [`Drop`] (aborts with `vo=libmpv`).
+    pub fn dispose(self, gl_area: &gtk::GLArea) {
+        gl_area.make_current();
+        let Self {
+            _gl: _,
+            mut mpv,
+            render,
+            gl_ptr: _,
+        } = self;
+        mpv.set_wakeup_callback(|| {});
+        drop(render);
+        unsafe {
+            libmpv2_sys::mpv_terminate_destroy(mpv.ctx.as_ptr());
+        }
+        std::mem::forget(mpv);
+    }
 }
 
 pub fn set_preview_tracks(mpv: &Mpv) {
