@@ -356,6 +356,34 @@ mod tests {
     }
 
     #[test]
+    fn bar_cache_not_stale_for_full_title_on_short_chapter() {
+        let base = std::env::temp_dir().join(format!("rhino-dvd-stale-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let vts = base.join("VIDEO_TS");
+        fs::create_dir_all(&vts).expect("mkdir");
+        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
+        for n in 1..=5 {
+            write_vob(&vts, &format!("VTS_02_{n}.VOB"));
+        }
+        let p5 = vts.join("VTS_02_5.VOB");
+        let mut map = HashMap::new();
+        for n in 1..=5 {
+            let p = vts.join(format!("VTS_02_{n}.VOB"));
+            map.insert(p.to_string_lossy().into_owned(), 1000.0);
+        }
+        let bar = DvdBarState::build_with_map(&p5, 207.0, &map).expect("bar");
+        assert_eq!(bar.tl.vobs.len(), 5);
+        assert!(bar.total_sec() > 207.0 * 5.0 * 1.5);
+        assert!(!bar_cache_stale(&bar, 207.0, 5, Some(&p5)));
+        let p1 = vts.join("VTS_02_1.VOB");
+        let mut map_one = HashMap::new();
+        map_one.insert(p1.to_string_lossy().into_owned(), 1000.0);
+        let bar_one = DvdBarState::build_with_map(&p1, 1000.0, &map_one).expect("bar one");
+        assert!(bar_cache_stale(&bar_one, 1000.0, 5, Some(&p1)));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn preview_labels_empty_for_single_chapter_vob() {
         let base = std::env::temp_dir().join(format!("rhino-dvd-one-ch-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);

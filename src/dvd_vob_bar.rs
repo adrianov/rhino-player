@@ -7,7 +7,7 @@ impl DvdBarState {
         Self::build_with_map(chapter, live_dur, &map)
     }
 
-    fn build_with_map(
+    pub(crate) fn build_with_map(
         chapter: &Path,
         live_dur: f64,
         map: &std::collections::HashMap<String, f64>,
@@ -105,6 +105,18 @@ fn merge_prior_durs(map: &mut std::collections::HashMap<String, f64>, prior: &Dv
     }
 }
 
+/// True when the cached bar should be rebuilt (missing, incomplete title, or single-file total).
+pub(crate) fn bar_cache_stale(
+    bar: &DvdBarState,
+    live: f64,
+    on_disk_n: usize,
+    open: Option<&Path>,
+) -> bool {
+    bar.tl.vobs.len() < on_disk_n
+        || (on_disk_n > 1 && live > 0.0 && bar.total_sec() <= live * 1.05)
+        || open.is_some_and(|p| bar.tl.index_of(p).is_none())
+}
+
 /// Rebuild when the bar is missing or still capped at the open `.vob` mpv `duration`.
 pub fn maybe_refresh_dvd_bar(
     slot: &std::cell::RefCell<Option<DvdBarState>>,
@@ -127,12 +139,10 @@ pub fn maybe_refresh_dvd_bar(
         .unwrap_or(0.0);
     let on_disk_n = vobs.len();
     let open = open_dvd_chapter_path(mpv, shell);
-    let stale = slot.borrow().as_ref().is_none_or(|b| {
-        b.tl.vobs.len() < on_disk_n
-            || (live > 0.0 && b.total_sec() <= live * 1.05)
-            || b.total_sec() > live * on_disk_n as f64 * 1.5
-            || open.as_ref().is_some_and(|p| b.tl.index_of(p).is_none())
-    });
+    let stale = slot
+        .borrow()
+        .as_ref()
+        .is_none_or(|b| bar_cache_stale(b, live, on_disk_n, open.as_deref()));
     if stale {
         refresh_dvd_bar(slot, mpv, shell);
     }
