@@ -30,7 +30,3 @@ fn refresh_playhead_after_vf_change(
 fn smooth_off_refresh_playhead(mpv: &Mpv, bundle: Option<&crate::mpv_embed::MpvBundle>) {
     refresh_playhead_after_vf_change(mpv, bundle, "smooth-off");
 }
-
-pub(crate) fn smooth_on_refresh_playhead(mpv: &Mpv, bundle: Option<&crate::mpv_embed::MpvBundle>) {
-    refresh_playhead_after_vf_change(mpv, bundle, "smooth-on");
-}

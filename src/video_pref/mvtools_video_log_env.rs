@@ -129,6 +129,8 @@ pub(super) fn source_fps_from_mpv(
     } else {
         est
     };
+    // `estimated-vf-fps` tracks vf output (~60 Hz) or display-resample — not source cadence.
+    let est = est.filter(|e| is_plausible_broadcast_fps(*e));
     let mut picked = source_fps_from_container_and_estimated(cfps, est);
     let mpv_pick = picked;
     picked = stabilize_disc_source_fps(path_now.as_deref(), picked, &mut gate);
@@ -189,8 +191,8 @@ fn source_fps_from_container_and_estimated(
             }
         }
         (Some(c), None) => Some(c),
-        (None, Some(e)) => Some(e),
-        (None, None) => None,
+        (None, Some(e)) if is_plausible_broadcast_fps(e) => Some(e),
+        (None, Some(_)) | (None, None) => None,
     }
 }
 

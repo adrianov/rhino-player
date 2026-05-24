@@ -288,6 +288,5 @@ fn add_smooth_60(
         note_bundled_me_budget_vf_applied(me_cap, media_key);
     }
     apply_smooth_vf_present_opts(mpv);
-    smooth_on_refresh_playhead(mpv, bundle);
     false
 }

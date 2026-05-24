@@ -74,12 +74,30 @@ static FPS_PICK_GATE: Mutex<FpsPickGateState> = Mutex::new(FpsPickGateState {
 });
 
 /// After a **seek**, mpv cadence readings fluctuate on interleaved discs — stay on display-resample until stable.
-pub(crate) fn mark_smooth_cadence_unstable_after_seek() {
+fn mark_smooth_cadence_unstable_after_seek() {
     let mut g = FPS_PICK_GATE.lock().unwrap_or_else(|e| e.into_inner());
     g.interleaved_smooth = true;
     g.stable_streak = 0;
     g.last_stable_fps = None;
     g.locked_disc_fps = None;
+}
+
+fn smooth_cadence_unstable_target(mpv: &libmpv2::Mpv) -> bool {
+    let path = mpv
+        .get_property::<String>("path")
+        .ok()
+        .filter(|s| !s.trim().is_empty());
+    path.as_deref().is_some_and(mpv_path_is_disc)
+        || path_str_is_dvd_vob(path.as_deref())
+        || crate::media_probe::local_file_from_mpv(mpv)
+            .is_some_and(|p| crate::video_ext::is_dvd_vob_path(&p))
+}
+
+/// Seek on optical-disc media: prefer display-resample until cadence stabilizes.
+pub(crate) fn mark_smooth_cadence_unstable_after_seek_if_disc(mpv: &libmpv2::Mpv) {
+    if smooth_cadence_unstable_target(mpv) {
+        mark_smooth_cadence_unstable_after_seek();
+    }
 }
 
 /// True when Smooth 60 should use mpv **display-resample** only (no VapourSynth / cadence rebuild).
@@ -112,10 +130,10 @@ fn cadence_rates_jump(prev: f64, f: f64) -> bool {
     rel > CADENCE_JUMP_FRAC || jump > (prev * CADENCE_JUMP_FRAC).max(1.5)
 }
 
-fn note_plausible_cadence(f: f64, gate: &mut FpsPickGateState) -> bool {
+fn note_plausible_cadence(f: f64, gate: &mut FpsPickGateState, disc: bool) -> bool {
     let mut cadence_jump = false;
     if let Some(prev) = gate.last_stable_fps {
-        if cadence_rates_jump(prev, f) {
+        if disc && cadence_rates_jump(prev, f) {
             gate.interleaved_smooth = true;
             gate.stable_streak = 0;
             cadence_jump = true;
@@ -149,12 +167,14 @@ fn update_interleaved_cadence_gate(
             }
         }
         Some(f) if !is_plausible_broadcast_fps(f) => {
-            gate.interleaved_smooth = true;
-            gate.stable_streak = 0;
+            if disc {
+                gate.interleaved_smooth = true;
+                gate.stable_streak = 0;
+            }
             gate.last_stable_fps = Some(f);
         }
         Some(f) => {
-            let _ = note_plausible_cadence(f, gate);
+            let _ = note_plausible_cadence(f, gate, disc);
         }
     }
     picked.or(gate.locked_disc_fps)

@@ -75,8 +75,10 @@ fn apply_mpv_video_impl(
     let eligible_1x = mvtools_vf_eligible(mpv, speed_hint);
     let display_only = smooth_prefers_display_resample_bundle(mpv, bundle);
     let display_resample = want_60 && eligible_1x && display_only && !paused;
-    let use_mvtools = want_60 && smooth_wants_vapoursynth_vf(mpv, bundle, speed_hint) && !paused;
     let had_vapoursynth = vf_chain_has_vapoursynth(mpv);
+    let use_mvtools = want_60
+        && smooth_wants_vapoursynth_vf(mpv, bundle, speed_hint)
+        && (!paused || !had_vapoursynth);
     if display_resample {
         apply_interleaved_display_resample(mpv, bundle, vlog);
         post_smooth_60_state(mpv, v, want_60, false, vlog);

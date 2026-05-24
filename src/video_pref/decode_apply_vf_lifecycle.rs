@@ -135,7 +135,7 @@ fn log_vf_diagnostics(mpv: &Mpv, vlog: bool) {
 /// still present so mpv can decode a real frame — especially while **paused**. Plain pause/unpause
 /// does not call this.
 pub fn unload_smooth_on_pause(mpv: &Mpv) -> bool {
-    mark_smooth_cadence_unstable_after_seek();
+    mark_smooth_cadence_unstable_after_seek_if_disc(mpv);
     if !vf_chain_has_vapoursynth(mpv) {
         return false;
     }
