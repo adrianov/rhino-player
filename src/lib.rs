@@ -9,7 +9,7 @@ mod continue_undo;
 mod db;
 mod dvd_ifo_parse;
 mod dvd_entity;
-mod dvd_vob_ffprobe;
+mod dvd_vob_mpv_probe;
 mod dvd_vob_log;
 mod dvd_vob_timeline;
 mod fullscreen_timing;

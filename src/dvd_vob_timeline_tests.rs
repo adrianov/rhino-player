@@ -184,8 +184,8 @@ mod tests {
     }
 
     #[test]
-    fn no_guess_without_durs_or_ffprobe() {
-        crate::dvd_vob_ffprobe::clear_probe_cache();
+    fn no_guess_without_durs_or_mpv_probe() {
+        crate::dvd_vob_mpv_probe::clear_probe_cache();
         let base = std::env::temp_dir().join(format!("rhino-dvd-noanchor-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let vts = base.join("VIDEO_TS");
@@ -200,7 +200,7 @@ mod tests {
 
     /// Skips when the local sample rip is not mounted.
     #[test]
-    fn dvd5_ffprobe_fills_full_timeline() {
+    fn dvd5_mpv_probe_fills_full_timeline() {
         let vob = std::path::Path::new(
             "/Volumes/SanDisk/Torrents/17_Mgnoveniy_vesni/17_Mgnoveniy_DVD5/VIDEO_TS/VTS_02_1.VOB",
         );
@@ -213,7 +213,7 @@ mod tests {
             list.iter()
                 .any(|p| p.file_name().and_then(|n| n.to_str()) == Some("VTS_03_1.VOB"))
         );
-        crate::dvd_vob_ffprobe::clear_probe_cache();
+        crate::dvd_vob_mpv_probe::clear_probe_cache();
         let disc = crate::video_ext::dvd_disc_root(vob).expect("disc");
         let mut map = HashMap::new();
         map.insert(disc.to_string_lossy().into_owned(), 1131.1);

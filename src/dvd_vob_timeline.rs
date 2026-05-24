@@ -45,7 +45,7 @@ impl DvdVobTimeline {
             total_sec: 0.0,
         };
         tl.apply_map_chapter_durs(dur_by_path);
-        tl.fill_missing_durs_from_ffprobe();
+        tl.fill_missing_durs_from_mpv_probe();
         let live_on_queue = live_path.filter(|p| tl.index_of(p).is_some());
         if let Some(live) = live_on_queue {
             if live_local_dur > 0.0 {
@@ -67,13 +67,13 @@ impl DvdVobTimeline {
         self.recompute_starts();
     }
 
-    /// `ffprobe` any queued `.vob` still missing a segment length.
-    fn fill_missing_durs_from_ffprobe(&mut self) {
+    /// libmpv headless probe for any queued `.vob` still missing a segment length.
+    fn fill_missing_durs_from_mpv_probe(&mut self) {
         for (i, vob) in self.vobs.iter().enumerate() {
             if self.durs[i] > 0.0 {
                 continue;
             }
-            if let Some(d) = crate::dvd_vob_ffprobe::probe_vob_duration(vob) {
+            if let Some(d) = crate::dvd_vob_mpv_probe::probe_vob_duration(vob) {
                 self.durs[i] = d;
             }
         }
