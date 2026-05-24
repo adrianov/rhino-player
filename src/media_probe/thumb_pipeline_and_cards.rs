@@ -164,6 +164,45 @@ pub(crate) fn shell_media_path(mpv: &Mpv, shell: Option<&std::path::Path>) -> Op
         .filter(|p| p.exists())
 }
 
+/// True when mpv reports a finite, non-zero duration (demuxer ready enough to seek).
+pub(crate) fn mpv_has_known_duration(mpv: &Mpv) -> bool {
+    mpv.get_property::<f64>("duration")
+        .ok()
+        .filter(|d| d.is_finite() && *d > 0.0)
+        .is_some()
+}
+
+/// Local path mpv is actually decoding (never the shell intent cell used during continue hover).
+pub(crate) fn mpv_local_open_path(mpv: &Mpv) -> Option<PathBuf> {
+    local_file_from_mpv(mpv)
+}
+
+/// True when mpv's open item is the same title as `path` (local file or disc root).
+pub(crate) fn mpv_matches_open_target(
+    mpv: &Mpv,
+    shell: Option<&std::path::Path>,
+    path: &std::path::Path,
+) -> bool {
+    let Some(open) = shell_media_path(mpv, shell) else {
+        return false;
+    };
+    let want = crate::video_ext::resolve_open_media_path(path);
+    crate::video_ext::paths_same_file(&open, &want)
+}
+
+/// Warm hit: mpv already decodes this exact local target with known duration.
+/// Never uses [me_budget_shell_path] — hover sets that before `loadfile` and would match the wrong title while mpv still holds the previous disc (`bd://`, …).
+pub(crate) fn mpv_warm_hit_ready(mpv: &Mpv, path: &std::path::Path) -> bool {
+    if !mpv_has_known_duration(mpv) {
+        return false;
+    }
+    let Some(open) = mpv_local_open_path(mpv) else {
+        return false;
+    };
+    let want = crate::video_ext::resolve_open_media_path(path);
+    crate::video_ext::paths_same_file(&open, &want)
+}
+
 /// Loaded local file, canonical, or `None` (idle, stream, or missing file).
 pub(crate) fn local_file_from_mpv(mpv: &Mpv) -> Option<PathBuf> {
     let s = match mpv.get_property::<String>("path") {
