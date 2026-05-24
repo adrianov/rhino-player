@@ -4,13 +4,9 @@
 # Clippy directly — avoids rebuilding the qcheck wrapper bin on every run.
 qcheck = "clippy --all-targets --all-features"
 
-# mold is Linux-only (brew/apt: `mold` + `clang`). Speeds dev/test/qcheck links a lot.
+[build]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+# clang + lld on Linux (mold is an alternative; this project uses lld).
 [target.'cfg(target_os = "linux")']
 linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=mold"]
-
-# macOS: mold cannot link Mach-O binaries. Optional LLD after `brew install llvm`:
-# [target.aarch64-apple-darwin]
-# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm/bin/ld64.lld"]
-# [target.x86_64-apple-darwin]
-# rustflags = ["-C", "link-arg=-fuse-ld=/usr/local/opt/llvm/bin/ld64.lld"]

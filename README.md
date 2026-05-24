@@ -253,7 +253,24 @@ cargo test
 cargo qcheck   # clippy --all-targets --all-features (see .cargo/config.toml)
 ```
 
-**Faster builds:** Linux uses the [mold](https://github.com/rui314/mold) linker via `.cargo/config.toml` (`brew install mold` / `apt install mold clang`). mold is Linux-only; on macOS, dev builds use `split-debuginfo = "unpacked"` in `Cargo.toml`. Optional macOS linker: `brew install llvm` and uncomment the `ld64.lld` block in `.cargo/config.toml`.
+**Faster builds:** dev links use [LLD](https://lld.llvm.org/) via `.cargo/config.toml` (`[build] rustflags = ["-C", "link-arg=-fuse-ld=lld"]`). Linux also sets `linker = "clang"`. Install LLD if needed: `brew install lld` (macOS) or `apt install lld clang` (Debian/Ubuntu). On macOS, dev builds also use `split-debuginfo = "unpacked"` in `Cargo.toml`. If `~/.cargo/config.toml` still sets `-fuse-ld=mold` on Linux, remove it so it does not stack with LLD.
+
+**Homebrew Rust + LLVM:** if `cargo run` fails with `Symbol not found` in `librustc_driver` / `libLLVM.dylib` after upgrading `llvm` or `lld`, rebuild the compiler against the new LLVM: `brew reinstall rust`.
+
+**Cranelift (optional, dev only):** faster debug codegen via nightly. Requires [rustup](https://rustup.rs/) (Homebrew `cargo`/`rustc` cannot use this). One-time setup:
+
+```bash
+rustup toolchain install nightly -c rustc-codegen-cranelift-preview
+```
+
+Then build or run (disables sccache so nightly rustc is used; Homebrew `cargo`/`rustc` in PATH are ignored):
+
+```bash
+scripts/cargo-cranelift.sh build
+scripts/cargo-cranelift.sh run -- /path/to/video.mkv
+```
+
+Release builds stay on LLVM (`lto = true` in `Cargo.toml`). Switching between `cargo build` and `cargo cf build` may rebuild the crate tree because codegen backends differ.
 
 The project keeps detailed feature specs and implementation notes under [docs/](docs/). Start with [docs/README.md](docs/README.md).
 
