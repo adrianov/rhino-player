@@ -142,10 +142,11 @@ fn update_interleaved_cadence_gate(
     let disc = path.is_some_and(mpv_path_is_disc);
     match picked {
         None => {
-            if disc || gate.last_stable_fps.is_some() {
+            // Disc demux often omits cadence mid-title; local files may omit reads while vf runs.
+            if disc {
                 gate.interleaved_smooth = true;
+                gate.stable_streak = 0;
             }
-            gate.stable_streak = 0;
         }
         Some(f) if !is_plausible_broadcast_fps(f) => {
             gate.interleaved_smooth = true;
