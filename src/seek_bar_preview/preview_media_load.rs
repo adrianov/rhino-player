@@ -10,6 +10,12 @@ const END_MARGIN_FRAC: f64 = 0.02;
 /// Load target for the auxiliary player: same stream as main when mpv exposes a local file,
 /// else shell/disc path (never rewrite a chapter `.m2ts` back to the full disc tree).
 pub(crate) fn preview_load_path(main: &Mpv, shell: Option<&Path>) -> Option<String> {
+    if let Some(shell_p) = shell.filter(|p| p.exists()) {
+        let resolved = crate::video_ext::resolve_open_media_path(shell_p);
+        if crate::video_ext::is_optical_disc_path(&resolved) {
+            return resolved.to_str().map(str::to_string);
+        }
+    }
     if let Ok(s) = main.get_property::<String>("path") {
         let t = s.trim();
         if t.starts_with("bd://") || t.starts_with("bluray://") {
