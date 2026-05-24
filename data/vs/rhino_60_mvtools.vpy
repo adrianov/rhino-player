@@ -327,12 +327,68 @@ def _src_fps_tuple_from_decimal_str(t: str) -> tuple[int, int] | None:
     if not (0.1 < x < 1000.0):
         return None
     f = Fraction(dec).limit_denominator(1001)
-    return f.numerator, f.denominator
+    return _snap_broadcast_rational(f.numerator, f.denominator)
+
+
+_CANONICAL_FPS: tuple[tuple[int, int], ...] = (
+    (24000, 1001),
+    (24, 1),
+    (25, 1),
+    (30000, 1001),
+    (30, 1),
+)
+_FPS_SNAP_TOL = 0.035
+
+
+def _snap_broadcast_rational(num: int, den: int) -> tuple[int, int]:
+    """Map near-broadcast floats to exact rationals (avoids 15191/507-style FlowFPS drift)."""
+    if den <= 0 or num <= 0:
+        return num, den
+    f = num / den
+    best: tuple[int, int] | None = None
+    best_d = _FPS_SNAP_TOL + 1.0
+    for sn, sd in _CANONICAL_FPS:
+        sf = sn / sd
+        d = abs(f - sf)
+        if d <= _FPS_SNAP_TOL and d < best_d:
+            best_d = d
+            best = (sn, sd)
+    return best if best is not None else (num, den)
+
+
+def _fps_pair_close(
+    a: tuple[int, int], b: tuple[int, int], tol_hz: float = 0.02
+) -> bool:
+    da, db = a[1], b[1]
+    if da <= 0 or db <= 0:
+        return False
+    return abs(a[0] / da - b[0] / db) <= tol_hz
 
 
 def _src_fps_from_env() -> tuple[int, int] | None:
     """Recover cadence from ``RHINO_SOURCE_FPS`` (shell **mpv** or **Rhino** before ``vf add``)."""
     return _src_fps_tuple_from_decimal_str(_robust_host_env("RHINO_SOURCE_FPS"))
+
+
+def _src_fps_from_mpv_container() -> tuple[int, int] | None:
+    """``container_fps`` global mpv injects into the script (header metadata)."""
+    try:
+        cf = float(container_fps)
+    except NameError:
+        return None
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(cf) or cf <= 0.0:
+        return None
+    return _src_fps_tuple_from_decimal_str(f"{cf:.6f}")
+
+
+def _tag_source_fps(clip: vs.VideoNode, num: int, den: int) -> vs.VideoNode:
+    if clip.fps_num > 0 and clip.fps_den > 0 and _fps_pair_close(
+        (clip.fps_num, clip.fps_den), (num, den)
+    ):
+        return clip
+    return core.std.AssumeFPS(clip, fpsnum=num, fpsden=den)
 
 
 def _int_frame_prop(props, *keys: str) -> int | None:
@@ -431,20 +487,27 @@ core.max_cache_size = 4096
 
 clip = video_in
 spd_frac = _speed_frac_from_env()
-# Prefer ``RHINO_SOURCE_FPS`` when Rhino sets it; else ``video_in``, then CFR frame props (props-first mis-tags telecine).
+# Prefer ``RHINO_SOURCE_FPS``, then mpv ``container_fps``, else CFR frame props only when unset
+# (props-first mis-tags telecine / display cadence — see feature 26 Notes).
 fps_origin = "video_in"
 fb_env = _src_fps_from_env()
+fb_container = _src_fps_from_mpv_container()
+fb_props = _src_fps_from_frame_props(clip)
 if fb_env is not None:
     src_num, src_den = fb_env
     fps_origin = "RHINO_SOURCE_FPS"
+elif fb_container is not None:
+    src_num, src_den = fb_container
+    fps_origin = "container_fps"
+elif fb_props is not None:
+    src_num, src_den = fb_props
+    fps_origin = "frame_props(CFR)"
 else:
     src_num = clip.fps_num
     src_den = clip.fps_den
     if src_num <= 0 or src_den <= 0:
-        fb = _src_fps_from_frame_props(clip)
-        if fb is not None:
-            src_num, src_den = fb
-            fps_origin = "frame_props(CFR)"
+        src_num, src_den = 0, 0
+src_num, src_den = _snap_broadcast_rational(src_num, src_den)
 _banner = (
     f"[rhino_60_mvtools] source fps_num={src_num} fps_den={src_den} "
     f"(origin={fps_origin}) speed={spd_frac} ({float(spd_frac):.3f})"
@@ -461,7 +524,7 @@ if src_num <= 0 or src_den <= 0 or _as_float(src_num, src_den) <= 0:
     clip.set_output()
 else:
     _stderr_banner_once_per_rhino_attach(_banner)
-    clip = core.std.AssumeFPS(clip, fpsnum=src_num, fpsden=src_den)
+    clip = _tag_source_fps(clip, src_num, src_den)
     base_src = Fraction(src_num, src_den)
     # Passthrough mvtools only when (source fps × speed) is **already** ≥ 60/1 in **rational** math.
     # Do **not** use `float` + ε here: common tags like 60000/1001 (≈59.94) plus 0.2 hit ≥60 and
@@ -476,7 +539,7 @@ else:
             work = clip
         else:
             sn, sd = _mul_src_fps_rational(src_num, src_den, spd_frac)
-            work = core.std.AssumeFPS(clip, fpsnum=sn, fpsden=sd)
+            work = _tag_source_fps(clip, sn, sd)
         _decode_w = work.width
         _decode_h = work.height
         _decode_px = _decode_w * _decode_h
