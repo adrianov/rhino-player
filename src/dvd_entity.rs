@@ -22,6 +22,15 @@ pub(crate) fn vob_title_id(path: &Path) -> Option<u32> {
     rest.split('_').next()?.parse().ok()
 }
 
+/// On-disk chapter `.vob` large enough for real A/V (not a tiny menu stub file).
+pub(crate) const SUBSTANTIAL_CHAPTER_VOB_BYTES: u64 = 100_000_000;
+
+pub(crate) fn chapter_vob_substantial_on_disk(path: &Path) -> bool {
+    path.metadata()
+        .ok()
+        .is_some_and(|m| m.len() >= SUBSTANTIAL_CHAPTER_VOB_BYTES)
+}
+
 fn is_playable_chapter_vob(path: &Path) -> bool {
     crate::video_ext::is_dvd_vob_path(path) && vob_part_id(path).is_some_and(|n| n >= 1)
 }
@@ -37,48 +46,15 @@ pub(crate) fn video_ts_for_vob(current: &Path) -> Option<PathBuf> {
     parent.is_dir().then(|| parent.to_path_buf())
 }
 
-/// All feature chapter `.vob` files on the disc (`VTS_02_1` … `VTS_03_N`, …). Skips menu
-/// `VTS_01_*` when any `VTS_02+` set exists (same rule as main-title pick).
-pub(crate) fn list_feature_vobs(current: &Path) -> Vec<PathBuf> {
-    let Some(parent) = current.parent() else {
-        return Vec::new();
-    };
-    let vts = video_ts_for_vob(current).unwrap_or_else(|| parent.to_path_buf());
-    let Ok(read) = std::fs::read_dir(&vts) else {
-        return Vec::new();
-    };
-    let playable: Vec<PathBuf> = read
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| is_playable_chapter_vob(p))
-        .collect();
-    let skip_menu = playable
-        .iter()
-        .filter_map(|p| vob_title_id(p))
-        .any(|t| t >= 2);
-    let mut v: Vec<PathBuf> = playable
-        .into_iter()
-        .filter(|p| {
-            let Some(tid) = vob_title_id(p) else {
-                return false;
-            };
-            !skip_menu || tid >= 2
-        })
-        .collect();
-    v.sort_by(|a, b| {
-        lexical_sort::natural_lexical_cmp(
-            a.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-            b.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-        )
-    });
-    v
+/// Sorted chapter `.vob` files for one title set (`VTS_XX`, part ≥ 1).
+pub(crate) fn chapter_vobs_for_title_pub(vts_dir: &Path, title_id: u32) -> Vec<PathBuf> {
+    chapter_vobs_for_title(vts_dir, title_id)
 }
 
-/// First on-disk chapter `.vob` for a title set (`part` 1 if present).
-pub(crate) fn first_chapter_vob(vts: &Path, title_id: u32) -> Option<PathBuf> {
-    let vts_dir = video_ts_for_vob(vts)?;
-    let Ok(read) = std::fs::read_dir(&vts_dir) else {
-        return None;
+/// Sorted chapter `.vob` files for one title set (`VTS_XX`, part ≥ 1).
+fn chapter_vobs_for_title(vts_dir: &Path, title_id: u32) -> Vec<PathBuf> {
+    let Ok(read) = std::fs::read_dir(vts_dir) else {
+        return Vec::new();
     };
     let mut v: Vec<PathBuf> = read
         .flatten()
@@ -92,16 +68,35 @@ pub(crate) fn first_chapter_vob(vts: &Path, title_id: u32) -> Option<PathBuf> {
             b.file_name().and_then(|n| n.to_str()).unwrap_or(""),
         )
     });
-    v.into_iter().next()
+    v
 }
 
-/// All chapter paths for the same title as `path`.
+include!("dvd_entity_timeline_queue.rs");
+
+/// All feature chapter `.vob` files on the unified disc timeline (test helper).
+#[cfg(test)]
+pub(crate) fn list_feature_vobs(current: &Path) -> Vec<PathBuf> {
+    timeline_chapter_paths(current).unwrap_or_default()
+}
+
+/// First on-disk chapter `.vob` for a title set (`part` 1 if present).
+pub(crate) fn first_chapter_vob(vts: &Path, title_id: u32) -> Option<PathBuf> {
+    let vts_dir = video_ts_for_vob(vts)?;
+    let vobs = chapter_vobs_for_title(&vts_dir, title_id);
+    let first = vobs.first()?;
+    crate::dvd_ifo_parse::first_substantial_vob(first)
+        .or_else(|| vobs.into_iter().next())
+}
+
+/// All chapter paths for the same title set as `path` (`VTS_XX_*` only).
 pub(crate) fn title_chapter_paths(path: &Path) -> Option<Vec<PathBuf>> {
     if !crate::video_ext::is_dvd_vob_path(path) {
         return None;
     }
-    let vobs = list_feature_vobs(path);
-    (!vobs.is_empty()).then_some(vobs)
+    let title_id = vob_title_id(path)?;
+    let vts_dir = video_ts_for_vob(path)?;
+    let v = chapter_vobs_for_title(&vts_dir, title_id);
+    (!v.is_empty()).then_some(v)
 }
 
 /// First chapter `.vob` used to build a title timeline from a disc folder or chapter path.
@@ -122,7 +117,7 @@ pub(crate) fn title_playback_entity(path: &Path) -> Option<(PathBuf, Vec<PathBuf
     } else {
         return None;
     };
-    let chapters = title_chapter_paths(&chapter_probe)?;
+    let chapters = timeline_chapter_paths(&chapter_probe)?;
     let disc = crate::video_ext::dvd_disc_root(&chapter_probe)?;
     let db_key = std::fs::canonicalize(&disc).ok().unwrap_or(disc);
     Some((db_key, chapters))
@@ -139,7 +134,7 @@ pub(crate) fn title_entity_path(path: &Path) -> Option<PathBuf> {
 /// Drop legacy per-chapter `.vob` `media` rows after consolidating onto the title entity.
 pub(crate) fn purge_chapter_media_rows(entity: &Path) {
     let Some((disc_key, chapters)) = title_playback_entity(entity).or_else(|| {
-        let chapters = title_chapter_paths(entity)?;
+        let chapters = timeline_chapter_paths(entity)?;
         Some((crate::playback_entity::db_path_for(entity), chapters))
     }) else {
         return;
@@ -166,6 +161,7 @@ pub(crate) fn purge_chapter_media_rows(entity: &Path) {
 }
 
 include!("dvd_entity_timeline.rs");
+include!("dvd_entity_sanitize.rs");
 
 #[cfg(test)]
 mod tests {
@@ -239,7 +235,7 @@ mod tests {
             200.0,
         );
         durs.insert(p3.to_string_lossy().into_owned(), 300.0);
-        let still = still_target_from_global(&p1, 350.0, &durs).expect("still");
+        let still = still_at_global(&p1, 350.0, &durs, None, None).expect("still");
         assert!(crate::video_ext::paths_same_file(&still.load, &p3));
         assert!((still.local_sec - 50.0).abs() < 1e-6, "local={}", still.local_sec);
         let _ = fs::remove_dir_all(&base);
@@ -260,6 +256,21 @@ mod tests {
         let entity_k = crate::db::history_key(&entity).expect("entity");
         assert_ne!(exact, entity_k);
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn fritt_first_chapter_opens_vts01_splash() {
+        let disc = std::path::Path::new("/Volumes/SanDisk/Torrents/Fritt.vilt.2006.DVD9");
+        let vts = disc.join("VIDEO_TS");
+        if !vts.is_dir() {
+            return;
+        }
+        let pick = first_chapter_vob(&vts, 1).expect("first chapter");
+        assert_eq!(
+            pick.file_name().and_then(|n| n.to_str()),
+            Some("VTS_01_1.VOB"),
+            "full-size VTS_01_1 holds splash even when IFO cell is ~1 s"
+        );
     }
 
     #[test]
