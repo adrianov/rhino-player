@@ -105,28 +105,32 @@ fn run_libmpv_image_frame(
 
 include!("thumb_vo_image.rs");
 
-fn first_image_in(dir: &Path) -> Option<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| is_thumb_file(p))
-        .collect();
-    v.sort();
-    v.into_iter().next()
+fn images_in(dir: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(dir)
+        .ok()
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| is_thumb_file(p))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
-/// First frame file from [vo=image] (``jpg`` default, or ``png`` / ``jpeg``).
+/// Latest [vo=image] still (chain-head seek may write a menu frame before the target frame).
 fn pick_vo_out(dir: &Path) -> Option<PathBuf> {
-    first_image_in(dir).or_else(|| {
-        for name in ["00000001.jpg", "00000001.jpeg", "00000001.png"] {
-            let p = dir.join(name);
-            if p.is_file() {
-                return Some(p);
-            }
+    let mut v = images_in(dir);
+    v.sort();
+    if let Some(p) = v.into_iter().last() {
+        return Some(p);
+    }
+    for name in ["00000001.jpg", "00000001.jpeg", "00000001.png"] {
+        let p = dir.join(name);
+        if p.is_file() {
+            return Some(p);
         }
-        None
-    })
+    }
+    None
 }
 
 /// Turn mpv [path] / [filename] into a local [PathBuf]. Rejects `http(s)://` etc. Accepts `file://`.
@@ -218,8 +222,12 @@ pub(crate) fn local_file_from_mpv(mpv: &Mpv) -> Option<PathBuf> {
 /// Store `duration` and `time-pos` in [crate::db] for the open item. Use before switching
 /// media or on close so the recent grid can show %. Pass [shell_media_path]'s `shell` when mpv
 /// reports `bd://` (Blu-ray) instead of a filesystem path.
-pub fn record_playback_for_current(mpv: &Mpv, shell: Option<&std::path::Path>) {
-    crate::playback_entity::persist_from_mpv(mpv, shell);
+pub fn record_playback_for_current(
+    mpv: &Mpv,
+    shell: Option<&std::path::Path>,
+    transport_bar: Option<(f64, f64)>,
+) {
+    crate::playback_entity::persist_from_mpv(mpv, shell, transport_bar);
 }
 
 fn card_one(path: &Path, durs: &HashMap<String, f64>, tpos: &HashMap<String, f64>) -> CardData {

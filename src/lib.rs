@@ -44,6 +44,7 @@ mod mpv_embed;
 mod paths;
 mod playback_entity;
 mod playback_speed;
+mod preview_debug;
 mod recent_view;
 mod screen_blackout;
 pub mod sched;

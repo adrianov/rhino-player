@@ -55,8 +55,11 @@ pub fn connect(
             return;
         }
         match MpvPreviewGl::new(a) {
-            Ok(p) => *pr_realize.borrow_mut() = Some(p),
-            Err(e) => eprintln!("[rhino] seek preview GL/mpv: {e}"),
+            Ok(p) => {
+                crate::preview_debug::info("GLArea realised, preview mpv ready");
+                *pr_realize.borrow_mut() = Some(p);
+            }
+            Err(e) => crate::preview_debug::warn(format!("GL/mpv init failed: {e}")),
         }
     });
     let pr_unrealize = Rc::clone(&preview);
@@ -87,6 +90,7 @@ pub fn connect(
         serial: Rc::new(Cell::new(0)),
         loaded_path: Rc::new(RefCell::new(None)),
         loaded_target: Rc::new(RefCell::new(None)),
+        preview_owner_db: Rc::new(RefCell::new(None)),
         enabled,
         seek: seek.clone(),
         seek_adj: seek_adj.clone(),
@@ -114,21 +118,31 @@ pub fn connect(
 
             let bar_d = st.seek_adj.upper();
             if bar_d <= 0.0 {
+                crate::preview_debug::warn(format!("motion: bar upper={bar_d} — hide"));
                 st.hide();
                 return;
             }
             let t = {
                 let main = st.player.borrow();
+                let shell = main
+                    .as_ref()
+                    .and_then(|b| b.me_budget_shell_path.borrow().clone());
                 let preview = st.preview.borrow();
                 seek_bar_label_time(
                     bar_d,
                     st.seek.width(),
                     x,
                     main.as_ref().map(|b| &b.mpv),
+                    shell.as_deref(),
                     preview.as_ref().map(|p| &p.mpv),
+                    Some(&st.dvd_bar),
                 )
             };
             let Some(t) = t else {
+                crate::preview_debug::warn(format!(
+                    "motion: no hover time bar={bar_d:.2} w={}",
+                    st.seek.width()
+                ));
                 st.hide();
                 return;
             };
@@ -146,20 +160,21 @@ pub fn connect(
             }
 
             if !st.enabled.get() {
+                crate::preview_debug::info("motion: preview off in prefs — labels only");
                 return;
             }
 
             set_preview_size(&st);
 
             if preview_open_path(&st.player, &st.last_path).is_none() {
+                crate::preview_debug::warn("motion: open target not ready — hide");
                 st.hide();
                 return;
             }
 
             st.show_at(x);
-            crate::glib_source_drop::drop_glib_source(st.deb.as_ref());
             crate::glib_source_drop::drop_glib_source(st.pump.as_ref());
-            schedule_preview_seek(Rc::clone(&st));
+            arm_preview_debounce(Rc::clone(&st));
         }
     ));
 
@@ -173,10 +188,13 @@ pub fn connect(
             *st.last_xy.borrow_mut() = None;
             *st.loaded_target.borrow_mut() = None;
             *st.loaded_path.borrow_mut() = None;
+            *st.preview_owner_db.borrow_mut() = None;
+            st.clear_preview_visual();
             st.hide();
         }
     ));
 
     seek.add_controller(mot);
+    register(Rc::clone(&st));
     st
 }

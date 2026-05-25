@@ -50,6 +50,16 @@ pub fn continue_grid_cache_lookup(cache: &ContinueGridCache, path: &Path) -> Opt
     cache.borrow().get(&key).copied()
 }
 
+/// Register the live continue-grid cache so seek / transport persist can refresh browse snaps.
+pub fn continue_grid_cache_attach(cache: ContinueGridCache) {
+    continue_grid_cache_hook::attach(cache);
+}
+
+/// Keep browse-overlay snap in sync after a live seek / transport persist (avoids stale rewind).
+pub fn continue_grid_cache_note_playback(entity: &Path, resume_sec: f64, duration_sec: f64) {
+    continue_grid_cache_hook::note(entity, resume_sec, duration_sec);
+}
+
 /// Data for one recent-movie card.
 pub struct CardData {
     pub path: PathBuf,
@@ -178,16 +188,15 @@ fn grid_thumb_target(entity: &Path) -> Option<GridThumbTarget> {
     let cache_time = grid_thumb_cache_time(resume, duration);
     let open_hint = crate::video_ext::resolve_open_media_path(entity);
     if pe.has_unified_timeline() {
-        let still =
-            crate::dvd_entity::still_target_from_global(&open_hint, cache_time, &durs)?;
+        let probe = crate::dvd_entity::timeline_chapter_probe(&open_hint)
+            .unwrap_or_else(|| open_hint.clone());
+        let still = pe.still_at_global(&probe, cache_time, &durs, None, None)?;
         let load = std::fs::canonicalize(&still.load).ok()?;
-        let cap = if still.chapter_dur > 0.0 {
-            still.chapter_dur
+        let seek_sec = if still.local_sec < 0.5 && still.chapter_dur > GRID_FALLBACK_SEC {
+            GRID_FALLBACK_SEC
         } else {
-            still.local_sec + 1.0
+            still.local_sec
         };
-        let seek_sec =
-            crate::seek_bar_preview::cap_preview_seek_time(still.local_sec, cap);
         crate::dvd_vob_log::dvd_seek_log(format!(
             "grid_thumb global={cache_time:.2} -> {} local={seek_sec:.2} ch_dur={:.2}",
             load.display(),

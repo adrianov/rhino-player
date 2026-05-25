@@ -17,3 +17,4 @@ include!("seek_bar_preview/preview_media_load.rs");
 include!("seek_bar_preview/state_and_vo_pump.rs");
 include!("seek_bar_preview/connect_preview_seek.rs");
 include!("seek_bar_preview/connect_popover_wiring.rs");
+include!("seek_bar_preview/reset_on_media.rs");
