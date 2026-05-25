@@ -1,0 +1,40 @@
+---
+description: Fix all compiler and Clippy warnings before finishing a change — no new allows or ignored dead code.
+alwaysApply: true
+---
+
+# Fix compilation warnings
+
+**Policy:** Every change must leave the tree **warning-free**. Do not finish a task while `cargo build`, `cargo test --lib`, or **`cargo qcheck`** still report warnings you introduced or exposed.
+
+## What to run
+
+1. **`cargo qcheck`** — Clippy on all targets/features (project alias; see `.cargo/config.toml`).
+2. **`cargo build`** and/or **`cargo test --lib`** when you touched code paths Clippy does not cover or when the user reported **rustc** warnings (`unused_imports`, `dead_code`, `unused_variables`, …).
+
+Treat **warnings like errors** for work you ship in the same turn.
+
+## How to fix (prefer real fixes)
+
+| Warning | Fix |
+|---------|-----|
+| **`unused_imports`** | Remove the import; or use the item; do not re-export unused public names. |
+| **`dead_code`** / unused fn | Delete if truly obsolete; **`#[cfg(test)]`** if only tests need it; wire it through production if it should exist. |
+| **`unused_variables`** | Remove, prefix with `_` only when intentionally ignored, or use the value. |
+| **Clippy** | Refactor per [clippy-no-suppress.mdc](clippy-no-suppress.mdc) — no new **`#[allow(…)]`**. |
+
+## Do not
+
+- Add **`#[allow(dead_code)]`**, **`#[allow(unused)]`**, or broad **`#![allow(…)]`** to silence new warnings.
+- Leave “harmless” warnings for a follow-up when you can fix them in the same change.
+- Export types or functions “for later” that nothing uses.
+
+## Rare exceptions
+
+Local, commented **`#[allow(…)]`** only when rustc/Clippy cannot be satisfied otherwise (e.g. **`include!`** glue). Document **why** in the comment. Existing legacy allows are debt — remove when you touch that code.
+
+## Before ending the turn
+
+- [ ] `cargo qcheck` — no new Clippy warnings.
+- [ ] `cargo build` / `cargo test --lib` — no new rustc warnings from your edits.
+- [ ] No new warning suppressions unless the rare-exception case above applies.

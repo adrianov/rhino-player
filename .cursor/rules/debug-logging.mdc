@@ -1,0 +1,57 @@
+---
+description: Add always-on diagnostic logs when debugging bugs — no env var required for failure paths.
+alwaysApply: true
+---
+
+# Debug logging when investigating bugs
+
+**Policy:** When a user reports hard-to-reproduce behavior (black UI, stale state, wrong timing, platform-specific glitches), **add targeted diagnostic logs in the same workstream** — do not ask the user to set env vars just to see why something failed.
+
+## Default: always-on failure logs
+
+Log to **`stderr`** with the existing **`[rhino]`** prefix and a short area tag (e.g. **`[rhino] preview:`**, **`[rhino] dvd:`**).
+
+**Always print (no env var)** for:
+
+- Early returns that explain missing UI or wrong behavior (`no plan`, `not ready`, `timeout`, `loadfile`/`seek`/`render` failure)
+- Unexpected `None` / error branches the user would hit in normal use
+- State transitions that invalidate caches (media change, entity switch, reset)
+
+Use one line per event; include **observable inputs and outcomes** (paths, seconds, flags, mpv property snapshots when relevant).
+
+```rust
+// ✅ GOOD — visible on plain `cargo run`
+eprintln!("[rhino] preview: pump timeout vo=false path={path}");
+
+// ❌ BAD — user must discover RHINO_FOO=1
+if std::env::var_os("RHINO_FOO").is_some() {
+    eprintln!("...");
+}
+```
+
+## Optional verbose trace
+
+Env-gated **`log()`** is fine for high-volume per-tick/per-frame spam. Put it behind **`RHINO_<AREA>_DEBUG=1`** (or reuse an existing flag) **only after** always-on failure lines exist.
+
+Pattern: small helper module per area (`preview_debug.rs`, `dvd_vob_log.rs`, `shell_debug_log.rs`) with:
+
+- **`info(msg)`** / **`warn(msg)`** — always printed on plain `cargo run` (lifecycle + failures)
+- **`log(msg)`** — verbose, env-gated only (`RHINO_<AREA>_DEBUG=1`)
+
+## While debugging vs after the fix
+
+- **During investigation:** add logs at decision points on the reported path; user runs **`cargo run`** and pastes `[rhino] …` lines.
+- **After the root cause is fixed:** keep **always-on failure** logs that remain cheap and actionable; remove or env-gate noisy success/trace lines added only for the investigation.
+- Document env-gated verbose flags in the feature **`## Notes`** when they exist.
+
+## Do not
+
+- Rely on env-only logging as the **only** signal for failures the user already sees.
+- Log secrets, full file contents, or huge per-frame dumps without gating.
+- Leave `println!` in library paths — use **`eprintln!`** or the area helper.
+
+## Agent checklist (bug-fix / “still broken” turns)
+
+- [ ] Failure paths on the reported scenario emit **`[rhino]`** lines on plain **`cargo run`**.
+- [ ] Logs name **what was tried** and **why it stopped** (not just “error”).
+- [ ] Verbose trace is optional; user can paste always-on lines without extra setup.
