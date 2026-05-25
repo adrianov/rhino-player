@@ -8,6 +8,8 @@
 use gtk::gdk::prelude::ToplevelExt;
 use gtk::prelude::NativeExt;
 
+include!("dvd_transport_periodic_log.rs");
+
 /// **`smooth_budget`** uses presentation strain; GTK / compositors mis-read it when unfocused,
 /// minimized, or unmapped. Skip **both** ladders until the playback shell suits pacing again.
 #[must_use]
@@ -148,6 +150,7 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     }
     mpris_enqueue_snapshot(ctx);
     ctx.blackout.sync();
+    maybe_dvd_transport_periodic_log(ctx, pos, dur);
 }
 
 fn browse_pause_snap(
@@ -186,25 +189,48 @@ fn read_transport_state(ctx: &TransportCtx) -> Option<(bool, bool, f64, f64)> {
     let b = g.as_mut()?;
     let pause = b.mpv.get_property::<bool>("pause").unwrap_or(false);
     let core_idle = b.mpv.get_property::<bool>("core-idle").unwrap_or(false);
-    let dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
-    let dur = if dur.is_finite() { dur.max(0.0) } else { 0.0 };
+    let mut dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
+    dur = if dur.is_finite() { dur.max(0.0) } else { 0.0 };
     let mut pos = b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
     pos = if pos.is_finite() { pos.max(0.0) } else { 0.0 };
     let shell = b.me_budget_shell_path.borrow().clone();
-    let chapter = crate::playback_entity::transport_chapter_path(
+    let browse_chapter = crate::playback_entity::transport_chapter_path(
         ctx.recent_visible.get(),
         ctx.eof.last_path.borrow().clone(),
         Some(&b.mpv),
         shell.as_deref(),
     );
-    let (mut pos, mut dur, pos_from_entity_snap) = browse_pause_snap(ctx, &chapter, pause, pos, dur);
-    if let Some(ch) = chapter {
-        let entity = crate::playback_entity::PlaybackEntity::resolve(&ch);
+    let playback_chapter = crate::playback_entity::transport_chapter_path(
+        false,
+        None,
+        Some(&b.mpv),
+        shell.as_deref(),
+    );
+    let (mut pos, mut dur, pos_from_entity_snap) =
+        browse_pause_snap(ctx, &browse_chapter, pause, pos, dur);
+    let bar_chapter = playback_chapter.as_ref().or(browse_chapter.as_ref());
+    if let Some(ch) = bar_chapter {
+        let entity = crate::playback_entity::PlaybackEntity::resolve(ch);
+        if entity.has_unified_timeline() {
+            dur = crate::dvd_vob_timeline::clamp_vob_duration(dur);
+        }
         let bar = ctx.dvd_bar.borrow();
         if pos_from_entity_snap {
-            dur = entity.transport_bar(&ch, pos, dur, bar.as_ref(), Some(b)).0;
-        } else {
-            (dur, pos) = entity.transport_bar(&ch, pos, dur, bar.as_ref(), Some(b));
+            if let (Some(pb), Some(bar)) = (playback_chapter.as_ref(), bar.as_ref()) {
+                if entity.dvd_bar_active(pb, bar) {
+                    dur = bar.total_sec();
+                }
+            }
+        } else if let Some(pb) = playback_chapter.as_ref().or(browse_chapter.as_ref()) {
+            (dur, pos) = entity.transport_bar(pb, pos, dur, bar.as_ref(), Some(b));
+        }
+        let browse_overlay = ctx.recent_visible.get() && !ctx.eof.playback_focus.get();
+        if entity.has_unified_timeline()
+            && dur > 0.0
+            && !pos_from_entity_snap
+            && !browse_overlay
+        {
+            b.set_transport_bar_persist(dur, pos);
         }
     }
     Some((pause, core_idle, dur, pos))

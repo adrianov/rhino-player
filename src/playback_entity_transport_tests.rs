@@ -27,13 +27,13 @@ fn transport_bar_ignores_dvd_bar_for_single_file() {
     );
     let bar = crate::dvd_vob_timeline::DvdBarState::build_with_map(&p1, 100.0, &map).expect("bar");
     let file_ent = PlaybackEntity::resolve(&mkv);
-    assert!(!file_ent.has_unified_timeline());
+    assert!(!file_ent.uses_dvd_bar_cache());
     assert_eq!(
         file_ent.transport_bar(&mkv, 12.0, 3600.0, Some(&bar), None),
         (3600.0, 12.0)
     );
     let dvd_ent = PlaybackEntity::resolve(&p1);
-    assert!(dvd_ent.has_unified_timeline());
+    assert!(dvd_ent.uses_dvd_bar_cache());
     assert_eq!(dvd_ent.transport_duration_from_bar(&p1, &bar), Some(300.0));
     let _ = fs::remove_dir_all(&base);
     let _ = fs::remove_dir_all(&mkv_base);
@@ -46,6 +46,6 @@ fn unified_timeline_chapter_requires_title_entity() {
     fs::create_dir_all(&base).expect("mkdir");
     let mkv = base.join("clip.mkv");
     fs::write(&mkv, b"x").expect("mkv");
-    assert!(!PlaybackEntity::resolve(&mkv).has_unified_timeline());
+    assert!(!PlaybackEntity::resolve(&mkv).uses_dvd_bar_cache());
     let _ = fs::remove_dir_all(&base);
 }

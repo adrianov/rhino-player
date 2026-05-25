@@ -193,6 +193,12 @@ fn dispatch_file_loaded(ctx: &Rc<TransportCtx>) {
         .borrow()
         .as_ref()
         .is_some_and(|b| b.take_chapter_eof_load());
+    if transport_chapter_path_for_ctx(ctx).is_none_or(|p| {
+        !crate::playback_entity::PlaybackEntity::resolve(&p).uses_dvd_bar_cache()
+    }) {
+        *ctx.dvd_bar.borrow_mut() = None;
+        sync_seek_chapters(ctx);
+    }
     if !chapter_eof {
         // Invalidate bundled ME budget fast-path (`vf_smooth_matches_prefs`) so **`apply_mpv_video`**
         // reinstalls vapoursynth: a warm VapourSynth interpreter reused across **`loadfile`** does not adopt
@@ -236,7 +242,8 @@ fn dispatch_file_loaded(ctx: &Rc<TransportCtx>) {
             schedule_chapter_scrub_resume_retries(ctx);
         }
     }
-    refresh_dvd_bar_cache(ctx);
+    let ctx_bar = Rc::clone(ctx);
+    glib::idle_add_local_once(move || refresh_dvd_bar_cache(&ctx_bar));
     sync_window_title_from_context(ctx);
     ctx.eof.sibling_seof.done.set(false);
     sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);

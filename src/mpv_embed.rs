@@ -19,6 +19,8 @@ include!("mpv_embed/mpv_bundle_macos_vf_macro.rs");
 include!("mpv_embed/linux_egl_helpers.rs");
 include!("mpv_embed/main_bundle_egl_render.rs");
 mod resume_seek;
+pub(crate) use resume_seek::seek_chain_ifo_local;
 include!("mpv_embed/mpv_persistence.rs");
+include!("mpv_embed/mpv_pending_resume.rs");
 include!("mpv_embed/mpv_chapter_scrub.rs");
 include!("mpv_embed/preview_gl_set_tracks.rs");

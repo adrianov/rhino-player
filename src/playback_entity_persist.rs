@@ -27,11 +27,21 @@ pub fn persist_playback(
     if !total.is_finite() || total <= 0.0 {
         return;
     }
-    crate::db::set_playback(&ent.db_path(), total, global);
+    if ent.has_unified_timeline() {
+        ent.save_global_resume(total, global);
+    } else {
+        crate::db::set_playback(&ent.db_path(), total, global);
+        ent.purge_extra_db_rows();
+        crate::media_probe::continue_grid_cache_note_playback(&ent.db_path(), global, total);
+    }
 }
 
 /// Snapshot mpv transport into the entity row (unified timeline for multi-part DVDs).
-pub fn persist_from_mpv(mpv: &Mpv, shell: Option<&Path>) {
+pub fn persist_from_mpv(
+    mpv: &Mpv,
+    shell: Option<&Path>,
+    transport_bar: Option<(f64, f64)>,
+) {
     let Some(playing) = media_probe::shell_media_path(mpv, shell) else {
         return;
     };
@@ -42,28 +52,44 @@ pub fn persist_from_mpv(mpv: &Mpv, shell: Option<&Path>) {
         return;
     }
     let map = crate::db::load_duration_map();
-    let dur = mpv
-        .get_property::<f64>("duration")
-        .ok()
-        .filter(|d| d.is_finite() && *d > 0.0);
-    let pos = mpv
-        .get_property::<f64>("time-pos")
-        .ok()
-        .filter(|p| p.is_finite() && *p >= 0.0);
-    match (dur, pos) {
-        (Some(dur), Some(pos)) => persist_playback(&playing, pos, dur, &map),
-        (Some(dur), None) => {
-            let (total, _) = ent.playback_snapshot(&playing, 0.0, dur, &map);
-            if total.is_finite() && total > 0.0 {
-                crate::db::set_duration(&ent.db_path(), total);
-                ent.purge_extra_db_rows();
-            }
+    if let Some((total, global)) = transport_bar.filter(|_| ent.has_unified_timeline()) {
+        if total.is_finite() && total > 0.0 && global.is_finite() {
+            ent.save_global_resume(total, global);
         }
-        _ => {}
+    } else if !ent.has_unified_timeline() {
+        let dur = mpv
+            .get_property::<f64>("duration")
+            .ok()
+            .filter(|d| d.is_finite() && *d > 0.0);
+        let pos = mpv
+            .get_property::<f64>("time-pos")
+            .ok()
+            .filter(|p| p.is_finite() && *p >= 0.0);
+        match (dur, pos) {
+            (Some(dur), Some(pos)) => persist_playback(&playing, pos, dur, &map),
+            (Some(dur), None) => {
+                let (total, _) = ent.playback_snapshot(&playing, 0.0, dur, &map);
+                if total.is_finite() && total > 0.0 {
+                    crate::db::set_duration(&ent.db_path(), total);
+                    ent.purge_extra_db_rows();
+                }
+            }
+            _ => {}
+        }
     }
     if at_tail && ent.has_unified_timeline() {
+        let dur = mpv
+            .get_property::<f64>("duration")
+            .ok()
+            .filter(|d| d.is_finite() && *d > 0.0);
+        let pos = mpv
+            .get_property::<f64>("time-pos")
+            .ok()
+            .filter(|p| p.is_finite() && *p >= 0.0);
         if let (Some(dur), Some(pos)) = (dur, pos) {
-            let (total, global) = ent.playback_snapshot(&playing, pos, dur, &map);
+            let (total, global) = transport_bar
+                .filter(|_| ent.has_unified_timeline())
+                .unwrap_or_else(|| ent.playback_snapshot(&playing, pos, dur, &map));
             if total > 5.0 && global >= total - NEAR_END_SEC {
                 clear_entity_resume(&playing);
             }

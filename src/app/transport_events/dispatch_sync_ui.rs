@@ -96,12 +96,15 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             ctx.blackout.sync();
         }
         TransportEv::Duration(d) => {
-            let d = if d.is_finite() { d } else { 0.0 };
+            let mut d = if d.is_finite() { d } else { 0.0 };
             if d > 0.0 {
                 maybe_refresh_dvd_bar_cache(ctx);
                 if !ctx.recent_visible.get() {
                     try_apply_pending_resume(ctx);
                 }
+            }
+            if transport_chapter_path_for_ctx(ctx).is_some() {
+                d = crate::dvd_vob_timeline::clamp_vob_duration(d);
             }
             let bar_d = dvd_bar_duration(ctx).unwrap_or(d);
             ctx.cache.borrow_mut().duration = bar_d;

@@ -31,40 +31,152 @@ pub(crate) fn may_persist_media_rows(&self) -> bool {
     !self.skip_media_persist.get()
 }
 
-/// End playback; call after the SQLite snapshot. Safe to skip before process exit.
-pub fn stop_playback(&self) {
-    *self.me_budget_shell_path.borrow_mut() = None;
-    let _ = self.mpv.command("stop", &[]);
+/// Remember title-wide bar position for SQLite entity rows (chain-head mpv coords are not global).
+pub(crate) fn set_transport_bar_persist(&self, total: f64, global: f64) {
+    if total.is_finite() && total > 0.0 && global.is_finite() && global >= 0.0 {
+        self.transport_bar_total.set(Some(total));
+        self.transport_bar_global.set(Some(global));
+    }
+}
+
+pub(crate) fn clear_transport_bar_persist(&self) {
+    self.transport_bar_total.set(None);
+    self.transport_bar_global.set(None);
+}
+
+/// Write title-wide bar position into the entity SQLite row (continue grid / resume).
+pub(crate) fn persist_entity_bar_global(&self, total: f64, global: f64) {
+    self.set_transport_bar_persist(total, global);
+    self.write_entity_playback(total, global);
+}
+
+fn entity_title_total_sec(&self) -> Option<f64> {
+    let shell = self.me_budget_shell_path.borrow().clone()?;
+    let entity = crate::playback_entity::PlaybackEntity::resolve(&shell);
+    let key = entity.db_path();
+    let map = crate::db::load_duration_map();
+    key.to_str()
+        .and_then(|k| map.get(k).copied())
+        .filter(|d| d.is_finite() && *d > 0.0)
+}
+
+fn entity_bar_snapshot_now(
+    &self,
+    bar: Option<&crate::dvd_vob_timeline::DvdBarState>,
+) -> Option<(f64, f64)> {
+    if let Some(pair) = self.transport_persist_pair() {
+        return Some(pair);
+    }
+    if let Some(h) = self.dvd_hold_global.get() {
+        let total = bar
+            .map(crate::dvd_vob_timeline::DvdBarState::total_sec)
+            .filter(|t| *t > 0.0)
+            .or_else(|| self.entity_title_total_sec())?;
+        return Some((total, h));
+    }
+    let shell = self.me_budget_shell_path.borrow().clone();
+    let chapter = media_probe::shell_media_path(&self.mpv, shell.as_deref())?;
+    let entity = crate::playback_entity::PlaybackEntity::resolve(&chapter);
+    if !entity.has_unified_timeline() {
+        return None;
+    }
+    let pos = self
+        .mpv
+        .get_property::<f64>("time-pos")
+        .ok()
+        .filter(|p| p.is_finite())?
+        .max(0.0);
+    let dur = self
+        .mpv
+        .get_property::<f64>("duration")
+        .ok()
+        .filter(|d| d.is_finite())?
+        .max(0.0);
+    Some(entity.transport_bar(&chapter, pos, dur, bar, Some(self)))
+}
+
+fn write_entity_playback(&self, total: f64, global: f64) {
+    if !(total.is_finite() && total > 0.0 && global.is_finite() && global >= 0.0) {
+        return;
+    }
+    let shell = self.me_budget_shell_path.borrow().clone();
+    let Some(chapter) = media_probe::shell_media_path(&self.mpv, shell.as_deref()) else {
+        return;
+    };
+    let entity = crate::playback_entity::PlaybackEntity::resolve(&chapter);
+    if entity.has_unified_timeline() {
+        entity.save_global_resume(total, global);
+    } else {
+        crate::db::set_playback(&entity.db_path(), total, global);
+        entity.purge_extra_db_rows();
+        crate::media_probe::continue_grid_cache_note_playback(&entity.db_path(), global, total);
+    }
+    crate::dvd_vob_log::dvd_seek_log(format!(
+        "persist entity global={global:.2} total={total:.1} ({})",
+        entity.db_path().display()
+    ));
+}
+
+fn transport_persist_pair(&self) -> Option<(f64, f64)> {
+    match (
+        self.transport_bar_total.get(),
+        self.transport_bar_global.get(),
+    ) {
+        (Some(t), Some(g)) if t.is_finite() && t > 0.0 && g.is_finite() && g >= 0.0 => Some((t, g)),
+        _ => None,
+    }
 }
 
 fn snapshot_playback_inner(&self) {
-    media_probe::record_playback_for_current(&self.mpv, self.me_budget_shell_path.borrow().as_deref());
+    media_probe::record_playback_for_current(
+        &self.mpv,
+        self.me_budget_shell_path.borrow().as_deref(),
+        self.transport_persist_pair(),
+    );
 }
 
-/// Persist `duration` + `time-pos` unless [Self::skip_media_persist] (continue-grid warm hover).
-pub fn save_playback_state(&self) {
-    if self.skip_media_persist.get() {
+/// End playback; call after the SQLite snapshot. Safe to skip before process exit.
+pub fn stop_playback(&self) {
+    crate::seek_bar_preview::reset_on_main_media_change_from("stop_playback");
+    *self.me_budget_shell_path.borrow_mut() = None;
+    self.clear_transport_bar_persist();
+    let _ = self.mpv.command("stop", &[]);
+}
+
+/// Close / quit / back-from-playback: always persist the open file.
+pub fn save_playback_state_for_close(&self) {
+    self.save_playback_state_for_close_with_bar(None);
+}
+
+/// Browse-back / quit: map live mpv + DVD bar to entity-global resume before the grid reads SQLite.
+pub fn save_playback_state_for_close_with_bar(
+    &self,
+    bar: Option<&crate::dvd_vob_timeline::DvdBarState>,
+) {
+    self.set_skip_media_persist(false);
+    let Some((total, global)) = self.entity_bar_snapshot_now(bar) else {
+        self.snapshot_playback_inner();
+        return;
+    };
+    if !(total > 0.0 && global.is_finite()) {
+        self.snapshot_playback_inner();
+        return;
+    }
+    let shell = self.me_budget_shell_path.borrow().clone();
+    let unified = shell.as_ref().is_some_and(|p| {
+        crate::playback_entity::PlaybackEntity::resolve(p).has_unified_timeline()
+    });
+    if unified {
+        self.write_entity_playback(total, global);
         return;
     }
     self.snapshot_playback_inner();
 }
 
-/// Close / quit / back-from-playback: always persist the open file.
-pub fn save_playback_state_for_close(&self) {
-    self.snapshot_playback_inner();
-}
-
 /// Save SQLite resume snapshot, then stop playback. Used at process quit.
 pub fn commit_quit(&self) {
-    if !self.skip_media_persist.get() {
-        self.save_playback_state_for_close();
-    }
-    self.stop_playback();
-}
-
-/// Save outgoing resume snapshot before leaving the open file (e.g. **Back to Browse**).
-pub fn snapshot_outgoing_before_leave(&self) {
     self.save_playback_state_for_close();
+    self.stop_playback();
 }
 
 /// Save outgoing resume to SQLite, then `loadfile` the new path. The new file's resume position
@@ -90,13 +202,23 @@ pub fn load_file_path(
                 media_probe::clear_resume_for_path(&p);
             }
         } else if snapshot_outgoing && !warm_preload {
-            media_probe::record_playback_for_current(&self.mpv, shell.as_deref());
+            self.save_playback_state_for_close();
         }
     }
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let entity = crate::playback_entity::PlaybackEntity::resolve(&canonical);
+    if entity.has_unified_timeline() {
+        crate::dvd_entity::sanitize_stale_entity_playback(&canonical, 0.0);
+    }
     let db_key = entity.db_path();
-    let stored = resume_at.or_else(|| db::resume_pos(&db_key));
+    let stored = resume_at
+        .or_else(|| db::resume_pos(&db_key))
+        .or_else(|| {
+            entity
+                .has_unified_timeline()
+                .then(|| crate::dvd_ifo_parse::movie_entry_global_sec(&db_key))
+                .flatten()
+        });
     let (load_path, pending) = if let Some(global) = stored {
         let map = db::load_duration_map();
         entity
@@ -106,12 +228,25 @@ pub fn load_file_path(
     } else {
         (canonical.clone(), None)
     };
+    let prev_shell = self.me_budget_shell_path.borrow().clone();
+    if prev_shell
+        .as_ref()
+        .is_some_and(|p| crate::preview_debug::open_target_entity_changed(p, &load_path))
+    {
+        crate::seek_bar_preview::reset_on_main_media_change_from("load_file_path:entity_change");
+    }
     let s = load_path.to_str().ok_or("media path is not valid UTF-8")?;
     if warm_preload {
         self.warm_file_gen.set(self.warm_file_gen.get().wrapping_add(1));
     }
     self.clear_chapter_scrub_pause_hold();
     self.chapter_scrub_resume.set(false);
+    self.dvd_chain_bar_sync.set(None);
+    self.dvd_hold_global.set(if entity.has_unified_timeline() {
+        stored
+    } else {
+        None
+    });
     self.pending_resume.set(pending);
     self.set_me_budget_shell_path(&load_path);
     self.mpv
@@ -119,191 +254,6 @@ pub fn load_file_path(
         .map_err(|e| format!("{e:?}"))
 }
 
-/// Cross-chapter DVD seek: `loadfile` with chapter-local resume (not entity-global remap).
-pub fn load_chapter_seek(
-    &self,
-    path: &Path,
-    local_sec: f64,
-    hold_global: f64,
-    resume_playing: bool,
-    chapter_eof: bool,
-) -> Result<(), String> {
-    {
-        let shell = self.me_budget_shell_path.borrow();
-        let outgoing = media_probe::shell_media_path(&self.mpv, shell.as_deref());
-        if outgoing.is_some() {
-            media_probe::record_playback_for_current(&self.mpv, shell.as_deref());
-        }
-    }
-    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let s = canonical.to_str().ok_or("media path is not valid UTF-8")?;
-    self.dvd_hold_global.set(Some(hold_global));
-    self.chapter_eof_load.set(chapter_eof);
-    self.chapter_scrub_resume.set(true);
-    self.begin_chapter_scrub_pause_hold(resume_playing);
-    self.pending_resume.set(Some(local_sec.max(0.0)));
-    self.set_me_budget_shell_path(&canonical);
-    crate::video_pref::strip_vapoursynth_before_replace_media(self);
-    crate::dvd_vob_log::dvd_seek_log(format!(
-        "load_chapter_seek file={} local={local_sec:.2} hold_global={hold_global:.2}",
-        canonical.display()
-    ));
-    if let Err(e) = self.mpv.command("loadfile", &[s, "replace"]) {
-        self.abort_chapter_load(true);
-        return Err(format!("{e:?}"));
-    }
-    Ok(())
 }
 
-/// Chapter-local resume seconds from SQLite for the open shell path (warm reopen fallback).
-fn stored_resume_local_for_shell(&self) -> Option<f64> {
-    let shell = self.me_budget_shell_path.borrow().clone()?;
-    let canonical = std::fs::canonicalize(&shell).unwrap_or(shell);
-    let entity = crate::playback_entity::PlaybackEntity::resolve(&canonical);
-    let stored = db::resume_pos(&entity.db_path())?;
-    let map = db::load_duration_map();
-    let (target, local) = entity.resume_load_target(&canonical, stored, &map)?;
-    let open = media_probe::shell_media_path(
-        &self.mpv,
-        self.me_budget_shell_path.borrow().as_deref(),
-    )?;
-    if !crate::video_ext::paths_same_file(&target, &open) {
-        return None;
-    }
-    Some(local)
-}
-
-fn clear_pending_resume_done(&self) {
-    self.pending_resume.set(None);
-    self.dvd_hold_global.set(None);
-}
-
-fn resume_wait_duration(&self, chapter_scrub: bool, pending_t: f64) -> f64 {
-    let mut dur = self
-        .mpv
-        .get_property::<f64>("duration")
-        .ok()
-        .filter(|d| d.is_finite() && *d > 0.0)
-        .unwrap_or(0.0);
-    if dur <= 0.0 && chapter_scrub {
-        dur = self.chapter_scrub_demux_duration();
-    }
-    if dur <= 0.0 && chapter_scrub {
-        if let Some(shell) = self.me_budget_shell_path.borrow().clone() {
-            dur = crate::dvd_vob_timeline::dur_from_map(
-                &crate::db::load_duration_map(),
-                shell.as_path(),
-            );
-        }
-    }
-    if dur <= 0.0 && chapter_scrub && pending_t > 0.0 {
-        dur = pending_t + 1.0;
-    }
-    dur
-}
-
-fn apply_file_pending_resume(&self) -> Option<f64> {
-    if let Some(ref p) = self.persist_media_path() {
-        resume_seek::stash_near_start_resume(&self.mpv, &self.pending_resume, p);
-    }
-    let t = self.pending_resume.get()?;
-    let pos = self.mpv.get_property::<f64>("time-pos").unwrap_or(f64::NAN);
-    if resume_seek::resume_already_at(&self.mpv, t) {
-        self.clear_pending_resume_done();
-        crate::dvd_vob_log::dvd_seek_log(format!(
-            "apply_pending_resume: at target {t:.2} (pos={pos:.2})"
-        ));
-        return Some(t);
-    }
-    resume_seek::seek_to_resume_sec(&self.mpv, t);
-    if resume_seek::resume_already_at(&self.mpv, t) {
-        self.clear_pending_resume_done();
-    }
-    crate::dvd_vob_log::dvd_seek_log(format!("apply_pending_resume: seek {t:.2} (was pos={pos:.2})"));
-    Some(t)
-}
-
-/// Open mpv `path` matches [Self::set_me_budget_shell_path] (set before `loadfile`).
-fn mpv_path_matches_shell(&self) -> bool {
-    let shell = self.me_budget_shell_path.borrow();
-    let Some(ref target) = *shell else {
-        return true;
-    };
-    media_probe::mpv_matches_open_target(&self.mpv, shell.as_deref(), target.as_path())
-}
-
-/// Apply the resume stashed by the most recent [load_file_path] or [load_chapter_seek]. Idempotent
-/// and a no-op when nothing is pending. Call from `FileLoaded` and again on `path` / `duration`
-/// when the shell path was set before mpv switched files (cross-chapter DVD scrub).
-/// Uses **`absolute+exact`** so the demuxer lands on the saved time (keyframe-only seeks can
-/// sit at 0s briefly on load and fight the continue grid).
-pub fn apply_pending_resume(&self) -> Option<f64> {
-    let Some(t) = self.pending_resume.get() else {
-        self.dvd_hold_global.set(None);
-        self.chapter_scrub_resume.set(false);
-        if self.chapter_scrub_hold_pause.get() {
-            self.finish_chapter_scrub_pause_hold();
-        }
-        return None;
-    };
-    if !self.mpv_path_matches_shell() {
-        crate::dvd_vob_log::dvd_seek_log(format!(
-            "apply_pending_resume: wait path (target={t:.2})"
-        ));
-        return None;
-    }
-    let chapter_scrub = self.chapter_scrub_resume.get();
-    let pending_t = self.pending_resume.get().unwrap_or(0.0);
-    let dur = self.resume_wait_duration(chapter_scrub, pending_t);
-    if dur <= 0.0 {
-        crate::dvd_vob_log::dvd_seek_log(format!(
-            "apply_pending_resume: wait duration (target={pending_t:.2})"
-        ));
-        return None;
-    }
-    let t = self.pending_resume.get()?;
-    if chapter_scrub {
-        return self.apply_chapter_scrub_pending_resume(t);
-    }
-    self.apply_file_pending_resume()
-}
-
-/// True when the pending `loadfile` is a same-title DVD chapter advance (EOF auto-load).
-#[must_use]
-pub fn take_chapter_eof_load(&self) -> bool {
-    self.chapter_eof_load.replace(false)
-}
-
-/// Warm reopen (card click / Space): SQLite fallback when preload cleared pending before seek landed.
-pub fn apply_pending_resume_on_warm_open(&self) -> Option<f64> {
-    if !self.mpv_path_matches_shell() || self.pending_resume.get().is_some() {
-        return None;
-    }
-    if !media_probe::mpv_has_known_duration(&self.mpv) {
-        return None;
-    }
-    let t = self.stored_resume_local_for_shell()?;
-    if resume_seek::resume_already_at(&self.mpv, t) {
-        return Some(t);
-    }
-    resume_seek::seek_to_resume_sec(&self.mpv, t);
-    Some(t)
-}
-
-/// Continue-grid reveal / card open: apply stashed or SQLite resume before unpausing.
-pub fn ensure_resume_before_unpause(&self) -> Option<f64> {
-    if let Some(t) = self.apply_pending_resume() {
-        return Some(t);
-    }
-    if self.pending_resume.get().is_some() {
-        return None;
-    }
-    self.apply_pending_resume_on_warm_open()
-}
-
-#[must_use]
-pub(crate) fn resume_seek_pending(&self) -> bool {
-    self.pending_resume.get().is_some()
-}
-
-}
+include!("mpv_persistence_chapter_seek.rs");

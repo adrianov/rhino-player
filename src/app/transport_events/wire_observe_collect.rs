@@ -205,7 +205,7 @@ fn wire_transport_events(s: TransportSetup) {
     WARM_BROWSE_SYNC.with(|slot| {
         *slot.borrow_mut() = Some(Rc::new(move |path: PathBuf| {
             *ctx_browse.eof.last_path.borrow_mut() = Some(path.clone());
-            if !crate::playback_entity::PlaybackEntity::resolve(&path).has_unified_timeline() {
+            if !crate::playback_entity::PlaybackEntity::resolve(&path).uses_dvd_bar_cache() {
                 *ctx_browse.dvd_bar.borrow_mut() = None;
             }
             refresh_sibling_nav(&ctx_browse);

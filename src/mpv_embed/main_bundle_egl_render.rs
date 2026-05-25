@@ -32,6 +32,11 @@ pub struct MpvBundle {
     pub(crate) warm_file_gen: std::cell::Cell<u32>,
     /// Pinned virtual DVD position until cross-chapter scrub resume is applied.
     pub(crate) dvd_hold_global: std::cell::Cell<Option<f64>>,
+    /// Chain-head `.vob`: mpv `time-pos` offset vs title-wide bar (see [crate::dvd_vob_timeline::DvdChainBarSync]).
+    pub(crate) dvd_chain_bar_sync: std::cell::Cell<Option<crate::dvd_vob_timeline::DvdChainBarSync>>,
+    /// Last title-wide bar `(total, global)` from [crate::app::transport_events] — used when persisting DVD entity rows.
+    transport_bar_total: std::cell::Cell<Option<f64>>,
+    transport_bar_global: std::cell::Cell<Option<f64>>,
     /// Title-internal chapter `loadfile` from DVD EOF advance (keep vf, unpause after load).
     pub(crate) chapter_eof_load: std::cell::Cell<bool>,
     /// Cross-chapter unified-bar scrub: chapter-local [pending_resume]; ignore SQLite near-start.
@@ -130,6 +135,9 @@ impl MpvBundle {
                 skip_media_persist: std::cell::Cell::new(false),
                 warm_file_gen: std::cell::Cell::new(0),
                 dvd_hold_global: std::cell::Cell::new(None),
+                dvd_chain_bar_sync: std::cell::Cell::new(None),
+                transport_bar_total: std::cell::Cell::new(None),
+                transport_bar_global: std::cell::Cell::new(None),
                 chapter_eof_load: std::cell::Cell::new(false),
                 chapter_scrub_resume: std::cell::Cell::new(false),
                 chapter_scrub_hold_pause: std::cell::Cell::new(false),
@@ -150,6 +158,9 @@ impl MpvBundle {
                 skip_media_persist: std::cell::Cell::new(false),
                 warm_file_gen: std::cell::Cell::new(0),
                 dvd_hold_global: std::cell::Cell::new(None),
+                dvd_chain_bar_sync: std::cell::Cell::new(None),
+                transport_bar_total: std::cell::Cell::new(None),
+                transport_bar_global: std::cell::Cell::new(None),
                 chapter_eof_load: std::cell::Cell::new(false),
                 chapter_scrub_resume: std::cell::Cell::new(false),
                 chapter_scrub_hold_pause: std::cell::Cell::new(false),

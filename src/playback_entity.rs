@@ -144,8 +144,12 @@ pub use title::window_title_for;
 
 mod transport {
     include!("playback_entity_transport.rs");
+    include!("playback_entity_transport_preview.rs");
 }
-pub use transport::{transport_chapter_path, unified_timeline_chapter};
+pub use transport::{
+    open_playback, preview_hover_duration_for_open, preview_seek_plan_for_open, transport_chapter_path,
+    unified_timeline_chapter,
+};
 
 #[cfg(test)]
 mod tests {

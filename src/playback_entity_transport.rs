@@ -55,7 +55,7 @@ impl PlaybackEntity {
             0.0
         };
         let local_dur = if local_dur.is_finite() {
-            local_dur.max(0.0)
+            crate::dvd_vob_timeline::clamp_vob_duration(local_dur.max(0.0))
         } else {
             0.0
         };
@@ -81,10 +81,5 @@ pub fn unified_timeline_chapter(
     mpv: &Mpv,
     shell: Option<&Path>,
 ) -> Option<PathBuf> {
-    let path = crate::media_probe::local_file_from_mpv(mpv).or_else(|| {
-        shell.and_then(|p| std::fs::canonicalize(p).ok().or_else(|| Some(p.to_path_buf())))
-    })?;
-    PlaybackEntity::resolve(&path)
-        .has_unified_timeline()
-        .then_some(path)
+    open_playback(mpv, shell).and_then(|(ent, chapter)| ent.has_unified_timeline().then_some(chapter))
 }
