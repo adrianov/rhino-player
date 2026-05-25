@@ -29,3 +29,19 @@ fn chapter_marks_from_mounted_dvd_sample() {
     let marks = chapter_marks_from_vob(vob).expect("VTS_02_0.IFO PTT marks");
     assert!(marks.title_sec > 60.0);
 }
+
+/// Skips when the local sample rip is not mounted.
+#[test]
+fn fritt_main_title_skips_menu_preamble() {
+    let disc = Path::new("/Volumes/SanDisk/Torrents/Fritt.vilt.2006.DVD9");
+    if !disc.join("VIDEO_TS").is_dir() {
+        return;
+    }
+    let main = main_title_from_disc(disc).expect("main title");
+    assert_eq!(main, (1, 1), "largest title set VTS_01 TTN 1");
+    let entry = movie_entry_global_sec(disc).expect("menu preamble");
+    assert!(
+        entry > 1000.0 && entry < 1100.0,
+        "menu block ~17m before movie, got {entry:.1}s"
+    );
+}

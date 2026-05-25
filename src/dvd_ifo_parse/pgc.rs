@@ -115,6 +115,20 @@ pub(super) fn pgc_has_vob(pgc: &Pgc, start: usize, end: usize, hint: u16) -> boo
     })
 }
 
+pub(super) fn cell_duration_sec(pgc: &Pgc, cell: usize) -> f64 {
+    dvdtime_to_sec(&pgc.cell_playback[cell][4..8])
+}
+
+pub(super) fn cell_first_sector(pgc: &Pgc, cell: usize) -> u32 {
+    let b = &pgc.cell_playback[cell];
+    u32::from_be_bytes([b[8], b[9], b[10], b[11]])
+}
+
+pub(super) fn cell_last_sector(pgc: &Pgc, cell: usize) -> u32 {
+    let b = &pgc.cell_playback[cell];
+    u32::from_be_bytes([b[20], b[21], b[22], b[23]])
+}
+
 pub(super) fn title_playback_sec(pgc: &Pgc, start: usize, end: usize) -> f64 {
     let mut total = 0.0_f64;
     for c in start..=end.min(pgc.cell_playback.len().saturating_sub(1)) {

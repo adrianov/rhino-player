@@ -6,6 +6,7 @@ mod pgc;
 mod streams;
 mod sub_mpv_id;
 mod time;
+mod title_vob_durations;
 mod vts;
 
 use std::path::Path;
@@ -15,6 +16,10 @@ pub use streams::{
     DvdIfoStreams, MpvTrackMeta,
 };
 pub use sub_mpv_id::{mpv_sub_id_for_ifo_slot, MpvSubTrackMeta};
+pub use title_vob_durations::{
+    first_substantial_vob, title_playback_sec, title_set_playback_sec, title_ttn_playback_sec,
+    title_vob_durations, MIN_SUBSTANTIAL_SEC,
+};
 pub use vts::{chapter_marks_from_vob, IfoChapterMarks};
 
 /// Title-set audio/sub lists from any chapter VOB path (reads `VTS_xx_0.IFO`).
@@ -22,73 +27,53 @@ pub fn ifo_streams_for_vob(vob: &Path) -> Option<DvdIfoStreams> {
     streams_from_vob(vob)
 }
 
-pub(super) const BLOCK: usize = 2048;
-const TT_SRPT_OFF: usize = 196;
-pub(super) const VTS_PTT_OFF: usize = 200;
-pub(super) const VTS_PGCIT_OFF: usize = 204;
+pub(crate) const BLOCK: usize = 2048;
+pub(crate) const VTS_PTT_OFF: usize = 200;
+pub(crate) const VTS_PGCIT_OFF: usize = 204;
 pub(super) const PGC_SIZE: usize = 236;
 pub(super) const CELL_PB_SIZE: usize = 24;
 pub(super) const CELL_POS_SIZE: usize = 4;
 pub(super) const MAX_MARKS: usize = 99;
 
 const TITLE_INFO_SIZE: usize = 12;
+const TT_SRPT_OFF: usize = 196;
 
-use buf::IfoBuf;
+include!("dvd_ifo_parse/main_title.rs");
 
-/// Disc-level main feature from `VIDEO_TS.IFO` (`TT_SRPT`): `(VTS number, title within VTS)`.
-pub fn main_title_from_disc(disc: &Path) -> Option<(u32, u32)> {
+/// Whole-title seconds before the main feature (interactive menus / splash).
+/// Always IFO/title timeline seconds (e.g. ~1062 on Fritt), never mpv virtual tail (~89596).
+#[must_use]
+pub fn movie_entry_global_sec(disc: &Path) -> Option<f64> {
     let vts_dir = crate::video_ext::dvd_video_ts_dir(disc)?;
-    let ifo = vts_dir.join("VIDEO_TS.IFO");
-    let buf = IfoBuf::load(&ifo)?;
-    let sector = buf.be32(TT_SRPT_OFF) as usize;
-    if sector == 0 {
-        return None;
-    }
-    let base = sector * BLOCK;
-    if base + 8 > buf.len() {
-        return None;
-    }
-    let nr = buf.be16(base) as usize;
-    if nr == 0 || nr >= 100 {
-        return None;
-    }
-    let mut last = buf.be32(base + 4);
-    if last == 0 {
-        last = (nr * TITLE_INFO_SIZE + 8 - 1) as u32;
-    }
-    let info_len = last as usize + 1 - 8;
-    let titles_off = base + 8;
-    if titles_off + info_len > buf.len() || nr > info_len / TITLE_INFO_SIZE {
-        return None;
-    }
-    let mut skip_menu = false;
-    for i in 0..nr {
-        let off = titles_off + i * TITLE_INFO_SIZE;
-        if buf.byte(off + 6) >= 2 {
-            skip_menu = true;
-            break;
+    let (vts_id, feature_ttn) = main_title_from_disc(disc)?;
+    let ifo = vts_dir.join(format!("VTS_{vts_id:02}_0.IFO"));
+    if feature_ttn > 1 {
+        let mut skip = 0.0_f64;
+        for ttn in 1..feature_ttn {
+            skip += title_ttn_playback_sec(&ifo, ttn as usize).unwrap_or(0.0);
+        }
+        if skip >= MIN_SUBSTANTIAL_SEC {
+            return Some(skip);
         }
     }
-    let mut best = 0usize;
-    let mut best_ptt = -1i32;
-    let mut best_vts = 99u32;
-    for i in 0..nr {
-        let off = titles_off + i * TITLE_INFO_SIZE;
-        let vts = buf.byte(off + 6) as u32;
-        if skip_menu && vts < 2 {
-            continue;
-        }
-        let ptt = buf.be16(off + 2) as i32;
-        if ptt > best_ptt || (ptt == best_ptt && vts < best_vts) {
-            best_ptt = ptt;
-            best_vts = vts;
-            best = i;
+    let first_vob = crate::dvd_entity::first_chapter_vob(&vts_dir, vts_id)?;
+    let durs = title_vob_durations(&first_vob)?;
+    let total: f64 = durs.iter().sum();
+    if let Some(&first_seg) = durs.first() {
+        if durs.len() > 1
+            && first_seg >= MIN_SUBSTANTIAL_SEC
+            && first_seg <= total * 0.35
+        {
+            return Some(first_seg);
         }
     }
-    let off = titles_off + best * TITLE_INFO_SIZE;
-    let vts_id = buf.byte(off + 6) as u32;
-    let ttn = buf.byte(off + 7).max(1) as u32;
-    (1..=99).contains(&vts_id).then_some((vts_id, ttn))
+    let marks = chapter_marks_from_vob(&first_vob)?;
+    let first = marks.mark_secs.first().copied()?;
+    if first >= MIN_SUBSTANTIAL_SEC && first <= marks.title_sec * 0.35 {
+        Some(first)
+    } else {
+        None
+    }
 }
 
 pub(super) fn vts_id_from_path(path: &Path) -> Option<u32> {
