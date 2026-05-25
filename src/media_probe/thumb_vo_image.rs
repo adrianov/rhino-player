@@ -1,5 +1,8 @@
+/// Max wait for chain-head duration / seek polling (corrupt VOB must not block grid workers long).
+const VO_IMAGE_WAIT_CAP_SEC: u64 = 8;
+
 fn vo_image_wait_chain_head(m: &mut Mpv, chapter: &Path, wait_secs: u64) -> bool {
-    let deadline = Instant::now() + Duration::from_secs(wait_secs);
+    let deadline = Instant::now() + Duration::from_secs(wait_secs.min(VO_IMAGE_WAIT_CAP_SEC));
     loop {
         while m.wait_event(0.0).is_some() {}
         if crate::dvd_vob_timeline::chain_head_mpv_ready(chapter, m) {
@@ -33,7 +36,7 @@ fn vo_image_at_ifo(m: &Mpv, chapter: &Path, ifo_target: f64) -> bool {
 }
 
 fn vo_image_wait_seek(m: &mut Mpv, chapter: Option<&Path>, ifo_target: f64, mpv_target: f64, wait_secs: u64) -> bool {
-    let deadline = Instant::now() + Duration::from_secs(wait_secs.min(8));
+    let deadline = Instant::now() + Duration::from_secs(wait_secs.min(VO_IMAGE_WAIT_CAP_SEC));
     loop {
         while m.wait_event(0.0).is_some() {}
         let ok = chapter

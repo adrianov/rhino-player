@@ -8,15 +8,13 @@ pub(crate) struct TimelineBuildOpts {
 }
 
 impl TimelineBuildOpts {
-    /// Bar build on `FileLoaded`: SQLite + live mpv only; missing segments on idle.
+    /// SQLite + live mpv only; missing segment lengths filled later on idle (no headless probe).
     pub const PLAYBACK: Self = Self {
         mpv_probe: false,
         probe_budget: None,
     };
-    pub const CACHE_ONLY: Self = Self {
-        mpv_probe: false,
-        probe_budget: None,
-    };
+    /// Same flags as [Self::PLAYBACK]; name marks card/still/sanitize reads that must not probe.
+    pub const CACHE_ONLY: Self = Self::PLAYBACK;
     pub const BACKGROUND: Self = Self {
         mpv_probe: true,
         probe_budget: Some(crate::dvd_vob_mpv_probe::BG_PROBE_BATCH),
