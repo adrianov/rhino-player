@@ -229,6 +229,7 @@ fn read_transport_state(ctx: &TransportCtx) -> Option<(bool, bool, f64, f64)> {
             && dur > 0.0
             && !pos_from_entity_snap
             && !browse_overlay
+            && !b.resume_seek_pending()
         {
             b.set_transport_bar_persist(dur, pos);
         }

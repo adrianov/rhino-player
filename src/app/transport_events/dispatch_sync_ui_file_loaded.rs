@@ -1,4 +1,26 @@
 const CHAPTER_SCRUB_RESUME_RETRY_MS: &[u64] = &[0, 40, 80, 120, 200, 320, 500, 800];
+const FILE_RESUME_RETRY_MS: &[u64] = &[40, 80, 120, 200, 320, 500, 800, 1200];
+
+fn schedule_file_resume_retries(player: &Rc<RefCell<Option<MpvBundle>>>) {
+    if !player
+        .borrow()
+        .as_ref()
+        .is_some_and(|b| b.resume_seek_pending())
+    {
+        return;
+    }
+    crate::dvd_vob_log::resume_open_log("schedule file resume retries");
+    for &ms in FILE_RESUME_RETRY_MS {
+        let p = Rc::clone(player);
+        let _ = glib::timeout_add_local_once(std::time::Duration::from_millis(ms), move || {
+            if let Some(b) = p.borrow().as_ref() {
+                if b.resume_seek_pending() {
+                    b.apply_pending_resume();
+                }
+            }
+        });
+    }
+}
 
 fn finish_chapter_scrub_load(ctx: &Rc<TransportCtx>) {
     with_bundle(&ctx.player, |b| {
@@ -209,8 +231,15 @@ fn dispatch_file_loaded(ctx: &Rc<TransportCtx>) {
     // New file: apply the SQLite-driven resume, restore the saved audio track *before*
     // any unpause so mpv does not play the default `aid` for a fraction of a second and
     // then switch (audio path re-open caused lip-sync drift on continue-grid → reopen).
-    // Warm preload: defer the seek to the next idle so the continue strip stays responsive.
-    if ctx.recent_visible.get() {
+    // Warm preload behind the continue grid: defer the seek to the next idle so the continue strip stays responsive.
+    // Card open sets playback_focus before loadfile — treat that as playback, not browse warm hold.
+    let browse_hold = ctx.recent_visible.get() && !ctx.eof.playback_focus.get();
+    crate::dvd_vob_log::resume_open_log(format!(
+        "FileLoaded browse_hold={browse_hold} recent={} focus={}",
+        ctx.recent_visible.get(),
+        ctx.eof.playback_focus.get()
+    ));
+    if browse_hold {
         let player = Rc::clone(&ctx.player);
         let want_gen = ctx
             .player
@@ -220,9 +249,11 @@ fn dispatch_file_loaded(ctx: &Rc<TransportCtx>) {
             .unwrap_or(0);
         glib::idle_add_local_once(move || {
             warm_preload_finish_load(&player, want_gen);
+            schedule_file_resume_retries(&player);
         });
     } else {
         apply_file_loaded_resume_and_audio(&ctx.player);
+        schedule_file_resume_retries(&ctx.player);
         if chapter_eof {
             finish_dvd_chapter_eof_load(ctx);
             if ctx

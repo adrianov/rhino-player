@@ -88,7 +88,14 @@ pub(crate) fn resume_still_target_from_global(
 ) -> Option<DvdStillTarget> {
     let t0 = std::time::Instant::now();
     let live = chapter_dur_from_map(chapter, dur_by_path);
-    let mut tl = build_title_timeline_with(chapter, dur_by_path, live, TimelineBuildOpts::CACHE_ONLY)?;
+    let Some(mut tl) = build_title_timeline_with(chapter, dur_by_path, live, TimelineBuildOpts::CACHE_ONLY)
+    else {
+        crate::dvd_vob_log::resume_open_log(format!(
+            "resume_still no timeline chapter={}",
+            chapter.display()
+        ));
+        return None;
+    };
     let probed = if tl.can_resolve_global(global_sec) {
         0
     } else {

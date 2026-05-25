@@ -88,7 +88,7 @@ impl MpvBundle {
         if dur <= 0.0 && chapter_scrub {
             dur = self.chapter_scrub_demux_duration();
         }
-        if dur <= 0.0 && chapter_scrub {
+        if dur <= 0.0 {
             if let Some(shell) = self.me_budget_shell_path.borrow().clone() {
                 dur = crate::dvd_vob_timeline::dur_from_map(
                     &crate::db::load_duration_map(),
@@ -96,7 +96,7 @@ impl MpvBundle {
                 );
             }
         }
-        if dur <= 0.0 && chapter_scrub && pending_t > 0.0 {
+        if dur <= 0.0 && pending_t > 0.0 {
             dur = pending_t + 1.0;
         }
         dur
@@ -108,6 +108,12 @@ impl MpvBundle {
         }
         let t = self.pending_resume.get()?;
         let pos = self.mpv.get_property::<f64>("time-pos").unwrap_or(f64::NAN);
+        let mpv_dur = self
+            .mpv
+            .get_property::<f64>("duration")
+            .ok()
+            .filter(|d| d.is_finite())
+            .unwrap_or(0.0);
         let shell = self.me_budget_shell_path.borrow().clone();
         let chain = shell
             .as_ref()
@@ -117,20 +123,23 @@ impl MpvBundle {
             .unwrap_or_else(|| resume_seek::resume_already_at(&self.mpv, t));
         if at_target {
             self.clear_pending_resume_done();
+            crate::dvd_vob_log::resume_open_log(format!(
+                "apply at target local={t:.2} pos={pos:.2} dur={mpv_dur:.2}"
+            ));
             crate::dvd_vob_log::dvd_seek_log(format!(
                 "apply_pending_resume: at target {t:.2} (pos={pos:.2})"
             ));
             return Some(t);
         }
         if let Some(path) = chain {
-            if !crate::dvd_vob_timeline::chain_head_mpv_ready(path, &self.mpv) {
-                crate::dvd_vob_log::dvd_seek_log(format!(
-                    "apply_pending_resume: wait chain stretch (target={t:.2})"
-                ));
-                return Some(t);
-            }
             let _ = self.mpv.set_property("pause", false);
+            let seg = crate::dvd_vob_timeline::chain_head_ifo_seg(path).unwrap_or(t);
+            let mpv_t = crate::dvd_vob_timeline::chain_head_mpv_seek_sec(&self.mpv, t, seg);
             resume_seek::seek_chain_ifo_local(&self.mpv, path, t);
+            crate::dvd_vob_log::resume_open_log(format!(
+                "apply chain seek ifo={t:.2} -> mpv={mpv_t:.2} pos={pos:.2} dur={mpv_dur:.2} stretched={}",
+                crate::dvd_vob_timeline::chain_head_stretched(mpv_dur, seg)
+            ));
         } else {
             resume_seek::seek_to_resume_sec(&self.mpv, t);
         }
@@ -139,6 +148,11 @@ impl MpvBundle {
             .unwrap_or_else(|| resume_seek::resume_already_at(&self.mpv, t));
         if at_target {
             self.clear_pending_resume_done();
+        }
+        if chain.is_none() {
+            crate::dvd_vob_log::resume_open_log(format!(
+                "apply seek local={t:.2} pos={pos:.2} dur={mpv_dur:.2}"
+            ));
         }
         crate::dvd_vob_log::dvd_seek_log(format!("apply_pending_resume: seek {t:.2} (was pos={pos:.2})"));
         Some(t)
@@ -167,6 +181,10 @@ impl MpvBundle {
             return None;
         };
         if !self.mpv_path_matches_shell() {
+            crate::dvd_vob_log::resume_open_log(format!(
+                "apply wait mpv path local={t:.2} shell={:?}",
+                self.me_budget_shell_path.borrow().as_deref()
+            ));
             crate::dvd_vob_log::dvd_seek_log(format!(
                 "apply_pending_resume: wait path (target={t:.2})"
             ));
@@ -176,6 +194,9 @@ impl MpvBundle {
         let pending_t = self.pending_resume.get().unwrap_or(0.0);
         let dur = self.resume_wait_duration(chapter_scrub, pending_t);
         if dur <= 0.0 {
+            crate::dvd_vob_log::resume_open_log(format!(
+                "apply wait duration local={pending_t:.2} scrub={chapter_scrub}"
+            ));
             crate::dvd_vob_log::dvd_seek_log(format!(
                 "apply_pending_resume: wait duration (target={pending_t:.2})"
             ));
@@ -194,9 +215,13 @@ impl MpvBundle {
             return None;
         }
         if !media_probe::mpv_has_known_duration(&self.mpv) {
+            crate::dvd_vob_log::resume_open_log("warm_open wait duration");
             return None;
         }
-        let t = self.stored_resume_local_for_shell()?;
+        let Some(t) = self.stored_resume_local_for_shell() else {
+            crate::dvd_vob_log::resume_open_log("warm_open no stored local for shell");
+            return None;
+        };
         let shell = self.me_budget_shell_path.borrow().clone();
         let chain = shell
             .as_ref()
@@ -208,26 +233,38 @@ impl MpvBundle {
             return Some(t);
         }
         if let Some(path) = chain {
-            if !crate::dvd_vob_timeline::chain_head_mpv_ready(path, &self.mpv) {
-                return None;
-            }
             let _ = self.mpv.set_property("pause", false);
             resume_seek::seek_chain_ifo_local(&self.mpv, path, t);
         } else {
             resume_seek::seek_to_resume_sec(&self.mpv, t);
         }
+        crate::dvd_vob_log::resume_open_log(format!("warm_open seek local={t:.2}"));
         Some(t)
     }
 
     /// Continue-grid reveal / card open: apply stashed or SQLite resume before unpausing.
     pub fn ensure_resume_before_unpause(&self) -> Option<f64> {
+        let pending = self.pending_resume.get();
+        let hold = self.dvd_hold_global.get();
         if let Some(t) = self.apply_pending_resume() {
+            crate::dvd_vob_log::resume_open_log(format!(
+                "ensure ok local={t:.2} pending_before={pending:?} hold={hold:?}"
+            ));
             return Some(t);
         }
         if self.pending_resume.get().is_some() {
+            crate::dvd_vob_log::resume_open_log(format!(
+                "ensure deferred pending={pending:?} hold={hold:?}"
+            ));
             return None;
         }
-        self.apply_pending_resume_on_warm_open()
+        let warm = self.apply_pending_resume_on_warm_open();
+        crate::dvd_vob_log::resume_open_log(format!(
+            "ensure warm_open={} hold={hold:?}",
+            warm.map(|t| format!("{t:.2}"))
+                .unwrap_or_else(|| "none".into())
+        ));
+        warm
     }
 
     #[must_use]

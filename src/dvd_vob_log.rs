@@ -1,4 +1,10 @@
 //! DVD unified-timeline debug lines (`RHINO_DVD_SEEK=1`, `RHINO_DVD_TRANSPORT_LOG=1`).
+//! Card reopen resume tracing: always-on [resume_open_log] (`[rhino] resume:`).
+
+/// Card open / reopen: SQLite global → chapter load + pending seek (always printed).
+pub(crate) fn resume_open_log(msg: impl std::fmt::Display) {
+    eprintln!("[rhino] resume: {msg}");
+}
 
 pub(crate) fn dvd_seek_log(msg: impl std::fmt::Display) {
     if std::env::var_os("RHINO_DVD_SEEK").is_some() {

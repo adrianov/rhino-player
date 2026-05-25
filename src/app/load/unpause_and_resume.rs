@@ -20,7 +20,14 @@ fn schedule_resume_after_unpause(player: Rc<RefCell<Option<MpvBundle>>>) {
             if ms > 0 && !b.resume_seek_pending() {
                 return;
             }
-            let _ = b.ensure_resume_before_unpause();
+            let r = b.ensure_resume_before_unpause();
+            if ms == 0 || ms >= 200 {
+                crate::dvd_vob_log::resume_open_log(format!(
+                    "unpause retry ms={ms} result={}",
+                    r.map(|t| format!("{t:.2}"))
+                        .unwrap_or_else(|| "none".into())
+                ));
+            }
             if !b.resume_seek_pending() {
                 return;
             }

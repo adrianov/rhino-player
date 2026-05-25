@@ -106,6 +106,10 @@ fn write_entity_playback(&self, total: f64, global: f64) {
     let entity = crate::playback_entity::PlaybackEntity::resolve(&chapter);
     if entity.has_unified_timeline() {
         entity.save_global_resume(total, global);
+        crate::dvd_vob_log::resume_open_log(format!(
+            "save entity global={global:.2} total={total:.1} ({})",
+            entity.db_path().display()
+        ));
     } else {
         crate::db::set_playback(&entity.db_path(), total, global);
         entity.purge_extra_db_rows();
@@ -194,23 +198,36 @@ pub fn load_file_path(
     warm_preload: bool,
     resume_at: Option<f64>,
 ) -> Result<(), String> {
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let entity = crate::playback_entity::PlaybackEntity::resolve(&canonical);
+    let db_key = entity.db_path();
     {
         let shell = self.me_budget_shell_path.borrow();
         let outgoing = media_probe::shell_media_path(&self.mpv, shell.as_deref());
+        let outgoing_disp = outgoing
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "?".into());
+        let same_entity = outgoing.as_ref().is_some_and(|p| {
+            let out_ent = crate::playback_entity::PlaybackEntity::resolve(p).db_path();
+            crate::video_ext::paths_same_file(&out_ent, &db_key)
+        });
         if clear_outgoing_resume && !warm_preload {
             if let Some(p) = outgoing {
                 media_probe::clear_resume_for_path(&p);
             }
-        } else if snapshot_outgoing && !warm_preload {
+        } else if snapshot_outgoing && !warm_preload && !same_entity {
             self.save_playback_state_for_close();
         }
+        if entity.has_unified_timeline() {
+            crate::dvd_vob_log::resume_open_log(format!(
+                "load outgoing={outgoing_disp} same_entity={same_entity} snapshot={snapshot_outgoing} warm={warm_preload}"
+            ));
+        }
     }
-    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let entity = crate::playback_entity::PlaybackEntity::resolve(&canonical);
     if entity.has_unified_timeline() {
         crate::dvd_entity::sanitize_stale_entity_playback(&canonical, 0.0);
     }
-    let db_key = entity.db_path();
     let stored = resume_at
         .or_else(|| db::resume_pos(&db_key))
         .or_else(|| {
@@ -221,13 +238,32 @@ pub fn load_file_path(
         });
     let (load_path, pending) = if let Some(global) = stored {
         let map = db::load_duration_map();
-        entity
-            .resume_load_target(&canonical, global, &map)
-            .map(|(target, local)| (target, Some(local)))
-            .unwrap_or((canonical.clone(), None))
+        match entity.resume_load_target(&canonical, global, &map) {
+            Some((target, local)) => (target, Some(local)),
+            None => {
+                crate::dvd_vob_log::resume_open_log(format!(
+                    "load resume_load_target failed global={global:.2} probe={}",
+                    canonical.display()
+                ));
+                (canonical.clone(), None)
+            }
+        }
     } else {
+        if entity.has_unified_timeline() {
+            crate::dvd_vob_log::resume_open_log(format!(
+                "load no stored resume entity={}",
+                db_key.display()
+            ));
+        }
         (canonical.clone(), None)
     };
+    if entity.has_unified_timeline() {
+        crate::dvd_vob_log::resume_open_log(format!(
+            "load global={stored:?} local={pending:?} file={} entity={}",
+            load_path.display(),
+            db_key.display()
+        ));
+    }
     let prev_shell = self.me_budget_shell_path.borrow().clone();
     if prev_shell
         .as_ref()
@@ -236,8 +272,12 @@ pub fn load_file_path(
         crate::seek_bar_preview::reset_on_main_media_change_from("load_file_path:entity_change");
     }
     let s = load_path.to_str().ok_or("media path is not valid UTF-8")?;
-    if warm_preload {
-        self.warm_file_gen.set(self.warm_file_gen.get().wrapping_add(1));
+    self.warm_file_gen.set(self.warm_file_gen.get().wrapping_add(1));
+    if entity.has_unified_timeline() {
+        crate::dvd_vob_log::resume_open_log(format!(
+            "load stashed pending={pending:?} hold={stored:?} gen={}",
+            self.warm_file_gen.get()
+        ));
     }
     self.clear_chapter_scrub_pause_hold();
     self.chapter_scrub_resume.set(false);
