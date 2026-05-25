@@ -2,16 +2,17 @@
 ///
 /// Trough / thumb interaction uses stock **`GtkRange`** behavior with
 /// **`gtk-primary-button-warps-slider`** (see `theme::apply`, same as the volume scale).
-/// While **`seek_grabbed`**, **`value_changed`** updates labels only; **`quick_seek`** runs on
-/// **release**. When not grabbed, **`value_changed`** seeks immediately (keyboard / scroll).
-///
-/// Release time matches the preview label via [seek_bar_preview::seek_bar_label_time_from_value].
+/// While **`seek_grabbed`**, **`value_changed`** moves the thumb locally; **`quick_seek`** runs on
+/// **release** to **`preview_hover_t`** (pointer / preview label time), not the raw thumb value.
+/// When preview is off, release falls back to the capped thumb time. When not grabbed,
+/// **`value_changed`** seeks immediately (keyboard / scroll).
 struct SeekControlDeps {
     player: Rc<RefCell<Option<MpvBundle>>>,
     preview_player: Rc<RefCell<Option<crate::mpv_embed::MpvPreviewGl>>>,
     gl: gtk::GLArea,
     seek_sync: Rc<Cell<bool>>,
     seek_grabbed: Rc<Cell<bool>>,
+    seek_preview_on: Rc<Cell<bool>>,
     time_left: gtk::Label,
     preview_hover_t: Rc<Cell<f64>>,
     smooth_seek_debounce: Rc<RefCell<Option<glib::SourceId>>>,
@@ -27,12 +28,24 @@ struct SeekCtx {
     gl: gtk::GLArea,
     seek_sync: Rc<Cell<bool>>,
     seek_grabbed: Rc<Cell<bool>>,
+    seek_preview_on: Rc<Cell<bool>>,
     time_left: gtk::Label,
     preview_hover_t: Rc<Cell<f64>>,
     smooth_seek_debounce: Rc<RefCell<Option<glib::SourceId>>>,
     resume_after_seek_idle: Rc<Cell<bool>>,
     play_toggle: PlayToggleCtx,
     dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
+}
+
+fn release_seek_time(ctx: &SeekCtx) -> f64 {
+    let upper = ctx.seek.adjustment().upper();
+    let raw = ctx.seek.value();
+    if ctx.seek_preview_on.get() {
+        ctx.preview_hover_t.get()
+    } else {
+        bar_label_time_from_value(ctx, raw).unwrap_or(raw)
+    }
+    .clamp(0.0, upper.max(0.0))
 }
 
 fn wire_seek_control(seek: &gtk::Scale, d: SeekControlDeps) {
@@ -42,6 +55,7 @@ fn wire_seek_control(seek: &gtk::Scale, d: SeekControlDeps) {
         gl,
         seek_sync,
         seek_grabbed,
+        seek_preview_on,
         time_left,
         preview_hover_t,
         smooth_seek_debounce,
@@ -56,6 +70,7 @@ fn wire_seek_control(seek: &gtk::Scale, d: SeekControlDeps) {
         gl,
         seek_sync,
         seek_grabbed,
+        seek_preview_on,
         time_left,
         preview_hover_t,
         smooth_seek_debounce,
@@ -92,16 +107,24 @@ fn wire_value_changed(ctx: &Rc<SeekCtx>) {
         }
         let v = r.value();
         let t = bar_label_time_from_value(&c, v).unwrap_or(v);
+        if c.seek_grabbed.get() {
+            let label_t = if c.seek_preview_on.get() {
+                c.preview_hover_t.get()
+            } else {
+                t
+            };
+            let s = format_time(label_t);
+            if c.time_left.text().as_str() != s {
+                c.time_left.set_text(&s);
+            }
+            c.gl.queue_render();
+            return;
+        }
         let s = format_time(t);
         if c.time_left.text().as_str() != s {
             c.time_left.set_text(&s);
         }
-        if !c.seek_grabbed.get() {
-            quick_seek(&c, t);
-        } else {
-            c.preview_hover_t.set(t);
-            c.gl.queue_render();
-        }
+        quick_seek(&c, t);
     });
 }
 
@@ -145,15 +168,12 @@ fn commit_preview_seek(ctx: &SeekCtx) {
         ctx.gl.queue_render();
         return;
     }
-    let raw = ctx.seek.value();
-    let t = bar_label_time_from_value(ctx, raw)
-        .unwrap_or(raw)
-        .clamp(0.0, upper);
-    ctx.preview_hover_t.set(t);
+    let t = release_seek_time(ctx);
     ctx.seek_sync.set(true);
     ctx.seek.set_value(t);
     ctx.seek_sync.set(false);
     quick_seek(ctx, t);
+    ctx.gl.queue_render();
 }
 
 include!("seek_wiring/seek_keyframes.rs");

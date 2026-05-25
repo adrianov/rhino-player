@@ -179,6 +179,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         gl: w.gl_area.clone(),
         seek_sync: seek_sync.clone(),
         seek_grabbed: seek_grabbed.clone(),
+        seek_preview_on: Rc::clone(&seek_bar_on),
         time_left: w.time_left.clone(),
         preview_hover_t: preview_hover_t.clone(),
         smooth_seek_debounce: smooth_seek_debounce.clone(),

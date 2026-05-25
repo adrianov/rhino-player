@@ -55,7 +55,7 @@ Feature: Seek bar thumbnail preview
 
 ## Notes
 - Settings: SQLite `seek_bar_preview` defaults to **on**; toggled from main menu Preferences (gio stateful action `seek-bar-preview`).
-- Hover time is `(x / width) * bar_upper` capped by [seek_bar_label_time] (same duration margin as main seek on release).
+- Hover time is `(x / width) * bar_upper` capped by [seek_bar_label_time]. Pointer release on the seek bar (trough or thumb drag) seeks the main player to that hover time, not the raw GtkRange thumb value; preview off falls back to capped thumb time ([`seek_wiring`](../../src/app/seek_wiring.rs)).
 - Preview **`GtkFrame`** on **`outer_ovl`** above the bottom bar; positioned from seek-bar pointer x; the preview **`GLArea`** is realised before first show.
 - Thumbnail long edge clamps around 180–320 px; aspect follows current `dwidth`/`dheight`.
 - Debounce 120 ms; trailing coalesce (motion updates hover time without resetting the timer). Debounce/pump run at default GLib priority so they are not starved during DVD bar work.
