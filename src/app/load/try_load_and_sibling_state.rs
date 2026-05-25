@@ -67,10 +67,16 @@ fn load_file_into_player(
         b.me_budget_shell_path.borrow().as_deref(),
     )
     .or_else(|| o.last_path.borrow().clone());
-    // Warm hit only when mpv already has this file (not `last_path` alone — hover sets that before `loadfile`).
-    if recent_layer.is_visible()
+    // Warm hit only for continue-grid hover / first-card preload — explicit card open must
+    // reload so SQLite entity-global resume is applied (see `load_file_path`).
+    if o.warm_preload
+        && recent_layer.is_visible()
         && crate::media_probe::mpv_warm_hit_ready(&b.mpv, path)
     {
+        if prev.as_ref().is_some_and(|p| !same_open_target(p, path)) {
+            video_pref::strip_vapoursynth_before_replace_media(b);
+            crate::seek_bar_preview::reset_on_main_media_change_from("try_load:warm_entity_change");
+        }
         eprintln!("[rhino] warm_preload: warm hit (same file)");
         b.set_me_budget_shell_path(path);
         crate::video_pref::publish_smooth_env_before_load(path, &o.video_pref.borrow(), false);
@@ -86,6 +92,12 @@ fn load_file_into_player(
     }
     if prev.as_ref().is_some_and(|p| !same_open_target(p, path)) {
         video_pref::strip_vapoursynth_before_replace_media(b);
+        eprintln!(
+            "[rhino] try_load: entity change {} -> {}",
+            prev.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "?".into()),
+            path.display()
+        );
+        crate::seek_bar_preview::reset_on_main_media_change_from("try_load:entity_change");
     }
     b.set_me_budget_shell_path(path);
     crate::video_pref::publish_smooth_env_before_load(path, &o.video_pref.borrow(), true);
@@ -112,11 +124,15 @@ fn load_file_into_player(
     let snapshot_outgoing = !o.warm_preload;
     b.set_skip_media_persist(recent_layer.is_visible() && o.warm_preload);
     let tag = if o.warm_preload { "warm_preload" } else { "try_load" };
+    let load_t0 = std::time::Instant::now();
     if let Err(e) = b.load_file_path(path, clear_resume, snapshot_outgoing, o.warm_preload, None) {
         eprintln!("[rhino] {tag}: loadfile failed: {e}");
         return Err(e);
     }
-    eprintln!("[rhino] {tag}: loadfile ok");
+    eprintln!(
+        "[rhino] {tag}: loadfile ok ms={}",
+        load_t0.elapsed().as_millis()
+    );
     if drop_prev && !o.warm_preload {
         if let Some(p) = prev {
             remove_continue_entry(&p);

@@ -260,6 +260,7 @@ struct BackToBrowseCtx {
     recent_visible: Rc<Cell<bool>>,
     /// Resume/duration for continue cards; transport reads this instead of SQLite per tick/hover.
     continue_grid_cache: crate::media_probe::ContinueGridCache,
+    dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
     /// **True** while the main chrome targets the playing file (grid hidden after [try_load] reveal).
     playback_focus: Rc<Cell<bool>>,
     /// First paint used the browse row (no boot file): keep the strip visible with the Open tile

@@ -3,6 +3,19 @@
 
 use std::path::{Path, PathBuf};
 
+mod dvd_pick {
+    include!("video_ext_dvd_pick.rs");
+}
+use dvd_pick::pick_main_dvd_vob;
+
+pub(crate) fn feature_title_set_id(vts: &Path) -> Option<u32> {
+    dvd_pick::feature_title_set_id(vts)
+}
+
+pub(crate) fn resolve_dvd_main_vts(vts_dir: &Path, srpt_vts: u32, bytes_vts: u32) -> u32 {
+    dvd_pick::resolve_main_title_id(vts_dir, Some(srpt_vts), bytes_vts)
+}
+
 /// Lowercase extensions (no leading dot) for “is this a video file?” in a directory.
 /// Kept in sync with the **Open Video** file filter; extend here only.
 /// **`ts`**: MPEG transport stream; pair with `video/mp2t` in `data/applications/*.desktop` for “Open with”.
@@ -231,7 +244,7 @@ pub fn dvd_vob_broadcast_fps(decode_wh: Option<(i32, i32)>) -> Option<f64> {
     None
 }
 
-fn list_vobs_in_video_ts(vts: &Path) -> Vec<PathBuf> {
+pub(super) fn list_vobs_in_video_ts(vts: &Path) -> Vec<PathBuf> {
     let Ok(read) = std::fs::read_dir(vts) else {
         return Vec::new();
     };
@@ -249,178 +262,18 @@ fn list_vobs_in_video_ts(vts: &Path) -> Vec<PathBuf> {
     v
 }
 
-fn is_playable_dvd_chapter(path: &Path) -> bool {
+pub(super) fn is_playable_dvd_chapter(path: &Path) -> bool {
     crate::dvd_entity::vob_part_id(path).is_some_and(|n| n >= 1)
 }
 
-/// Main feature: `VIDEO_TS.IFO` title table when present, else `.vob` heuristics.
-fn pick_main_dvd_vob(vts: &Path) -> Option<PathBuf> {
-    if let Some(disc) = dvd_disc_root(vts) {
-        if let Some((vts_id, _ttn)) = crate::dvd_ifo_parse::main_title_from_disc(&disc) {
-            let vts_dir = dvd_video_ts_dir(&disc)?;
-            if let Some(p) = crate::dvd_entity::first_chapter_vob(&vts_dir, vts_id) {
-                return Some(p);
-            }
-        }
-    }
-    pick_main_dvd_vob_from_files(vts)
-}
-
-/// Fallback when IFO is unavailable: most chapter files, ties → lowest `VTS_XX`.
-fn pick_main_dvd_vob_from_files(vts: &Path) -> Option<PathBuf> {
-    use std::collections::HashMap;
-    let vobs: Vec<PathBuf> = list_vobs_in_video_ts(vts)
-        .into_iter()
-        .filter(|p| is_playable_dvd_chapter(p))
-        .collect();
-    if vobs.is_empty() {
-        return None;
-    }
-    let mut by_title: HashMap<u32, (usize, u64, PathBuf)> = HashMap::new();
-    for p in &vobs {
-        let Some(tid) = crate::dvd_entity::vob_title_id(p) else {
-            continue;
-        };
-        let e = by_title.entry(tid).or_insert_with(|| (0, 0, p.clone()));
-        e.0 += 1;
-        e.1 += p.metadata().ok().map(|m| m.len() as u64).unwrap_or(0);
-        if crate::dvd_entity::vob_part_id(p) == Some(1) {
-            e.2 = p.clone();
-        }
-    }
-    let skip_menu = by_title.keys().any(|&t| t >= 2);
-    let titles: Vec<(u32, usize, u64, PathBuf)> = by_title
-        .into_iter()
-        .filter(|(t, _)| !skip_menu || *t != 1)
-        .map(|(t, (c, b, p))| (t, c, b, p))
-        .collect();
-    if titles.is_empty() {
-        return None;
-    }
-    let max_ch = titles.iter().map(|(_, c, _, _)| *c).max()?;
-    titles
-        .into_iter()
-        .filter(|(_, c, _, _)| *c == max_ch)
-        .min_by_key(|(t, _, _, _)| *t)
-        .map(|(_, _, _, path)| path)
+pub(super) fn title_set_bytes(vts_dir: &Path, title_id: u32) -> u64 {
+    crate::dvd_entity::chapter_vobs_for_title_pub(vts_dir, title_id)
+        .iter()
+        .filter_map(|p| p.metadata().ok())
+        .map(|m| m.len())
+        .sum()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-
-    #[test]
-    fn bluray_root_from_disc_and_bdmv_package() {
-        let base = std::env::temp_dir().join(format!("rhino-bluray-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
-        let disc = base.join("Disc");
-        let bdmv = disc.join("BDMV");
-        fs::create_dir_all(&bdmv).expect("mkdir");
-        fs::write(bdmv.join("MovieObject.bdmv"), b"MOBJ0200").expect("write");
-        assert_eq!(bluray_disc_root(&disc).as_deref(), Some(disc.as_path()));
-        assert_eq!(bluray_disc_root(&bdmv).as_deref(), Some(disc.as_path()));
-        assert_eq!(
-            bluray_disc_root(&bdmv.join("MovieObject.bdmv")).as_deref(),
-            Some(disc.as_path())
-        );
-        let _ = fs::remove_dir_all(&base);
-    }
-
-    #[test]
-    fn dvd_root_from_disc_and_video_ts_folder() {
-        let base = std::env::temp_dir().join(format!("rhino-dvd-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
-        let disc = base.join("DVD1");
-        let vts = disc.join("VIDEO_TS");
-        fs::create_dir_all(&vts).expect("mkdir");
-        fs::write(vts.join("VIDEO_TS.IFO"), b"DVDVIDEO").expect("write");
-        assert_eq!(dvd_disc_root(&disc).as_deref(), Some(disc.as_path()));
-        assert_eq!(dvd_disc_root(&vts).as_deref(), Some(disc.as_path()));
-        let mixed = base.join("Mgnoveniy");
-        let vts2 = mixed.join("Video_ts");
-        fs::create_dir_all(&vts2).expect("mkdir");
-        fs::write(vts2.join("VIDEO_TS.IFO"), b"IFO").expect("write");
-        assert_eq!(dvd_disc_root(&mixed).as_deref(), Some(mixed.as_path()));
-        assert_eq!(dvd_disc_root(&vts2).as_deref(), Some(mixed.as_path()));
-        let _ = fs::remove_dir_all(&base);
-    }
-
-    #[test]
-    fn pick_main_prefers_lower_title_when_chapter_counts_tie() {
-        let base = std::env::temp_dir().join(format!("rhino-dvd-tie-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
-        let vts = base.join("VIDEO_TS");
-        fs::create_dir_all(&vts).expect("mkdir");
-        fs::write(vts.join("VIDEO_TS.IFO"), b"IFO").expect("write");
-        fs::write(vts.join("VTS_02_4.VOB"), vec![0u8; 1000]).expect("write");
-        fs::write(vts.join("VTS_03_1.VOB"), vec![0u8; 500_000]).expect("write");
-        assert_eq!(
-            pick_main_dvd_vob(&vts).as_deref(),
-            Some(vts.join("VTS_02_4.VOB").as_path())
-        );
-        let _ = fs::remove_dir_all(&base);
-    }
-
-    #[test]
-    fn dvd_resolve_opens_main_title_first_chapter() {
-        let base = std::env::temp_dir().join(format!("rhino-dvd-vob-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
-        let disc = base.join("DVD1");
-        let vts = disc.join("VIDEO_TS");
-        fs::create_dir_all(&vts).expect("mkdir");
-        fs::write(vts.join("VIDEO_TS.IFO"), b"IFO").expect("write");
-        fs::write(vts.join("VIDEO_TS.VOB"), vec![0u8; 64]).expect("write");
-        fs::write(vts.join("VTS_01_0.VOB"), vec![0u8; 128]).expect("write");
-        fs::write(vts.join("VTS_01_1.VOB"), vec![0u8; 4096]).expect("write");
-        fs::write(vts.join("VTS_01_2.VOB"), vec![0u8; 2048]).expect("write");
-        fs::write(vts.join("VTS_02_1.VOB"), vec![0u8; 50_000]).expect("write");
-        fs::write(vts.join("VTS_02_2.VOB"), vec![0u8; 50_000]).expect("write");
-        assert_eq!(
-            resolve_open_media_path(&disc),
-            vts.join("VTS_02_1.VOB")
-        );
-        assert_eq!(
-            dvd_first_playable_vob(&disc).as_deref(),
-            Some(vts.join("VTS_02_1.VOB").as_path())
-        );
-        let p21 = vts.join("VTS_02_1.VOB");
-        let title = crate::dvd_entity::vob_title_id(&p21);
-        let title_vobs: Vec<_> = crate::dvd_entity::list_feature_vobs(&p21)
-            .into_iter()
-            .filter(|p| crate::dvd_entity::vob_title_id(p) == title)
-            .collect();
-        assert_eq!(title_vobs.len(), 2);
-        assert_eq!(title_vobs[1], vts.join("VTS_02_2.VOB"));
-        let ch2 = vts.join("VTS_01_2.VOB");
-        assert_eq!(resolve_open_media_path(&disc), vts.join("VTS_02_1.VOB"));
-        assert_eq!(resolve_open_media_path(&ch2), ch2);
-        let _ = fs::remove_dir_all(&base);
-    }
-
-    #[test]
-    fn paths_same_file_ignores_video_ts_casing_without_canonicalize() {
-        let a = Path::new("/Volumes/Disc/DVD/Video_ts/VTS_02_1.VOB");
-        let b = Path::new("/Volumes/Disc/DVD/VIDEO_TS/VTS_02_1.VOB");
-        assert!(paths_same_file(a, b));
-        let c = Path::new("/Volumes/Disc/DVD/VIDEO_TS/VTS_02_2.VOB");
-        assert!(!paths_same_file(a, c));
-    }
-
-    #[test]
-    fn dvd_vob_path_and_broadcast_fps() {
-        let base = std::env::temp_dir().join(format!("rhino-dvd-fps-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
-        let vts = base.join("Video_ts");
-        fs::create_dir_all(&vts).expect("mkdir");
-        let ch = vts.join("VTS_02_1.VOB");
-        fs::write(&ch, b"x").expect("write");
-        assert!(is_dvd_vob_path(&ch));
-        assert!(!is_dvd_vob_path(&base.join("clip.mkv")));
-        assert_eq!(dvd_vob_broadcast_fps(Some((768, 576))), Some(25.0));
-        assert_eq!(dvd_vob_broadcast_fps(Some((720, 576))), Some(25.0));
-        assert!((dvd_vob_broadcast_fps(Some((720, 480))).unwrap() - 30000.0 / 1001.0).abs() < 1e-6);
-        assert!(dvd_vob_broadcast_fps(Some((1280, 720))).is_none());
-        let _ = fs::remove_dir_all(&base);
-    }
-}
+#[path = "video_ext_tests.rs"]
+mod tests;

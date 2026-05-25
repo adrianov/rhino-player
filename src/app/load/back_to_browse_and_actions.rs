@@ -10,11 +10,15 @@ fn back_to_browse(
     clear_undo: bool,
 ) {
     cancel_undo_timer(&c.undo_timer);
-    c.playback_focus.set(false);
     if clear_undo {
         *c.undo_remove_stack.borrow_mut() = Vec::new();
     }
     sync_undo_bar(&c.undo_label, &c.undo_btn, &c.undo_shell, &c.undo_remove_stack);
+    if let Some(b) = c.player.borrow().as_ref() {
+        let bar = c.dvd_bar.borrow();
+        b.save_playback_state_for_close_with_bar(bar.as_ref());
+    }
+    c.playback_focus.set(false);
     c.win_aspect.set(None);
     c.sibling_seof.done.set(false);
     // Keep last_path set to the warm preload target so prev/next remain active
@@ -40,8 +44,6 @@ fn back_to_browse(
         let p2 = c.player.clone();
         let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
             if let Some(b) = p2.borrow().as_ref() {
-                b.snapshot_outgoing_before_leave();
-                b.save_playback_state();
                 b.stop_playback();
             }
             glib::ControlFlow::Break
@@ -52,7 +54,6 @@ fn back_to_browse(
 
     // FnOnce chain: `idle_add_local_full` requires FnMut, so the grid refill is scheduled from
     // a one-shot idle (paint can run first at DEFAULT_IDLE priority).
-    let p_write = c.player.clone();
     let row2 = row.clone();
     let op2 = c.on_open.clone();
     let osl2 = c.on_remove.clone();
@@ -61,9 +62,6 @@ fn back_to_browse(
     let rbb = c.recent_backfill.clone();
     let chrome_cache = Rc::clone(&c.continue_grid_cache);
     let _ = glib::source::idle_add_local_once(move || {
-        if let Some(b) = p_write.borrow().as_ref() {
-            b.snapshot_outgoing_before_leave();
-        }
         let rbb2 = rbb.clone();
         let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
             let v: Vec<CardData> = card_data_list(&paths2);

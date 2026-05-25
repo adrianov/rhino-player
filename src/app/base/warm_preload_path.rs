@@ -6,18 +6,38 @@ fn preload_continue_path(
     gl: &gtk::GLArea,
     last_path: &Rc<RefCell<Option<PathBuf>>>,
 ) -> PreloadOutcome {
+    let t0 = std::time::Instant::now();
     let path = crate::video_ext::resolve_open_media_path(path);
-    if !recent.is_visible() || !path.is_file() || player.borrow().is_none() {
+    if crate::video_ext::is_dvd_vob_path(&path) {
+        eprintln!(
+            "[rhino] warm_preload: skip dvd chapter {} ms={}",
+            path.display(),
+            t0.elapsed().as_millis()
+        );
         return PreloadOutcome::Failed;
     }
-    if crate::shell_debug_log::enabled() {
+    if !recent.is_visible() || !path.is_file() || player.borrow().is_none() {
         eprintln!(
-            "[rhino] warm_preload: path={} exists={} play=false",
+            "[rhino] warm_preload: skip {} ms={} (recent={} file={} player={})",
             path.display(),
-            path.exists()
+            t0.elapsed().as_millis(),
+            recent.is_visible(),
+            path.is_file(),
+            player.borrow().is_some()
         );
+        return PreloadOutcome::Failed;
     }
+    eprintln!(
+        "[rhino] warm_preload: begin {} exists={}",
+        path.display(),
+        path.exists()
+    );
     if mpv_has_open_target(&path, player) {
+        eprintln!(
+            "[rhino] warm_preload: ready (already open) {} ms={}",
+            path.display(),
+            t0.elapsed().as_millis()
+        );
         return PreloadOutcome::Ready;
     }
     if let Some(b) = player.borrow().as_ref() {
@@ -40,13 +60,30 @@ fn preload_continue_path(
         warm_preload: true,
     };
     let warm_hit = match load_file_into_player(&path, player, recent, &o) {
-        Err(_) => return PreloadOutcome::Failed,
+        Err(e) => {
+            eprintln!(
+                "[rhino] warm_preload: failed {} ms={} err={e}",
+                path.display(),
+                t0.elapsed().as_millis()
+            );
+            return PreloadOutcome::Failed;
+        }
         Ok(hit) => hit,
     };
     if warm_hit {
+        eprintln!(
+            "[rhino] warm_preload: warm hit {} ms={}",
+            path.display(),
+            t0.elapsed().as_millis()
+        );
         return PreloadOutcome::Ready;
     }
     warm_preload_hold_browse_pause(player, gl);
+    eprintln!(
+        "[rhino] warm_preload: deferred {} ms={}",
+        path.display(),
+        t0.elapsed().as_millis()
+    );
     PreloadOutcome::Deferred
 }
 
@@ -58,6 +95,10 @@ fn preload_first_continue(ctx: &Rc<WarmPreloadCtx>) -> bool {
         Some(p) => p,
         None => return false,
     };
+    eprintln!(
+        "[rhino] warm_preload: first continue card {}",
+        path.display()
+    );
     if !ctx.gate.try_begin() {
         ctx.gate.queue(path);
         return false;

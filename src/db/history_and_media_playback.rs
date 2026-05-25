@@ -130,6 +130,20 @@ pub fn set_duration(path: &Path, sec: f64) {
     });
 }
 
+/// Drop a stale whole-title duration while keeping resume (legacy whole-disc rows).
+pub fn clear_duration(path: &Path) {
+    let Some(s) = history_key(path) else {
+        return;
+    };
+    let _ = with_conn(|c| {
+        c.execute(
+            "UPDATE media SET duration_sec = NULL WHERE path = ?1",
+            params![&s],
+        )?;
+        Ok(())
+    });
+}
+
 /// Resume position (seconds) for one file. Used by `loadfile` to pass `start=<sec>`.
 /// Same path key as [remove_history] / [clear_resume_position].
 pub fn resume_pos(path: &Path) -> Option<f64> {

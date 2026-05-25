@@ -70,12 +70,17 @@ fn wire_seek_control(seek: &gtk::Scale, d: SeekControlDeps) {
 fn bar_label_time_from_value(ctx: &SeekCtx, value: f64) -> Option<f64> {
     let upper = ctx.seek.adjustment().upper();
     let main = ctx.player.borrow();
+    let shell = main
+        .as_ref()
+        .and_then(|b| b.me_budget_shell_path.borrow().clone());
     let preview = ctx.preview_player.borrow();
     crate::seek_bar_preview::seek_bar_label_time_from_value(
         upper,
         value,
         main.as_ref().map(|b| &b.mpv),
+        shell.as_deref(),
         preview.as_ref().map(|p| &p.mpv),
+        Some(&ctx.dvd_bar),
     )
 }
 

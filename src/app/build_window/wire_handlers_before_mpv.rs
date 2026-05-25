@@ -39,6 +39,7 @@ fn wire_handlers_before_mpv(
     playback_focus: &Rc<Cell<bool>>,
     sibling_seof: &Rc<SiblingEofState>,
     win_aspect: &Rc<Cell<Option<f64>>>,
+    dvd_bar: &Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
 ) -> HandlersBeforeMpv {
     #[cfg(target_os = "macos")]
     crate::macos_window::register_win_bar_show(&w.win, Rc::clone(bar_show), w.root.clone());
@@ -278,6 +279,7 @@ fn wire_handlers_before_mpv(
         .as_ref()
         .map(|ctx| warm_hover_hooks(Rc::clone(ctx)));
     let continue_grid_cache = Rc::new(RefCell::new(std::collections::HashMap::new()));
+    crate::media_probe::continue_grid_cache_attach(Rc::clone(&continue_grid_cache));
     let recent_wiring = wire_recent_undo(RecentUndoCtx {
         player: player.clone(), recent: w.recent_scrl.clone(), flow: w.flow_recent.clone(),
         undo_shell: undo_shell.clone(), undo_label: undo_label.clone(), undo_btn: undo_btn.clone(),
@@ -317,6 +319,7 @@ fn wire_handlers_before_mpv(
             browse_has_strip: want_recent,
             hdr_title_mirror: w.hdr_title_mirror.clone(),
             continue_grid_cache: Rc::clone(&continue_grid_cache),
+            dvd_bar: Rc::clone(dvd_bar),
         },
         w.win.clone(), w.gl_area.clone(), w.recent_scrl.clone(), w.flow_recent.clone(),
     );

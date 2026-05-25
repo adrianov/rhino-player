@@ -60,7 +60,7 @@ fn build_window(
     let h = wire_handlers_before_mpv(
         app, &w, player, &file_boot, &on_open_slot, &sub_pref, &video_pref, &bar_show,
         &nav_t, &motion_squelch, &fs_restore, &last_unmax, &skip_max_to_fs, &fs_transition_busy,
-        &last_path, &playback_focus, &sibling_seof, &win_aspect,
+        &last_path, &playback_focus, &sibling_seof, &win_aspect, &dvd_bar,
     );
     let HandlersBeforeMpv {
         continue_grid_cache,
