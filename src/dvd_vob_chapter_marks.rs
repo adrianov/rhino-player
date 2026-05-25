@@ -85,8 +85,11 @@ fn append_vob_part_marks(
     }
 }
 
+/// Only shrink preview seek range when the hover is near the next IFO mark (same-file chapter boundary).
+const PREVIEW_MARK_NEAR_SEC: f64 = 30.0;
+
 /// Preview seek cap: min open-`.vob` length and time until the next IFO chapter mark.
-pub(super) fn preview_chapter_dur(
+pub(crate) fn preview_chapter_dur(
     bar: &DvdBarState,
     global_t: f64,
     idx: usize,
@@ -104,7 +107,7 @@ pub(super) fn preview_chapter_dur(
     if let Some(&(next_t, _)) = bar.chapter_labels.iter().find(|(t, _)| *t > global_t + 0.05)
     {
         let remain = next_t - global_t;
-        if remain > 0.0 {
+        if remain > 0.0 && remain <= PREVIEW_MARK_NEAR_SEC {
             dur = dur.min(local + remain);
         }
     }

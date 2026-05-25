@@ -1,124 +1,53 @@
 // Transport bar, seek, and preview mapping for DVD unified timeline (included from `dvd_vob_timeline.rs`).
 
-fn open_timeline(mpv: &libmpv2::Mpv, shell: Option<&Path>) -> Option<(PathBuf, DvdVobTimeline)> {
-    let path = open_dvd_chapter_path(mpv, shell)?;
-    let live_dur = mpv
-        .get_property::<f64>("duration")
-        .ok()
-        .filter(|d| d.is_finite() && *d > 0.0)
-        .unwrap_or(0.0);
-    let map = crate::db::load_duration_map();
-    let tl = crate::dvd_entity::build_title_timeline(&path, &map, live_dur)?;
-    Some((path, tl))
-}
-
-/// Map virtual seek-bar time to preview `loadfile` path and local seek offset.
-pub struct DvdPreviewTarget {
+/// DVD title entity: map whole-title hover time → chapter `.vob` load + local seek.
+pub(crate) struct DvdTitlePreviewPlan {
     pub load: String,
     pub local_sec: f64,
     pub chapter_dur: f64,
 }
 
-struct PreviewPlan {
-    load: PathBuf,
-    local: f64,
-    chapter_dur: f64,
-}
-
-fn preview_plan_from_bar(
-    bar: &DvdBarState,
-    global_t: f64,
+pub(crate) fn dvd_title_preview_plan(
     mpv: &libmpv2::Mpv,
     shell: Option<&Path>,
-) -> Option<PreviewPlan> {
-    let total = bar.total_sec();
-    if !(total > 0.0) {
+    global_t: f64,
+    bar: Option<&DvdBarState>,
+) -> Option<DvdTitlePreviewPlan> {
+    let chapter = open_dvd_chapter_path(mpv, shell)?;
+    let entity = crate::playback_entity::PlaybackEntity::resolve(&chapter);
+    if !entity.has_unified_timeline() {
         return None;
     }
-    let g = global_t.clamp(0.0, total);
-    let (idx, local) = bar.resolve_global(g);
-    let load = bar.path_at(idx)?.to_path_buf();
     let map = crate::db::load_duration_map();
-    let mut chapter_dur = preview_chapter_dur(bar, g, idx, local, load.as_path(), &map);
-    let mut local = local;
-    if let Some(open) = open_dvd_chapter_path(mpv, shell) {
-        if crate::video_ext::paths_same_file(&load, &open) {
-            if let Some(cap) = mpv
-                .get_property::<f64>("duration")
-                .ok()
-                .filter(|d| d.is_finite() && *d > 0.0)
-            {
-                chapter_dur = chapter_dur.min(cap);
-                local = local.min((cap - 0.05).max(0.0));
-            }
-        }
-    }
-    Some(PreviewPlan {
-        load,
-        local,
-        chapter_dur,
-    })
-}
-
-fn preview_plan_fallback(
-    mpv: &libmpv2::Mpv,
-    shell: Option<&Path>,
-    global_t: f64,
-) -> Option<PreviewPlan> {
-    let (path, tl) = open_timeline(mpv, shell)?;
-    let local_dur = mpv
+    let active_bar = bar.filter(|b| entity.dvd_bar_active(&chapter, b));
+    let open = open_dvd_chapter_path(mpv, shell)?;
+    let mpv_dur = mpv
         .get_property::<f64>("duration")
         .ok()
         .filter(|d| d.is_finite() && *d > 0.0)
         .unwrap_or(0.0);
-    let (idx, local) = tl.resolve_global(global_t);
-    let load = tl.path_at(idx)?.to_path_buf();
-    let map = crate::db::load_duration_map();
-    let seg_dur = chapter_duration(
-        load.as_path(),
+    let open_cap = crate::dvd_entity::StillOpenCap {
+        chapter: open,
+        mpv_dur,
+    };
+    let still = entity.still_at_global(
+        &chapter,
+        global_t,
         &map,
-        Some(&path),
-        local_dur,
-    )
-    .max(tl.chapter_dur_at(idx));
-    let chapter_dur = seg_dur.max(0.0);
-    Some(PreviewPlan {
-        load,
-        local,
-        chapter_dur,
-    })
-}
-
-#[must_use]
-pub fn preview_target(
-    mpv: &libmpv2::Mpv,
-    shell: Option<&Path>,
-    global_t: f64,
-    dvd_bar: Option<&std::rc::Rc<std::cell::RefCell<Option<DvdBarState>>>>,
-) -> Option<DvdPreviewTarget> {
-    let plan = dvd_bar
-        .and_then(|slot| {
-            let bar = slot.borrow();
-            bar.as_ref()
-                .map(|b| preview_plan_from_bar(b, global_t, mpv, shell))
-        })
-        .flatten()
-        .or_else(|| preview_plan_fallback(mpv, shell, global_t))?;
+        active_bar,
+        Some(&open_cap),
+    )?;
     crate::dvd_vob_log::dvd_seek_log(format!(
         "preview global={global_t:.2} -> {} local={:.2} ch_dur={:.2} (bar={})",
-        plan.load.display(),
-        plan.local,
-        plan.chapter_dur,
-        if dvd_bar.is_some_and(|s| s.borrow().is_some()) {
-            "yes"
-        } else {
-            "no"
-        }
+        still.load.display(),
+        still.local_sec,
+        still.chapter_dur,
+        if active_bar.is_some() { "yes" } else { "no" }
     ));
-    Some(DvdPreviewTarget {
-        load: plan.load.to_str()?.to_string(),
-        local_sec: plan.local,
-        chapter_dur: plan.chapter_dur,
+    Some(DvdTitlePreviewPlan {
+        load: still.load.to_str()?.to_string(),
+        local_sec: still.local_sec,
+        chapter_dur: still.chapter_dur,
     })
 }
 
@@ -159,6 +88,24 @@ struct SeekPlan {
     from_bar: bool,
 }
 
+fn bar_total_from_slot(dvd_bar: Option<&std::rc::Rc<std::cell::RefCell<Option<DvdBarState>>>>) -> f64 {
+    dvd_bar
+        .and_then(|s| s.borrow().as_ref().map(DvdBarState::total_sec))
+        .filter(|t| t.is_finite() && *t > 0.0)
+        .unwrap_or(0.0)
+}
+
+fn persist_seek_global_entity(
+    b: &crate::mpv_embed::MpvBundle,
+    dvd_bar: Option<&std::rc::Rc<std::cell::RefCell<Option<DvdBarState>>>>,
+    global: f64,
+) {
+    let total = bar_total_from_slot(dvd_bar);
+    if total > 0.0 {
+        b.persist_entity_bar_global(total, global);
+    }
+}
+
 fn seek_plan_from_bar(bar: &DvdBarState, chapter: &std::path::Path, global_sec: f64) -> Option<SeekPlan> {
     let total = bar.total_sec();
     if !(total > 0.0) {
@@ -181,7 +128,7 @@ fn seek_plan_fallback(mpv: &libmpv2::Mpv, shell: Option<&std::path::Path>, globa
     let local_dur = mpv
         .get_property::<f64>("duration")
         .ok()
-        .filter(|d| d.is_finite() && *d > 0.0)
+        .map(crate::dvd_vob_timeline::clamp_vob_duration)
         .unwrap_or(0.0);
     let map = crate::db::load_duration_map();
     let tl = crate::dvd_entity::build_title_timeline(&path, &map, local_dur)?;
@@ -256,7 +203,21 @@ fn seek_global_borrowed(
         target.display()
     ));
     let target = target.as_path();
-    if cross {
+    let chain_head = crate::dvd_vob_mpv_probe::is_title_chain_head(target);
+    if cross || chain_head {
+        if chain_head && !cross {
+            b.dvd_hold_global.set(Some(g_target));
+            crate::mpv_embed::seek_chain_ifo_local(&b.mpv, target, local);
+            b.dvd_chain_bar_sync.set(Some(crate::dvd_vob_timeline::DvdChainBarSync::from_scrub(
+                b, g_target, local,
+            )));
+            b.dvd_hold_global.set(None);
+            persist_seek_global_entity(b, dvd_bar, g_target);
+            return SeekGlobalOutcome {
+                handled: true,
+                drain_transport: false,
+            };
+        }
         crate::video_pref::strip_vapoursynth_before_replace_media(b);
         if b.load_chapter_seek(target, local, g_target, resume_playing, false).is_err() {
             b.dvd_hold_global.set(None);
@@ -274,9 +235,11 @@ fn seek_global_borrowed(
         };
     }
     b.dvd_hold_global.set(Some(g_target));
+    b.dvd_chain_bar_sync.set(None);
     let s = format!("{local:.4}");
     let _ = crate::video_pref::unload_smooth_on_pause(&b.mpv);
     let _ = b.mpv.command("seek", &[s.as_str(), "absolute+exact"]);
+    persist_seek_global_entity(b, dvd_bar, g_target);
     SeekGlobalOutcome {
         handled: true,
         drain_transport: false,
