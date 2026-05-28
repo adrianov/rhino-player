@@ -247,6 +247,3 @@ pub(crate) fn schedule_macos_shell_refresh_after_vf() {
         });
     }
 }
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn schedule_macos_shell_refresh_after_vf() {}

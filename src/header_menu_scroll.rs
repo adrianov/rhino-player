@@ -1,5 +1,6 @@
 //! Header menu [`gtk::ScrolledWindow`] list caps (speed / sound / subtitles).
 
+#[cfg(target_os = "macos")]
 use gtk::prelude::*;
 
 pub const SCROLL_CLASS_AUDIO: &str = "rp-header-scroll-audio";
@@ -12,6 +13,7 @@ pub const SUB_MIN_W: i32 = 360;
 pub const SUB_MAX_H: i32 = 280;
 pub const SPEED_MAX_H: i32 = 320;
 
+#[cfg(target_os = "macos")]
 pub fn max_content_height_for(scrl: &gtk::ScrolledWindow) -> i32 {
     if scrl.has_css_class(SCROLL_CLASS_AUDIO) {
         AUDIO_MAX_H

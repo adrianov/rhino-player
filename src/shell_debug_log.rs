@@ -133,6 +133,3 @@ pub(crate) fn log_resize_pass(attempt: u8, target_w: i32, target_h: i32, win: &a
         win.height()
     ));
 }
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn log_resize_pass(_attempt: u8, _target_w: i32, _target_h: i32, _win: &adw::ApplicationWindow, _forced: bool) {}

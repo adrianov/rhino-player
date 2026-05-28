@@ -262,6 +262,7 @@ const RECENT_GRID_CSS: &str = include_str!("theme_continue_grid.css");
 const MACOS_TRANSPARENT_CONTENT_CSS: &str = include_str!("theme_macos_transparent.css");
 
 /// Bottom transport chrome on gdk-macos (USER priority — wins over transparent window rules).
+#[cfg(target_os = "macos")]
 const MACOS_BOTTOM_CHROME_CSS: &str = include_str!("theme_macos_bottom.css");
 
 pub fn apply() {

@@ -139,6 +139,7 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
         let fs_settle_ntf = Rc::clone(&ctx.fs_transition_settle);
         let play_fs = ctx.play_toggle.clone();
         let win_sig = ctx.shell.win.clone();
+        #[cfg(target_os = "macos")]
         let ch_fs = Rc::clone(&ctx.ch_hide);
         let tch_fs = Rc::clone(&touch_chrome_gl);
         win_sig.connect_fullscreened_notify(move |w| {

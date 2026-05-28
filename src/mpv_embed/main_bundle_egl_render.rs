@@ -275,11 +275,11 @@ impl MpvBundle {
         self.nudge_video_layout(gl, true);
     }
 
-    fn nudge_video_layout(&self, gl: &gtk::GLArea, repin_gtk_stack: bool) {
+    fn nudge_video_layout(&self, gl: &gtk::GLArea, _repin_gtk_stack: bool) {
         #[cfg(target_os = "macos")]
         if let Some(m) = self.macos.as_ref() {
             m.resync_layer_frame();
-            if repin_gtk_stack {
+            if _repin_gtk_stack {
                 m.repin_below_gtk_compositing();
             }
         }

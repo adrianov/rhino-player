@@ -19,6 +19,7 @@ pub fn register_refresh(hooks: HeaderMenuTrackHooks) {
 }
 
 /// Sound menu opened — rebuild track list (popover show or fullscreen overlay).
+#[cfg(target_os = "macos")]
 pub fn refresh_audio_on_open() {
     REFRESH_AUDIO.with(|s| {
         if let Some(f) = s.borrow().as_ref() {
@@ -28,6 +29,7 @@ pub fn refresh_audio_on_open() {
 }
 
 /// Subtitles menu opened — rebuild track list (popover show or fullscreen overlay).
+#[cfg(target_os = "macos")]
 pub fn refresh_sub_on_open() {
     REFRESH_SUB.with(|s| {
         if let Some(f) = s.borrow().as_ref() {

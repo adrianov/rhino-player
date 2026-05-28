@@ -40,6 +40,7 @@ impl SeekPreviewState {
     }
 
     pub(crate) fn show_at(&self, x: f64) {
+        #[cfg(target_os = "macos")]
         let was_visible = self.container.is_visible();
         // frame: padding 3px + border 1px per side = 8px over gl width; use allocated width when ready.
         let preview_w = self.container.width().max(self.gl.width_request() + 8).max(1) as f64;
@@ -63,6 +64,7 @@ impl SeekPreviewState {
     }
 
     pub(crate) fn hide(&self) {
+        #[cfg(target_os = "macos")]
         let was_visible = self.container.is_visible();
         self.container.set_visible(false);
         #[cfg(target_os = "macos")]
