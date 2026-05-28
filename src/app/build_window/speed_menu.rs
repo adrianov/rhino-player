@@ -1,3 +1,72 @@
+fn speed_row_index(list: &gtk::ListBox, row: &gtk::ListBoxRow) -> u32 {
+    (0i32..playback_speed::SPEEDS.len() as i32)
+        .find(|&ix| list.row_at_index(ix).is_some_and(|r| r == *row))
+        .unwrap_or(0) as u32
+}
+
+fn apply_speed_row_pick(
+    list: &gtk::ListBox,
+    row: &gtk::ListBoxRow,
+    sy: &Cell<bool>,
+    pick: &Cell<bool>,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    gl: &gtk::GLArea,
+    readout: &gtk::Label,
+    video_pref: &Rc<RefCell<db::VideoPrefs>>,
+    app: &adw::Application,
+    #[cfg(not(target_os = "macos"))] speed_mbtn: &gtk::MenuButton,
+) {
+    if sy.get() || pick.get() || !list.is_sensitive() {
+        #[cfg(target_os = "macos")]
+        crate::macos_header_menu_debug::log_event(
+            "speed",
+            "row_pick_skip",
+            &format!(
+                "sync={} pick={} sensitive={}",
+                sy.get(),
+                pick.get(),
+                list.is_sensitive()
+            ),
+        );
+        return;
+    }
+    let v = playback_speed::value_at(speed_row_index(list, row));
+    #[cfg(target_os = "macos")]
+    crate::macos_header_menu_debug::log_event("speed", "row_apply", &format!("rate={v}"));
+    let guard = player.borrow();
+    let Some(b) = guard.as_ref() else {
+        eprintln!("[rhino] speed: row pick with no player bundle");
+        return;
+    };
+    if b.mpv.set_property("speed", v).is_err() {
+        eprintln!("[rhino] speed: set_property speed={v} failed");
+        return;
+    }
+    drop(guard);
+    playback_speed::stamp_speed_readout(readout, v);
+    gl.queue_render();
+    let player_idle = Rc::clone(player);
+    let vp_idle = Rc::clone(video_pref);
+    let app_idle = app.clone();
+    let _ = glib::idle_add_local_once(move || {
+        let guard = player_idle.borrow();
+        let Some(pl) = guard.as_ref() else {
+            return;
+        };
+        let r = video_pref::refresh_smooth_for_playback_speed(pl, &mut vp_idle.borrow_mut(), Some(v));
+        if r.smooth_auto_off {
+            sync_smooth_60_to_off(&app_idle);
+        }
+    });
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(pop) = speed_mbtn.popover() {
+            pop.popdown();
+        }
+        speed_mbtn.set_active(false);
+    }
+}
+
 /// Builds the playback-speed popover; icon + rate caption share one [`gtk::MenuButton`] hit target
 /// (horizontal row keeps header / fullscreen toolbar row height unchanged).
 struct SpeedMenuResult {
@@ -14,7 +83,12 @@ fn build_speed_menu(
     app: &adw::Application,
 ) -> SpeedMenuResult {
     let speed_list = gtk::ListBox::new();
-    // Selection changes on single click; activation is unused (row-selected applies speed).
+    // Linux: row-activated on single click (GTK does not reliably apply speed via row-selected
+    // when activate-on-single-click is false). macOS: row-selected + false avoids spurious apply
+    // while the opening click settles (pick guard).
+    #[cfg(not(target_os = "macos"))]
+    speed_list.set_activate_on_single_click(true);
+    #[cfg(target_os = "macos")]
     speed_list.set_activate_on_single_click(false);
     speed_list.add_css_class("rich-list");
     for s in &playback_speed::SPEEDS {
@@ -96,55 +170,34 @@ fn build_speed_menu(
         let vp = Rc::clone(video_pref);
         let ap = app.clone();
         let pick = open_pick.clone();
-        speed_list.connect_row_selected(move |list2, row| {
-            if sy.get() || pick.get() || !list2.is_sensitive() {
-                #[cfg(target_os = "macos")]
-                crate::macos_header_menu_debug::log_event(
-                    "speed",
-                    "row_selected_skip",
-                    &format!(
-                        "sync={} pick={} sensitive={}",
-                        sy.get(),
-                        pick.get(),
-                        list2.is_sensitive()
-                    ),
+        #[cfg(not(target_os = "macos"))]
+        speed_list.connect_row_activated({
+            let p = p.clone();
+            let glr = glr.clone();
+            let sy = sy.clone();
+            let pick = pick.clone();
+            let spd_lbl = spd_lbl.clone();
+            let vp = Rc::clone(&vp);
+            let ap = ap.clone();
+            let smb = smb.clone();
+            move |list2, row| {
+                apply_speed_row_pick(
+                    &list2, &row, &sy, &pick, &p, &glr, &spd_lbl, &vp, &ap, &smb,
                 );
-                return;
             }
-            let Some(row) = row else { return };
-            let i: u32 = (0i32..playback_speed::SPEEDS.len() as i32)
-                .find(|&ix| list2.row_at_index(ix).is_some_and(|r| r == *row))
-                .unwrap_or(0) as u32;
-            let v = playback_speed::value_at(i);
-            #[cfg(target_os = "macos")]
-            crate::macos_header_menu_debug::log_event(
-                "speed",
-                "row_selected_apply",
-                &format!("rate={v}"),
-            );
-            if let Some(b) = p.borrow().as_ref() {
-                let _ = b.mpv.set_property("speed", v);
-                playback_speed::stamp_speed_readout(&spd_lbl, v);
-                glr.queue_render();
-            }
-            let bref = p.clone();
-            let vp2 = Rc::clone(&vp);
-            let ap2 = ap.clone();
-            let _ = glib::idle_add_local_once(move || {
-                let Some(ref pl) = *bref.borrow() else {
-                    return;
-                };
-                let r = video_pref::refresh_smooth_for_playback_speed(pl, &mut vp2.borrow_mut(), Some(v));
-                if r.smooth_auto_off {
-                    sync_smooth_60_to_off(&ap2);
-                }
-            });
-            #[cfg(not(target_os = "macos"))]
-            {
-                if let Some(pop) = smb.popover() {
-                    pop.popdown();
-                }
-                smb.set_active(false);
+        });
+        #[cfg(target_os = "macos")]
+        speed_list.connect_row_selected({
+            let p = p.clone();
+            let glr = glr.clone();
+            let sy = sy.clone();
+            let pick = pick.clone();
+            let spd_lbl = spd_lbl.clone();
+            let vp = Rc::clone(&vp);
+            let ap = ap.clone();
+            move |list2, row| {
+                let Some(row) = row else { return };
+                apply_speed_row_pick(&list2, &row, &sy, &pick, &p, &glr, &spd_lbl, &vp, &ap);
             }
         });
     }

@@ -74,6 +74,7 @@ Feature: Fixed-step playback speed
 ## Notes
 - Fastest row **8.0×** matches mpv default audio pitch preservation: auto `scaletempo2` uses `max-speed=8.0` upstream, so higher `speed` values do not apply reliably with default options.
 - Speed header control: **`rp-speed-mbtn`** `MenuButton` child layout **`rp-speed-face`**: horizontal **`Image`** + **`rp-speed-readout`** (`spacing 4` in code, no extra CSS margins) so the header row matches other icon-only controls in windowed and fullscreen chrome. One hit target opens the popover; disabled when the seek bar slot is insensitive (continue grid).
+- Linux: **`ListBox.connect_row_activated`** with **`activate-on-single-click=true`** (`speed_menu.rs`). macOS keeps **`row-selected`** + **`activate-on-single-click=false`** and the pick guard so the opening click does not apply a rate.
 - Digit **3** sets **1.5×**; digits **1**, **2**, **4**–**8** set **N**× (**13-input-shortcuts**). When playback is paused, that shortcut unpause sequence runs first so rate and Smooth bookkeeping match the bottom-bar play control.
 - Read `speed` after each load; if not within 0.01 of one canonical step, set mpv to the nearest.
 - Header LTR cluster: speed sits left of subtitles, volume, and the hamburger menu.
