@@ -20,7 +20,6 @@ const APP_CSS: &str = r#"
             border-spacing: 0;
         }
         toolbarview.rp-toolbar headerbar.rpb-header label.title {
-            font-size: 0.85em;
             padding: 0;
             margin: 0;
         }
