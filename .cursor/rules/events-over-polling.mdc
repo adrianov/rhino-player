@@ -1,15 +1,69 @@
 ---
-description: Prefer event subscriptions over timers when the stack exposes specific events; restrict polling to justified cases.
+description: Prefer event-driven updates over periodic scans, refresh ticks, and retry timers when wiring is straightforward.
 alwaysApply: true
 ---
 
 # Events over polling
 
-- **Default:** Do **not** add periodic timers (`glib::timeout_add*`, `interval`, busy loops on the main thread) to mirror state that already changes on **known events**. Wire **those** events instead.
-- **Where to look for events**
-  - **GTK / libadwaita:** widget signals, `connect_*` handlers, action `activate`, `notify::*` for GObject properties, `PropertyBinding`, controllers (scroll, key, click).
-  - **GIO / GLib:** `Cancellable` + async completion, `FileMonitor`, signals on `Application` / `ActionGroup`, not “poll every N ms to see if something changed” when a signal or callback exists.
-  - **libmpv:** `observe_property` for properties you care about; `set_wakeup_callback` only to **schedule work on the main thread**; on the main thread, drain with `wait_event(0)` in a loop until idle. **Never** call other mpv APIs from **inside** the wakeup callback.
-- **When a timer is still OK:** Only if there is **no** reliable event (or the API explicitly recommends a tick), or you need a **documented** fallback (e.g. rare case where property observation is too costly and product accepts coarser updates). If you add a timer, state **why** a subscription was insufficient and keep the interval as large as the UX allows.
+**Default:** Do not mirror or refresh state on a **repeating** schedule when the stack already tells you **when** it changed. Wire the **event** (signal, property change, lifecycle hook) and update once at that point.
 
-**Existing code:** A legacy timer (e.g. transport UI) is not a pattern to copy without replacing it with the event-driven path above when touching that area.
+This applies to **UI sync** (tooltips, labels, enablement), **cache invalidation**, **scans** (“walk widgets / re-read mpv every N ms”), and **retry loops** — not only generic “state mirroring.”
+
+## Use events first
+
+| Layer | Prefer |
+|-------|--------|
+| **GTK / libadwaita** | `connect_*` signals, action `activate`, `notify::*` on GObject properties, `PropertyBinding`, controllers (click, scroll, key) |
+| **GIO / GLib** | async completion, `FileMonitor`, `Application` / `ActionGroup` signals — not a timer to “see if something changed” |
+| **libmpv** | `observe_property` for properties you care about; `set_wakeup_callback` only to **schedule main-thread work**; drain with `wait_event(0)` on the main thread. **Never** call other mpv APIs inside the wakeup callback |
+| **Product lifecycle** | `FileLoaded`, `path` change, popover `show`, user selection, chapter scrub finish — refresh derived UI **there**, not on a global tick |
+
+## Periodic refresh is not the default
+
+```rust
+// ❌ BAD — tooltip/header drifts or races; hides missing event wiring
+glib::timeout_add_local(Duration::from_secs(1), move || {
+    sync_audio_tooltip(&ctx);
+    glib::ControlFlow::Continue
+});
+
+// ✅ GOOD — key points only (after restore, path change, popover open, user pick)
+audio_tracks::refresh_audio_tooltip_for_player(&ctx.player, &ctx.widgets.vol_menu);
+```
+
+```rust
+// ❌ BAD — scan every tick for work that has a signal
+glib::timeout_add_local(interval, move || {
+    if popover.is_visible() { rebuild_rows(); }
+    glib::ControlFlow::Continue
+});
+
+// ✅ GOOD
+popover.connect_show(move |_| rebuild_rows());
+```
+
+## One-shot deferral ≠ polling
+
+A **single** `glib::idle_add_local_once` or **bounded** retry chain **tied to one event** (e.g. one idle after `FileLoaded` so `track-list` can settle) is fine. It runs because **that** load happened, not on a clock.
+
+Do **not** promote it to `timeout_add_local` / `interval` unless you document why events are insufficient.
+
+## When a timer is still OK
+
+Only when:
+
+- There is **no** reliable event (or the API documents a tick), **or**
+- Product accepts **coarser** updates and observation would be costly.
+
+If you add a timer:
+
+1. **Comment why** subscriptions or lifecycle hooks were insufficient (file + symbol).
+2. Use the **largest interval** UX allows.
+3. Do **not** copy legacy ticks (e.g. transport UI) when touching that area — replace with events where straightforward.
+
+## Agent checklist (new sync / refresh code)
+
+- [ ] Listed the **observable change** (user action, mpv property, load milestone).
+- [ ] Wired **that** event (or one bounded follow-up to it), not a repeating timer.
+- [ ] UI derived from mpv/GTK state updates on **open**, **select**, **load**, **path** — not every second “just in case.”
+- [ ] No new `timeout_add*` / `interval` / busy main-thread loop without the “When a timer is still OK” justification.
