@@ -57,6 +57,8 @@ struct WindowWidgets {
     close_video_btn: gtk::Button,
     blackout_menu: gtk::Button,
     blackout_sync: Rc<crate::screen_blackout::BlackoutSync>,
+    /// Keeps header [`gtk::SizeGroup`] alive for the window lifetime.
+    _header_btn_heights: gtk::SizeGroup,
 }
 
 fn build_widgets(
@@ -121,7 +123,7 @@ fn build_widgets(
         header,
         fs_clock,
         hdr_title_mirror,
-        ..
+        _header_btn_heights,
     } = build_toolbar_header_shell(
         &menu_btn,
         &vol_menu,
@@ -176,6 +178,7 @@ fn build_widgets(
         close_video_btn,
         blackout_menu,
         blackout_sync,
+        _header_btn_heights,
     }
 }
 
