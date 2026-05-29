@@ -9,7 +9,7 @@
 use glib::prelude::{Cast, ObjectExt};
 use gtk::prelude::GtkWindowExt;
 #[cfg(target_os = "macos")]
-use gtk::prelude::GtkApplicationExt;
+use gtk::prelude::{GtkApplicationExt, WidgetExt};
 
 /// Install platform hooks (macOS: raise on re-activation without re-centering).
 #[cfg(target_os = "macos")]
