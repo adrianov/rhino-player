@@ -59,10 +59,10 @@
         let film = 24000.0 / 1001.0;
         let video = 30000.0 / 1001.0;
         for _ in 0..CADENCE_STABLE_READS {
-            update_interleaved_cadence_gate(path.as_deref(), Some(film), &mut g);
+            update_interleaved_cadence_gate(path.as_deref(), None, Some(film), &mut g);
         }
         assert!(!g.interleaved_smooth);
-        update_interleaved_cadence_gate(path.as_deref(), Some(video), &mut g);
+        update_interleaved_cadence_gate(path.as_deref(), None, Some(video), &mut g);
         assert!(g.interleaved_smooth);
     }
 
@@ -70,14 +70,23 @@
     fn disc_stabilizer_ignores_wild_est_after_plausible_container() {
         let mut g = FpsPickGateState::default();
         let path: Option<String> = Some("bd://1".into());
-        let first = stabilize_disc_source_fps(path.as_deref(), Some(24000.0 / 1001.0), &mut g);
+        let first = stabilize_disc_source_fps(path.as_deref(), None, Some(24000.0 / 1001.0), &mut g);
         assert!(first.is_some());
         assert_eq!(g.locked_disc_fps, first);
         assert_eq!(
-            stabilize_disc_source_fps(path.as_deref(), Some(60.0), &mut g),
+            stabilize_disc_source_fps(path.as_deref(), None, Some(60.0), &mut g),
             first
         );
-        assert_eq!(stabilize_disc_source_fps(path.as_deref(), Some(6.5), &mut g), first);
+        assert_eq!(stabilize_disc_source_fps(path.as_deref(), None, Some(6.5), &mut g), first);
+    }
+
+    #[test]
+    fn disc_plausible_cadence_clears_interleaved_guard() {
+        let mut g = FpsPickGateState::default();
+        let path: Option<String> = Some("bd://1".into());
+        g.interleaved_smooth = true;
+        update_interleaved_cadence_gate(path.as_deref(), None, Some(24000.0 / 1001.0), &mut g);
+        assert!(!g.interleaved_smooth);
     }
 
     #[test]
@@ -86,7 +95,7 @@
         let ntsc = 30000.0 / 1001.0;
         g.last_stable_fps = Some(ntsc);
         assert!((sticky_local_source_fps(&g).unwrap() - ntsc).abs() < 1e-6);
-        update_interleaved_cadence_gate(None, None, &mut g);
+        update_interleaved_cadence_gate(None, None, None, &mut g);
         assert!(!g.interleaved_smooth);
     }
 
@@ -95,7 +104,7 @@
         let mut g = FpsPickGateState::default();
         let path: Option<String> = Some("bd://1".into());
         g.last_stable_fps = Some(24000.0 / 1001.0);
-        update_interleaved_cadence_gate(path.as_deref(), None, &mut g);
+        update_interleaved_cadence_gate(path.as_deref(), None, None, &mut g);
         assert!(g.interleaved_smooth);
     }
 
@@ -103,7 +112,7 @@
     fn local_sixty_hz_est_ignored_for_source_pick() {
         assert!(source_fps_from_container_and_estimated(None, Some(60.0)).is_none());
         let mut g = FpsPickGateState::default();
-        update_interleaved_cadence_gate(None, Some(60.0), &mut g);
+        update_interleaved_cadence_gate(None, None, Some(60.0), &mut g);
         assert!(!g.interleaved_smooth);
     }
 
@@ -113,10 +122,10 @@
         let film = 24000.0 / 1001.0;
         let video = 30000.0 / 1001.0;
         for _ in 0..CADENCE_STABLE_READS {
-            update_interleaved_cadence_gate(None, Some(film), &mut g);
+            update_interleaved_cadence_gate(None, None, Some(film), &mut g);
         }
         assert!(!g.interleaved_smooth);
-        update_interleaved_cadence_gate(None, Some(video), &mut g);
+        update_interleaved_cadence_gate(None, None, Some(video), &mut g);
         assert!(!g.interleaved_smooth);
     }
 

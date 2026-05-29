@@ -133,7 +133,12 @@ pub(super) fn source_fps_from_mpv(
     let est = est.filter(|e| is_plausible_broadcast_fps(*e));
     let mut picked = source_fps_from_container_and_estimated(cfps, est);
     let mpv_pick = picked;
-    picked = stabilize_disc_source_fps(path_now.as_deref(), picked, &mut gate);
+    picked = stabilize_disc_source_fps(
+        path_now.as_deref(),
+        shell_media.as_deref(),
+        picked,
+        &mut gate,
+    );
     let mut dvd_pick = None;
     if media_is_dvd_vob(mpv, bundle) {
         let fps =
@@ -154,7 +159,12 @@ pub(super) fn source_fps_from_mpv(
             .and_then(crate::db::media_source_fps)
             .or_else(|| sticky_local_source_fps(&gate));
     }
-    let picked = update_interleaved_cadence_gate(path_now.as_deref(), picked, &mut gate);
+    let picked = update_interleaved_cadence_gate(
+        path_now.as_deref(),
+        shell_media.as_deref(),
+        picked,
+        &mut gate,
+    );
     let picked = picked.and_then(crate::db::snap_broadcast_fps_hz);
     if let Some(path) = shell_media.as_deref() {
         if let Some(fps) = mpv_pick.and_then(crate::db::snap_broadcast_fps_hz) {

@@ -154,7 +154,13 @@ fn apply_interleaved_display_resample(mpv: &Mpv, bundle: Option<&MpvBundle>, vlo
     }
     apply_source_fps_env(None);
     apply_smooth_vf_present_opts(mpv);
-    eprintln!(
-        "[rhino] video: unstable frame cadence — Smooth uses mpv display-resample (no VapourSynth)"
-    );
+    if bluray_playback_active(mpv, bundle) {
+        eprintln!(
+            "[rhino] video: Blu-ray smooth deferred — display-resample until cadence is known or stable"
+        );
+    } else {
+        eprintln!(
+            "[rhino] video: unstable frame cadence — Smooth uses mpv display-resample (no VapourSynth)"
+        );
+    }
 }

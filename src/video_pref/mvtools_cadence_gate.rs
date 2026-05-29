@@ -45,12 +45,18 @@ fn is_plausible_broadcast_fps(f: f64) -> bool {
     RATES.iter().any(|r| (f - r).abs() < 0.2)
 }
 
+fn optical_disc_cadence_context(path: Option<&str>, shell: Option<&std::path::Path>) -> bool {
+    path.is_some_and(mpv_path_is_disc)
+        || shell.is_some_and(crate::video_ext::is_optical_disc_path)
+}
+
 fn stabilize_disc_source_fps(
     path: Option<&str>,
+    shell: Option<&std::path::Path>,
     picked: Option<f64>,
     gate: &mut FpsPickGateState,
 ) -> Option<f64> {
-    if !path.is_some_and(mpv_path_is_disc) {
+    if !optical_disc_cadence_context(path, shell) {
         gate.locked_disc_fps = None;
         return picked;
     }
@@ -62,6 +68,33 @@ fn stabilize_disc_source_fps(
         Some(_) => gate.locked_disc_fps,
         None => gate.locked_disc_fps,
     }
+}
+
+/// Blu-ray folder / `bd://` titles: cadence is trustworthy enough for MVTools when `container-fps`,
+/// a disc lock, or a persisted shell rate exists (does not consult [FpsPickGateState::interleaved_smooth]).
+fn bluray_cadence_known(
+    mpv: &libmpv2::Mpv,
+    shell_media: Option<&std::path::Path>,
+    gate: &FpsPickGateState,
+) -> bool {
+    let Some(shell) = shell_media.filter(|p| crate::video_ext::is_bluray_disc_path(p)) else {
+        return false;
+    };
+    if mpv
+        .get_property::<f64>("container-fps")
+        .ok()
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .is_some_and(is_plausible_broadcast_fps)
+    {
+        return true;
+    }
+    if gate
+        .locked_disc_fps
+        .is_some_and(is_plausible_broadcast_fps)
+    {
+        return true;
+    }
+    crate::db::media_source_fps(shell).is_some_and(is_plausible_broadcast_fps)
 }
 
 static FPS_PICK_GATE: Mutex<FpsPickGateState> = Mutex::new(FpsPickGateState {
@@ -118,8 +151,16 @@ pub(crate) fn smooth_prefers_display_resample(
         .as_deref()
         .is_some_and(mpv_path_is_disc)
         || shell_disc.is_some_and(crate::video_ext::is_optical_disc_path);
+    let bd_protocol = path_now.as_deref().is_some_and(mpv_path_is_disc);
+    // Folder-open Blu-ray (`me_budget_shell_path`): skip the 3-read settle once cadence is known.
+    if !bd_protocol && bluray_cadence_known(mpv, shell_media, &g) {
+        return false;
+    }
     if g.interleaved_smooth {
         return true;
+    }
+    if bluray_cadence_known(mpv, shell_media, &g) {
+        return false;
     }
     disc && g.stable_streak < CADENCE_STABLE_READS
 }
@@ -154,10 +195,11 @@ fn note_plausible_cadence(f: f64, gate: &mut FpsPickGateState, disc: bool) -> bo
 
 fn update_interleaved_cadence_gate(
     path: Option<&str>,
+    shell: Option<&std::path::Path>,
     picked: Option<f64>,
     gate: &mut FpsPickGateState,
 ) -> Option<f64> {
-    let disc = path.is_some_and(mpv_path_is_disc);
+    let disc = optical_disc_cadence_context(path, shell);
     match picked {
         None => {
             // Disc demux often omits cadence mid-title; local files may omit reads while vf runs.
@@ -174,7 +216,10 @@ fn update_interleaved_cadence_gate(
             gate.last_stable_fps = Some(f);
         }
         Some(f) => {
-            let _ = note_plausible_cadence(f, gate, disc);
+            let jump = note_plausible_cadence(f, gate, disc);
+            if disc && !jump && is_plausible_broadcast_fps(f) {
+                gate.interleaved_smooth = false;
+            }
         }
     }
     picked.or(gate.locked_disc_fps)
