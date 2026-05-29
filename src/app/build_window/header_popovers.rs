@@ -88,7 +88,7 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
     vol_face.append(&vol_readout);
     let vol_menu = gtk::MenuButton::new();
     vol_menu.set_child(Some(&vol_face));
-    vol_menu.set_tooltip_text(Some("Volume and mute; audio track list if several tracks"));
+    vol_menu.set_tooltip_text(Some("Audio"));
     vol_menu.set_popover(Some(&vol_pop));
     vol_menu.add_css_class("flat");
     vol_menu.add_css_class("rp-vol-mbtn");

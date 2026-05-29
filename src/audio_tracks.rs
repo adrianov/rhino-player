@@ -8,29 +8,10 @@ use crate::track_label_match::{match_score, LabelMatchScore};
 use crate::{db, media_probe, playback_entity};
 use libmpv2::Mpv;
 use std::cell::{Cell, RefCell};
+use std::path::Path;
 use std::rc::Rc;
 
-use std::path::Path;
-
 use gtk::prelude::*;
-
-struct Row {
-    id: i64,
-    text: String,
-    ifo_slot: Option<u8>,
-}
-
-fn row_from_menu(r: &AudioMenuRow) -> Row {
-    Row {
-        id: r.mpv_id,
-        text: r.label.clone(),
-        ifo_slot: r.ifo_slot,
-    }
-}
-
-fn audio_rows(mpv: &Mpv, shell: Option<&Path>) -> Vec<Row> {
-    audio_menu_rows(mpv, shell).iter().map(row_from_menu).collect()
-}
 
 fn current_aid(mpv: &Mpv) -> Option<i64> {
     if let Ok(s) = mpv.get_property::<String>("aid") {
@@ -67,18 +48,15 @@ fn norm_label(s: &str) -> String {
     s.trim().to_lowercase()
 }
 
-fn closest_label<'a>(rows: &'a [Row], want: &str) -> Option<&'a Row> {
+fn closest_label<'a>(rows: &'a [AudioMenuRow], want: &str) -> Option<&'a AudioMenuRow> {
     let want_n = norm_label(want);
     if want_n.is_empty() {
         return None;
     }
-    let mut best_score = LabelMatchScore {
-        word_intersection: 0,
-        char_intersection: 0,
-    };
-    let mut picked: Option<&'a Row> = None;
+    let mut best_score = LabelMatchScore { word_intersection: 0, char_intersection: 0 };
+    let mut picked: Option<&'a AudioMenuRow> = None;
     for row in rows {
-        let s = match_score(&want_n, &norm_label(&row.text));
+        let s = match_score(&want_n, &norm_label(&row.label));
         if picked.is_none() || s > best_score {
             best_score = s;
             picked = Some(row);
@@ -99,21 +77,12 @@ fn audio_row_is_active(
     matches!((want_slot, ifo_slot), (Some(w), Some(s)) if w == s)
 }
 
-fn resolve_id(mpv: &Mpv, row: &Row, shell: Option<&Path>) -> Option<i64> {
+fn resolve_id(mpv: &Mpv, row: &AudioMenuRow, shell: Option<&Path>) -> Option<i64> {
     let (entity, _) = entity_from_mpv(mpv, shell)?;
-    resolve_audio_mpv_id(
-        mpv,
-        &entity,
-        &AudioMenuRow {
-            mpv_id: row.id,
-            label: row.text.clone(),
-            ifo_slot: row.ifo_slot,
-        },
-        shell,
-    )
+    resolve_audio_mpv_id(mpv, &entity, row, shell)
 }
 
-fn restore_audio_by_label(mpv: &Mpv, rows: &[Row], shell: Option<&Path>) {
+fn restore_audio_by_label(mpv: &Mpv, rows: &[AudioMenuRow], shell: Option<&Path>) {
     if rows.len() < 2 {
         return;
     }
@@ -132,11 +101,7 @@ fn restore_audio_by_slot(
     slot: u8,
     shell: Option<&Path>,
 ) -> bool {
-    let menu = AudioMenuRow {
-        mpv_id: -1,
-        label: String::new(),
-        ifo_slot: Some(slot),
-    };
+    let menu = AudioMenuRow { mpv_id: -1, label: String::new(), ifo_slot: Some(slot) };
     let Some(aid) = resolve_audio_mpv_id(mpv, entity, &menu, shell) else {
         return false;
     };
@@ -148,7 +113,7 @@ fn restore_audio_by_slot(
 
 /// Restore per-entity track first (IFO slot on DVD, mpv id otherwise), else global label.
 pub fn restore_saved_audio(mpv: &Mpv, shell: Option<&Path>) {
-    let rows = audio_rows(mpv, shell);
+    let rows = audio_menu_rows(mpv, shell);
     if rows.is_empty() {
         return;
     }
@@ -165,7 +130,7 @@ pub fn restore_saved_audio(mpv: &Mpv, shell: Option<&Path>) {
             return;
         }
     }
-    if saved > 0 && rows.iter().any(|r| r.id == saved) {
+    if saved > 0 && rows.iter().any(|r| r.mpv_id == saved) {
         if current_aid(mpv) != Some(saved) {
             set_aid(mpv, saved);
         }
@@ -180,37 +145,47 @@ pub fn reapply_after_chapter_load(mpv: &Mpv, shell: Option<&Path>) {
     ensure_playable_audio(mpv, shell);
 }
 
-/// After [loadfile], make sure an audio stream is actually selected. With **one** [audio] track
-/// there is no popover to pick it, and some files leave [aid] as `no` or unresolved until
-/// [aid] is set explicitly. With **several** tracks, only fix explicit `aid=no` (e.g. stale state).
-///
-/// Do **not** set `aid` when that track is already active: repeating `set_property` on the same id
-/// can re-open the audio path and leave A/V slightly out of sync (noticeable on Next / Previous,
-/// where the delayed subtitle/audio hook runs after every `loadfile`).
+/// After [loadfile], make sure an audio stream is actually selected.
+/// With one track, `aid` may be left as `no` until set explicitly; with several, only fixes `aid=no`.
+/// Does **not** re-set an already-active id to avoid re-opening the audio path (causes A/V drift).
 pub fn ensure_playable_audio(mpv: &Mpv, shell: Option<&Path>) {
-    let rows = audio_rows(mpv, shell);
+    let rows = audio_menu_rows(mpv, shell);
     if rows.is_empty() {
         return;
     }
     if rows.len() == 1 {
         if let Some(want) = resolve_id(mpv, &rows[0], shell) {
-            if current_aid(mpv) == Some(want) {
-                return;
+            if current_aid(mpv) != Some(want) {
+                set_aid(mpv, want);
             }
-            set_aid(mpv, want);
         }
         return;
     }
-    if let Ok(s) = mpv.get_property::<String>("aid") {
-        if s == "no" {
-            if let Some(aid) = resolve_id(mpv, &rows[0], shell) {
-                set_aid(mpv, aid);
-            }
+    if matches!(mpv.get_property::<String>("aid"), Ok(s) if s == "no") {
+        if let Some(aid) = resolve_id(mpv, &rows[0], shell) {
+            set_aid(mpv, aid);
         }
     }
 }
 
-/// Rebuilds radio rows. Returns **true** if there are **at least two** audio tracks (the block is a choice, not a duplicate for one track). Clears the box if there is no player or 0–1 track.
+/// Label of the currently active audio track, or `None` if no media or no audio.
+pub fn current_audio_label(mpv: &Mpv, shell: Option<&Path>) -> Option<String> {
+    let rows = audio_menu_rows(mpv, shell);
+    if rows.is_empty() {
+        return None;
+    }
+    let want = current_aid(mpv);
+    let want_slot = entity_from_mpv(mpv, shell).and_then(|(entity, _)| {
+        want.and_then(|a| audio_ifo_slot_for_aid(mpv, &entity, a, shell))
+    });
+    rows.iter()
+        .find(|r| audio_row_is_active(want, want_slot, r.mpv_id, r.ifo_slot))
+        .or_else(|| rows.first())
+        .map(|r| r.label.clone())
+}
+
+/// Rebuilds radio rows. Returns **true** if there are **at least two** audio tracks. Clears the
+/// box if there is no player or 0–1 track.
 pub fn rebuild_popover(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     bx: &gtk::Box,
@@ -227,7 +202,7 @@ pub fn rebuild_popover(
     let mpv = &b.mpv;
     let shell_path = b.me_budget_shell_path.borrow().clone();
     let shell_ref = shell_path.as_deref();
-    let rows = audio_rows(mpv, shell_ref);
+    let rows = audio_menu_rows(mpv, shell_ref);
     if rows.len() < 2 {
         return false;
     }
@@ -243,15 +218,15 @@ pub fn rebuild_popover(
     let mut buttons: Vec<(i64, Option<u8>, gtk::CheckButton)> = vec![];
 
     for r in &rows {
-        let btn = gtk::CheckButton::with_label(&r.text);
+        let btn = gtk::CheckButton::with_label(&r.label);
         if let Some(l) = first.as_ref() {
             btn.set_group(Some(l));
         } else {
             first = Some(btn.clone());
         }
-        let id = r.id;
+        let id = r.mpv_id;
         let ifo_slot = r.ifo_slot;
-        let text = r.text.clone();
+        let label = r.label.clone();
         let p2 = Rc::clone(&p);
         let blk2 = Rc::clone(&blk);
         let gl3 = gl2.clone();
@@ -262,14 +237,10 @@ pub fn rebuild_popover(
             }
             if let Some(pl) = p2.borrow().as_ref() {
                 let shell_ref = shell_pick.as_deref();
-                let row = Row {
-                    id,
-                    text: text.clone(),
-                    ifo_slot,
-                };
+                let row = AudioMenuRow { mpv_id: id, label: label.clone(), ifo_slot };
                 if let Some(aid) = resolve_id(&pl.mpv, &row, shell_ref) {
                     set_aid(&pl.mpv, aid);
-                    save_choice(&pl.mpv, aid, &text, shell_ref);
+                    save_choice(&pl.mpv, aid, &label, shell_ref);
                 }
             }
             gl3.queue_render();
