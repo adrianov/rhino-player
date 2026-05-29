@@ -35,6 +35,21 @@ fn vo_image_at_ifo(m: &Mpv, chapter: &Path, ifo_target: f64) -> bool {
     (pos - ifo_target).abs() < 2.0
 }
 
+fn vo_image_wait_demuxer(m: &mut Mpv, wait_secs: u64) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(wait_secs.min(VO_IMAGE_WAIT_CAP_SEC));
+    loop {
+        while m.wait_event(0.0).is_some() {}
+        let dur = m.get_property::<f64>("duration").unwrap_or(f64::NAN);
+        if dur.is_finite() && dur > 0.0 {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn vo_image_wait_seek(m: &mut Mpv, chapter: Option<&Path>, ifo_target: f64, mpv_target: f64, wait_secs: u64) -> bool {
     let deadline = Instant::now() + Duration::from_secs(wait_secs.min(VO_IMAGE_WAIT_CAP_SEC));
     loop {
@@ -99,21 +114,10 @@ fn run_vo_image_one_frame(
         let _ = i.set_option("demuxer-max-bytes", "128KiB");
         i.set_option("load-scripts", false)?;
         i.set_option("resume-playback", false)?;
-        if dvd_vob {
-            // Match seek preview: software decode on DVD `.vob` (hwdec breaks vo paths on macOS).
-            let _ = i.set_option("hwdec", "no");
-            let _ = i.set_option("hr-seek", "yes");
-        } else {
-            let _ = i.set_option("hwdec", "no");
-            let _ = i.set_option("hr-seek", false);
-        }
-        if chain_head {
-            let _ = i.set_option("pause", true);
-        } else {
-            let start = format!("{ifo_seek:.3}");
-            i.set_option("start", start.as_str())?;
-            i.set_option("frames", 1i64)?;
-        }
+        // Software decode + hr-seek: load then `absolute+exact` (not `--start`, which snaps to keyframes).
+        let _ = i.set_option("hwdec", "no");
+        let _ = i.set_option("hr-seek", "yes");
+        let _ = i.set_option("pause", true);
         let _ = i.set_option("aid", "no");
         let _ = i.set_option("sid", "no");
         let _ = i.set_option("autoload-files", "no");
@@ -133,6 +137,10 @@ fn run_vo_image_one_frame(
         ));
     }
     if m.command("loadfile", &[src_s, "replace"]).is_err() {
+        eprintln!(
+            "[rhino] grid_thumb vo=image loadfile failed {}",
+            src.display()
+        );
         return None;
     }
     if chain_head {
@@ -155,27 +163,40 @@ fn run_vo_image_one_frame(
                 src.display()
             ));
         }
-        let mpv_t = crate::dvd_vob_timeline::preview_mpv_seek_sec(src, ifo_seek, &m);
+    } else if !vo_image_wait_demuxer(&mut m, wait_secs) {
+        eprintln!(
+            "[rhino] grid_thumb vo=image demuxer timeout {}",
+            src.display()
+        );
+        return None;
+    }
+    let mpv_t = crate::dvd_vob_timeline::preview_mpv_seek_sec(src, ifo_seek, &m);
+    if dvd_vob {
         crate::dvd_vob_log::dvd_seek_log(format!(
-            "grid_thumb vo=image {} ifo={ifo_seek:.2} -> mpv={mpv_t:.2}",
+            "grid_thumb vo=image {} ifo={ifo_seek:.2} -> mpv={mpv_t:.2} chain={chain_head}",
             src.display()
         ));
-        let s = format!("{mpv_t:.3}");
-        if m.command("seek", &[s.as_str(), "absolute+exact"]).is_err() {
-            return None;
-        }
-        if !vo_image_wait_seek(&mut m, Some(src), ifo_seek, mpv_t, wait_secs) {
-            let pos = m.get_property::<f64>("time-pos").unwrap_or(f64::NAN);
-            crate::dvd_vob_log::dvd_seek_log(format!(
-                "grid_thumb vo=image {} seek timeout mpv={mpv_t:.2} pos={pos:.2}",
-                src.display()
-            ));
-            return None;
-        }
-        purge_vo_image_out(tmp);
-        let _ = m.set_property("pause", false);
-        let _ = m.set_property("frames", 1i64);
-        while m.wait_event(0.0).is_some() {}
     }
+    let s = format!("{mpv_t:.3}");
+    if m.command("seek", &[s.as_str(), "absolute+exact"]).is_err() {
+        eprintln!(
+            "[rhino] grid_thumb vo=image seek failed {} t={mpv_t:.2}",
+            src.display()
+        );
+        return None;
+    }
+    let chapter = dvd_vob.then_some(src);
+    if !vo_image_wait_seek(&mut m, chapter, ifo_seek, mpv_t, wait_secs) {
+        let pos = m.get_property::<f64>("time-pos").unwrap_or(f64::NAN);
+        eprintln!(
+            "[rhino] grid_thumb vo=image seek timeout {} mpv={mpv_t:.2} pos={pos:.2}",
+            src.display()
+        );
+        return None;
+    }
+    purge_vo_image_out(tmp);
+    let _ = m.set_property("pause", false);
+    let _ = m.set_property("frames", 1i64);
+    while m.wait_event(0.0).is_some() {}
     run_vo_image_after_load(&mut m, tmp, wait_secs)
 }
