@@ -87,6 +87,18 @@ fn closest_label<'a>(rows: &'a [Row], want: &str) -> Option<&'a Row> {
     picked
 }
 
+fn audio_row_is_active(
+    want: Option<i64>,
+    want_slot: Option<u8>,
+    id: i64,
+    ifo_slot: Option<u8>,
+) -> bool {
+    if want == Some(id) && id > 0 {
+        return true;
+    }
+    matches!((want_slot, ifo_slot), (Some(w), Some(s)) if w == s)
+}
+
 fn resolve_id(mpv: &Mpv, row: &Row, shell: Option<&Path>) -> Option<i64> {
     let (entity, _) = entity_from_mpv(mpv, shell)?;
     resolve_audio_mpv_id(
@@ -268,9 +280,26 @@ pub fn rebuild_popover(
         bx.append(btn);
     }
     for (id, ifo_slot, btn) in &buttons {
-        let active = want == Some(*id) && *id > 0 || want_slot == *ifo_slot;
-        btn.set_active(active);
+        btn.set_active(audio_row_is_active(want, want_slot, *id, *ifo_slot));
     }
     block.set(false);
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::audio_row_is_active;
+
+    #[test]
+    fn row_active_by_mpv_id_only_when_no_ifo_slots() {
+        assert!(audio_row_is_active(Some(2), None, 2, None));
+        assert!(!audio_row_is_active(Some(2), None, 1, None));
+        assert!(!audio_row_is_active(None, None, 1, None));
+    }
+
+    #[test]
+    fn row_active_by_dvd_slot() {
+        assert!(audio_row_is_active(None, Some(1), -1, Some(1)));
+        assert!(!audio_row_is_active(None, Some(1), -1, Some(0)));
+    }
 }
