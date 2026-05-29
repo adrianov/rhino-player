@@ -184,6 +184,8 @@ pub fn current_audio_label(mpv: &Mpv, shell: Option<&Path>) -> Option<String> {
         .map(|r| r.label.clone())
 }
 
+include!("audio_tracks_tooltip.rs");
+
 /// Rebuilds radio rows. Returns **true** if there are **at least two** audio tracks. Clears the
 /// box if there is no player or 0–1 track.
 pub fn rebuild_popover(
@@ -191,6 +193,7 @@ pub fn rebuild_popover(
     bx: &gtk::Box,
     block: &Rc<Cell<bool>>,
     gl: &gtk::GLArea,
+    tooltip_btn: Option<&gtk::MenuButton>,
 ) -> bool {
     while let Some(c) = bx.first_child() {
         bx.remove(&c);
@@ -214,6 +217,7 @@ pub fn rebuild_popover(
     let p = Rc::clone(player);
     let blk = Rc::clone(block);
     let gl2 = gl.clone();
+    let tip_btn = tooltip_btn.cloned();
     let mut first: Option<gtk::CheckButton> = None;
     let mut buttons: Vec<(i64, Option<u8>, gtk::CheckButton)> = vec![];
 
@@ -231,6 +235,7 @@ pub fn rebuild_popover(
         let blk2 = Rc::clone(&blk);
         let gl3 = gl2.clone();
         let shell_pick = shell_path.clone();
+        let tip_btn_pick = tip_btn.clone();
         btn.connect_toggled(move |b| {
             if blk2.get() || !b.is_active() {
                 return;
@@ -241,6 +246,9 @@ pub fn rebuild_popover(
                 if let Some(aid) = resolve_id(&pl.mpv, &row, shell_ref) {
                     set_aid(&pl.mpv, aid);
                     save_choice(&pl.mpv, aid, &label, shell_ref);
+                }
+                if let Some(ref tip_btn) = tip_btn_pick {
+                    refresh_audio_tooltip(&pl.mpv, tip_btn, shell_ref);
                 }
             }
             gl3.queue_render();

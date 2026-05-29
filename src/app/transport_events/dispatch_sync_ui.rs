@@ -122,8 +122,6 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
         TransportEv::VolumeMax(vmax) => sync_volume_max(w, vmax),
         TransportEv::FileLoaded => {
             dispatch_file_loaded(ctx);
-            let ctx2 = Rc::clone(ctx);
-            glib::idle_add_local_once(move || sync_audio_tooltip(&ctx2));
         }
         TransportEv::VideoReconfig => {
             sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);
@@ -149,8 +147,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             if ctx.recent_visible.get() {
                 schedule_warm_path_settle(Rc::clone(&ctx.player));
             }
-            let ctx2 = Rc::clone(ctx);
-            glib::idle_add_local_once(move || sync_audio_tooltip(&ctx2));
+            sync_audio_tooltip(ctx);
         }
         TransportEv::ContainerFpsChanged => {
             schedule_smooth_60_resync_idle(ctx);
@@ -286,15 +283,5 @@ fn set_tooltip_if_changed(w: &gtk::Widget, tip: &str) {
 }
 
 fn sync_audio_tooltip(ctx: &Rc<TransportCtx>) {
-    let label = ctx.player.try_borrow().ok().and_then(|g| {
-        g.as_ref().and_then(|b| {
-            let shell = b.me_budget_shell_path.borrow().clone();
-            audio_tracks::current_audio_label(&b.mpv, shell.as_deref())
-        })
-    });
-    let tip = match label {
-        Some(l) => format!("Audio: {l}"),
-        None => "Audio".to_string(),
-    };
-    set_tooltip_if_changed(ctx.widgets.vol_menu.upcast_ref::<gtk::Widget>(), &tip);
+    audio_tracks::refresh_audio_tooltip_for_player(&ctx.player, &ctx.widgets.vol_menu);
 }

@@ -22,11 +22,16 @@ fn schedule_file_resume_retries(player: &Rc<RefCell<Option<MpvBundle>>>) {
     }
 }
 
+fn refresh_audio_header_tooltip(ctx: &TransportCtx) {
+    audio_tracks::refresh_audio_tooltip_for_player(&ctx.player, &ctx.widgets.vol_menu);
+}
+
 fn finish_chapter_scrub_load(ctx: &Rc<TransportCtx>) {
     with_bundle(&ctx.player, |b| {
         let shell = b.me_budget_shell_path.borrow();
         audio_tracks::reapply_after_chapter_load(&b.mpv, shell.as_deref());
     });
+    refresh_audio_header_tooltip(ctx);
     schedule_smooth_60_resync_idle(ctx);
     transport_tick(ctx);
     refresh_play_button(ctx);
@@ -244,6 +249,7 @@ fn dispatch_file_loaded(ctx: &Rc<TransportCtx>) {
     ));
     if browse_hold {
         let player = Rc::clone(&ctx.player);
+        let ctx_warm = Rc::clone(ctx);
         let want_gen = ctx
             .player
             .borrow()
@@ -253,9 +259,11 @@ fn dispatch_file_loaded(ctx: &Rc<TransportCtx>) {
         glib::idle_add_local_once(move || {
             warm_preload_finish_load(&player, want_gen);
             schedule_file_resume_retries(&player);
+            refresh_audio_header_tooltip(&ctx_warm);
         });
     } else {
         apply_file_loaded_resume_and_audio(&ctx.player);
+        refresh_audio_header_tooltip(ctx);
         if chapter_eof {
             finish_dvd_chapter_eof_load(ctx);
             if ctx
@@ -303,4 +311,8 @@ fn dispatch_file_loaded(ctx: &Rc<TransportCtx>) {
     }
     sync_seek_chapters(ctx);
     ctx.blackout.sync();
+    if !browse_hold {
+        let ctx_tip = Rc::clone(ctx);
+        glib::idle_add_local_once(move || refresh_audio_header_tooltip(&ctx_tip));
+    }
 }

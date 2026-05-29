@@ -4,8 +4,10 @@ fn vol_pop_show_tracks_impl(
     blk: &Rc<Cell<bool>>,
     gla: &gtk::GLArea,
     sec: &gtk::Box,
+    vol_menu: &gtk::MenuButton,
 ) {
-    let show = audio_tracks::rebuild_popover(p, bx, blk, gla);
+    let show = audio_tracks::rebuild_popover(p, bx, blk, gla, Some(vol_menu));
+    audio_tracks::refresh_audio_tooltip_for_player(p, vol_menu);
     sec.set_visible(show);
 }
 
@@ -15,8 +17,9 @@ fn vol_pop_show_tracks(
     blk: &Rc<Cell<bool>>,
     gla: &gtk::GLArea,
     sec: &gtk::Box,
+    vol_menu: &gtk::MenuButton,
 ) {
-    vol_pop_show_tracks_impl(p, bx, blk, gla, sec);
+    vol_pop_show_tracks_impl(p, bx, blk, gla, sec, vol_menu);
 }
 
 fn sub_pop_show_tracks_impl(
@@ -72,16 +75,18 @@ fn wire_popover_shows(
     w: &WindowWidgets,
     sub_pref: &Rc<RefCell<db::SubPrefs>>,
 ) {
-    let (p, bx, blk, gla, sec) = (
+    let (p, bx, blk, gla, sec, vol_menu) = (
         player.clone(),
         w.audio_tracks_box.clone(),
         Rc::clone(&w.audio_tracks_block),
         w.gl_area.clone(),
         w.audio_tracks_section.clone(),
+        w.vol_menu.clone(),
     );
     let audio_open = {
-        let (p, bx, blk, gla, sec) = (p.clone(), bx.clone(), blk.clone(), gla.clone(), sec.clone());
-        Rc::new(move || vol_pop_show_tracks(&p, &bx, &blk, &gla, &sec))
+        let (p, bx, blk, gla, sec, vol_menu) =
+            (p.clone(), bx.clone(), blk.clone(), gla.clone(), sec.clone(), vol_menu.clone());
+        Rc::new(move || vol_pop_show_tracks(&p, &bx, &blk, &gla, &sec, &vol_menu))
     };
     w.vol_pop.connect_show({
         let audio_open = Rc::clone(&audio_open);
