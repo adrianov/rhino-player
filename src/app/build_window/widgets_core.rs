@@ -100,6 +100,28 @@ struct ToolbarHeaderShell {
     header: adw::HeaderBar,
     fs_clock: gtk::Label,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
+    /// Keeps header [`gtk::SizeGroup`] alive so face `MenuButton`s match `Button` height.
+    _header_btn_heights: gtk::SizeGroup,
+}
+
+/// Equalize header control height to the tallest peer (smooth / menu), without shrinking them.
+fn wire_header_btn_heights(
+    group: &gtk::SizeGroup,
+    #[cfg(not(target_os = "macos"))] menu_btn: &gtk::MenuButton,
+    vol_menu: &gtk::MenuButton,
+    sub_menu: &gtk::MenuButton,
+    smooth_btn: &gtk::Button,
+    speed_mbtn: &gtk::MenuButton,
+    blackout_btn: &gtk::Button,
+) {
+    #[cfg(not(target_os = "macos"))]
+    group.add_widget(menu_btn);
+    for w in [vol_menu, sub_menu, speed_mbtn] {
+        group.add_widget(w);
+    }
+    for w in [smooth_btn, blackout_btn] {
+        group.add_widget(w);
+    }
 }
 
 /// Toolbar chrome row (menus, clocks); packs header end slots — Linux includes main menu.
@@ -132,6 +154,18 @@ fn build_toolbar_header_shell(
     header.pack_end(blackout_btn);
     header.pack_end(&fs_clock);
 
+    let header_btn_heights = gtk::SizeGroup::new(gtk::SizeGroupMode::Vertical);
+    wire_header_btn_heights(
+        &header_btn_heights,
+        #[cfg(not(target_os = "macos"))]
+        menu_btn,
+        vol_menu,
+        sub_menu,
+        smooth_btn,
+        speed_mbtn,
+        blackout_btn,
+    );
+
     #[cfg(target_os = "macos")]
     let hdr_title_mirror = {
         let lab = Rc::new(gtk::Label::new(Some(APP_WIN_TITLE)));
@@ -154,5 +188,6 @@ fn build_toolbar_header_shell(
         header,
         fs_clock,
         hdr_title_mirror,
+        _header_btn_heights: header_btn_heights,
     }
 }

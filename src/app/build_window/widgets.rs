@@ -121,6 +121,7 @@ fn build_widgets(
         header,
         fs_clock,
         hdr_title_mirror,
+        ..
     } = build_toolbar_header_shell(
         &menu_btn,
         &vol_menu,
