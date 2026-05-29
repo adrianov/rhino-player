@@ -192,7 +192,6 @@ fn start_playback(
 ) {
     if let Some(b) = player.borrow().as_ref() {
         b.set_skip_media_persist(false);
-        let _ = b.ensure_resume_before_unpause();
     }
     if delayed_warm {
         let recent = recent_layer.as_ref().clone();

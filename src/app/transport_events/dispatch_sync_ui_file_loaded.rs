@@ -256,7 +256,6 @@ fn dispatch_file_loaded(ctx: &Rc<TransportCtx>) {
         });
     } else {
         apply_file_loaded_resume_and_audio(&ctx.player);
-        schedule_file_resume_retries(&ctx.player);
         if chapter_eof {
             finish_dvd_chapter_eof_load(ctx);
             if ctx

@@ -78,6 +78,19 @@ impl MpvBundle {
         self.dvd_chain_bar_sync.set(None);
     }
 
+    fn shell_needs_dvd_resume_duration_hints(&self, chapter_scrub: bool) -> bool {
+        chapter_scrub
+            || self
+                .me_budget_shell_path
+                .borrow()
+                .as_ref()
+                .is_some_and(|p| crate::dvd_vob_mpv_probe::is_title_chain_head(p))
+    }
+
+    fn file_resume_waits_for_mpv_duration(&self, chapter_scrub: bool) -> bool {
+        !self.shell_needs_dvd_resume_duration_hints(chapter_scrub)
+    }
+
     fn resume_wait_duration(&self, chapter_scrub: bool, pending_t: f64) -> f64 {
         let mut dur = self
             .mpv
@@ -88,7 +101,7 @@ impl MpvBundle {
         if dur <= 0.0 && chapter_scrub {
             dur = self.chapter_scrub_demux_duration();
         }
-        if dur <= 0.0 {
+        if dur <= 0.0 && self.shell_needs_dvd_resume_duration_hints(chapter_scrub) {
             if let Some(shell) = self.me_budget_shell_path.borrow().clone() {
                 dur = crate::dvd_vob_timeline::dur_from_map(
                     &crate::db::load_duration_map(),
@@ -96,7 +109,7 @@ impl MpvBundle {
                 );
             }
         }
-        if dur <= 0.0 && pending_t > 0.0 {
+        if dur <= 0.0 && pending_t > 0.0 && self.shell_needs_dvd_resume_duration_hints(chapter_scrub) {
             dur = pending_t + 1.0;
         }
         dur
@@ -205,6 +218,17 @@ impl MpvBundle {
         let t = self.pending_resume.get()?;
         if chapter_scrub {
             return self.apply_chapter_scrub_pending_resume(t);
+        }
+        if self.file_resume_waits_for_mpv_duration(chapter_scrub)
+            && !media_probe::mpv_has_known_duration(&self.mpv)
+        {
+            crate::dvd_vob_log::resume_open_log(format!(
+                "apply wait demux local={pending_t:.2}"
+            ));
+            crate::dvd_vob_log::dvd_seek_log(format!(
+                "apply_pending_resume: wait demux (target={pending_t:.2})"
+            ));
+            return None;
         }
         self.apply_file_pending_resume()
     }
