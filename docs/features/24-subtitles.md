@@ -72,11 +72,25 @@ Feature: Subtitles styling and selection
     When the user opens the Subtitles control on any chapter of that title
     Then the popover lists every title-set subtitle variant with the same labels on every chapter
     And selecting a variant applies the matching stream on the current chapter
+
+  Scenario: Blu-ray disc lists subtitle streams from the playback engine
+    Given a Blu-ray or AVCHD disc title is open for playback
+    When the playback engine reports subtitle streams in the track list
+    Then the Subtitles control lists each stream
+    And rows that share a language are numbered when no other metadata distinguishes them
+    And selecting a row updates the active subtitle stream
+
+  Scenario: Blu-ray text subtitles use saved colour and size
+    Given a Blu-ray title is open and the user selects a non-bitmap subtitle stream
+    When saved subtitle colour and size preferences exist
+    Then the playback engine applies those text styling preferences to the active stream
+    And bitmap subtitle streams on the same title do not receive text colour or scale overrides
 ```
 
 ## Notes
 - Word and letter overlaps use multiset intersections of alphanumeric tokens and characters (`track_label_match`). Each subtitle row compares the seed to both list text and bare language markers and keeps the stronger score.
-- `sub-color` / `sub-border-color` are passed as `#RRGGBB` strings (libmpv ignores int forms here). The **Text Color** row is hidden when the active subtitle stream (or every stream while **Off**) is a bitmap codec (`dvd_sub`, PGS, DVB, …); `sub-color` is not pushed to mpv in that case.
+- **Blu-ray / AVCHD (`bd://`):** same **`shell_media_path`** + disc-root shell as [08-tracks](08-tracks.md); label disambiguation in **`track_menu_label.rs`** (codec/layout for audio, ` · n` for duplicate subs).
+- `sub-color` / `sub-border-color` / `sub-scale` apply only when the **active** subtitle is non-bitmap (`sub_tracks::text_styling_applies`); bitmap codecs (`dvd_sub`, PGS, DVB, …) skip those keys. **`sub_tracks::reapply_styling`** runs after `sid` changes (menu pick, restore, auto-pick) so BDMV text tracks pick up prefs after switching away from PGS. File-loaded styling runs **after** subtitle restore/auto-pick.
 - `sub-ass-override=force` makes ASS subs follow Rhino’s style overrides.
 - Errors from setting sub properties are logged only; no UI notification.
 - **DVD chapter `.vob`:** subtitle rows come from title-set info via [`playback_entity::sub_menu_rows`](../features/31-playback-entity.md) (see [08-tracks](08-tracks.md) screenshot and Notes). Hand-picked streams persist on the **playback-entity** SQLite row (`media.sub_sid` + `media.sub_ifo_slot`, resolved across chapter files like audio `audio_aid`); fuzzy auto-pick runs only when no stored choice exists yet.

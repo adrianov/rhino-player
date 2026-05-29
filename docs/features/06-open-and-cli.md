@@ -35,6 +35,11 @@ Feature: Open files and CLI integration
     Then that disc loads through the standard open path
     And sibling-folder navigation does not treat the disc as a normal video file in a folder
 
+  Scenario: File manager offers Rhino for Blu-ray disc packages
+    Given Rhino Player is installed as a desktop application bundle
+    When the user inspects a Blu-ray or AVCHD disc package in the file manager
+    Then Rhino appears among applications that can open that item
+
   Scenario: Open Video accepts a DVD disc folder
     Given the user activates Open Video with the video file filter
     When the user selects a directory that contains a valid disc index for DVD
@@ -65,6 +70,6 @@ Feature: Open files and CLI integration
 ```
 
 ## Notes
-- The shared video suffix list lives in `src/video_ext.rs` and is reused by **Open Video** and sibling scanning. **BDMV** / AVCHD: `bluray_disc_root` → `loadfile` on disc root. **DVD** `VIDEO_TS`: `dvd_disc_root`, then `dvd_first_playable_vob` (first `VTS_*_1.VOB` in `VIDEO_TS/`) because many mpv builds lack `dvd://`. **Prev/Next** walks other `.vob` files in `VIDEO_TS/`. macOS **Open Video**: `src/macos_open_video.rs` (`NSOpenPanel` + `setAllowedContentTypes`). Linux: GTK `FileDialog`.
+- The shared video suffix list lives in `src/video_ext.rs` and is reused by **Open Video** and sibling scanning. **BDMV** / AVCHD: `bluray_disc_root` → `loadfile` on disc root. **DVD** `VIDEO_TS`: `dvd_disc_root`, then `dvd_first_playable_vob` (first `VTS_*_1.VOB` in `VIDEO_TS/`) because many mpv builds lack `dvd://`. **Prev/Next** walks other `.vob` files in `VIDEO_TS/`. macOS **Open Video**: `src/macos_open_video.rs` (`NSOpenPanel` + `setAllowedContentTypes`). macOS **Finder** “Open With”: `packaging/macos/Info.plist.in` declares `public.avchd-content` / `public.avchd-collection` with `LSTypeIsPackage` and `.bdmv` / `.bdm` / `.avchd` extensions (same UTIs as the open panel). Linux: GTK `FileDialog`.
 - `--new-window` and `HANDLES_OPEN` (or the Rust equivalent) are planned but not shipped.
 - Drag-and-drop is owned by [11-drag-and-drop](11-drag-and-drop.md); URL input by [12-url-and-streams](12-url-and-streams.md).

@@ -66,6 +66,13 @@ Feature: Audio track selection
     And selecting a variant applies the matching stream on the current chapter
     And the same variant stays selected after advancing to another chapter of the title
     And the same variant stays selected after scrubbing the seek bar to another chapter file of that title
+
+  Scenario: Blu-ray disc lists audio streams from the playback engine
+    Given a Blu-ray or AVCHD disc title is open for playback
+    When the playback engine reports multiple audio streams in the track list
+    Then the Sound control lists each stream
+    And rows that share a language are distinguished by format and channel layout when available
+    And selecting a row updates the active audio stream
 ```
 
 ## Notes
@@ -73,6 +80,7 @@ Feature: Audio track selection
 - No "None" / no-audio row in the popover; **mute** covers that.
 - Errors setting `aid` are ignored in the UI (logs only).
 - **DVD chapter `.vob`:** Sound and Subtitles popovers list streams from **`VTS_xx_0.IFO`** for the **open chapter’s** title set via [`playback_entity::title_set_streams(chapter)`](../features/31-playback-entity.md). Chapter `track-list` maps IFO slots to engine ids when the user picks a row (`playback_entity_tracks.rs`; wired in `audio_tracks.rs` / `sub_tracks.rs`). The entity row stores **`audio_aid`** + **`audio_ifo_slot`** (like subtitles); cross-chapter seek reapplies the slot after resume seek completes (`audio_tracks::reapply_after_chapter_load`).
+- **Blu-ray / AVCHD (`bd://`):** mpv `path` is not a filesystem path; track menus resolve the open item via **`shell_media_path`** + **`MpvBundle::me_budget_shell_path`**, then read **`track-list`**. Duplicate language codes are distinguished by codec + channel layout (`track_menu_label.rs`); identical subtitle rows get ` · 2`, ` · 3`, … suffixes.
 
 ![DVD title-set audio tracks in the Sound popover](../screenshots/02-dvd-title-tracks.webp)
 - Video-track switching is reserved for a later iteration; show the control only if more than one non-album-art video track exists and update on `track-list` change without requiring a popover re-open.

@@ -66,6 +66,27 @@
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
+			<string>Blu-ray / AVCHD</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSTypeIsPackage</key>
+			<true/>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>bdmv</string>
+				<string>bdm</string>
+				<string>avchd</string>
+			</array>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.avchd-content</string>
+				<string>public.avchd-collection</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
 			<string>Audio</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
