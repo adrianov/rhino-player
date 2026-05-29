@@ -10,6 +10,8 @@ use libmpv2::Mpv;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use std::path::Path;
+
 use gtk::prelude::*;
 
 struct Row {
@@ -26,8 +28,8 @@ fn row_from_menu(r: &AudioMenuRow) -> Row {
     }
 }
 
-fn audio_rows(mpv: &Mpv) -> Vec<Row> {
-    audio_menu_rows(mpv).iter().map(row_from_menu).collect()
+fn audio_rows(mpv: &Mpv, shell: Option<&Path>) -> Vec<Row> {
+    audio_menu_rows(mpv, shell).iter().map(row_from_menu).collect()
 }
 
 fn current_aid(mpv: &Mpv) -> Option<i64> {
@@ -51,13 +53,13 @@ fn set_aid(mpv: &Mpv, id: i64) {
     }
 }
 
-fn save_choice(mpv: &Mpv, id: i64, text: &str) {
+fn save_choice(mpv: &Mpv, id: i64, text: &str, shell: Option<&Path>) {
     db::save_audio_track_name(text);
-    let Some(path) = media_probe::local_file_from_mpv(mpv) else {
+    let Some(path) = media_probe::shell_media_path(mpv, shell) else {
         return;
     };
     let entity = playback_entity::PlaybackEntity::resolve(&path);
-    let slot = playback_entity::audio_ifo_slot_for_aid(mpv, &entity, id);
+    let slot = playback_entity::audio_ifo_slot_for_aid(mpv, &entity, id, shell);
     db::set_audio_track(&entity.db_path(), id, slot);
 }
 
@@ -85,8 +87,8 @@ fn closest_label<'a>(rows: &'a [Row], want: &str) -> Option<&'a Row> {
     picked
 }
 
-fn resolve_id(mpv: &Mpv, row: &Row) -> Option<i64> {
-    let (entity, _) = entity_from_mpv(mpv)?;
+fn resolve_id(mpv: &Mpv, row: &Row, shell: Option<&Path>) -> Option<i64> {
+    let (entity, _) = entity_from_mpv(mpv, shell)?;
     resolve_audio_mpv_id(
         mpv,
         &entity,
@@ -95,15 +97,16 @@ fn resolve_id(mpv: &Mpv, row: &Row) -> Option<i64> {
             label: row.text.clone(),
             ifo_slot: row.ifo_slot,
         },
+        shell,
     )
 }
 
-fn restore_audio_by_label(mpv: &Mpv, rows: &[Row]) {
+fn restore_audio_by_label(mpv: &Mpv, rows: &[Row], shell: Option<&Path>) {
     if rows.len() < 2 {
         return;
     }
     if let Some(row) = db::load_audio_track_name().and_then(|s| closest_label(rows, &s)) {
-        if let Some(aid) = resolve_id(mpv, row) {
+        if let Some(aid) = resolve_id(mpv, row, shell) {
             if current_aid(mpv) != Some(aid) {
                 set_aid(mpv, aid);
             }
@@ -111,13 +114,18 @@ fn restore_audio_by_label(mpv: &Mpv, rows: &[Row]) {
     }
 }
 
-fn restore_audio_by_slot(mpv: &Mpv, entity: &playback_entity::PlaybackEntity, slot: u8) -> bool {
+fn restore_audio_by_slot(
+    mpv: &Mpv,
+    entity: &playback_entity::PlaybackEntity,
+    slot: u8,
+    shell: Option<&Path>,
+) -> bool {
     let menu = AudioMenuRow {
         mpv_id: -1,
         label: String::new(),
         ifo_slot: Some(slot),
     };
-    let Some(aid) = resolve_audio_mpv_id(mpv, entity, &menu) else {
+    let Some(aid) = resolve_audio_mpv_id(mpv, entity, &menu, shell) else {
         return false;
     };
     if current_aid(mpv) != Some(aid) {
@@ -127,21 +135,21 @@ fn restore_audio_by_slot(mpv: &Mpv, entity: &playback_entity::PlaybackEntity, sl
 }
 
 /// Restore per-entity track first (IFO slot on DVD, mpv id otherwise), else global label.
-pub fn restore_saved_audio(mpv: &Mpv) {
-    let rows = audio_rows(mpv);
+pub fn restore_saved_audio(mpv: &Mpv, shell: Option<&Path>) {
+    let rows = audio_rows(mpv, shell);
     if rows.is_empty() {
         return;
     }
-    let Some(path) = media_probe::local_file_from_mpv(mpv) else {
+    let Some(path) = media_probe::shell_media_path(mpv, shell) else {
         return;
     };
     let entity = playback_entity::PlaybackEntity::resolve(&path);
     let Some((saved, saved_slot)) = db::load_audio_track(&entity.db_path()) else {
-        restore_audio_by_label(mpv, &rows);
+        restore_audio_by_label(mpv, &rows, shell);
         return;
     };
     if let Some(slot) = saved_slot {
-        if restore_audio_by_slot(mpv, &entity, slot) {
+        if restore_audio_by_slot(mpv, &entity, slot, shell) {
             return;
         }
     }
@@ -151,13 +159,13 @@ pub fn restore_saved_audio(mpv: &Mpv) {
         }
         return;
     }
-    restore_audio_by_label(mpv, &rows);
+    restore_audio_by_label(mpv, &rows, shell);
 }
 
 /// Reapply saved audio after cross-chapter DVD `loadfile` once resume seek finishes.
-pub fn reapply_after_chapter_load(mpv: &Mpv) {
-    restore_saved_audio(mpv);
-    ensure_playable_audio(mpv);
+pub fn reapply_after_chapter_load(mpv: &Mpv, shell: Option<&Path>) {
+    restore_saved_audio(mpv, shell);
+    ensure_playable_audio(mpv, shell);
 }
 
 /// After [loadfile], make sure an audio stream is actually selected. With **one** [audio] track
@@ -167,13 +175,13 @@ pub fn reapply_after_chapter_load(mpv: &Mpv) {
 /// Do **not** set `aid` when that track is already active: repeating `set_property` on the same id
 /// can re-open the audio path and leave A/V slightly out of sync (noticeable on Next / Previous,
 /// where the delayed subtitle/audio hook runs after every `loadfile`).
-pub fn ensure_playable_audio(mpv: &Mpv) {
-    let rows = audio_rows(mpv);
+pub fn ensure_playable_audio(mpv: &Mpv, shell: Option<&Path>) {
+    let rows = audio_rows(mpv, shell);
     if rows.is_empty() {
         return;
     }
     if rows.len() == 1 {
-        if let Some(want) = resolve_id(mpv, &rows[0]) {
+        if let Some(want) = resolve_id(mpv, &rows[0], shell) {
             if current_aid(mpv) == Some(want) {
                 return;
             }
@@ -183,7 +191,7 @@ pub fn ensure_playable_audio(mpv: &Mpv) {
     }
     if let Ok(s) = mpv.get_property::<String>("aid") {
         if s == "no" {
-            if let Some(aid) = resolve_id(mpv, &rows[0]) {
+            if let Some(aid) = resolve_id(mpv, &rows[0], shell) {
                 set_aid(mpv, aid);
             }
         }
@@ -205,13 +213,15 @@ pub fn rebuild_popover(
         return false;
     };
     let mpv = &b.mpv;
-    let rows = audio_rows(mpv);
+    let shell_path = b.me_budget_shell_path.borrow().clone();
+    let shell_ref = shell_path.as_deref();
+    let rows = audio_rows(mpv, shell_ref);
     if rows.len() < 2 {
         return false;
     }
     let want = current_aid(mpv);
-    let want_slot = entity_from_mpv(mpv).and_then(|(entity, _)| {
-        want.and_then(|a| audio_ifo_slot_for_aid(mpv, &entity, a))
+    let want_slot = entity_from_mpv(mpv, shell_ref).and_then(|(entity, _)| {
+        want.and_then(|a| audio_ifo_slot_for_aid(mpv, &entity, a, shell_ref))
     });
     block.set(true);
     let p = Rc::clone(player);
@@ -233,19 +243,21 @@ pub fn rebuild_popover(
         let p2 = Rc::clone(&p);
         let blk2 = Rc::clone(&blk);
         let gl3 = gl2.clone();
+        let shell_pick = shell_path.clone();
         btn.connect_toggled(move |b| {
             if blk2.get() || !b.is_active() {
                 return;
             }
             if let Some(pl) = p2.borrow().as_ref() {
+                let shell_ref = shell_pick.as_deref();
                 let row = Row {
                     id,
                     text: text.clone(),
                     ifo_slot,
                 };
-                if let Some(aid) = resolve_id(&pl.mpv, &row) {
+                if let Some(aid) = resolve_id(&pl.mpv, &row, shell_ref) {
                     set_aid(&pl.mpv, aid);
-                    save_choice(&pl.mpv, aid, &text);
+                    save_choice(&pl.mpv, aid, &text, shell_ref);
                 }
             }
             gl3.queue_render();

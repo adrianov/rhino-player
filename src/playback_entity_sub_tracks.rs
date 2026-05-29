@@ -33,6 +33,25 @@ fn ifo_sub_rows(nodes: &[TrackNode], ifo: &crate::dvd_ifo_parse::DvdIfoStreams) 
         .collect()
 }
 
+fn mpv_sub_label_for_node(n: &TrackNode, ifo: Option<&str>) -> String {
+    if let Some(s) = ifo.map(str::trim).filter(|s| !s.is_empty()) {
+        return s.to_string();
+    }
+    let rich = crate::track_menu_label::mpv_sub_label(
+        n.lang.as_deref(),
+        n.title.as_deref(),
+        n.codec.as_deref(),
+        n.forced,
+        n.hearing_impaired,
+        n.visual_impaired,
+        n.default,
+    );
+    if !rich.is_empty() {
+        return rich;
+    }
+    line_label(n.id, n.title.clone(), n.lang.clone(), None)
+}
+
 fn mpv_sub_rows(nodes: &[TrackNode], ifo: Option<&crate::dvd_ifo_parse::DvdIfoStreams>) -> Vec<SubMenuRow> {
     let mut used = ifo
         .map(|s| vec![false; s.sub.len()])
@@ -61,7 +80,7 @@ fn mpv_sub_rows(nodes: &[TrackNode], ifo: Option<&crate::dvd_ifo_parse::DvdIfoSt
             .to_string();
         v.push(SubMenuRow {
             mpv_id: n.id,
-            label: line_label(n.id, n.title.clone(), n.lang.clone(), ifo_label.as_deref()),
+            label: mpv_sub_label_for_node(n, ifo_label.as_deref()),
             lang: if lang.is_empty() {
                 ifo_label.unwrap_or_default()
             } else {
@@ -69,6 +88,11 @@ fn mpv_sub_rows(nodes: &[TrackNode], ifo: Option<&crate::dvd_ifo_parse::DvdIfoSt
             },
             ifo_slot: None,
         });
+    }
+    let mut labels: Vec<String> = v.iter().map(|r| r.label.clone()).collect();
+    apply_label_disambiguation(&mut labels);
+    for (row, label) in v.iter_mut().zip(labels) {
+        row.label = label;
     }
     v
 }
@@ -83,8 +107,8 @@ fn sub_codecs_from_nodes(nodes: &[TrackNode]) -> Vec<(i64, String)> {
 
 /// Subtitle menu rows and `(id, codec)` pairs from one `track-list` parse.
 #[must_use]
-pub fn sub_menu_snapshot(mpv: &Mpv) -> (Vec<SubMenuRow>, Vec<(i64, String)>) {
-    let Some((entity, chapter)) = entity_from_mpv(mpv) else {
+pub fn sub_menu_snapshot(mpv: &Mpv, shell: Option<&Path>) -> (Vec<SubMenuRow>, Vec<(i64, String)>) {
+    let Some((entity, chapter)) = entity_from_mpv(mpv, shell) else {
         return (vec![], vec![]);
     };
     let nodes = track_nodes(mpv);
@@ -100,6 +124,6 @@ pub fn sub_menu_snapshot(mpv: &Mpv) -> (Vec<SubMenuRow>, Vec<(i64, String)>) {
 
 /// Subtitles popover rows for the current entity (IFO title-set list on DVD).
 #[must_use]
-pub fn sub_menu_rows(mpv: &Mpv) -> Vec<SubMenuRow> {
-    sub_menu_snapshot(mpv).0
+pub fn sub_menu_rows(mpv: &Mpv, shell: Option<&Path>) -> Vec<SubMenuRow> {
+    sub_menu_snapshot(mpv, shell).0
 }

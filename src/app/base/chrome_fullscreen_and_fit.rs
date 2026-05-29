@@ -282,15 +282,16 @@ fn schedule_sub_button_scan(player: Rc<RefCell<Option<MpvBundle>>>, button: gtk:
     button.set_visible(false);
     let tries = Rc::new(Cell::new(0u8));
     let _ = glib::timeout_add_local(Duration::from_millis(SUB_SCAN_MS), move || {
-        let has_subs = player
-            .borrow()
-            .as_ref()
-            .is_some_and(|b| sub_tracks::has_subtitle_tracks(&b.mpv));
+        let has_subs = player.borrow().as_ref().is_some_and(|b| {
+            let shell = b.me_budget_shell_path.borrow();
+            sub_tracks::has_subtitle_tracks(&b.mpv, shell.as_deref())
+        });
         button.set_visible(has_subs);
         if has_subs {
             if let Some(b) = player.borrow().as_ref() {
                 let pr = crate::db::load_sub();
-                sub_tracks::reapply_saved_or_autopick(&b.mpv, &pr);
+                let shell = b.me_budget_shell_path.borrow();
+                sub_tracks::reapply_saved_or_autopick(&b.mpv, &pr, shell.as_deref());
             }
             return glib::ControlFlow::Break;
         }

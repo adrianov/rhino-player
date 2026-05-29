@@ -45,12 +45,18 @@ pub fn is_bitmap_sub_codec(codec: &str) -> bool {
         || c.eq_ignore_ascii_case("xsub")
 }
 
-/// Whether the subtitle popover should offer the text-colour control for the current file/selection.
-pub fn text_color_applies(mpv: &Mpv) -> bool {
-    text_color_applies_codecs(mpv, &sub_stream_codecs(mpv))
+/// Whether Rhino text styling (`sub-color`, `sub-scale`, border) applies to the active subtitle track.
+#[must_use]
+pub fn text_styling_applies(mpv: &Mpv) -> bool {
+    text_styling_applies_codecs(mpv, &sub_stream_codecs(mpv))
 }
 
-fn text_color_applies_codecs(mpv: &Mpv, subs: &[(i64, String)]) -> bool {
+/// Re-push saved subtitle appearance after `sid` changes (e.g. BDMV text track after PGS).
+pub fn reapply_styling(mpv: &Mpv) {
+    crate::sub_prefs::apply_mpv(mpv, &crate::db::load_sub());
+}
+
+fn text_styling_applies_codecs(mpv: &Mpv, subs: &[(i64, String)]) -> bool {
     if subs.is_empty() {
         return false;
     }
@@ -69,7 +75,7 @@ pub fn sync_text_color_row(mpv: &Mpv, row: &impl IsA<gtk::Widget>) {
 }
 
 fn sync_text_color_row_codecs(mpv: &Mpv, row: &impl IsA<gtk::Widget>, codecs: &[(i64, String)]) {
-    row.set_visible(text_color_applies_codecs(mpv, codecs));
+    row.set_visible(text_styling_applies_codecs(mpv, codecs));
 }
 
 fn sub_stream_codecs(mpv: &Mpv) -> Vec<(i64, String)> {
@@ -100,8 +106,8 @@ fn track_header_token(r: &Row) -> String {
     abbrev_track_lang(Some(head))
 }
 
-fn compact_header_label_row(sid: i64, rows: &[Row], mpv: &Mpv) -> String {
-    let Some(row) = row_for_sid(sid, rows, mpv) else {
+fn compact_header_label_row(sid: i64, rows: &[Row], mpv: &Mpv, shell: Option<&std::path::Path>) -> String {
+    let Some(row) = row_for_sid(sid, rows, mpv, shell) else {
         return "…".to_string();
     };
     let t = track_header_token(row);
@@ -112,30 +118,30 @@ fn compact_header_label_row(sid: i64, rows: &[Row], mpv: &Mpv) -> String {
     }
 }
 
-fn row_for_sid<'a>(sid: i64, rows: &'a [Row], mpv: &Mpv) -> Option<&'a Row> {
+fn row_for_sid<'a>(sid: i64, rows: &'a [Row], mpv: &Mpv, shell: Option<&std::path::Path>) -> Option<&'a Row> {
     rows.iter()
         .find(|r| r.id == sid)
         .or_else(|| {
-            let slot = ifo_slot_for_sid(mpv, sid)?;
+            let slot = ifo_slot_for_sid(mpv, sid, shell)?;
             rows.iter().find(|r| r.ifo_slot == Some(slot))
         })
 }
 
 /// Updates the subtitles header caption from the current subtitle track (`Off` when hidden).
-pub fn refresh_sub_header(mpv: &Mpv, label: &gtk::Label) {
-    let s = sub_header_compact(mpv);
+pub fn refresh_sub_header(mpv: &Mpv, label: &gtk::Label, shell: Option<&std::path::Path>) {
+    let s = sub_header_compact(mpv, shell);
     if label.text().as_str() != s.as_str() {
         label.set_text(&s);
     }
 }
 
-fn sub_header_compact(mpv: &Mpv) -> String {
+fn sub_header_compact(mpv: &Mpv, shell: Option<&std::path::Path>) -> String {
     if !sub_visibility(mpv) {
         return "Off".to_string();
     }
-    let rows = sub_rows(mpv);
+    let rows = sub_rows(mpv, shell);
     if let Some(sid) = current_sid(mpv) {
-        return compact_header_label_row(sid, &rows, mpv);
+        return compact_header_label_row(sid, &rows, mpv, shell);
     }
     let prefs = crate::db::load_sub();
     let saved = prefs.last_sub_label.trim();
@@ -160,15 +166,15 @@ include!("sub_tracks_dvd.rs");
 include!("sub_tracks_restore.rs");
 
 /// Reapply saved styling + track after load; fuzzy auto-pick only when nothing is stored yet.
-pub fn reapply_saved_or_autopick(mpv: &Mpv, prefs: &SubPrefs) {
-    if !restore_saved_sub(mpv, prefs) {
-        autopick_sub_track(mpv, prefs);
+pub fn reapply_saved_or_autopick(mpv: &Mpv, prefs: &SubPrefs, shell: Option<&std::path::Path>) {
+    if !restore_saved_sub(mpv, prefs, shell) {
+        autopick_sub_track(mpv, prefs, shell);
     }
 }
 
 /// `track-list` has at least one `type: sub` entry (or title-set IFO subs on DVD).
-pub fn has_subtitle_tracks(mpv: &Mpv) -> bool {
-    crate::playback_entity::entity_has_subtitles(mpv)
+pub fn has_subtitle_tracks(mpv: &Mpv, shell: Option<&std::path::Path>) -> bool {
+    crate::playback_entity::entity_has_subtitles(mpv, shell)
 }
 
 /// Seeding text for fuzzy match: last hand-picked track label, else a short [LANG] hint.
@@ -189,12 +195,12 @@ pub fn autoseed(prefs: &SubPrefs) -> String {
 
 /// After a new [loadfile], pick the subtitle track whose label best matches [autoseed]
 /// (word multiset overlap first, then alphanumeric character multiset overlap).
-pub fn autopick_sub_track(mpv: &Mpv, prefs: &SubPrefs) {
+pub fn autopick_sub_track(mpv: &Mpv, prefs: &SubPrefs, shell: Option<&std::path::Path>) {
     if prefs.sub_off {
         set_sub_off(mpv);
         return;
     }
-    let rows = sub_rows(mpv);
+    let rows = sub_rows(mpv, shell);
     if rows.is_empty() {
         return;
     }
@@ -221,10 +227,11 @@ pub fn autopick_sub_track(mpv: &Mpv, prefs: &SubPrefs) {
         let sid = rows
             .iter()
             .find(|r| r.id == id)
-            .and_then(|row| resolve_sub_id(mpv, id, row.ifo_slot))
+            .and_then(|row| resolve_sub_id(mpv, id, row.ifo_slot, shell))
             .unwrap_or(id);
         let _ = mpv.set_property("sub-visibility", true);
         let _ = mpv.set_property("sid", sid);
+        reapply_styling(mpv);
     }
 }
 
@@ -274,5 +281,6 @@ mod tests {
         assert!(is_bitmap_sub_codec("hdmv_pgs_subtitle"));
         assert!(!is_bitmap_sub_codec("ass"));
         assert!(!is_bitmap_sub_codec("subrip"));
+        assert!(!is_bitmap_sub_codec("hdmv_text_subtitle"));
     }
 }

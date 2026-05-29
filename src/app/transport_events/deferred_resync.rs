@@ -37,7 +37,8 @@ fn sync_sub_header_readout(player: &Rc<RefCell<Option<MpvBundle>>>, label: &gtk:
         }
         return;
     };
-    crate::sub_tracks::refresh_sub_header(&b.mpv, label);
+    let shell = b.me_budget_shell_path.borrow();
+    crate::sub_tracks::refresh_sub_header(&b.mpv, label, shell.as_deref());
 }
 
 fn install_transport_tick(ctx: &Rc<TransportCtx>) {

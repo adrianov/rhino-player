@@ -59,6 +59,7 @@ mod theme_cursor;
 mod window_present;
 mod time;
 mod track_label_match;
+mod track_menu_label;
 #[cfg(target_os = "macos")]
 mod trash_macos;
 mod trash_xdg;

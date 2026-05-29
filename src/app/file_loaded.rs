@@ -189,13 +189,15 @@ fn on_320ms_tick(c: On320Ctx) {
     if let Some(b) = c.player.borrow().as_ref() {
         schedule_sub_button_scan(c.player.clone(), c.sub_btn);
         let pr = c.sub_pref.borrow();
+        // Pick `sid` before styling so BDMV text tracks get `sub-color` / `sub-scale`.
+        sub_tracks::reapply_saved_or_autopick(
+            &b.mpv,
+            &pr,
+            b.me_budget_shell_path.borrow().as_deref(),
+        );
         sub_prefs::apply_mpv(&b.mpv, &pr);
         let show = c.recent.is_visible() || c.bar_show.get();
         sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, c.bottom.height(), c.gl.height());
-        // Audio track restore runs synchronously on the FileLoaded transport event (see
-        // dispatch_sync_ui.rs) so the saved `aid` is in place *before* unpause. Repeating it
-        // here would re-open the audio path mid-playback and reintroduce the A/V drift.
-        sub_tracks::reapply_saved_or_autopick(&b.mpv, &pr);
         let listed = playback_speed::sync_list(&b.mpv, &c.speed_sync_flag, &c.speed_list, &c.speed_readout);
         let mut g = c.video_pref.borrow_mut();
         if g.smooth_60 {

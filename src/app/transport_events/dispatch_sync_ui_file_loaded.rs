@@ -24,7 +24,8 @@ fn schedule_file_resume_retries(player: &Rc<RefCell<Option<MpvBundle>>>) {
 
 fn finish_chapter_scrub_load(ctx: &Rc<TransportCtx>) {
     with_bundle(&ctx.player, |b| {
-        audio_tracks::reapply_after_chapter_load(&b.mpv);
+        let shell = b.me_budget_shell_path.borrow();
+        audio_tracks::reapply_after_chapter_load(&b.mpv, shell.as_deref());
     });
     schedule_smooth_60_resync_idle(ctx);
     transport_tick(ctx);
@@ -102,10 +103,12 @@ fn schedule_chapter_scrub_resume_retries(ctx: &Rc<TransportCtx>) {
 fn apply_file_loaded_resume_and_audio(player: &Rc<RefCell<Option<MpvBundle>>>) {
     with_bundle(player, |b| {
         b.apply_pending_resume();
-        audio_tracks::restore_saved_audio(&b.mpv);
-        audio_tracks::ensure_playable_audio(&b.mpv);
+        let shell = b.me_budget_shell_path.borrow();
+        let shell_ref = shell.as_deref();
+        audio_tracks::restore_saved_audio(&b.mpv, shell_ref);
+        audio_tracks::ensure_playable_audio(&b.mpv, shell_ref);
         let pr = crate::db::load_sub();
-        let _ = sub_tracks::restore_saved_sub(&b.mpv, &pr);
+        let _ = sub_tracks::restore_saved_sub(&b.mpv, &pr, shell_ref);
     });
 }
 
