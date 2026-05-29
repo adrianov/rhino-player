@@ -119,10 +119,17 @@ Feature: Recent videos grid on empty launch
     Then the entry is removed from history via the on_stale path
 
   Scenario: Thumbnails refresh near stored continue position
-    Given a card lacks a thumb or its stored thumb_time_pos differs from the current continue position by more than the freshness window
-    When the background backfill runs
-    Then a one-shot vo=image libmpv generates a JPEG near the stored time_pos
-    And the new BLOB replaces the previous one in the media table
+    Given a card has a stored thumbnail that is not fresh for the current continue position
+    When the continue strip is shown
+    Then the card still shows the previous thumbnail image
+    When the background backfill finishes a new thumbnail near the current continue position
+    Then the card shows the new thumbnail image
+    And the generic video placeholder does not appear between the old and new image
+
+  Scenario: Cards without any thumbnail show a placeholder
+    Given a card has never had a thumbnail stored
+    When the continue strip is shown
+    Then the card shows a generic video placeholder until a thumbnail is ready
 ```
 
 ## Notes
@@ -132,6 +139,6 @@ Feature: Recent videos grid on empty launch
 - Snackbar: pill-shaped at the bottom; auto-hide after 10 s; remove and trash share one session LIFO stack; Undo snapshots include watch-later sidecar bytes plus the full media row; trash entries also store the `Trash/files/…` path for untrash.
 - `back_to_browse` clears the session undo stack except for trash (so the snackbar can offer untrash).
 - Length and progress: write libmpv `duration` and `time-pos` to the DB on file switch and window close (no `ffprobe`); fall back to watch-later (`start=` / `# path`) before showing 0%. When mpv reports `bd://`, keys use `shell_media_path` + `me_budget_shell_path` (disc root), same as history; resume seek and warm-hit matching also use `media_probe::mpv_matches_open_target` (not raw mpv `path`, which is not a filesystem path on Blu-ray). **`mpv_warm_hit_ready`** matches only mpv’s **local** open path (`mpv_local_open_path`) — never `me_budget_shell_path`, which hover updates via `last_path` / `transport_sync_warm_browse` before `loadfile` lands (otherwise a `bd://` title falsely warm-hits the hovered DVD). Warm `loadfile` skips outgoing SQLite snapshots (`warm_preload`); near-start mpv reads must not overwrite an existing resume (`db::set_playback`, `media_probe::NEAR_END_SEC`). Hover warm preload is scheduled on a low-priority GTK idle (coalesced per pointer enter, so scrolling the continue row stays smooth); at most one `loadfile` runs at a time with a single queued path after the previous title is fully loaded (`WarmPreloadGate`, `warm_preload_notify_loaded` on warm `FileLoaded` including superseded loads, debounced `schedule_warm_path_settle` on `path`/`duration` when `FileLoaded` is dropped during churn, 4s watchdog, or immediate gate release when mpv already has the hover target and the gate is idle). Re-hovering the same card while mpv still has that file is a no-op; switching away and back issues a new `loadfile` when mpv holds a different title. Card click / Space warm reopen is a hit only when mpv’s open title already matches the target (`mpv_warm_hit_ready` in `load_file_into_player` — not `last_path` alone, which hover sets before `loadfile`). While the continue grid is visible, transport snap reads `last_path` (hover/card intent), not `me_budget_shell_path`. `card_data_list` reads resume/duration once per grid fill; `ContinueGridCache` (`ContinueSnap` per canonical path) is refreshed in `fill_row` and shared with transport (`continue_grid_cache_lookup` in `read_transport_state` — no per-tick SQLite). `last_path` is updated via `transport_sync_warm_browse` on hover/load start. Rapid hover uses `warm_file_gen` so stale `FileLoaded` idles do not resume the wrong title. Modules: `warm_preload_idle.rs`, `warm_preload_path.rs`, `preload_continue_and_run.rs`.
-- Thumbnails: `vo=image` libmpv; scale to ~960 px wide with `force_original_aspect_ratio=decrease`; JPEG quality ~82; video-only player with no audio / subtitles / external autoload / scripts / resume; loop-filter skipping only. DVD titles: `still_target_from_global` picks the resume chapter `.vob` and local offset (same timeline as preview/resume); one frame via `--start` + `--frames=1` with high-resolution seek (`hr-seek`) on that chapter file (same cap as seek-bar preview). Cache key includes `thumb_load_path` so a thumb from the wrong VOB is not reused.
+- Thumbnails: `vo=image` libmpv; scale to ~960 px wide with `force_original_aspect_ratio=decrease`; JPEG quality ~82; video-only player with no audio / subtitles / external autoload / scripts / resume; loop-filter skipping only. DVD titles: `still_target_from_global` picks the resume chapter `.vob` and local offset (same timeline as preview/resume); one frame via `--start` + `--frames=1` with high-resolution seek (`hr-seek`) on that chapter file (same cap as seek-bar preview). Cache key includes `thumb_load_path` so a thumb from the wrong VOB is not reused. UI uses `cached_thumbnail_fresh` for backfill skip; `cached_thumbnail_for_display` falls back to `stored_thumb_png` so cards keep the last picture until a new BLOB is written (placeholder only when no thumb was ever stored).
 - Acceptance (manual): with ≥3 valid history entries, launch with no args → Open tile plus three cards in correct order, percentages match reopen behaviour, click loads + seeks. Empty history → browse strip shows Open tile only. With a CLI file, this grid is not the first view.
 - Out of scope (v1): editing history order, hiding entries, streaming-art thumbs for remote URLs.

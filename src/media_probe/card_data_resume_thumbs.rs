@@ -224,9 +224,20 @@ fn db_thumb_for_canon_path(can: &Path) -> Option<Vec<u8>> {
     db_thumb_for_entity_key(s, &target.load, target.cache_time)
 }
 
-/// Current thumbnail for this path in [crate::db] when fresh; **no libmpv** (use on the UI thread).
+/// Thumbnail bytes when cache matches mtime, continue position, and load path; **no libmpv**.
+fn cached_thumbnail_fresh(path: &Path) -> Option<Vec<u8>> {
+    let entity = crate::playback_entity::db_path_for(path);
+    let Some(k) = crate::db::history_key(&entity) else {
+        let can = std::fs::canonicalize(path).ok()?;
+        return db_thumb_for_canon_path(&can);
+    };
+    let target = grid_thumb_target(&entity)?;
+    db_thumb_for_entity_key(&k, &target.load, target.cache_time)
+}
+
+/// Fresh thumb only; used to skip background backfill when regeneration is not needed.
 pub fn cached_thumbnail_for_path(path: &Path) -> Option<Vec<u8>> {
-    cached_thumbnail_for_display(path)
+    cached_thumbnail_fresh(path)
 }
 
 pub(crate) fn db_thumb_for_entity_key(
@@ -239,15 +250,8 @@ pub(crate) fn db_thumb_for_entity_key(
     db::take_thumb_if_fresh(db_key, mtime, cache_time, load_s)
 }
 
-/// Display fallback: entity-keyed thumb (mtime from the chapter file mpv loads).
-fn cached_thumbnail_for_display(path: &Path) -> Option<Vec<u8>> {
+/// Card art: fresh frame when available, else last stored BLOB (avoids placeholder flash while backfill runs).
+pub(crate) fn cached_thumbnail_for_display(path: &Path) -> Option<Vec<u8>> {
     let entity = crate::playback_entity::db_path_for(path);
-    let Some(k) = crate::db::history_key(&entity) else {
-        let can = std::fs::canonicalize(path).ok()?;
-        return db_thumb_for_canon_path(&can);
-    };
-    let Some(target) = grid_thumb_target(&entity) else {
-        return db::stored_thumb_png(&entity);
-    };
-    db_thumb_for_entity_key(&k, &target.load, target.cache_time)
+    cached_thumbnail_fresh(path).or_else(|| db::stored_thumb_png(&entity))
 }
