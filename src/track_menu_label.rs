@@ -127,11 +127,19 @@ fn sub_format_label(codec: &str) -> Option<&'static str> {
 fn channel_label_from_mpv(count: Option<i64>, layout: Option<&str>) -> String {
     if let Some(l) = layout.map(str::trim).filter(|s| !s.is_empty()) {
         let head = l.split('(').next().unwrap_or(l).trim();
-        if head.eq_ignore_ascii_case("stereo") || head == "2.0" {
+        let head_lc = head.to_ascii_lowercase();
+        if head_lc == "stereo" || head == "2.0" {
             return "stereo".into();
+        }
+        if head_lc == "unknown" || head_lc.starts_with("unknown") {
+            return channel_label_from_count(count);
         }
         return head.to_string();
     }
+    channel_label_from_count(count)
+}
+
+fn channel_label_from_count(count: Option<i64>) -> String {
     match count.unwrap_or(0).max(0) as u8 {
         0 => String::new(),
         1 => "mono".into(),
@@ -145,6 +153,18 @@ fn channel_label_from_mpv(count: Option<i64>, layout: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{disambiguate_labels, mpv_audio_label, mpv_sub_label};
+
+    #[test]
+    fn unknown_layout_uses_channel_count() {
+        assert_eq!(
+            mpv_audio_label(Some("eng"), None, Some("dts"), Some(6), Some("unknown6")),
+            "eng · DTS 5.1"
+        );
+        assert_eq!(
+            mpv_audio_label(Some("eng"), None, Some("dts"), Some(6), Some("unknown")),
+            "eng · DTS 5.1"
+        );
+    }
 
     #[test]
     fn youth_in_revolt_audio_labels() {
