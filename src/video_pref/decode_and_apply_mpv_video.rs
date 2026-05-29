@@ -66,9 +66,6 @@ fn apply_mpv_video_impl(
 ) -> MpvVideoApply {
     let vlog = video_log();
     log_apply(v);
-    if mpv_has_open_media(mpv) {
-        sync_bluray_deinterlace_mpv(mpv, bundle);
-    }
     let paused = mpv.get_property::<bool>("pause").unwrap_or(true);
     let want_60 = v.smooth_60;
     let cadence_hz = want_60.then(|| refresh_smooth_cadence_gate(mpv, bundle)).flatten();
@@ -143,7 +140,6 @@ fn apply_mpv_video_impl(
             crate::paths::RHINO_SOURCE_FPS_VAR
         );
         clear_vf(mpv, bundle, vlog);
-        sync_bluray_deinterlace_mpv(mpv, bundle);
         let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle, cadence_hz);
         post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
         return MpvVideoApply {
@@ -153,7 +149,6 @@ fn apply_mpv_video_impl(
 
     // Smooth vf presentation + swap timing; stripping vf restores plain opts (clear_vf).
     clear_vf(mpv, bundle, vlog);
-    sync_bluray_deinterlace_mpv(mpv, bundle);
     let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle, cadence_hz);
     post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
     MpvVideoApply {

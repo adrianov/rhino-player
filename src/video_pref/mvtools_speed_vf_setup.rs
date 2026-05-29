@@ -238,7 +238,6 @@ fn add_smooth_60(
         return false;
     }
     ensure_hwdec_vf_copy(mpv);
-    sync_bluray_deinterlace_mpv(mpv, bundle);
     match speed_hint {
         Some(s) => set_playback_speed_env(s),
         None => set_playback_speed_env_from_mpv(mpv),
