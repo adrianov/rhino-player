@@ -10,14 +10,27 @@ fn stamp_smooth_toolbar_readout(lab: Option<&gtk::Label>, player: &Rc<RefCell<Op
     let Some(l) = lab else {
         return;
     };
-    let text = if let Ok(g) = player.try_borrow() {
-        g.as_ref()
-            .map(|b| crate::video_pref::smooth_toolbar_fps_label(&b.mpv))
-            .unwrap_or_else(|| "—".to_string())
-    } else {
+    let Ok(g) = player.try_borrow() else {
         return;
     };
-    l.set_label(&text);
+    let (fps_text, src_fps) = if let Some(b) = g.as_ref() {
+        (
+            crate::video_pref::smooth_toolbar_fps_label(&b.mpv),
+            crate::video_pref::source_fps_label(&b.mpv),
+        )
+    } else {
+        ("—".to_string(), None)
+    };
+    l.set_label(&fps_text);
+    if let Some(btn) = l.parent().and_then(|p| p.parent()).and_then(|p| p.downcast::<gtk::Button>().ok()) {
+        let tip = match src_fps {
+            Some(src) => format!("Smooth Video ({src} → 60 FPS)"),
+            None => SMOOTH60_MENU_LABEL.to_string(),
+        };
+        if btn.tooltip_text().as_deref() != Some(&tip) {
+            btn.set_tooltip_text(Some(&tip));
+        }
+    }
 }
 
 fn sync_smooth_toolbar_on(btn: Option<&gtk::Button>, on: bool) {

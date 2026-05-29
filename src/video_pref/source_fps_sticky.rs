@@ -25,6 +25,21 @@ fn peek_sticky_local_source_fps(mpv: &libmpv2::Mpv) -> Option<f64> {
     })
 }
 
+/// Native video FPS for the Smooth tooltip (container-fps or sticky fallback), `None` if no media.
+pub fn source_fps_label(mpv: &libmpv2::Mpv) -> Option<String> {
+    const LO: f64 = 0.05;
+    const HI: f64 = 960.0;
+    if !matches!(mpv.get_property::<String>("path"), Ok(s) if !s.trim().is_empty()) {
+        return None;
+    }
+    let fps = mpv
+        .get_property::<f64>("container-fps")
+        .ok()
+        .filter(|&f| f.is_finite() && f > LO && f < HI)
+        .or_else(|| peek_sticky_local_source_fps(mpv).filter(|&f| f > LO && f < HI))?;
+    Some(format!("{}", fps.round() as i64))
+}
+
 /// Header Smooth toolbar: rounded **playing** frame rate (`estimated-vf-fps` when known, else source×speed).
 pub fn smooth_toolbar_fps_label(mpv: &libmpv2::Mpv) -> String {
     const LO: f64 = 0.05;
