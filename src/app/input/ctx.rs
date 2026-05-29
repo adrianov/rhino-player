@@ -37,7 +37,7 @@ struct WindowInputCtx {
     on_video_chrome: Rc<dyn Fn()>,
     on_file_loaded: Rc<dyn Fn()>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
-    win_aspect: Rc<Cell<Option<f64>>>,
+    win_aspect: Rc<WinAspectCell>,
     sibling_seof: Rc<SiblingEofState>,
     /// Shared with [try_load] reveal / [back_to_browse].
     playback_focus: Rc<Cell<bool>>,

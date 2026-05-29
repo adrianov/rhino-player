@@ -7,7 +7,7 @@ struct MprisLinuxWireCtx<'a> {
     player: &'a Rc<RefCell<Option<MpvBundle>>>,
     play_ctx: &'a PlayToggleCtx,
     last_path: &'a Rc<RefCell<Option<PathBuf>>>,
-    win_aspect: &'a Rc<Cell<Option<f64>>>,
+    win_aspect: &'a Rc<WinAspectCell>,
     sibling_seof: &'a Rc<SiblingEofState>,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
     smooth_seek_debounce: Rc<RefCell<Option<glib::SourceId>>>,

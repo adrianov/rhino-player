@@ -38,7 +38,7 @@ fn wire_handlers_before_mpv(
     last_path: &Rc<RefCell<Option<PathBuf>>>,
     playback_focus: &Rc<Cell<bool>>,
     sibling_seof: &Rc<SiblingEofState>,
-    win_aspect: &Rc<Cell<Option<f64>>>,
+    win_aspect: &Rc<WinAspectCell>,
     dvd_bar: &Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
 ) -> HandlersBeforeMpv {
     #[cfg(target_os = "macos")]

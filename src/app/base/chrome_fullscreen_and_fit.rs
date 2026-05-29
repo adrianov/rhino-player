@@ -232,14 +232,20 @@ fn header_popover_non_modal(pop: &impl IsA<gtk::Popover>) {
     pop.set_autohide(false);
 }
 
+fn video_dim_pair(mpv: &Mpv, wk: &str, hk: &str) -> Option<(i64, i64)> {
+    let w = mpv.get_property::<i64>(wk).ok()?;
+    let h = mpv.get_property::<i64>(hk).ok()?;
+    (w > 0 && h > 0).then_some((w, h))
+}
+
 /// Display (or stream) size in pixels from mpv, if known.
 fn video_display_dims(mpv: &Mpv) -> Option<(i64, i64)> {
-    let pair = |mw: &Mpv, wk: &str, hk: &str| {
-        let w = mw.get_property::<i64>(wk).ok()?;
-        let h = mw.get_property::<i64>(hk).ok()?;
-        (w > 0 && h > 0).then_some((w, h))
-    };
-    pair(mpv, "dwidth", "dheight").or_else(|| pair(mpv, "width", "height"))
+    video_dim_pair(mpv, "dwidth", "dheight").or_else(|| video_dim_pair(mpv, "width", "height"))
+}
+
+/// Coded stream size for post-resize aspect snap (stable when a `vf` changes `dwidth`/`dheight`).
+fn video_snap_aspect_dims(mpv: &Mpv) -> Option<(i64, i64)> {
+    video_dim_pair(mpv, "width", "height").or_else(|| video_dim_pair(mpv, "dwidth", "dheight"))
 }
 
 fn window_size_for_horizontal_video(vw: i64, vh: i64) -> (i32, i32) {

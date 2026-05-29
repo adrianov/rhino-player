@@ -349,7 +349,7 @@ struct WindowAfterPresentArgs {
     on_browse_back: Rc<dyn Fn(bool)>,
     on_video_chrome: Rc<dyn Fn()>,
     on_file_loaded: Rc<dyn Fn()>,
-    win_aspect: Rc<Cell<Option<f64>>>,
+    win_aspect: Rc<WinAspectCell>,
     sibling_seof: Rc<SiblingEofState>,
     playback_focus: Rc<Cell<bool>>,
     play_ctx: PlayToggleCtx,

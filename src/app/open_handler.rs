@@ -8,7 +8,7 @@ struct OpenHandlerCtx {
     video_pref: Rc<RefCell<db::VideoPrefs>>,
     on_start: Rc<dyn Fn()>,
     on_loaded: Rc<dyn Fn()>,
-    win_aspect: Rc<Cell<Option<f64>>>,
+    win_aspect: Rc<WinAspectCell>,
     sub_menu: gtk::MenuButton,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     playback_focus: Rc<Cell<bool>>,

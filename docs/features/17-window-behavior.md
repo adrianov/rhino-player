@@ -19,7 +19,7 @@ mpv_props: [pause, path, dwidth, dheight, fullscreen]
 ## Description
 The shell uses `adw::ToolbarView` with content extending to top and bottom edges, so chrome overlays the GLArea instead of shrinking it. A `GtkWindowHandle` wraps the main content for primary-drag window move (more reliable than manual GestureDrag on GL/Wayland). Fullscreen and maximize are wired to GTK / Wayland conventions; `gtk::Application::inhibit` with IDLE+SUSPEND prevents dim and sleep while a real file plays and the recent grid is hidden. Pointer hides on the GLArea after 3 seconds without motion. On opening a new file, the window is presented so it can take focus when another app was foreground; the window resizes to match landscape aspect (target width 960 px, max height 900 px); portrait, square, or unknown sizes leave the window alone. While fullscreen, the header can show **local time** beside the playback menus so the system clock stays glanceable when chrome is visible. When at least two displays are connected, the header may offer a toggle that blacks out every display except the one hosting the viewer; the choice persists across sessions.
 
-**Post-resize aspect lock** (snapping the window to current display video aspect after the user finishes resizing) and **one-click switching between header `MenuButton` popovers** were attempted but did not validate in manual testing in the current pass. They are documented as not shipped.
+After the user finishes a manual resize, the window may snap by a few pixels when its outer aspect is already close to the playing video’s display aspect. **One-click switching between header menu popovers** did not validate in manual testing in the current pass and remains not shipped.
 
 ## Behavior
 
@@ -116,10 +116,19 @@ Feature: Window, fullscreen, and presentation
     When 3 seconds pass without movement on that area
     Then the cursor is set to none on the video surface
 
-  Scenario: Post-resize aspect lock — not shipped
-    Given the user finishes a manual resize with video visible
-    When acceptance is evaluated on Wayland + GTK4
-    Then aspect lock remains documented as not shipped until acceptance is met
+  Scenario: Post-resize aspect snap when already close
+    Given a media title is playing with a known display aspect
+    And the window is neither fullscreen nor maximized
+    And the continue grid is hidden
+    When the user finishes a manual resize
+    And the window’s outer width-to-height ratio is already close to the video display aspect but not an exact match
+    Then the window size is adjusted by the smallest total pixel change on width and height that matches the video aspect
+    And no adjustment runs when the ratios already match or are far apart
+
+  Scenario: Post-resize aspect snap skipped in browse or maximized modes
+    Given the continue grid is visible, or the window is fullscreen or maximized
+    When the user finishes a manual resize
+    Then the window size is not adjusted for video aspect
 
   Scenario: One-click header menu switch — not shipped
     Given a header MenuButton popover is open
@@ -190,7 +199,8 @@ Feature: Window, fullscreen, and presentation
 - Autohide default 2–3 s; menus or popovers being open keeps chrome visible.
 - Fit-on-open: `chrome_window_video_fit.rs` + `chrome_shell_layout.rs` — landscape fit + **`schedule_shell_layout_after_gtk_resize`**. macOS bottom chrome: **`macos_bottom_bar.rs`** — [`gtk::Box`] with `.rpb-header` plus **widget-level** CSS provider (display CSS alone is insufficient on gdk-macos); **`nudge_gdk_compositing_width`** after shell sync mimics manual edge-drag repaint; **`schedule_macos_shell_refresh_after_vf`** after VapourSynth `vf add`. **`RHINO_SHELL_DEBUG=1`**: watch **`bottom_h`**, **`shell=…x…`**, **`gdk width nudge`** lines.
 - ToolbarView extends to top and bottom edges so the GLArea fills the available area and chrome overlays the video. Client-side decorations: baseline for `shows-start-title-buttons` / `shows-end-title-buttons` is sampled after map (idle) while chrome first shows—not after a hide—or `apply_chrome` would capture `(false,false)` and restore would leave traffic lights off; invalid pairs are ignored in favor of a short `(true,true)` fallback until GTK reports a decorated side.
-- Acceptance for **Post-resize aspect lock**: after drag-resize the window’s outer size matches video display aspect within a small tolerance, consistently across sessions, without runaway resize loops or spurious updates from pointer motion. Attempted path: debounced "resize end" on `GdkSurface` / `GtkWindow` notify, `set_default_size`, `present()`, ratio tolerance, `RHINO_ASPECT_DEBUG=1` logging.
+- **Fit-on-open:** `chrome_window_video_fit.rs` — landscape **960×540-class** fit only when the window is still the default size or **smaller** than that target (grow-only). Otherwise keeps size; optional aspect nudge via `snap_size_after_user_resize`.
+- **Post-resize aspect snap:** `aspect_resize_snap.rs` — coded `width`×`height` in `WinAspectCell`; snap when width **or** height is within **60%** of aspect-correct; compute one-axis deltas **+W**, **−W**, **+H**, **−H** to match aspect (formulas `W′=round(H×vw/vh)`, `H′=round(W×vh/vw)`); apply the **smallest** delta if **|Δ|/side ≤ 50%**. Debounce 200 ms → `apply_window_outer_size`.
 - See [GTK4 toplevel / aspect notes](../references-gtk4-toplevel-aspect.md) for upstream context (the prior `compute-size` approach was abandoned due to feedback loops).
 - Header menu switching attempts: `Popover:modal=false`, capture-phase GestureClick, idle `MenuButton::set_active`. Manual testing still required a second click on Linux; revisit with a deeper GTK / GNOME review.
 - **Multi-monitor activation:** Portable behavior is `gtk_window_present` only (compositor picks the output on Wayland). **macOS:** `window_present::present_on_activation_display` (startup only) sets `NSWindow` frame on the `NSScreen` under `NSEvent::mouseLocation` (else `mainScreen`) **before** `present`, briefly hides an already-visible window to avoid one frame on the wrong display, then re-applies frame synchronously after `present`; skipped when fullscreen or maximized. Later `NSApplicationDidBecomeActiveNotification` (Dock or clicking the window) calls `present` only — no re-centering.

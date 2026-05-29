@@ -23,7 +23,7 @@ struct FinalActionCtx {
     last_path: Rc<RefCell<Option<PathBuf>>>,
     on_video_chrome: Rc<dyn Fn()>,
     on_file_loaded: Rc<dyn Fn()>,
-    win_aspect: Rc<Cell<Option<f64>>>,
+    win_aspect: Rc<WinAspectCell>,
     bar_show: Rc<Cell<bool>>,
     idle_inhib: Rc<RefCell<Option<crate::idle_inhibit::Held>>>,
     exit_after_current: Rc<Cell<bool>>,

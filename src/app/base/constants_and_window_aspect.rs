@@ -128,23 +128,22 @@ fn aspect_debug() -> bool {
     })
 }
 
-/// Updates [win_aspect] from current mpv [video_display_dims] (display picture aspect, not the window’s).
-fn sync_window_aspect_from_mpv(mpv: &Mpv, win_aspect: &Cell<Option<f64>>) {
+/// Updates [win_aspect] from mpv coded size when available (stable across `vf`); else display dims.
+fn sync_window_aspect_from_mpv(mpv: &Mpv, win_aspect: &WinAspectCell) {
     let prev = win_aspect.get();
-    let dims = video_display_dims(mpv);
+    let dims = video_snap_aspect_dims(mpv);
     if let Some((w, h)) = dims {
         if w > 0 && h > 0 {
-            let r = w as f64 / h as f64;
-            win_aspect.set(Some(r));
-            if prev != Some(r) {
+            let next = (w, h);
+            win_aspect.set(Some(next));
+            if prev != Some(next) {
+                let r = win_aspect_ratio(next);
                 eprintln!(
                     "[rhino] aspect: target ratio → {:.6} (from {}×{}, was {:?})",
-                    r, w, h, prev
-                );
-            } else if aspect_debug() {
-                eprintln!(
-                    "[rhino] aspect: sync: dims {}×{} ratio {:.6} (unchanged)",
-                    w, h, r
+                    r,
+                    w,
+                    h,
+                    prev.map(|(pw, ph)| win_aspect_ratio((pw, ph)))
                 );
             }
         } else if aspect_debug() {
@@ -160,89 +159,78 @@ fn sync_window_aspect_from_mpv(mpv: &Mpv, win_aspect: &Cell<Option<f64>>) {
     }
 }
 
-const ASPECT_MIN_W: i32 = 320;
-const ASPECT_MIN_H: i32 = 200;
-/// Tight: user-sized windows often sit within 0.006 of 16:9 and looked “off” with the old 0.006 tol.
-const ASPECT_RESIZE_END_RATIO_TOL: f64 = 0.0002;
 /// After the last [GtkWindow] size change, wait this long then apply [apply_window_video_aspect] once.
 const ASPECT_RESIZE_END_DEBOUNCE: Duration = Duration::from_millis(200);
 
-/// Minimal change from ([ww], [hh]) to match [ratio] after a user resize.
-/// [ASPECT_RESIZE_END_RATIO_TOL] is stricter than the old 0.006 snap so a visible nudge is not skipped;
-/// the old “±1px” no-op is dropped here (only exact integer match bails out).
-fn snap_size_after_user_resize(ww: i32, hh: i32, ratio: f64) -> Option<(i32, i32)> {
-    if ratio <= 0.0 || ww < 2 || hh < 2 {
-        return None;
-    }
-    let cur = f64::from(ww) / f64::from(hh);
-    if (cur - ratio).abs() <= ASPECT_RESIZE_END_RATIO_TOL {
-        return None;
-    }
-    let w_from_h = (f64::from(hh) * ratio).round() as i32;
-    let h_from_w = (f64::from(ww) / ratio).round() as i32;
-    let dw = (w_from_h - ww).abs();
-    let dh = (h_from_w - hh).abs();
-    let (nw, nh) = if dw < dh {
-        (w_from_h, hh)
-    } else {
-        (ww, h_from_w)
-    };
-    let nw = nw.clamp(ASPECT_MIN_W, 8192);
-    let nh = nh.clamp(ASPECT_MIN_H, 8192);
-    if nw == ww && nh == hh {
-        return None;
-    }
-    Some((nw, nh))
-}
-
-/// One [set_default_size] to match the video [win_aspect] after user resize (see [ASPECT_RESIZE_END_DEBOUNCE]).
+/// After user resize, optionally nudge outer size to [win_aspect] (see [ASPECT_RESIZE_END_DEBOUNCE]).
 fn apply_window_video_aspect(
     win: &adw::ApplicationWindow,
     recent: &gtk::Box,
-    win_aspect: &Cell<Option<f64>>,
+    win_aspect: &WinAspectCell,
 ) {
     if win.is_fullscreen() || win.is_maximized() {
-        if aspect_debug() {
-            eprintln!("[rhino] aspect: resize-end skip: fullscreen or maximized");
-        }
+        eprintln!("[rhino] aspect: resize-end skip fullscreen/maximized");
         return;
     }
     if recent.is_visible() {
-        if aspect_debug() {
-            eprintln!("[rhino] aspect: resize-end skip: recent visible");
-        }
+        eprintln!("[rhino] aspect: resize-end skip recent visible");
         return;
     }
-    let Some(ratio) = win_aspect.get() else {
-        if aspect_debug() {
-            eprintln!("[rhino] aspect: resize-end skip: no target ratio");
-        }
+    let Some((vw, vh)) = win_aspect.get() else {
+        eprintln!("[rhino] aspect: resize-end skip no target ratio");
         return;
     };
     let ww = win.width().max(2);
     let hh = win.height().max(2);
-    let Some((nw, nh)) = snap_size_after_user_resize(ww, hh, ratio) else {
+    if skip_resize_end_snap(ww, hh, vw, vh) {
         if aspect_debug() {
-            eprintln!(
-                "[rhino] aspect: resize-end: ok {}×{} (≈{:.4} vs want {:.4})",
-                ww,
-                hh,
-                f64::from(ww) / f64::from(hh),
-                ratio
-            );
+            eprintln!("[rhino] aspect: resize-end skip programmatic {ww}×{hh}");
         }
         return;
-    };
+    }
     if aspect_debug() {
+        let (plus_w, minus_w, plus_h, minus_h) = aspect_one_axis_deltas(ww, hh, vw, vh);
         eprintln!(
-            "[rhino] aspect: resize-end: {}×{} -> {}×{} (want {:.4})",
-            ww, hh, nw, nh, ratio
+            "[rhino] aspect: one-axis deltas +W={plus_w} -W={minus_w} +H={plus_h} -H={minus_h} window={ww}×{hh}"
         );
     }
+    let Some((nw, nh)) = snap_size_after_user_resize(ww, hh, vw, vh) else {
+        let (w_off, h_off) = aspect_dim_offsets(ww, hh, vw, vh);
+        eprintln!(
+            "[rhino] aspect: resize-end keep {}×{} rel_err={:.5} w_off={:.2} h_off={:.2} video={}×{}",
+            ww,
+            hh,
+            aspect_rel_err(ww, hh, vw, vh),
+            w_off,
+            h_off,
+            vw,
+            vh
+        );
+        return;
+    };
+    let pick = if nw > ww {
+        "+W"
+    } else if nw < ww {
+        "-W"
+    } else if nh > hh {
+        "+H"
+    } else {
+        "-H"
+    };
+    eprintln!(
+        "[rhino] aspect: resize-end snap {}×{} -> {}×{} pick={pick} (video {}×{})",
+        ww, hh, nw, nh, vw, vh
+    );
+    note_programmatic_win_resize(nw, nh);
     let w2 = win.clone();
     let _ = glib::idle_add_local_once(move || {
-        w2.set_default_size(nw, nh);
-        w2.present();
+        if !apply_window_outer_size(&w2, nw, nh) {
+            eprintln!(
+                "[rhino] aspect: resize-end apply noop gtk already {}×{}",
+                w2.width(),
+                w2.height()
+            );
+        }
     });
 }
 
@@ -251,7 +239,7 @@ fn schedule_window_aspect_on_resize_end(
     deb: Rc<RefCell<Option<glib::SourceId>>>,
     win: &adw::ApplicationWindow,
     recent: &gtk::Box,
-    win_aspect: &Rc<Cell<Option<f64>>>,
+    win_aspect: &Rc<WinAspectCell>,
 ) {
     drop_glib_source(deb.as_ref());
     let d = Rc::clone(&deb);

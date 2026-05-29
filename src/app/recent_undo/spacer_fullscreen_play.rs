@@ -35,7 +35,7 @@ struct PlayToggleCtx {
     last_path: Rc<RefCell<Option<PathBuf>>>,
     on_video_chrome: Rc<dyn Fn()>,
     on_file_loaded: Rc<dyn Fn()>,
-    win_aspect: Rc<Cell<Option<f64>>>,
+    win_aspect: Rc<WinAspectCell>,
     sub_menu: Option<gtk::MenuButton>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     playback_focus: Rc<Cell<bool>>,

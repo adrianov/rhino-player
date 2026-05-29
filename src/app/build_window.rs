@@ -51,7 +51,7 @@ fn build_window(
     let fs_transition_settle = Rc::new(RefCell::new(None::<glib::SourceId>));
     let skip_max_to_fs = Rc::new(Cell::new(false));
     let last_unmax = Rc::new(RefCell::new((WIN_INIT_W, WIN_INIT_H)));
-    let win_aspect = Rc::new(Cell::new(None::<f64>));
+    let win_aspect = Rc::new(Cell::new(None::<(i64, i64)>));
     let aspect_resize_end_deb = Rc::new(RefCell::new(None::<glib::SourceId>));
     let aspect_resize_wired = Rc::new(Cell::new(false));
     let idle_inhib = Rc::new(RefCell::new(None::<crate::idle_inhibit::Held>));

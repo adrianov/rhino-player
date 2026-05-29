@@ -16,7 +16,7 @@ fn maybe_advance_sibling_on_eof(
     idle_inhib: &Rc<RefCell<Option<crate::idle_inhibit::Held>>>,
     teardown_after_draw: &Rc<Cell<bool>>,
     on_start: &Rc<dyn Fn()>,
-    win_aspect: Rc<Cell<Option<f64>>>,
+    win_aspect: Rc<WinAspectCell>,
     on_loaded: Option<Rc<dyn Fn()>>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     playback_focus: Rc<Cell<bool>>,
@@ -246,7 +246,7 @@ struct BackToBrowseCtx {
     last_path: Rc<RefCell<Option<PathBuf>>>,
     sibling_seof: Rc<SiblingEofState>,
     sibling_nav: SiblingNavUi,
-    win_aspect: Rc<Cell<Option<f64>>>,
+    win_aspect: Rc<WinAspectCell>,
     /// Show bars; cancel auto-hide. Call after [gtk::Widget::set_visible] for the browse overlay.
     on_browse: Rc<dyn Fn()>,
     undo_shell: gtk::Box,

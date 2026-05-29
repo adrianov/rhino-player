@@ -165,7 +165,7 @@ fn refresh_sibling_nav(ctx: &Rc<TransportCtx>) {
 
 fn sync_window_aspect_from_player(
     player: &Rc<RefCell<Option<MpvBundle>>>,
-    win_aspect: &Rc<Cell<Option<f64>>>,
+    win_aspect: &Rc<WinAspectCell>,
 ) {
     with_bundle(player, |b| {
         sync_window_aspect_from_mpv(&b.mpv, win_aspect.as_ref());

@@ -1,3 +1,5 @@
+include!("base/aspect_resize_snap.rs");
+include!("base/aspect_resize_state.rs");
 include!("base/constants_and_window_aspect.rs");
 include!("base/video_app_menu_wire.rs");
 include!("base/video_app_menu_smooth_toolbar.rs");

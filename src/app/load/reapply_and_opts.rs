@@ -13,8 +13,8 @@ struct LoadOpts {
     last_path: Rc<RefCell<Option<PathBuf>>>,
     /// Reveal chrome and (re)start 3s auto-hide; `None` for tests or callers without UI bundle.
     on_start: Option<Rc<dyn Fn()>>,
-    /// `Some(w/h)` for [sync_window_aspect_from_mpv] / [apply_window_video_aspect]; cleared with no video.
-    win_aspect: Rc<Cell<Option<f64>>>,
+    /// Coded video size for aspect snap; cleared with no video.
+    win_aspect: Rc<WinAspectCell>,
     /// Fuzzy subtitle auto-pick + hook after a successful `loadfile`.
     on_loaded: Option<Rc<dyn Fn()>>,
     /// Before `loadfile`, set mpv speed to **1.0** if it was changed (sibling EOF advance).
@@ -32,7 +32,7 @@ struct ReplaceMediaBundled {
     video_pref: Rc<RefCell<db::VideoPrefs>>,
     last_path: Rc<RefCell<Option<PathBuf>>>,
     on_start: Option<Rc<dyn Fn()>>,
-    win_aspect: Rc<Cell<Option<f64>>>,
+    win_aspect: Rc<WinAspectCell>,
     on_loaded: Option<Rc<dyn Fn()>>,
     play_on_start: bool,
     reset_speed_to_normal: bool,
