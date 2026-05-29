@@ -138,6 +138,7 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     sync_sub_header_readout(&ctx.player, &ctx.widgets.sub_readout);
     stamp_smooth_toolbar_readout(
         Some(&ctx.widgets.smooth_toolbar_status),
+        Some(&ctx.widgets.smooth_toolbar_btn),
         &ctx.player,
     );
     if smooth_budget_transport_window_ticks_count(&ctx.eof.win) {

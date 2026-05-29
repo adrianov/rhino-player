@@ -6,10 +6,11 @@ struct VideoAppMenuWire {
     smooth_toolbar_status: Option<gtk::Label>,
 }
 
-fn stamp_smooth_toolbar_readout(lab: Option<&gtk::Label>, player: &Rc<RefCell<Option<MpvBundle>>>) {
-    let Some(l) = lab else {
-        return;
-    };
+fn stamp_smooth_toolbar_readout(
+    lab: Option<&gtk::Label>,
+    btn: Option<&gtk::Button>,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+) {
     let Ok(g) = player.try_borrow() else {
         return;
     };
@@ -21,8 +22,10 @@ fn stamp_smooth_toolbar_readout(lab: Option<&gtk::Label>, player: &Rc<RefCell<Op
     } else {
         ("—".to_string(), None)
     };
-    l.set_label(&fps_text);
-    if let Some(btn) = l.parent().and_then(|p| p.parent()).and_then(|p| p.downcast::<gtk::Button>().ok()) {
+    if let Some(l) = lab {
+        l.set_label(&fps_text);
+    }
+    if let Some(btn) = btn {
         let tip = match src_fps {
             Some(src) => format!("Smooth Video ({src} → 60 FPS)"),
             None => SMOOTH60_MENU_LABEL.to_string(),

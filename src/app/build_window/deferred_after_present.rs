@@ -267,6 +267,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
             vol_mute: w.vol_mute_btn.clone(),
             vol_sync: vol_sync.clone(),
             sub_readout: w.sub_readout.clone(),
+            smooth_toolbar_btn: w.smooth_btn.clone(),
             smooth_toolbar_status: w.smooth_status.clone(),
         },
     });
