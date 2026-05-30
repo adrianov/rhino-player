@@ -64,6 +64,7 @@ Feature: Transport controls and progress
 
 ## Notes
 - Properties observed: `time-pos`, `duration`, `pause`, `mute`, `volume`, `volume-max`, `speed`, `path`, `fullscreen`, `media-title`.
+- When `core-idle` or `eof-reached` and position is within `NEAR_END_SEC` of reported duration but streams ended earlier, the seek bar and duration label use `time-pos` after playback has entered the tail (same gate as sibling EOF advance).
 - Seek uses `seek <seconds> absolute+keyframes` (fallback: setting `time-pos`).
 - Optional hover preview popover is owned by [18-thumbnail-preview](18-thumbnail-preview.md).
 - Keyboard arrow seeks (± five seconds) live in this feature; transport uses the same seek behavior as the bottom bar ([04-transport-and-progress](04-transport-and-progress.md)).

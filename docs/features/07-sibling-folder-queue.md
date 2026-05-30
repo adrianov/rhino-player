@@ -58,6 +58,12 @@ Feature: Sibling folder queue
     When end-of-playback occurs
     Then the application exits without loading another sibling file
 
+  Scenario: Auto-advance when container duration exceeds decoded streams
+    Given the loaded file reports a longer container duration than the longest decoded stream
+    And playback stalls before the reported duration ends
+    When natural end-of-playback occurs
+    Then the next sorted sibling file loads automatically
+
   Scenario: Manual Prev / Next matches automatic order
     Given a local file with duration is open
     When the user activates the bottom-bar Previous or Next
@@ -83,7 +89,7 @@ Feature: Sibling folder queue
 ```
 
 ## Notes
-- Trigger sources: `eof-reached==true`, mpv `EndFile` with EOF reason, via the mpv event drain.
+- When container duration exceeds the decoded tail (common on MKV with mismatched stream lengths), sibling advance uses a wider tail window (`NEAR_END_SEC`) while `core-idle`; transport clamps the seek bar to `time-pos` within that window after playback has entered the tail. Auto-advance requires **playing into** the tail (≥1s of position movement since load), not opening with resume already near end — avoids a chain load on continue-grid open.
 - Before loading the next sibling after EOF, mpv `speed` is set to **1.0** when it was not already (see [28-playback-speed](28-playback-speed.md)).
 - The last successfully loaded canonical path is used when `path` is empty.
 - Local files only: with no resolvable path, no advance runs.
