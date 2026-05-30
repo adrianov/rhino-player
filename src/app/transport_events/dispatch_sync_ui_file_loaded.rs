@@ -287,6 +287,7 @@ fn dispatch_file_loaded(ctx: &Rc<TransportCtx>) {
     glib::idle_add_local_once(move || refresh_dvd_bar_cache(&ctx_bar));
     sync_window_title_from_context(ctx);
     ctx.eof.sibling_seof.done.set(false);
+    ctx.eof.sibling_seof.reset_playback_span();
     sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);
     if !ctx.recent_visible.get() {
         schedule_window_fit_h_video(

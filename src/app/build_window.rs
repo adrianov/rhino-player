@@ -44,6 +44,9 @@ fn build_window(
         nav_key: RefCell::new(None),
         nav_can_prev: Cell::new(false),
         nav_can_next: Cell::new(false),
+        pos_min: Cell::new(0.0),
+        pos_max: Cell::new(0.0),
+        pos_tracked: Cell::new(false),
     });
     let fs_restore = Rc::new(RefCell::new(None::<(i32, i32)>));
     let fs_pause_stash = Rc::new(RefCell::new(None::<bool>));

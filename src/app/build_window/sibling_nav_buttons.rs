@@ -36,6 +36,7 @@ fn try_load_sibling_pick(
         return;
     };
     r.sibling_seof.done.set(false);
+    r.sibling_seof.reset_playback_span();
     drop(g);
     let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
         video_pref: Rc::clone(&r.video_pref),

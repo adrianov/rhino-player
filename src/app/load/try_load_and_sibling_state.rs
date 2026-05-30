@@ -256,44 +256,4 @@ fn vol_mute_pop_icon(muted: bool) -> &'static str {
     }
 }
 
-/// State for `maybe_advance_sibling_on_eof`: one-shot guard per logical end.
-struct SiblingEofState {
-    done: Cell<bool>,
-    /// Last canonical path for which `nav_sensitivity` was computed; avoids `prev` / `next` directory walks every 200ms.
-    nav_key: RefCell<Option<PathBuf>>,
-    nav_can_prev: Cell<bool>,
-    nav_can_next: Cell<bool>,
-}
-
-impl SiblingEofState {
-    /// Prev/next button sensitivity for `cur`. Reuses cached fs work while the file path is unchanged.
-    fn nav_sensitivity(&self, cur: &Path) -> (bool, bool) {
-        if !cur.is_file() {
-            *self.nav_key.borrow_mut() = None;
-            return (false, false);
-        }
-        let can = match std::fs::canonicalize(cur) {
-            Ok(p) => p,
-            Err(_) => {
-                *self.nav_key.borrow_mut() = None;
-                return (false, false);
-            }
-        };
-        {
-            let k = self.nav_key.borrow();
-            if k.as_ref() == Some(&can) {
-                return (self.nav_can_prev.get(), self.nav_can_next.get());
-            }
-        }
-        let cp = sibling_advance::prev_before_current(cur).is_some();
-        let cn = sibling_advance::next_after_eof(cur).is_some();
-        *self.nav_key.borrow_mut() = Some(can);
-        self.nav_can_prev.set(cp);
-        self.nav_can_next.set(cn);
-        (cp, cn)
-    }
-
-    fn clear_nav_sensitivity(&self) {
-        *self.nav_key.borrow_mut() = None;
-    }
-}
+include!("sibling_eof_state.rs");

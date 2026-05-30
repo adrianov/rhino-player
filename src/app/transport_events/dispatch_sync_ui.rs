@@ -136,6 +136,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             crate::video_pref::smooth_budget_reset_session_on_new_media(&ctx.smooth_budget_decoder);
             refresh_dvd_bar_cache(ctx);
             ctx.eof.sibling_seof.done.set(false);
+            ctx.eof.sibling_seof.reset_playback_span();
             refresh_sibling_nav(ctx);
             sync_window_title_from_context(ctx);
             if !ctx.recent_visible.get() {

@@ -183,33 +183,7 @@ pub fn refresh_dvd_bar_at_chapter_eof(
     }
 }
 
-/// True when sibling-folder EOF advance may run (title finished, not mid-`.vob` tail).
-pub(crate) fn title_eof_for_sibling_advance(
-    mpv: &libmpv2::Mpv,
-    bar: Option<&DvdBarState>,
-    bar_dur: f64,
-    bar_pos: f64,
-) -> bool {
-    if bar_dur > 0.0 && (bar_dur - bar_pos) > crate::app::TICK_EOF_TAIL_SEC {
-        return false;
-    }
-    if let Some(bar) = bar {
-        if let Some(ch) = open_dvd_chapter_path(mpv, None) {
-            if bar.tl.next_chapter_after(&ch).is_some() {
-                return false;
-            }
-        }
-    }
-    if bar_dur > 0.0 && (bar_dur - bar_pos) <= crate::app::TICK_EOF_TAIL_SEC {
-        return true;
-    }
-    if let Some(bar) = bar {
-        if let Some(ch) = open_dvd_chapter_path(mpv, None) {
-            return chapter_local_at_eof_for(mpv, Some(ch.as_path()), Some(&bar.tl));
-        }
-    }
-    chapter_local_at_eof(mpv)
-}
+include!("dvd_sibling_eof_advance.rs");
 
 /// Rebuild cached bar state after `FileLoaded` / path change (not on every transport tick).
 pub fn refresh_dvd_bar(
