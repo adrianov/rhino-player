@@ -54,12 +54,12 @@ fn mpv_gl_realize_attach_now(
             run_stashed_after_present_wire();
             if let Some(p) = file_boot_rz.replace(None) {
                 let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
-                    video_pref: Rc::clone(&vp_realize),
+                    video_pref: Rc::clone(vp_realize),
                     last_path: ok_refs.last_rz.clone(),
                     on_start: Some(Rc::clone(&ok_refs.on_vid_rz)),
                     win_aspect: Rc::clone(&ok_refs.wa_st),
                     on_loaded: Some(Rc::clone(&ok_refs.ol_rz)),
-                    play_on_start: false,
+                    play_on_start: true,
                     reset_speed_to_normal: false,
                     hdr_title_mirror: ok_refs.hdr_title_mirror.clone(),
                 });

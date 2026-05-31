@@ -1,6 +1,5 @@
 /// Load a file, hide the recent grid overlay, show video; [LoadOpts::record] appends to recent history.
 /// [play_on_start]: clear `pause` so playback runs after the SQLite resume `start=` is applied.
-/// **false** for CLI open-on-launch to respect saved state.
 fn try_load(
     path: &Path,
     player: &Rc<RefCell<Option<MpvBundle>>>,
