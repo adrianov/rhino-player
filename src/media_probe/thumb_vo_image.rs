@@ -174,7 +174,9 @@ fn run_vo_image_one_frame(
 }
 
 fn vo_image_wait_frame(m: &mut Mpv, wait_secs: u64) -> bool {
-    let _ = m.command("frame-step", &["1", "seek"]);
+    if m.command("frame-step", &[] as &[&str]).is_err() {
+        eprintln!("[rhino] grid_thumb frame-step failed");
+    }
     let deadline = Instant::now() + Duration::from_secs(wait_secs.min(VO_IMAGE_WAIT_CAP_SEC));
     loop {
         while m.wait_event(0.0).is_some() {}

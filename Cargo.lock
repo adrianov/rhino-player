@@ -1486,7 +1486,6 @@ dependencies = [
  "async-channel",
  "block2",
  "futures",
- "gdk-pixbuf",
  "gdk4-macos",
  "glib",
  "gtk4",

@@ -1,5 +1,6 @@
 //! Continue-grid WebP thumbnail bytes → [gdk::Texture].
 
+use glib::prelude::Cast;
 use gtk::gdk;
 use zenwebp::{EncodeRequest, LossyConfig, PixelLayout};
 
