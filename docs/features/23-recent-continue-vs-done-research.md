@@ -66,7 +66,7 @@ Feature: Recent list semantics — finished vs in progress (planned)
 | Area | Behaviour |
 |------|-----------|
 | `history` table | Append / touch on open via `history::record` from `try_load` when `LoadOpts::record`. Ordered by `last_opened`; max 20 rows (`db::MAX_HISTORY`). |
-| `media` table | `duration_sec`, `time_pos_sec`, `thumb_png` (+ mtime / `thumb_time_pos_sec`) updated from `record_playback_for_current`, `set_thumb`, grid `ensure_thumbnail`. |
+| `media` table | `duration_sec`, `time_pos_sec`, `thumb_webp` (+ mtime / `thumb_time_pos_sec`) updated from `record_playback_for_current`, `set_thumb`, grid `ensure_thumbnail`. |
 | Sibling advance at EOF | `maybe_advance_sibling_on_eof` → `try_load` → `MpvBundle::load_file_path`, which calls `write_resume_snapshot`, `record_playback_for_current` for the still-loaded file (the one that just hit EOF), then `loadfile` the next. The finished file gets a playback row written with end-ish `time-pos` / `duration`; no `save_cached_thumb` in that path. |
 | Back to grid (Escape) | Idle chain records playback state, paints DB-cached cards, then background backfill refreshes missing/stale thumbnails near the current continue position. |
 | Stale / remove today | Missing file: grey card; click uses `on_stale` → `history::remove`. No general "remove seen file"; no undo. |
