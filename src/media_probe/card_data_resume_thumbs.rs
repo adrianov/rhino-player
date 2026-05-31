@@ -4,8 +4,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use libmpv2::events::Event;
-use libmpv2::mpv_end_file_reason;
 use libmpv2::Mpv;
 
 use crate::db;
@@ -65,7 +63,7 @@ pub struct CardData {
     pub path: PathBuf,
     /// 0.0..=100.0, or 0 if unknown.
     pub percent: f64,
-    /// Image bytes (JPEG/PNG, etc.), or [None] to show the generic video icon.
+    /// WebP thumbnail bytes, or [None] to show the generic video icon.
     pub thumb: Option<Vec<u8>>,
     /// File missing; card is greyed and click removes the entry.
     pub missing: bool,
@@ -138,18 +136,6 @@ fn percent_from_resume(start: Option<f64>, duration: Option<f64>) -> f64 {
 const GRID_THUMB_W: u32 = 960;
 const GRID_FALLBACK_SEC: f64 = 2.0;
 
-/// Hash for cache filename (FNV-1a on UTF-8 path bytes).
-fn path_tag(path: &str) -> u64 {
-    const OFFSET: u64 = 14695981039346656037;
-    const PRIME: u64 = 1099511628211;
-    let mut h = OFFSET;
-    for b in path.bytes() {
-        h ^= b as u64;
-        h = h.wrapping_mul(PRIME);
-    }
-    h
-}
-
 /// Wanted continue time for cache keys (whole-title seconds on DVD).
 fn grid_thumb_cache_time(resume: f64, duration: f64) -> f64 {
     let target = if resume > 0.0 {
@@ -167,7 +153,7 @@ fn grid_thumb_cache_time(resume: f64, duration: f64) -> f64 {
 
 struct GridThumbTarget {
     load: PathBuf,
-    /// Seconds to seek inside [Self::load] for `vo=image`.
+    /// Seconds to seek inside [Self::load] for screenshot-raw capture.
     seek_sec: f64,
     /// Chapter length used to cap the seek (preview uses the same rule).
     chapter_dur: f64,
@@ -253,5 +239,5 @@ pub(crate) fn db_thumb_for_entity_key(
 /// Card art: fresh frame when available, else last stored BLOB (avoids placeholder flash while backfill runs).
 pub(crate) fn cached_thumbnail_for_display(path: &Path) -> Option<Vec<u8>> {
     let entity = crate::playback_entity::db_path_for(path);
-    cached_thumbnail_fresh(path).or_else(|| db::stored_thumb_png(&entity))
+    cached_thumbnail_fresh(path).or_else(|| db::stored_thumb_webp(&entity))
 }

@@ -1,4 +1,4 @@
-/// PNG in [crate::db] `media.thumb_png`, rebuilt when the source file’s mtime changes.
+/// WebP in [crate::db] `media.thumb_webp`, rebuilt when the source file’s mtime changes.
 /// Calls [run_libmpv_image_frame] on a **cache miss**; keep that work off the UI thread (see [crate::recent_view::schedule_thumb_backfill]).
 pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
     let entity = crate::playback_entity::db_path_for(path);
@@ -8,12 +8,7 @@ pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
         return Some(t);
     }
     let mtime = db::file_mtime_sec(&target.load)?;
-    let b = run_libmpv_image_frame(
-        &target.load,
-        path_tag(&db_key),
-        target.seek_sec,
-        target.chapter_dur,
-    )?;
+    let b = run_libmpv_image_frame(&target.load, target.seek_sec, target.chapter_dur)?;
     db::set_thumb(
         &db_key,
         &b,
@@ -24,114 +19,19 @@ pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
     Some(b)
 }
 
-fn is_thumb_file(p: &Path) -> bool {
-    p.extension().is_some_and(|e| {
-        e.eq_ignore_ascii_case("png")
-            || e.eq_ignore_ascii_case("jpg")
-            || e.eq_ignore_ascii_case("jpeg")
-    })
-}
-
-fn read_nonempty(src: &Path) -> Option<Vec<u8>> {
-    let b = std::fs::read(src).ok()?;
-    (!b.is_empty()).then_some(b)
-}
-
-/// One `vo=image` still (writes into [tmp_dir]), with [loadfile] already applied by the caller, or
-/// shared setup through [run_vo_image_one_frame].
-fn run_vo_image_after_load(m: &mut Mpv, tmp: &Path, deadline_secs: u64) -> Option<Vec<u8>> {
-    let deadline = Instant::now() + Duration::from_secs(deadline_secs);
-    let mut end_err = false;
-    loop {
-        if let Some(f) = pick_vo_out(tmp) {
-            if let Some(b) = read_nonempty(&f) {
-                return Some(b);
-            }
-        }
-        if Instant::now() > deadline {
-            break;
-        }
-        match m.wait_event(0.1) {
-            Some(Err(_)) | None => {}
-            Some(Ok(Event::EndFile(r))) => {
-                if r == mpv_end_file_reason::Error {
-                    end_err = true;
-                    break;
-                }
-            }
-            Some(Ok(_)) => {}
-        }
-    }
-    if !end_err {
-        for _ in 0..20 {
-            if let Some(f) = pick_vo_out(tmp) {
-                if let Some(b) = read_nonempty(&f) {
-                    return Some(b);
-                }
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-    }
-    None
-}
-
 /// Thumbnail: resume-position seek + small scale for continue cards.
-fn run_libmpv_image_frame(
-    src: &Path,
-    path_tag: u64,
-    start_sec: f64,
-    chapter_dur: f64,
-) -> Option<Vec<u8>> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let tmp = std::env::temp_dir().join(format!(
-        "rhino-mpv-{}-{}",
-        path_tag,
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()?
-            .as_millis()
-    ));
-    let r = run_vo_image_one_frame(
+fn run_libmpv_image_frame(src: &Path, start_sec: f64, chapter_dur: f64) -> Option<Vec<u8>> {
+    run_vo_image_one_frame(
         src,
-        &tmp,
         start_sec,
         chapter_dur,
         &format!("scale={GRID_THUMB_W}:-2:force_original_aspect_ratio=decrease:flags=bilinear"),
         12,
-    );
-    let _ = std::fs::remove_dir_all(&tmp);
-    r
+    )
 }
 
+include!("thumb_screenshot_raw.rs");
 include!("thumb_vo_image.rs");
-
-fn images_in(dir: &Path) -> Vec<PathBuf> {
-    std::fs::read_dir(dir)
-        .ok()
-        .map(|rd| {
-            rd.filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .filter(|p| is_thumb_file(p))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Latest [vo=image] still (chain-head seek may write a menu frame before the target frame).
-fn pick_vo_out(dir: &Path) -> Option<PathBuf> {
-    let mut v = images_in(dir);
-    v.sort();
-    if let Some(p) = v.into_iter().last() {
-        return Some(p);
-    }
-    for name in ["00000001.jpg", "00000001.jpeg", "00000001.png"] {
-        let p = dir.join(name);
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-    None
-}
 
 /// Turn mpv [path] / [filename] into a local [PathBuf]. Rejects `http(s)://` etc. Accepts `file://`.
 pub(crate) fn local_path_from_mpv_str(path_s: &str) -> Option<PathBuf> {

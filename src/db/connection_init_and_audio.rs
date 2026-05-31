@@ -43,7 +43,7 @@ pub fn init() {
              duration_sec REAL,
              time_pos_sec REAL,
              source_mtime_sec INTEGER,
-             thumb_png BLOB,
+             thumb_webp BLOB,
              thumb_time_pos_sec REAL,
              audio_aid INTEGER
          );
@@ -59,11 +59,9 @@ pub fn init() {
     migrate_media_decode_columns(&conn);
     migrate_media_source_fps_column(&conn);
     migrate_media_thumb_load_path(&conn);
+    migrate_media_thumb_webp_column(&conn);
     migrate_media_sub_track_columns(&conn);
     migrate_media_audio_ifo_slot(&conn);
-    migrate_dvd_thumb_recapture(&conn, K_DVD_THUMB_VO_START_RECAPTURE_V1);
-    migrate_dvd_thumb_recapture(&conn, K_DVD_THUMB_CHAIN_HEAD_RECAPTURE_V1);
-    migrate_dvd_thumb_recapture(&conn, K_DVD_THUMB_CHAIN_SEEK_RECAPTURE_V1);
     migrate_legacy_smooth_max_area_round_mil(&conn);
     migrate_smooth_max_area_legacy_adaptive_pollution(&conn);
     if DB.set(Mutex::new(conn)).is_err() {
@@ -104,6 +102,14 @@ fn migrate_media_thumb_load_path(conn: &Connection) {
     );
 }
 
+/// Idempotent rename for DBs created before `thumb_webp` column name.
+fn migrate_media_thumb_webp_column(conn: &Connection) {
+    let _ = conn.execute(
+        "ALTER TABLE media RENAME COLUMN thumb_png TO thumb_webp",
+        rusqlite::params![],
+    );
+}
+
 fn migrate_media_sub_track_columns(conn: &Connection) {
     for sql in [
         "ALTER TABLE media ADD COLUMN sub_sid INTEGER",
@@ -117,34 +123,6 @@ fn migrate_media_audio_ifo_slot(conn: &Connection) {
     let _ = conn.execute(
         "ALTER TABLE media ADD COLUMN audio_ifo_slot INTEGER",
         rusqlite::params![],
-    );
-}
-
-/// Wrong-frame DVD thumbs from load-then-seek capture; force one backfill per title.
-const K_DVD_THUMB_VO_START_RECAPTURE_V1: &str = "dvd_thumb_vo_start_recapture_v1";
-const K_DVD_THUMB_CHAIN_HEAD_RECAPTURE_V1: &str = "dvd_thumb_chain_head_recapture_v1";
-const K_DVD_THUMB_CHAIN_SEEK_RECAPTURE_V1: &str = "dvd_thumb_chain_seek_recapture_v1";
-
-fn migrate_dvd_thumb_recapture(conn: &Connection, settings_key: &str) {
-    let done: Option<String> = conn
-        .query_row(
-            "SELECT v FROM settings WHERE k = ?1",
-            params![settings_key],
-            |row| row.get(0),
-        )
-        .optional()
-        .unwrap_or(None);
-    if done.as_deref() == Some("1") {
-        return;
-    }
-    let _ = conn.execute(
-        "UPDATE media SET thumb_png = NULL, thumb_time_pos_sec = NULL WHERE thumb_load_path IS NOT NULL",
-        rusqlite::params![],
-    );
-    let _ = conn.execute(
-        "INSERT INTO settings (k, v) VALUES (?1, ?2)
-         ON CONFLICT(k) DO UPDATE SET v = excluded.v",
-        params![settings_key, "1"],
     );
 }
 

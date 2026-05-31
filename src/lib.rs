@@ -21,7 +21,7 @@ mod header_menu_scroll;
 mod human_media_title;
 mod icons;
 mod idle_inhibit;
-mod jpeg_texture;
+mod thumb_texture;
 #[cfg(target_os = "macos")]
 mod macos_fs_debug;
 #[cfg(target_os = "macos")]

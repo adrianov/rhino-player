@@ -13,7 +13,6 @@ default-run = "rhino-player"
 
 [dependencies]
 gtk = { version = "0.9", package = "gtk4", features = ["v4_14"] } # window, header, dialogs
-gdk-pixbuf = { version = "0.20" } # JPEG → GdkTexture (not gdk::Texture::from_bytes — that is for serialized textures)
 adw = { version = "0.7", package = "libadwaita", features = ["v1_5"] }
 glib = { version = "0.20", features = ["v2_80"] }                 # main loop, clones, timers
 libmpv2 = { version = "5.0.3" }                                    # libmpv
@@ -26,6 +25,7 @@ lexical-sort = "0.3"
 regex = "1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+zenwebp = "0.4" # continue-grid thumb WebP encode/decode (pure Rust)
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-channel = "2.5"
