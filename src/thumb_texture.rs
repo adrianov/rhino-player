@@ -1,5 +1,8 @@
 //! Continue-grid WebP thumbnail bytes → [gdk::Texture].
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 use glib::prelude::Cast;
 use gtk::gdk;
 use zenwebp::{EncodeRequest, LossyConfig, PixelLayout};
@@ -7,10 +10,13 @@ use zenwebp::{EncodeRequest, LossyConfig, PixelLayout};
 /// Lossy quality for continue-grid WebP captures (0–100).
 pub const GRID_THUMB_WEBP_Q: f32 = 82.0;
 
+/// Fastest WebP encoder effort (zenwebp default is 4, which enables slower psycho paths).
+const GRID_THUMB_WEBP_METHOD: u8 = 0;
+
 fn grid_webp_enc() -> LossyConfig {
     LossyConfig::new()
         .with_quality(GRID_THUMB_WEBP_Q)
-        .with_method(4)
+        .with_method(GRID_THUMB_WEBP_METHOD)
 }
 
 /// Encode a borrowed packed pixel buffer (`Rgb8` / `Rgba8` / `Bgr8` / `Bgra8`) to WebP.
@@ -40,11 +46,30 @@ pub fn thumb_webp_valid(bytes: &[u8]) -> bool {
     bytes.len() >= 12 && bytes.starts_with(b"RIFF") && bytes[8..12] == *b"WEBP"
 }
 
-/// Decode a stored continue-grid WebP thumbnail; returns `None` on invalid data.
-pub fn texture_from_thumb(bytes: &[u8]) -> Option<gdk::Texture> {
+thread_local! {
+    static THUMB_TEX_CACHE: RefCell<HashMap<String, (Vec<u8>, gdk::Texture)>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Decode WebP for [cache_key]; reuse the prior texture when blob bytes are unchanged (refill).
+pub fn texture_from_thumb_cached(cache_key: &str, bytes: &[u8]) -> Option<gdk::Texture> {
     if !thumb_webp_valid(bytes) {
         return None;
     }
+    THUMB_TEX_CACHE.with(|c| {
+        let mut g = c.borrow_mut();
+        if let Some((prev, tex)) = g.get(cache_key) {
+            if prev.as_slice() == bytes {
+                return Some(tex.clone());
+            }
+        }
+        let tex = decode_thumb_texture(bytes)?;
+        g.insert(cache_key.to_string(), (bytes.to_vec(), tex.clone()));
+        Some(tex)
+    })
+}
+
+fn decode_thumb_texture(bytes: &[u8]) -> Option<gdk::Texture> {
     let (rgb, w, h) = zenwebp::oneshot::decode_rgb(bytes).ok()?;
     let w = w as i32;
     let h = h as i32;

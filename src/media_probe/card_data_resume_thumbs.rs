@@ -132,8 +132,8 @@ fn percent_from_resume(start: Option<f64>, duration: Option<f64>) -> f64 {
     }
 }
 
-/// Continue-grid backfill: cap generated width near card size and let GTK cover-scale if needed.
-const GRID_THUMB_W: u32 = 960;
+/// Continue-grid backfill width (~[crate::recent_view::card_dims::CARD_MAX_W]); cover-scale in GTK.
+const GRID_THUMB_W: u32 = 640;
 const GRID_FALLBACK_SEC: f64 = 2.0;
 
 /// Wanted continue time for cache keys (whole-title seconds on DVD).
