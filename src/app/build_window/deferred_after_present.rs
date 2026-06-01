@@ -148,6 +148,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         dvd_bar: Rc::clone(&dvd_bar),
         hdr_title_mirror: hdr_title_mirror.clone(),
         speed_sync: w.speed_sync.clone(),
+        speed_menu: w.speed_mbtn.clone(),
         speed_list: w.speed_list.clone(),
         speed_readout: w.speed_readout.clone(),
     });

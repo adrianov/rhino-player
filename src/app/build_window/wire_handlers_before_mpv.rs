@@ -84,6 +84,7 @@ fn wire_handlers_before_mpv(
         close_action_cell: Rc::clone(&close_act_for_sync),
         trash_action_cell: Rc::clone(&trash_act_for_sync),
         speed_sync: w.speed_sync.clone(),
+        speed_menu: w.speed_mbtn.clone(),
         speed_list: w.speed_list.clone(),
         speed_readout: w.speed_readout.clone(),
         video_pref: Rc::clone(video_pref), app: app.clone(), close_video_btn: w.close_video_btn.clone(),

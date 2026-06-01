@@ -37,6 +37,9 @@ const APP_CSS: &str = r#"
         .rpb-header button.rp-blackout-mbtn.flat.rp-blackout-on {
             background-color: rgba(255, 255, 255, 0.1);
         }
+        .rpb-header menubutton.rp-speed-mbtn.flat.rp-speed-on > button {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
         .rpb-header menubutton.flat image,
         .rpb-header button.rp-smooth-mbtn.flat image,
         .rpb-header button.rp-blackout-mbtn.flat image {

@@ -12,6 +12,7 @@ struct FileLoadedCtx {
     close_action_cell: Rc<RefCell<Option<gio::SimpleAction>>>,
     trash_action_cell: Rc<RefCell<Option<gio::SimpleAction>>>,
     speed_sync: Rc<Cell<bool>>,
+    speed_menu: gtk::MenuButton,
     speed_list: gtk::ListBox,
     speed_readout: gtk::Label,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
@@ -34,6 +35,7 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
         close_action_cell,
         trash_action_cell,
         speed_sync,
+        speed_menu,
         speed_list,
         speed_readout,
         video_pref,
@@ -54,6 +56,7 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
         let close_a = Rc::clone(&close_action_cell);
         let trash_a = Rc::clone(&trash_action_cell);
         let syf = speed_sync.clone();
+        let spd_m = speed_menu.clone();
         let sl = speed_list.clone();
         let spd_r = speed_readout.clone();
         let vp_onload = Rc::clone(&video_pref);
@@ -72,6 +75,7 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
             let close_a2 = Rc::clone(&close_a);
             let trash_a2 = Rc::clone(&trash_a);
             let syf320 = syf.clone();
+            let spd_m320 = spd_m.clone();
             let sl320 = sl.clone();
             let spd320 = spd_r.clone();
             let vp_320 = Rc::clone(&vp_onload);
@@ -87,6 +91,7 @@ fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
                     gl: g3.clone(),
                     sub_btn: sub320.clone(),
                     speed_sync_flag: syf320.clone(),
+                    speed_menu: spd_m320.clone(),
                     speed_list: sl320.clone(),
                     speed_readout: spd320.clone(),
                     video_pref: vp_320.clone(),
@@ -176,6 +181,7 @@ struct On320Ctx {
     gl: gtk::GLArea,
     sub_btn: gtk::MenuButton,
     speed_sync_flag: Rc<Cell<bool>>,
+    speed_menu: gtk::MenuButton,
     speed_list: gtk::ListBox,
     speed_readout: gtk::Label,
     video_pref: Rc<RefCell<db::VideoPrefs>>,
@@ -198,7 +204,13 @@ fn on_320ms_tick(c: On320Ctx) {
         sub_prefs::apply_mpv(&b.mpv, &pr);
         let show = c.recent.is_visible() || c.bar_show.get();
         sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, c.bottom.height(), c.gl.height());
-        let listed = playback_speed::sync_list(&b.mpv, &c.speed_sync_flag, &c.speed_list, &c.speed_readout);
+        let listed = playback_speed::sync_list(
+            &b.mpv,
+            &c.speed_sync_flag,
+            &c.speed_list,
+            &c.speed_menu,
+            &c.speed_readout,
+        );
         let mut g = c.video_pref.borrow_mut();
         if g.smooth_60 {
             let r = resync_smooth_speed(b, &mut g, listed);

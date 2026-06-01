@@ -1,3 +1,15 @@
+fn dismiss_speed_menu(btn: &gtk::MenuButton) {
+    #[cfg(target_os = "macos")]
+    {
+        btn.remove_css_class("rp-header-menu-open");
+        crate::macos_header_menu_overlay::overlay_close_all("speed_pick");
+    }
+    if let Some(pop) = btn.popover() {
+        pop.popdown();
+    }
+    btn.set_active(false);
+}
+
 fn speed_row_index(list: &gtk::ListBox, row: &gtk::ListBoxRow) -> u32 {
     (0i32..playback_speed::SPEEDS.len() as i32)
         .find(|&ix| list.row_at_index(ix).is_some_and(|r| r == *row))
@@ -14,7 +26,7 @@ fn apply_speed_row_pick(
     readout: &gtk::Label,
     video_pref: &Rc<RefCell<db::VideoPrefs>>,
     app: &adw::Application,
-    #[cfg(not(target_os = "macos"))] speed_mbtn: &gtk::MenuButton,
+    speed_mbtn: &gtk::MenuButton,
 ) {
     if sy.get() || pick.get() || !list.is_sensitive() {
         #[cfg(target_os = "macos")]
@@ -43,7 +55,8 @@ fn apply_speed_row_pick(
         return;
     }
     drop(guard);
-    playback_speed::stamp_speed_readout(readout, v);
+    playback_speed::stamp_header(speed_mbtn, readout, v);
+    dismiss_speed_menu(speed_mbtn);
     gl.queue_render();
     let player_idle = Rc::clone(player);
     let vp_idle = Rc::clone(video_pref);
@@ -58,13 +71,6 @@ fn apply_speed_row_pick(
             sync_smooth_60_to_off(&app_idle);
         }
     });
-    #[cfg(not(target_os = "macos"))]
-    {
-        if let Some(pop) = speed_mbtn.popover() {
-            pop.popdown();
-        }
-        speed_mbtn.set_active(false);
-    }
 }
 
 /// Builds the playback-speed popover; icon + rate caption share one [`gtk::MenuButton`] hit target
@@ -164,7 +170,6 @@ fn build_speed_menu(
         let p = player.clone();
         let glr = gl.clone();
         let sy = speed_sync.clone();
-        #[cfg(not(target_os = "macos"))]
         let smb = speed_mbtn.clone();
         let spd_lbl = speed_readout.clone();
         let vp = Rc::clone(video_pref);
@@ -195,9 +200,12 @@ fn build_speed_menu(
             let spd_lbl = spd_lbl.clone();
             let vp = Rc::clone(&vp);
             let ap = ap.clone();
+            let smb = smb.clone();
             move |list2, row| {
                 let Some(row) = row else { return };
-                apply_speed_row_pick(&list2, &row, &sy, &pick, &p, &glr, &spd_lbl, &vp, &ap);
+                apply_speed_row_pick(
+                    &list2, &row, &sy, &pick, &p, &glr, &spd_lbl, &vp, &ap, &smb,
+                );
             }
         });
     }

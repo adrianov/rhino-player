@@ -90,6 +90,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
         video_pref: Rc::clone(&ctx.video_pref),
         app: ctx.app.clone(),
         speed_sync: ctx.speed_sync.clone(),
+        speed_menu: ctx.speed_menu.clone(),
         speed_list: ctx.speed_list.clone(),
         speed_readout: ctx.speed_readout.clone(),
     };

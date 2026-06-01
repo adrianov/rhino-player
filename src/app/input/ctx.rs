@@ -53,6 +53,7 @@ struct WindowInputCtx {
     dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     speed_sync: Rc<Cell<bool>>,
+    speed_menu: gtk::MenuButton,
     speed_list: gtk::ListBox,
     speed_readout: gtk::Label,
 }

@@ -1,6 +1,7 @@
 //! Header list + mpv `speed` in fixed steps. See `docs/features/28-playback-speed.md`.
 
-use gtk::{Label, ListBox};
+use gtk::prelude::WidgetExt;
+use gtk::{Label, ListBox, MenuButton};
 use libmpv2::Mpv;
 
 /// Fastest fixed step: matches mpv `scaletempo2` default `max-speed` when `--audio-pitch-correction` is on.
@@ -21,6 +22,21 @@ pub fn format_step(v: f64) -> String {
 #[inline]
 pub fn stamp_speed_readout(l: &Label, canon: f64) {
     l.set_label(&format_step(canon));
+}
+
+/// Highlight the speed header control when playback is not at **1.0×** (like smooth / blackout).
+pub fn sync_menu_on(btn: &MenuButton, canon: f64) {
+    if (canon - 1.0).abs() > EPS {
+        btn.add_css_class("rp-speed-on");
+    } else {
+        btn.remove_css_class("rp-speed-on");
+    }
+}
+
+/// Readout + menu highlight for the current canonical step.
+pub fn stamp_header(menu: &MenuButton, readout: &Label, canon: f64) {
+    stamp_speed_readout(readout, canon);
+    sync_menu_on(menu, canon);
 }
 
 /// Force **1.0×** when mpv speed differs (folder auto-advance after faster playback).
@@ -59,6 +75,7 @@ pub fn sync_list(
     mpv: &Mpv,
     flag: &std::rc::Rc<std::cell::Cell<bool>>,
     list: &ListBox,
+    menu: &MenuButton,
     readout: &Label,
 ) -> Option<f64> {
     let s = mpv.get_property::<f64>("speed").unwrap_or(1.0);
@@ -69,7 +86,7 @@ pub fn sync_list(
     } else {
         false
     };
-    stamp_speed_readout(readout, canon);
+    stamp_header(menu, readout, canon);
     flag.set(true);
     if let Some(row) = list.row_at_index(i as i32) {
         list.select_row(Some(&row));

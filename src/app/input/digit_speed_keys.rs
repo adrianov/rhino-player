@@ -12,6 +12,7 @@ struct DigitSpeedShortcutCtx {
     video_pref: Rc<RefCell<db::VideoPrefs>>,
     app: adw::Application,
     speed_sync: Rc<Cell<bool>>,
+    speed_menu: gtk::MenuButton,
     speed_list: gtk::ListBox,
     speed_readout: gtk::Label,
 }
@@ -37,12 +38,20 @@ fn digit_speed_value(n: u8) -> f64 {
 
 fn schedule_digit_speed_resync(c: DigitSpeedShortcutCtx, v: f64) {
     let DigitSpeedShortcutCtx {
-        player, video_pref, app, speed_sync, speed_list, speed_readout, ..
+        player,
+        video_pref,
+        app,
+        speed_sync,
+        speed_menu,
+        speed_list,
+        speed_readout,
+        ..
     } = c;
     let bref = player.clone();
     let vp2 = Rc::clone(&video_pref);
     let ap2 = app.clone();
     let sy = speed_sync.clone();
+    let spd_m = speed_menu.clone();
     let sl = speed_list.clone();
     let spd_lbl = speed_readout.clone();
     let _ = glib::idle_add_local_once(move || {
@@ -51,7 +60,7 @@ fn schedule_digit_speed_resync(c: DigitSpeedShortcutCtx, v: f64) {
         if r.smooth_auto_off {
             sync_smooth_60_to_off(&ap2);
         }
-        let _ = playback_speed::sync_list(&pl.mpv, &sy, &sl, &spd_lbl);
+        let _ = playback_speed::sync_list(&pl.mpv, &sy, &sl, &spd_m, &spd_lbl);
     });
 }
 
@@ -82,7 +91,7 @@ fn try_digit_speed_shortcut(
         return Some(glib::Propagation::Proceed);
     }
     drop(g);
-    playback_speed::stamp_speed_readout(&c.speed_readout, v);
+    playback_speed::stamp_header(&c.speed_menu, &c.speed_readout, v);
     c.gl.queue_render();
     schedule_digit_speed_resync(c.clone(), v);
     Some(glib::Propagation::Stop)
