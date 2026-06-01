@@ -12,7 +12,7 @@ pub fn mpv_audio_label(
     demux_channels: Option<&str>,
 ) -> String {
     if let Some(t) = title.map(str::trim).filter(|s| !s.is_empty()) {
-        return t.to_string();
+        return prefix_title_lang(lang, t);
     }
     let lang = lang.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("");
     let format = codec.and_then(mpv_codec_format_label);
@@ -41,7 +41,7 @@ pub fn mpv_sub_label(
     default: bool,
 ) -> String {
     if let Some(t) = title.map(str::trim).filter(|s| !s.is_empty()) {
-        return t.to_string();
+        return prefix_title_lang(lang, t);
     }
     let lang = lang.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("");
     let kind = codec.and_then(sub_format_label);
@@ -74,6 +74,17 @@ fn append_sub_tags(
     if default {
         out.push_str(" (default)");
     }
+}
+
+/// Prefix a known language token onto a release-group title (e.g. `eng · DD 5.1 @ 384 Kbps`)
+/// unless the title already mentions that language. Many rips set a descriptive title with no
+/// language, which otherwise hides which track is which.
+fn prefix_title_lang(lang: Option<&str>, title: &str) -> String {
+    let tok = crate::sub_track_abbr::abbrev_track_lang(lang);
+    if tok.is_empty() || title.to_lowercase().contains(&tok) {
+        return title.to_string();
+    }
+    format!("{tok} · {title}")
 }
 
 /// When several rows share the same label, suffix ` · 2`, ` · 3`, … (first row unchanged).
@@ -183,6 +194,26 @@ mod tests {
         assert_eq!(
             mpv_audio_label(Some("eng"), None, Some("ac3"), Some(2), Some("stereo")),
             "eng · AC-3 stereo"
+        );
+    }
+
+    #[test]
+    fn release_title_gets_language_prefix() {
+        assert_eq!(
+            mpv_audio_label(Some("eng"), Some("DD 5.1 @ 384 Kbps"), Some("ac3"), Some(6), None),
+            "eng · DD 5.1 @ 384 Kbps"
+        );
+        assert_eq!(
+            mpv_audio_label(Some("rus"), Some("DD 5.1 @ 384 Kbps, LostFilm"), Some("ac3"), Some(6), None),
+            "rus · DD 5.1 @ 384 Kbps, LostFilm"
+        );
+    }
+
+    #[test]
+    fn title_already_naming_language_is_untouched() {
+        assert_eq!(
+            mpv_audio_label(Some("eng"), Some("English Commentary"), Some("ac3"), Some(2), None),
+            "English Commentary"
         );
     }
 
