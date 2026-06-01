@@ -28,54 +28,62 @@ impl MpvBundle {
     fn clear_pending_resume_done(&self) {
         let ifo_local = self.pending_resume.get().unwrap_or(0.0);
         self.pending_resume.set(None);
-        if self
+        let is_chain_head = self
             .me_budget_shell_path
             .borrow()
             .as_ref()
-            .is_some_and(|p| crate::dvd_vob_mpv_probe::is_title_chain_head(p))
-        {
-            let hold = self
-                .dvd_hold_global
-                .get()
-                .or_else(|| self.stored_entity_global());
-            if let Some(global) = hold {
-                let playback = self
-                    .mpv
-                    .get_property::<f64>("playback-time")
-                    .ok()
-                    .filter(|t| t.is_finite() && *t >= 0.0)
-                    .or_else(|| {
-                        self.mpv
-                            .get_property::<f64>("time-pos")
-                            .ok()
-                            .filter(|t| t.is_finite() && *t >= 0.0)
-                    })
-                    .unwrap_or(0.0);
-                self.dvd_chain_bar_sync.set(Some(
-                    crate::dvd_vob_timeline::DvdChainBarSync::from_targets(
-                        ifo_local,
-                        global,
-                        playback,
-                    ),
-                ));
-                if let Some(shell) = self.me_budget_shell_path.borrow().clone() {
-                    let entity = crate::playback_entity::PlaybackEntity::resolve(&shell);
-                    let key = entity.db_path();
-                    let map = crate::db::load_duration_map();
-                    if let Some(k) = key.to_str() {
-                        if let Some(&total) = map.get(k) {
-                            if total.is_finite() && total > 0.0 {
-                                self.persist_entity_bar_global(total, global);
-                            }
-                        }
-                    }
-                }
-            }
+            .is_some_and(|p| crate::dvd_vob_mpv_probe::is_title_chain_head(p));
+        if !is_chain_head {
             self.dvd_hold_global.set(None);
+            self.dvd_chain_bar_sync.set(None);
             return;
         }
+        let hold = self
+            .dvd_hold_global
+            .get()
+            .or_else(|| self.stored_entity_global());
+        if let Some(global) = hold {
+            let playback = self.current_playback_seconds();
+            self.dvd_chain_bar_sync.set(Some(
+                crate::dvd_vob_timeline::DvdChainBarSync::from_targets(ifo_local, global, playback),
+            ));
+            self.persist_chain_head_total(global);
+        }
         self.dvd_hold_global.set(None);
-        self.dvd_chain_bar_sync.set(None);
+    }
+
+    /// Live playback seconds, preferring `playback-time` and falling back to `time-pos` (0 if neither).
+    fn current_playback_seconds(&self) -> f64 {
+        self.mpv
+            .get_property::<f64>("playback-time")
+            .ok()
+            .filter(|t| t.is_finite() && *t >= 0.0)
+            .or_else(|| {
+                self.mpv
+                    .get_property::<f64>("time-pos")
+                    .ok()
+                    .filter(|t| t.is_finite() && *t >= 0.0)
+            })
+            .unwrap_or(0.0)
+    }
+
+    /// Persist the title-wide bar global for the open chain-head entity when its total is known.
+    fn persist_chain_head_total(&self, global: f64) {
+        let Some(shell) = self.me_budget_shell_path.borrow().clone() else {
+            return;
+        };
+        let entity = crate::playback_entity::PlaybackEntity::resolve(&shell);
+        let key = entity.db_path();
+        let Some(k) = key.to_str() else {
+            return;
+        };
+        let map = crate::db::load_duration_map();
+        let Some(&total) = map.get(k) else {
+            return;
+        };
+        if total.is_finite() && total > 0.0 {
+            self.persist_entity_bar_global(total, global);
+        }
     }
 
     fn shell_needs_dvd_resume_duration_hints(&self, chapter_scrub: bool) -> bool {

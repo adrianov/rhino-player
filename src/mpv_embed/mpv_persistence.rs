@@ -201,63 +201,14 @@ pub fn load_file_path(
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let entity = crate::playback_entity::PlaybackEntity::resolve(&canonical);
     let db_key = entity.db_path();
-    {
-        let shell = self.me_budget_shell_path.borrow();
-        let outgoing = media_probe::shell_media_path(&self.mpv, shell.as_deref());
-        let outgoing_disp = outgoing
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "?".into());
-        let same_entity = outgoing.as_ref().is_some_and(|p| {
-            let out_ent = crate::playback_entity::PlaybackEntity::resolve(p).db_path();
-            crate::video_ext::paths_same_file(&out_ent, &db_key)
-        });
-        if clear_outgoing_resume && !warm_preload {
-            if let Some(p) = outgoing {
-                media_probe::clear_resume_for_path(&p);
-            }
-        } else if snapshot_outgoing && !warm_preload && !same_entity {
-            self.save_playback_state_for_close();
-        }
-        if entity.has_unified_timeline() {
-            crate::dvd_vob_log::resume_open_log(format!(
-                "load outgoing={outgoing_disp} same_entity={same_entity} snapshot={snapshot_outgoing} warm={warm_preload}"
-            ));
-        }
-    }
-    if entity.has_unified_timeline() {
+    let unified = entity.has_unified_timeline();
+    self.handle_outgoing_resume(&db_key, unified, clear_outgoing_resume, snapshot_outgoing, warm_preload);
+    if unified {
         crate::dvd_entity::sanitize_stale_entity_playback(&canonical, 0.0);
     }
-    let stored = resume_at
-        .or_else(|| db::resume_pos(&db_key))
-        .or_else(|| {
-            entity
-                .has_unified_timeline()
-                .then(|| crate::dvd_ifo_parse::movie_entry_global_sec(&db_key))
-                .flatten()
-        });
-    let (load_path, pending) = if let Some(global) = stored {
-        let map = db::load_duration_map();
-        match entity.resume_load_target(&canonical, global, &map) {
-            Some((target, local)) => (target, Some(local)),
-            None => {
-                crate::dvd_vob_log::resume_open_log(format!(
-                    "load resume_load_target failed global={global:.2} probe={}",
-                    canonical.display()
-                ));
-                (canonical.clone(), None)
-            }
-        }
-    } else {
-        if entity.has_unified_timeline() {
-            crate::dvd_vob_log::resume_open_log(format!(
-                "load no stored resume entity={}",
-                db_key.display()
-            ));
-        }
-        (canonical.clone(), None)
-    };
-    if entity.has_unified_timeline() {
+    let (load_path, pending, stored) =
+        self.resolve_load_target(&entity, &canonical, &db_key, resume_at);
+    if unified {
         crate::dvd_vob_log::resume_open_log(format!(
             "load global={stored:?} local={pending:?} file={} entity={}",
             load_path.display(),
@@ -273,7 +224,7 @@ pub fn load_file_path(
     }
     let s = load_path.to_str().ok_or("media path is not valid UTF-8")?;
     self.warm_file_gen.set(self.warm_file_gen.get().wrapping_add(1));
-    if entity.has_unified_timeline() {
+    if unified {
         crate::dvd_vob_log::resume_open_log(format!(
             "load stashed pending={pending:?} hold={stored:?} gen={}",
             self.warm_file_gen.get()
@@ -282,16 +233,84 @@ pub fn load_file_path(
     self.clear_chapter_scrub_pause_hold();
     self.chapter_scrub_resume.set(false);
     self.dvd_chain_bar_sync.set(None);
-    self.dvd_hold_global.set(if entity.has_unified_timeline() {
-        stored
-    } else {
-        None
-    });
+    self.dvd_hold_global.set(if unified { stored } else { None });
     self.pending_resume.set(pending);
     self.set_me_budget_shell_path(&load_path);
     self.mpv
         .command("loadfile", &[s, "replace"])
         .map_err(|e| format!("{e:?}"))
+}
+
+/// Snapshot or clear the outgoing item's resume before `loadfile` replaces it.
+fn handle_outgoing_resume(
+    &self,
+    db_key: &Path,
+    unified: bool,
+    clear_outgoing_resume: bool,
+    snapshot_outgoing: bool,
+    warm_preload: bool,
+) {
+    let shell = self.me_budget_shell_path.borrow();
+    let outgoing = media_probe::shell_media_path(&self.mpv, shell.as_deref());
+    let same_entity = outgoing.as_ref().is_some_and(|p| {
+        let out_ent = crate::playback_entity::PlaybackEntity::resolve(p).db_path();
+        crate::video_ext::paths_same_file(&out_ent, db_key)
+    });
+    if clear_outgoing_resume && !warm_preload {
+        if let Some(p) = outgoing.as_ref() {
+            media_probe::clear_resume_for_path(p);
+        }
+    } else if snapshot_outgoing && !warm_preload && !same_entity {
+        self.save_playback_state_for_close();
+    }
+    if unified {
+        let disp = outgoing
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "?".into());
+        crate::dvd_vob_log::resume_open_log(format!(
+            "load outgoing={disp} same_entity={same_entity} snapshot={snapshot_outgoing} warm={warm_preload}"
+        ));
+    }
+}
+
+/// Resolve the file to load plus any pending-resume local seconds and the stored global, from an
+/// explicit `resume_at`, the SQLite resume, or (unified timelines) the IFO movie entry.
+fn resolve_load_target(
+    &self,
+    entity: &crate::playback_entity::PlaybackEntity,
+    canonical: &Path,
+    db_key: &Path,
+    resume_at: Option<f64>,
+) -> (std::path::PathBuf, Option<f64>, Option<f64>) {
+    let unified = entity.has_unified_timeline();
+    let stored = resume_at
+        .or_else(|| db::resume_pos(db_key))
+        .or_else(|| {
+            unified
+                .then(|| crate::dvd_ifo_parse::movie_entry_global_sec(db_key))
+                .flatten()
+        });
+    let Some(global) = stored else {
+        if unified {
+            crate::dvd_vob_log::resume_open_log(format!(
+                "load no stored resume entity={}",
+                db_key.display()
+            ));
+        }
+        return (canonical.to_path_buf(), None, None);
+    };
+    let map = db::load_duration_map();
+    match entity.resume_load_target(canonical, global, &map) {
+        Some((target, local)) => (target, Some(local), stored),
+        None => {
+            crate::dvd_vob_log::resume_open_log(format!(
+                "load resume_load_target failed global={global:.2} probe={}",
+                canonical.display()
+            ));
+            (canonical.to_path_buf(), None, stored)
+        }
+    }
 }
 
 }

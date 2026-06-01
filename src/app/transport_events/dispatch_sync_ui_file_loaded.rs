@@ -217,6 +217,42 @@ fn maybe_refresh_dvd_bar_cache(ctx: &Rc<TransportCtx>) {
     sync_seek_chapters(ctx);
 }
 
+/// Browse-hold open (continue grid visible): finish the warm load on the next idle so the strip
+/// stays responsive, then run resume retries and refresh the audio tooltip.
+fn defer_warm_preload_finish(ctx: &Rc<TransportCtx>) {
+    let player = Rc::clone(&ctx.player);
+    let ctx_warm = Rc::clone(ctx);
+    let want_gen = ctx
+        .player
+        .borrow()
+        .as_ref()
+        .map(crate::mpv_embed::MpvBundle::warm_file_gen)
+        .unwrap_or(0);
+    glib::idle_add_local_once(move || {
+        warm_preload_finish_load(&player, want_gen);
+        schedule_file_resume_retries(&player);
+        refresh_audio_header_tooltip(&ctx_warm);
+    });
+}
+
+/// Playing open (grid hidden): apply resume + audio, finish a DVD chapter-EOF load, and schedule
+/// chapter-scrub resume retries when a resume is still pending after the load.
+fn finish_file_loaded_playback(ctx: &Rc<TransportCtx>, chapter_eof: bool) {
+    apply_file_loaded_resume_and_audio(&ctx.player);
+    refresh_audio_header_tooltip(ctx);
+    if chapter_eof {
+        finish_dvd_chapter_eof_load(ctx);
+    }
+    if ctx
+        .player
+        .borrow()
+        .as_ref()
+        .is_some_and(|b| b.chapter_scrub_resume_pending())
+    {
+        schedule_chapter_scrub_resume_retries(ctx);
+    }
+}
+
 fn dispatch_file_loaded(ctx: &Rc<TransportCtx>) {
     let chapter_eof = ctx
         .player
@@ -248,40 +284,9 @@ fn dispatch_file_loaded(ctx: &Rc<TransportCtx>) {
         ctx.eof.playback_focus.get()
     ));
     if browse_hold {
-        let player = Rc::clone(&ctx.player);
-        let ctx_warm = Rc::clone(ctx);
-        let want_gen = ctx
-            .player
-            .borrow()
-            .as_ref()
-            .map(crate::mpv_embed::MpvBundle::warm_file_gen)
-            .unwrap_or(0);
-        glib::idle_add_local_once(move || {
-            warm_preload_finish_load(&player, want_gen);
-            schedule_file_resume_retries(&player);
-            refresh_audio_header_tooltip(&ctx_warm);
-        });
+        defer_warm_preload_finish(ctx);
     } else {
-        apply_file_loaded_resume_and_audio(&ctx.player);
-        refresh_audio_header_tooltip(ctx);
-        if chapter_eof {
-            finish_dvd_chapter_eof_load(ctx);
-            if ctx
-                .player
-                .borrow()
-                .as_ref()
-                .is_some_and(|b| b.chapter_scrub_resume_pending())
-            {
-                schedule_chapter_scrub_resume_retries(ctx);
-            }
-        } else if ctx
-            .player
-            .borrow()
-            .as_ref()
-            .is_some_and(|b| b.chapter_scrub_resume_pending())
-        {
-            schedule_chapter_scrub_resume_retries(ctx);
-        }
+        finish_file_loaded_playback(ctx, chapter_eof);
     }
     let ctx_bar = Rc::clone(ctx);
     glib::idle_add_local_once(move || refresh_dvd_bar_cache(&ctx_bar));
