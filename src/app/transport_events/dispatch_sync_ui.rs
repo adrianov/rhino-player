@@ -210,6 +210,7 @@ fn refresh_play_button(ctx: &Rc<TransportCtx>) {
 }
 
 include!("dispatch_sync_ui_file_loaded.rs");
+include!("dispatch_sync_ui_dvd_bar.rs");
 include!("dispatch_sync_ui_speed.rs");
 include!("dispatch_sync_ui_volume.rs");
 
