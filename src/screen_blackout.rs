@@ -115,7 +115,7 @@ fn build_blackout_toolbar(enabled: bool) -> BlackoutToolbar {
     let img = gtk::Image::from_icon_name(ICON);
     img.set_valign(gtk::Align::Center);
 
-    let readout = gtk::Label::new(Some(if enabled { "On" } else { "Off" }));
+    let readout = gtk::Label::new(None);
     readout.add_css_class("rp-blackout-readout");
     readout.set_xalign(0.0);
     readout.set_valign(gtk::Align::Center);
@@ -126,26 +126,32 @@ fn build_blackout_toolbar(enabled: bool) -> BlackoutToolbar {
     face.append(&img);
     face.append(&readout);
     btn.set_child(Some(&face));
+    sync_blackout_btn(&btn, &readout, enabled);
 
     BlackoutToolbar { btn, readout }
 }
 
-fn sync_btn_face(readout: &gtk::Label, on: bool) {
+fn sync_blackout_btn(btn: &gtk::Button, readout: &gtk::Label, on: bool) {
     readout.set_label(if on { "On" } else { "Off" });
+    if on {
+        btn.add_css_class("rp-blackout-on");
+    } else {
+        btn.remove_css_class("rp-blackout-on");
+    }
 }
 
 fn sync_btn_visible(btn: &gtk::Button) {
     btn.set_visible(multi_screen());
 }
 
-fn toggle_blackout(sync: &Rc<BlackoutSync>, readout: &gtk::Label) {
+fn toggle_blackout(sync: &Rc<BlackoutSync>, btn: &gtk::Button, readout: &gtk::Label) {
     let on = {
         let mut b = sync.blackout.borrow_mut();
         let next = !b.enabled();
         b.set_enabled(next);
         next
     };
-    sync_btn_face(readout, on);
+    sync_blackout_btn(btn, readout, on);
     sync.sync();
 }
 
@@ -168,8 +174,9 @@ pub fn build_blackout_header(
     });
 
     let sync_clk = Rc::clone(&sync);
+    let btn_clk = btn.clone();
     let ro_clk = readout.clone();
-    btn.connect_clicked(move |_| toggle_blackout(&sync_clk, &ro_clk));
+    btn.connect_clicked(move |_| toggle_blackout(&sync_clk, &btn_clk, &ro_clk));
 
     (btn, sync)
 }
