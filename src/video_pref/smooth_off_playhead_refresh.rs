@@ -30,3 +30,16 @@ fn refresh_playhead_after_vf_change(
 fn smooth_off_refresh_playhead(mpv: &Mpv, bundle: Option<&crate::mpv_embed::MpvBundle>) {
     refresh_playhead_after_vf_change(mpv, bundle, "smooth-off");
 }
+
+/// User picked another audio stream while the smooth motion filter graph is active. The reopened
+/// audio decoder can drift from the buffered FlowFPS frame queue; an exact seek to the current
+/// position realigns A/V without rebuilding the graph. Only the buffering `vapoursynth` vf needs
+/// this — plain `display-resample` keeps audio synced on its own, and load / chapter restore set
+/// the track before unpause.
+pub(crate) fn resync_av_after_audio_track_change(b: &crate::mpv_embed::MpvBundle) {
+    let mpv = &b.mpv;
+    if !vf_chain_has_vapoursynth(mpv) || mpv.get_property::<bool>("pause").unwrap_or(true) {
+        return;
+    }
+    refresh_playhead_after_vf_change(mpv, Some(b), "audio-track");
+}

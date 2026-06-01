@@ -44,6 +44,13 @@ Feature: Audio track selection
     And SQLite stores the choice per local-file path
     And the global preferred audio-track label is updated to the row text
 
+  Scenario: Switching audio during smooth motion stays in sync
+    Given smooth motion is enabled at approximately normal playback speed
+    And media is playing with temporal smoothing active
+    When the user selects a different audio stream from the Sound control
+    Then playback position is unchanged
+    And audio and video remain aligned without noticeable drift
+
   Scenario: Restored aid on load
     Given a saved per-file aid exists and that track still exists in track-list
     When the file finishes loading and the delayed apply runs
@@ -79,6 +86,7 @@ Feature: Audio track selection
 - The per-file aid is stored before the watch-later path so it survives SIGTERM / kill.
 - No "None" / no-audio row in the popover; **mute** covers that.
 - Errors setting `aid` are ignored in the UI (logs only).
+- **Smooth motion (feature 26):** a user pick from the Sound popover (not load-time restore) that changes `aid` runs `video_pref::resync_av_after_audio_track_change` **only** when the buffering `vapoursynth` vf is in the chain and playback is not paused: an `absolute+exact` seek to current `time-pos` realigns A/V against the FlowFPS frame queue (same playhead refresh as post-`vf` teardown). Plain `display-resample` keeps audio synced on its own, so the seek is skipped there; load / chapter restore set `aid` before unpause and the debounced smooth resync — see `dispatch_sync_ui_file_loaded.rs`.
 - **DVD chapter `.vob`:** Sound and Subtitles popovers list streams from **`VTS_xx_0.IFO`** for the **open chapter’s** title set via [`playback_entity::title_set_streams(chapter)`](../features/31-playback-entity.md). Chapter `track-list` maps IFO slots to engine ids when the user picks a row (`playback_entity_tracks.rs`; wired in `audio_tracks.rs` / `sub_tracks.rs`). The entity row stores **`audio_aid`** + **`audio_ifo_slot`** (like subtitles); cross-chapter seek reapplies the slot after resume seek completes (`audio_tracks::reapply_after_chapter_load`).
 - **Blu-ray / AVCHD (`bd://`):** mpv `path` is not a filesystem path; track menus resolve the open item via **`shell_media_path`** + **`MpvBundle::me_budget_shell_path`**, then read **`track-list`**. Duplicate language codes are distinguished by codec + channel layout (`track_menu_label.rs`); identical subtitle rows get ` · 2`, ` · 3`, … suffixes.
 

@@ -44,6 +44,19 @@ fn save_choice(mpv: &Mpv, id: i64, text: &str, shell: Option<&Path>) {
     db::set_audio_track(&entity.db_path(), id, slot);
 }
 
+/// Sound popover row pick: set `aid`, persist, and re-align A/V when Smooth presentation is active.
+fn apply_user_audio_pick(bundle: &MpvBundle, row: &AudioMenuRow, label: &str, shell: Option<&Path>) {
+    let Some(aid) = resolve_id(&bundle.mpv, row, shell) else {
+        return;
+    };
+    let changed = current_aid(&bundle.mpv) != Some(aid);
+    set_aid(&bundle.mpv, aid);
+    save_choice(&bundle.mpv, aid, label, shell);
+    if changed {
+        crate::video_pref::resync_av_after_audio_track_change(bundle);
+    }
+}
+
 fn norm_label(s: &str) -> String {
     s.trim().to_lowercase()
 }
@@ -243,10 +256,7 @@ pub fn rebuild_popover(
             if let Some(pl) = p2.borrow().as_ref() {
                 let shell_ref = shell_pick.as_deref();
                 let row = AudioMenuRow { mpv_id: id, label: label.clone(), ifo_slot };
-                if let Some(aid) = resolve_id(&pl.mpv, &row, shell_ref) {
-                    set_aid(&pl.mpv, aid);
-                    save_choice(&pl.mpv, aid, &label, shell_ref);
-                }
+                apply_user_audio_pick(pl, &row, &label, shell_ref);
                 if let Some(ref tip_btn) = tip_btn_pick {
                     refresh_audio_tooltip(&pl.mpv, tip_btn, shell_ref);
                 }
