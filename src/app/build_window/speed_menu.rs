@@ -16,27 +16,29 @@ fn speed_row_index(list: &gtk::ListBox, row: &gtk::ListBoxRow) -> u32 {
         .unwrap_or(0) as u32
 }
 
-fn apply_speed_row_pick(
-    list: &gtk::ListBox,
-    row: &gtk::ListBoxRow,
-    sy: &Cell<bool>,
-    pick: &Cell<bool>,
-    player: &Rc<RefCell<Option<MpvBundle>>>,
-    gl: &gtk::GLArea,
-    readout: &gtk::Label,
-    video_pref: &Rc<RefCell<db::VideoPrefs>>,
-    app: &adw::Application,
-    speed_mbtn: &gtk::MenuButton,
-) {
-    if sy.get() || pick.get() || !list.is_sensitive() {
+/// Everything a speed-row pick needs; cloned once into the row signal handler.
+#[derive(Clone)]
+struct SpeedPick {
+    player: Rc<RefCell<Option<MpvBundle>>>,
+    gl: gtk::GLArea,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
+    app: adw::Application,
+    mbtn: gtk::MenuButton,
+    readout: gtk::Label,
+    sync: Rc<Cell<bool>>,
+    pick: Rc<Cell<bool>>,
+}
+
+fn apply_speed_row_pick(c: &SpeedPick, list: &gtk::ListBox, row: &gtk::ListBoxRow) {
+    if c.sync.get() || c.pick.get() || !list.is_sensitive() {
         #[cfg(target_os = "macos")]
         crate::macos_header_menu_debug::log_event(
             "speed",
             "row_pick_skip",
             &format!(
                 "sync={} pick={} sensitive={}",
-                sy.get(),
-                pick.get(),
+                c.sync.get(),
+                c.pick.get(),
                 list.is_sensitive()
             ),
         );
@@ -45,7 +47,7 @@ fn apply_speed_row_pick(
     let v = playback_speed::value_at(speed_row_index(list, row));
     #[cfg(target_os = "macos")]
     crate::macos_header_menu_debug::log_event("speed", "row_apply", &format!("rate={v}"));
-    let guard = player.borrow();
+    let guard = c.player.borrow();
     let Some(b) = guard.as_ref() else {
         eprintln!("[rhino] speed: row pick with no player bundle");
         return;
@@ -55,12 +57,12 @@ fn apply_speed_row_pick(
         return;
     }
     drop(guard);
-    playback_speed::stamp_header(speed_mbtn, readout, v);
-    dismiss_speed_menu(speed_mbtn);
-    gl.queue_render();
-    let player_idle = Rc::clone(player);
-    let vp_idle = Rc::clone(video_pref);
-    let app_idle = app.clone();
+    playback_speed::stamp_header(&c.mbtn, &c.readout, v);
+    dismiss_speed_menu(&c.mbtn);
+    c.gl.queue_render();
+    let player_idle = Rc::clone(&c.player);
+    let vp_idle = Rc::clone(&c.video_pref);
+    let app_idle = c.app.clone();
     let _ = glib::idle_add_local_once(move || {
         let guard = player_idle.borrow();
         let Some(pl) = guard.as_ref() else {
@@ -166,49 +168,24 @@ fn build_speed_menu(
     };
     #[cfg(target_os = "macos")]
     crate::macos_header_menu_debug::wire_header_menu_trace("speed", &speed_mbtn, &speed_pop);
-    {
-        let p = player.clone();
-        let glr = gl.clone();
-        let sy = speed_sync.clone();
-        let smb = speed_mbtn.clone();
-        let spd_lbl = speed_readout.clone();
-        let vp = Rc::clone(video_pref);
-        let ap = app.clone();
-        let pick = open_pick.clone();
-        #[cfg(not(target_os = "macos"))]
-        speed_list.connect_row_activated({
-            let p = p.clone();
-            let glr = glr.clone();
-            let sy = sy.clone();
-            let pick = pick.clone();
-            let spd_lbl = spd_lbl.clone();
-            let vp = Rc::clone(&vp);
-            let ap = ap.clone();
-            let smb = smb.clone();
-            move |list2, row| {
-                apply_speed_row_pick(
-                    &list2, &row, &sy, &pick, &p, &glr, &spd_lbl, &vp, &ap, &smb,
-                );
-            }
-        });
-        #[cfg(target_os = "macos")]
-        speed_list.connect_row_selected({
-            let p = p.clone();
-            let glr = glr.clone();
-            let sy = sy.clone();
-            let pick = pick.clone();
-            let spd_lbl = spd_lbl.clone();
-            let vp = Rc::clone(&vp);
-            let ap = ap.clone();
-            let smb = smb.clone();
-            move |list2, row| {
-                let Some(row) = row else { return };
-                apply_speed_row_pick(
-                    &list2, &row, &sy, &pick, &p, &glr, &spd_lbl, &vp, &ap, &smb,
-                );
-            }
-        });
-    }
+    let pick_ctx = SpeedPick {
+        player: player.clone(),
+        gl: gl.clone(),
+        video_pref: Rc::clone(video_pref),
+        app: app.clone(),
+        mbtn: speed_mbtn.clone(),
+        readout: speed_readout.clone(),
+        sync: speed_sync.clone(),
+        pick: open_pick,
+    };
+    #[cfg(not(target_os = "macos"))]
+    speed_list.connect_row_activated(move |list, row| apply_speed_row_pick(&pick_ctx, list, row));
+    #[cfg(target_os = "macos")]
+    speed_list.connect_row_selected(move |list, row| {
+        if let Some(row) = row {
+            apply_speed_row_pick(&pick_ctx, list, row);
+        }
+    });
     SpeedMenuResult {
         speed_readout,
         speed_mbtn,

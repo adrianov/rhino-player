@@ -30,6 +30,15 @@ Feature: Fixed-step playback speed
     And the compact header speed readout shows the chosen fixed rate
     And the row highlight matches mpv speed via the re-entrancy guard
 
+  Scenario: Selecting a row closes the speed menu and marks the control
+    Given media with measurable duration is loaded
+    And the speed menu is open
+    When the user selects a faster-than-normal fixed rate
+    Then the speed menu closes
+    And the speed control shows the selected appearance used for active controls
+    When the user selects normal speed
+    Then the speed control no longer shows the selected appearance
+
   Scenario: Digit keys match fixed list rates
     Given media with measurable duration is loaded
     When the user chooses playback rate using keyboard shortcut digits one through eight
@@ -74,7 +83,8 @@ Feature: Fixed-step playback speed
 ## Notes
 - Fastest row **8.0×** matches mpv default audio pitch preservation: auto `scaletempo2` uses `max-speed=8.0` upstream, so higher `speed` values do not apply reliably with default options.
 - Speed header control: **`rp-speed-mbtn`** `MenuButton` child layout **`rp-speed-face`**: horizontal **`Image`** + **`rp-speed-readout`** (`spacing 4` in code, no extra CSS margins) so the header row matches other icon-only controls in windowed and fullscreen chrome. One hit target opens the popover; disabled when the seek bar slot is insensitive (continue grid).
-- Linux: **`ListBox.connect_row_activated`** with **`activate-on-single-click=true`** (`speed_menu.rs`). macOS keeps **`row-selected`** + **`activate-on-single-click=false`** and the pick guard so the opening click does not apply a rate.
+- Linux: **`ListBox.connect_row_activated`** with **`activate-on-single-click=true`** (`speed_menu.rs`). macOS keeps **`row-selected`** + **`activate-on-single-click=false`** and the pick guard so the opening click does not apply a rate. Both paths share one `SpeedPick` context + `apply_speed_row_pick`, which dismisses the menu via `dismiss_speed_menu` (popover popdown + button inactive on every platform; also closes the macOS theater overlay).
+- Selected look at non-1.0×: `playback_speed::stamp_header` toggles the **`rp-speed-on`** class on the speed `MenuButton` (same subtle highlight as `rp-smooth-on` / `rp-blackout-on`, see `theme.rs`); applied on row pick, digit shortcuts, transport sync, and post-load `sync_list`.
 - Digit **3** sets **1.5×**; digits **1**, **2**, **4**–**8** set **N**× (**13-input-shortcuts**). When playback is paused, that shortcut unpause sequence runs first so rate and Smooth bookkeeping match the bottom-bar play control.
 - Read `speed` after each load; if not within 0.01 of one canonical step, set mpv to the nearest.
 - Header LTR cluster: speed sits left of subtitles, volume, and the hamburger menu.

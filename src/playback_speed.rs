@@ -18,25 +18,15 @@ pub fn format_step(v: f64) -> String {
     format!("{v:.1}×")
 }
 
-/// Updates the caption [`gtk::Label`] inside the speed header [`gtk::MenuButton`].
-#[inline]
-pub fn stamp_speed_readout(l: &Label, canon: f64) {
-    l.set_label(&format_step(canon));
-}
-
-/// Highlight the speed header control when playback is not at **1.0×** (like smooth / blackout).
-pub fn sync_menu_on(btn: &MenuButton, canon: f64) {
-    if (canon - 1.0).abs() > EPS {
-        btn.add_css_class("rp-speed-on");
-    } else {
-        btn.remove_css_class("rp-speed-on");
-    }
-}
-
-/// Readout + menu highlight for the current canonical step.
+/// Update the header readout caption and highlight the control when not at **1.0×**
+/// (same selected look as the smooth / blackout buttons).
 pub fn stamp_header(menu: &MenuButton, readout: &Label, canon: f64) {
-    stamp_speed_readout(readout, canon);
-    sync_menu_on(menu, canon);
+    readout.set_label(&format_step(canon));
+    if (canon - 1.0).abs() > EPS {
+        menu.add_css_class("rp-speed-on");
+    } else {
+        menu.remove_css_class("rp-speed-on");
+    }
 }
 
 /// Force **1.0×** when mpv speed differs (folder auto-advance after faster playback).
