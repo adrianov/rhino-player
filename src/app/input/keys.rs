@@ -130,6 +130,12 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
         if root_focus_wants_raw_keys(&win_key) {
             return glib::Propagation::Proceed;
         }
+        if (key == gtk::gdk::Key::c || key == gtk::gdk::Key::C) && copy_path_modifier_held(m) {
+            if try_copy_playing_path(&p) {
+                return glib::Propagation::Stop;
+            }
+            return glib::Propagation::Proceed;
+        }
         if key == gtk::gdk::Key::Return
             || key == gtk::gdk::Key::KP_Enter
             || key == gtk::gdk::Key::f

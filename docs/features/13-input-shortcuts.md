@@ -95,6 +95,13 @@ Feature: Keyboard and pointer input
     Then playback rate matches the fixed-rate shortcut mapped to that digit
     And the speed control highlight matches the chosen rate on the canonical step list
 
+  Scenario: Copy open media path to clipboard
+    Given a file or disc shell path is open for playback
+    When the user presses the platform copy chord with the main window focused
+    And focus is not in a text entry that needs raw keys
+    Then the open item's filesystem path is placed on the system clipboard
+    And no extra notification is shown
+
   Scenario: Quit on q or Ctrl+Q
     Given the main window is open
     When the user presses q or Ctrl+Q
@@ -137,3 +144,4 @@ Feature: Keyboard and pointer input
 - Ctrl+Left / Ctrl+Right load the previous / next sibling file like the bottom bar ([07-sibling-folder-queue](07-sibling-folder-queue.md)).
 - Hardware **play**, **pause**, **stop**, **previous**, and **next** keys (GDK `AudioPlay`, `AudioPause`, `AudioStop`, `AudioPrev`, `AudioNext`) are handled in the same capture-phase controller **when the main window is focused**; behaviour matches Space and Ctrl+arrows as above. True background / unfocused routing is OS-specific (on macOS that may require separate Now Playing integration).
 - Digit **1**–**8** (and keypad **KP_1**–**KP_8**), **without** Ctrl / Alt / Meta / Super (see `DIGIT_SPEED_BLOCK` in `input/digit_speed_keys.rs`): **3** → **1.5×**, other digits → **N**× (`input/digit_speed_keys.rs` → `playback_speed`, same idle resync path as header list in **28-playback-speed**). Keys are ignored when media is unavailable (capture handler exits before mutating mpv).
+- **Copy path:** **macOS** **⌘C** / **Linux** **Ctrl+C** in the same capture-phase controller (`input/copy_playing_path.rs` → `shell_media_path` on mpv + `me_budget_shell_path`). Skipped when focus is in an entry / text view so normal text copy still works. No toast.

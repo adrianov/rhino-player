@@ -1,4 +1,5 @@
 include!("input/ctx.rs");
+include!("input/copy_playing_path.rs");
 include!("input/digit_speed_keys.rs");
 include!("input/key_escape_seek.rs");
 include!("input/shell.rs");
