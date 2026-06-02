@@ -112,6 +112,7 @@ fn wire_header_btn_heights(
     sub_menu: &gtk::MenuButton,
     smooth_btn: &gtk::Button,
     speed_mbtn: &gtk::MenuButton,
+    fill_btn: &gtk::Button,
     blackout_btn: &gtk::Button,
 ) {
     #[cfg(not(target_os = "macos"))]
@@ -119,7 +120,7 @@ fn wire_header_btn_heights(
     for w in [vol_menu, sub_menu, speed_mbtn] {
         group.add_widget(w);
     }
-    for w in [smooth_btn, blackout_btn] {
+    for w in [smooth_btn, fill_btn, blackout_btn] {
         group.add_widget(w);
     }
 }
@@ -131,6 +132,7 @@ fn build_toolbar_header_shell(
     sub_menu: &gtk::MenuButton,
     smooth_btn: &gtk::Button,
     speed_mbtn: &gtk::MenuButton,
+    fill_btn: &gtk::Button,
     blackout_btn: &gtk::Button,
 ) -> ToolbarHeaderShell {
     let fs_clock = gtk::Label::new(None);
@@ -151,6 +153,7 @@ fn build_toolbar_header_shell(
     header.pack_end(sub_menu);
     header.pack_end(smooth_btn);
     header.pack_end(speed_mbtn);
+    header.pack_end(fill_btn);
     header.pack_end(blackout_btn);
     header.pack_end(&fs_clock);
 
@@ -163,6 +166,7 @@ fn build_toolbar_header_shell(
         sub_menu,
         smooth_btn,
         speed_mbtn,
+        fill_btn,
         blackout_btn,
     );
 

@@ -238,6 +238,7 @@ fn dispatch_file_loaded(ctx: &Rc<TransportCtx>) {
     }
     sync_seek_chapters(ctx);
     ctx.blackout.sync();
+    crate::video_fill::request_fill_resync();
     if !browse_hold {
         let ctx_tip = Rc::clone(ctx);
         glib::idle_add_local_once(move || refresh_audio_header_tooltip(&ctx_tip));

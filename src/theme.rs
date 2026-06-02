@@ -37,12 +37,16 @@ const APP_CSS: &str = r#"
         .rpb-header button.rp-blackout-mbtn.flat.rp-blackout-on {
             background-color: rgba(255, 255, 255, 0.1);
         }
+        .rpb-header button.rp-fill-btn.flat.rp-fill-on {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
         .rpb-header menubutton.rp-speed-mbtn.flat.rp-speed-on > button {
             background-color: rgba(255, 255, 255, 0.1);
         }
         .rpb-header menubutton.flat image,
         .rpb-header button.rp-smooth-mbtn.flat image,
-        .rpb-header button.rp-blackout-mbtn.flat image {
+        .rpb-header button.rp-blackout-mbtn.flat image,
+        .rpb-header button.rp-fill-btn.flat image {
             color: #eeeeec;
             -gtk-icon-style: symbolic;
         }
@@ -98,7 +102,8 @@ const APP_CSS: &str = r#"
             min-width: 0;
             opacity: 0.92;
         }
-        button.rp-blackout-mbtn.flat {
+        button.rp-blackout-mbtn.flat,
+        button.rp-fill-btn.flat {
             min-height: 22px;
             min-width: 0;
             padding-left: 4px;

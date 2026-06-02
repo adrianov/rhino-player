@@ -128,10 +128,12 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             refresh_sibling_nav(ctx);
             transport_tick(ctx);
             sync_seek_chapters(ctx);
+            crate::video_fill::request_fill_resync();
             // Often follows `FileLoaded` in a later drain — debounce merges into one vf rebuild.
             schedule_smooth_60_resync_idle(ctx);
         }
         TransportEv::PathChanged => {
+            crate::video_fill::request_fill_reset();
             crate::video_pref::forget_bundled_me_budget_vf_apply_on_new_media();
             crate::video_pref::smooth_budget_reset_session_on_new_media(&ctx.smooth_budget_decoder);
             refresh_dvd_bar_cache(ctx);

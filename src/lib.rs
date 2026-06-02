@@ -64,6 +64,7 @@ mod track_menu_label;
 mod trash_macos;
 mod trash_xdg;
 mod video_ext;
+mod video_fill;
 mod video_pref;
 
 pub use app::{run, APP_ID};

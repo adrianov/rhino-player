@@ -115,6 +115,8 @@ fn build_widgets(
         }
     };
 
+    let (fill_btn, _) = crate::video_fill::build_fill_header(&win, player);
+
     let (blackout_menu, blackout_sync) =
         crate::screen_blackout::build_blackout_header(&win, player, &recent_scrl);
 
@@ -130,6 +132,7 @@ fn build_widgets(
         &sub_menu,
         &smooth_btn,
         &speed_mbtn,
+        &fill_btn,
         &blackout_menu,
     );
 
