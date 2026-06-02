@@ -36,7 +36,7 @@ pub fn snapshot_media_row(path: &Path) -> Option<MediaRowSnapshot> {
     .flatten()
 }
 
-fn stored_thumb_ok(bytes: &Vec<u8>) -> bool {
+fn stored_thumb_ok(bytes: &[u8]) -> bool {
     crate::thumb_texture::thumb_webp_valid(bytes)
 }
 
@@ -97,7 +97,7 @@ pub fn take_thumb_if_current(path: &str, file_mtime_sec: i64) -> Option<Vec<u8>>
             )
             .optional()?;
         Ok(match row {
-            Some((Some(blob), Some(m))) if m == file_mtime_sec && stored_thumb_ok(&blob) => {
+            Some((Some(blob), Some(m))) if m == file_mtime_sec && crate::thumb_texture::thumb_webp_valid(&blob) => {
                 Some(blob)
             }
             _ => None,
@@ -130,7 +130,7 @@ pub fn take_thumb_if_fresh(
         Ok(match row {
             Some((Some(blob), Some(m), Some(tp), stored_load))
                 if m == file_mtime_sec
-                    && stored_thumb_ok(&blob)
+                    && crate::thumb_texture::thumb_webp_valid(&blob)
                     && tp.is_finite()
                     && (time_pos - tp).abs() < THUMB_TPOS_SKIP_EPS
                     && load_path_matches(load_path, stored_load.as_deref()) =>
