@@ -173,6 +173,41 @@ fn run_vo_image_one_frame(
     capture_screenshot_webp(&mut m, wait_secs)
 }
 
+#[cfg(test)]
+mod live_capture_tests {
+    use super::*;
+    use std::path::Path;
+
+    /// `RHINO_GRID_THUMB_LIVE=1 cargo test live_vo_image_capture -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_vo_image_capture() {
+        if std::env::var_os("RHINO_GRID_THUMB_LIVE").is_none() {
+            return;
+        }
+        unsafe {
+            libc::setlocale(libc::LC_NUMERIC, b"C\0".as_ptr().cast());
+        }
+        let video = std::env::var("RHINO_GRID_THUMB_VIDEO")
+            .unwrap_or_else(|_| "/home/crexus/Downloads/Orgy Palooza.mp4".into());
+        let p = Path::new(&video);
+        assert!(p.is_file(), "missing {video}");
+        let b = run_vo_image_one_frame(
+            p,
+            2.0,
+            0.0,
+            "scale=640:-2:force_original_aspect_ratio=decrease:flags=bilinear",
+            12,
+        )
+        .unwrap_or_else(|| panic!("capture failed for {video}"));
+        assert!(
+            crate::thumb_texture::thumb_webp_valid(&b),
+            "bad webp head={:?}",
+            &b[..b.len().min(12)]
+        );
+    }
+}
+
 fn vo_image_wait_frame(m: &mut Mpv, wait_secs: u64) -> bool {
     if m.command("frame-step", &[] as &[&str]).is_err() {
         eprintln!("[rhino] grid_thumb frame-step failed");
