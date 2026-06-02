@@ -28,7 +28,7 @@ pub(super) fn capture_screenshot_webp(m: &mut Mpv, wait_secs: u64) -> Option<Vec
 }
 
 fn try_screenshot_raw_webp(m: &Mpv) -> Option<Vec<u8>> {
-    let mut root = mpv_command_ret(m, &["screenshot-raw", "video", "bgr0"])?;
+    let mut root = mpv_command_ret(m, &["screenshot-raw", "video"])?;
     // Encode from mpv's byte slice before freeing the node (no pixel-buffer copy).
     let out = unsafe { encode_screenshot_node(&root) };
     unsafe {
@@ -49,6 +49,7 @@ fn mpv_command_ret(m: &Mpv, args: &[&str]) -> Option<libmpv2_sys::mpv_node> {
         libmpv2_sys::mpv_command_ret(m.ctx.as_ptr(), ptrs.as_mut_ptr(), result.as_mut_ptr())
     };
     if err < 0 {
+        eprintln!("[rhino] grid_thumb screenshot-raw mpv err={err}");
         return None;
     }
     Some(unsafe { result.assume_init() })
