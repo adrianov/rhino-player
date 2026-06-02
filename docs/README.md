@@ -49,6 +49,7 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 29 | [Blu-ray Bob deinterlace (60 fps fields)](features/29-bluray-deinterlace.md) | done |
 | 30 | [DVD unified timeline (all chapter VOBs)](features/30-dvd-unified-timeline.md) | done |
 | 31 | [Playback entity (single file + multi-part DVD)](features/31-playback-entity.md) | done |
+| 32 | [Fill screen (fullscreen crop-to-fill toggle)](features/32-fill-screen.md) | done |
 
 Feature numbers **05**, **16**, and **19** are unused (withdrawn playlist / session-playlist topics; files removed).
 
