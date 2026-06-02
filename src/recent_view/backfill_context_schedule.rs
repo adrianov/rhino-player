@@ -24,6 +24,7 @@ pub fn ensure_recent_backfill(
         refill_tx,
         poll_id: Rc::new(RefCell::new(None)),
         workers: Rc::new(RefCell::new(Vec::new())),
+        backfill_gen: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     });
     let c_poll = Rc::clone(&ctx);
     // [Receiver] is main-thread only; the timer callback runs on the GTK main thread.
@@ -47,13 +48,30 @@ pub fn ensure_recent_backfill(
     ctx
 }
 
-/// For each path, if the file is present and the DB has no up-to-date thumb, runs [media_probe::ensure_thumbnail] on a **worker** thread, then [RecentContext::refill] on the main loop via a [Send] channel.
+/// For each displayed continue path (at most [CONTINUE_DISPLAY_MAX]), if the file is present and
+/// the DB has no up-to-date WebP thumb, runs [media_probe::ensure_thumbnail] on a **worker**
+/// thread, then [RecentContext::refill] on the main loop via a [Send] channel.
 /// Safe to call from the main thread: does not block on libmpv.
 pub fn schedule_thumb_backfill(ctx: Rc<RecentContext>, paths: Vec<std::path::PathBuf>) {
+    let paths: Vec<_> = paths
+        .into_iter()
+        .take(CONTINUE_DISPLAY_MAX)
+        .collect();
+    if paths.is_empty() {
+        return;
+    }
+    let gen = ctx
+        .backfill_gen
+        .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+        + 1;
     let tx = ctx.refill_tx.clone();
     let c = ctx.cancel.clone();
+    let gen_watch = ctx.backfill_gen.clone();
     let h = std::thread::spawn(move || {
         for p in paths {
+            if gen_watch.load(std::sync::atomic::Ordering::Acquire) != gen {
+                return;
+            }
             if !c.load(Ordering::Acquire) {
                 return;
             }
@@ -68,6 +86,9 @@ pub fn schedule_thumb_backfill(ctx: Rc<RecentContext>, paths: Vec<std::path::Pat
                 continue;
             }
             let _ = media_probe::ensure_thumbnail(&can);
+            if gen_watch.load(std::sync::atomic::Ordering::Acquire) != gen {
+                return;
+            }
             if !c.load(Ordering::Acquire) {
                 return;
             }

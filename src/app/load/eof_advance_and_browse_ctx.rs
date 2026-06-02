@@ -139,7 +139,10 @@ fn reflow_continue_cards(
     rbf: &Rc<RefCell<Option<Rc<RecentContext>>>>,
     chrome_cache: crate::media_probe::ContinueGridCache,
 ) {
-    let r: Vec<PathBuf> = history::load().into_iter().take(5).collect();
+    let r: Vec<PathBuf> = history::load()
+        .into_iter()
+        .take(crate::recent_view::CONTINUE_DISPLAY_MAX)
+        .collect();
     recent.set_visible(true);
     let v: Vec<CardData> = card_data_list(&r);
     let warm = rbf

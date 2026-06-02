@@ -252,7 +252,10 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
     }
 
     if want_recent {
-        let paths5: Vec<PathBuf> = history::load().into_iter().take(5).collect();
+        let paths5: Vec<PathBuf> = history::load()
+            .into_iter()
+            .take(crate::recent_view::CONTINUE_DISPLAY_MAX)
+            .collect();
         recent_view::fill_continue_strip(
             &flow_recent,
             paths5,

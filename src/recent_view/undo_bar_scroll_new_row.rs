@@ -192,6 +192,8 @@ pub struct RecentContext {
     poll_id: Rc<RefCell<Option<glib::SourceId>>>,
     /// Background thumb threads (joined in [shutdown]).
     workers: Rc<RefCell<Vec<JoinHandle<()>>>>,
+    /// Incremented on each [schedule_thumb_backfill]; stale workers exit between files.
+    backfill_gen: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl RecentContext {
@@ -201,7 +203,10 @@ impl RecentContext {
 
     /// Rebuilds cards from the current history (first five paths).
     pub fn refill(&self) {
-        let paths: Vec<std::path::PathBuf> = crate::history::load().into_iter().take(5).collect();
+        let paths: Vec<std::path::PathBuf> = crate::history::load()
+            .into_iter()
+            .take(CONTINUE_DISPLAY_MAX)
+            .collect();
         let v: Vec<CardData> = card_data_list(&paths);
         fill_row(
             &self.row,

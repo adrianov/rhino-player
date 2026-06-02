@@ -28,7 +28,10 @@ fn back_to_browse(
     });
     *c.last_path.borrow_mut() = warm_path.clone();
     c.sibling_nav.refresh(warm_path.as_deref(), &c.sibling_seof);
-    let paths: Vec<PathBuf> = history::load().into_iter().take(5).collect();
+    let paths: Vec<PathBuf> = history::load()
+        .into_iter()
+        .take(crate::recent_view::CONTINUE_DISPLAY_MAX)
+        .collect();
     let show_strip = !paths.is_empty() || c.browse_has_strip;
     recent.set_visible(show_strip);
     (c.on_browse)();
