@@ -1,5 +1,5 @@
 ---
-description: Clippy complexity, ~300-line modules, and mandatory consolidation when one behavior change touches more than six production files.
+description: Clippy complexity, 200-line modules, six-file scatter consolidation, and end-of-turn shrink for edited files.
 alwaysApply: true
 ---
 
@@ -50,18 +50,20 @@ UI, playback engine, persistence, and platform stay separate. Feature-specific c
 
 **One behavior, one home.** Past six production files → pause, consolidate, rewire through a small API, then finish — **do not ship the scattered version.**
 
-## Module length (soft target ~300 lines)
+## Module length (~200 lines)
 
-**Goal:** keep source files small enough to review, navigate, and edit safely (including with AI). The project **recommends** keeping Rust files under `src/` around **300 lines** or less when it is practical.
+**Goal:** keep `src/**/*.rs` modules small enough to review, navigate, and edit safely (including with AI). Target **~200 lines** per module.
 
-- **`clippy::too_many_lines`** (see **`clippy.toml`**, **`too-many-lines-threshold = 300`**) is set to **warn** (not **deny**). It applies per function but is the only line-count signal in the build.
-- **`.cursor/rules/refactor-touched-longest.mdc`** is the matching policy at the module level: every request that edits an oversized module (> 300 lines) must shrink it in the same turn. There is no hard cap in tooling; the rule is the only enforcement.
-- If **several** modules are over the limit, prefer **one file per refactor**, working from the **longest** file downward (largest payoffs first, smaller diffs). Do not try to “fix every oversized file” in a single pass unless the work is already scoped that way.
-- When you **do** split a file: remove dead code and duplication first; then extract cohesive, feature-shaped modules with narrow boundaries (UI / mpv / storage), without growing the codebase just to hit a number.
-- **`include!` splits** (and any extra modules created for length) must use **meaningful filenames** that reflect responsibility (e.g. `chrome_fullscreen_and_fit.rs`), not ordinal names like `1.rs` / `part2.rs`, so separation of concerns stays obvious in the tree and in reviews.
+- **`clippy::too_many_lines`** — **`warn`** in `Cargo.toml`, threshold **200** in `clippy.toml`. Clippy’s closest built-in size signal (per **function**); split long functions instead of `allow`. Module file size uses **`wc -l`** + the end-of-turn rule below.
 
-## Where configuration lives
+### End of every request (before finishing the turn)
 
-- **`clippy.toml`** — thresholds for `cognitive_complexity`, `too_many_lines`, and other Clippy config.
-- **`Cargo.toml` → `[lints]`** — project-wide lint level for selected Clippy lints.
-- **`.cursorrules`**, **`.cursor/rules/refactor-touched-longest.mdc`**, and this rule — human and agent policy; not a replacement for `cargo clippy` on the machine.
+1. List **production files you edited** this request (`src/**/*.rs`, `build.rs`, behavior-changing `data/` scripts — not docs-only or test-only files). Run **`wc -l`**, sort **longest first**.
+2. If the **longest** edited file is **≥ 200 lines**, shrink it **in the same turn** (one file only — do not refactor unrelated modules):
+   - Remove **dead code** and **duplication** first.
+   - If still **≥ 200 lines**, **extract ≥ 100 lines** into a cohesive submodule (responsibility-shaped name, e.g. `chrome_fullscreen_and_fit.rs` — not `part2.rs`; wire with `include!(…)` from a thin parent when splitting).
+   - Keep public API stable; behavior must not change. Run **`cargo qcheck`** and **`cargo test --lib`**.
+3. **Skip** only when shrinking would make the code longer or less clear — state what you tried and why.
+
+If several modules are over the limit across requests, refactor **one file at a time, longest first**.
+

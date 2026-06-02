@@ -1,7 +1,6 @@
 # Project-local Cargo config. See README “Developer Checks”.
 
 [alias]
-# Clippy directly — avoids rebuilding the qcheck wrapper bin on every run.
 qcheck = "clippy --all-targets --all-features"
 
 [build]
