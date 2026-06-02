@@ -36,10 +36,6 @@ pub fn snapshot_media_row(path: &Path) -> Option<MediaRowSnapshot> {
     .flatten()
 }
 
-fn stored_thumb_ok(bytes: &[u8]) -> bool {
-    crate::thumb_texture::thumb_webp_valid(bytes)
-}
-
 /// WebP bytes for this entity path key when present (no mtime check).
 pub fn stored_thumb_webp(path: &Path) -> Option<Vec<u8>> {
     let s = history_key(path)?;
@@ -53,7 +49,7 @@ pub fn stored_thumb_webp(path: &Path) -> Option<Vec<u8>> {
     })
     .flatten()
     .flatten()?;
-    stored_thumb_ok(&b).then_some(b)
+    crate::thumb_texture::thumb_webp_valid(&b).then_some(b)
 }
 
 /// Replace the `media` row after undo of a continue-list removal.
