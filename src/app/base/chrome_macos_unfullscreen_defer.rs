@@ -1,4 +1,5 @@
-// macOS programmatic fullscreen exit: reveal toolbar bars, settle, then toggleFullScreen:.
+// macOS programmatic fullscreen exit: arm guard, defer one turn, then toggleFullScreen:.
+// Do not reveal ToolbarView bars before AppKit leaves fullscreen (titlebar layout recursion).
 // Not set_fullscreened(false). Coalesced via macos_fs_exit; clear_exit when windowed (leave restore).
 
 #[cfg(target_os = "macos")]
@@ -38,7 +39,14 @@ fn macos_unfullscreen_step(win: adw::ApplicationWindow, gen: u64, retry: u8) {
     }
     crate::macos_fs_debug::log("toggleFullScreen");
     if !crate::macos_window::native_toggle_fullscreen_exit(&win) {
+        eprintln!(
+            "[rhino] macos-fs: toggleFullScreen exit failed gen={gen} retry={retry} \
+             gtk={} ns={}",
+            win.is_fullscreen(),
+            crate::macos_window::ns_fullscreen_for_win(&win),
+        );
         let _ = crate::macos_window::clear_stale_gtk_fullscreen(&win);
+        crate::macos_fs_exit::clear_exit();
     }
 }
 
@@ -58,7 +66,7 @@ pub(super) fn macos_schedule_unfullscreen(win: adw::ApplicationWindow) {
     let gen = MACOS_UNFS_GEN.fetch_add(1, Ordering::AcqRel) + 1;
     crate::macos_fs_debug::log_win_state("schedule_unfullscreen", &win);
     let win2 = win.clone();
-    let _ = glib::timeout_add_local_once(crate::fullscreen_timing::TRANSITION_SETTLE, move || {
+    let _ = glib::idle_add_local_once(move || {
         macos_unfullscreen_step(win2, gen, 0);
     });
 }

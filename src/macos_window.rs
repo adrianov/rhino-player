@@ -3,67 +3,18 @@
 //! Resolves the underlying NSWindow via `gdk4_macos::MacosSurface::native()` (GTK 4.8+)
 //! and exposes helpers used by the GTK shell: hide / show traffic lights and layer invalidation.
 //!
-//! Fullscreen **exit** (`chrome_macos_unfullscreen_defer`): reveal toolbar bars, settle,
+//! Fullscreen **exit** (`chrome_macos_unfullscreen_defer`): arm guard, idle defer,
 //! then native [`toggleFullScreen:`] while [`crate::macos_fs_exit`] is armed — not
-//! [`GtkWindowExt::set_fullscreened`](false).
+//! [`GtkWindowExt::set_fullscreened`](false). Toolbar reveal waits for `fullscreened_notify`.
 
 use gdk4_macos::prelude::Cast;
 use gdk4_macos::MacosSurface;
 use glib::object::IsA;
 use gtk::prelude::{GtkWindowExt, NativeExt, WidgetExt};
-#[cfg(target_os = "macos")]
-use glib::prelude::ObjectType;
 use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSCursor, NSView, NSWindow, NSWindowButton, NSWindowStyleMask};
-use std::cell::Cell;
-#[cfg(target_os = "macos")]
-use std::cell::RefCell;
-#[cfg(target_os = "macos")]
-use std::collections::HashMap;
-#[cfg(target_os = "macos")]
-use std::rc::Rc;
-
-#[cfg(target_os = "macos")]
-#[derive(Clone)]
-struct WinFsExitState {
-    bar_show: Rc<Cell<bool>>,
-    toolbar: adw::ToolbarView,
-}
-
-#[cfg(target_os = "macos")]
-thread_local! {
-    static WIN_FS_EXIT: RefCell<HashMap<isize, WinFsExitState>> = RefCell::new(HashMap::new());
-}
-
-/// Per-window fullscreen-exit state (`bar_show` + root [`ToolbarView`]); dropped on window destroy.
-#[cfg(target_os = "macos")]
-pub(crate) fn register_win_bar_show(
-    win: &adw::ApplicationWindow,
-    bar_show: Rc<Cell<bool>>,
-    toolbar: adw::ToolbarView,
-) {
-    let key = win.as_ptr() as isize;
-    WIN_FS_EXIT.with(|m| {
-        m.borrow_mut().insert(
-            key,
-            WinFsExitState {
-                bar_show,
-                toolbar,
-            },
-        );
-    });
-    win.connect_destroy(move |_| {
-        WIN_FS_EXIT.with(|m| m.borrow_mut().remove(&key));
-    });
-}
-
-#[cfg(target_os = "macos")]
-fn fs_exit_state_for_win(win: &adw::ApplicationWindow) -> Option<WinFsExitState> {
-    let key = win.as_ptr() as isize;
-    WIN_FS_EXIT.with(|m| m.borrow().get(&key).cloned())
-}
-
+use std::cell::{Cell, RefCell};
 /// Resolve the underlying [`NSWindow`] for a realized GTK widget on macOS.
 ///
 /// Returns `None` before the GtkWindow is realized (no surface yet) or on non-macOS
@@ -131,19 +82,14 @@ pub fn refresh_gdk_shell_compositing(
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn schedule_shell_layout_after_gtk_resize(_target_w: i32, _target_h: i32) {}
 
-/// Before AppKit leaves fullscreen: reveal [`ToolbarView`] bars only.
+/// Reserved hook before AppKit `toggleFullScreen:` exit — must not change toolbar layout here.
 ///
-/// Enter fullscreen sets `bar_show` false and hides bars; touching traffic-light /
-/// `setShowStandardWindowButtons` in the same turn as `toggleFullScreen:` retriggers
-/// `_NSThemeZoomWidgetCell` geometry and can recurse titlebar layout. Native buttons
-/// stay visible while fullscreen (`chrome_header_csd_controls` fullscreen branch).
-pub(crate) fn prepare_fullscreen_exit(win: &adw::ApplicationWindow) {
-    if let Some(st) = fs_exit_state_for_win(win) {
-        st.bar_show.set(true);
-        st.toolbar.set_reveal_top_bars(true);
-        st.toolbar.set_reveal_bottom_bars(true);
-    }
-    crate::macos_fs_debug::log("prepare exit: reveal toolbar bars only");
+/// Revealing [`ToolbarView`] bars (or forcing chrome via `exit_armed`) while the native
+/// fullscreen style mask is still set retriggers AppKit titlebar / toolbar sync during
+/// `_NSExitFullScreenTransitionController` and can recurse until stack overflow. Chrome
+/// restore runs from `fullscreened_notify` after the mask clears.
+pub(crate) fn prepare_fullscreen_exit(_win: &adw::ApplicationWindow) {
+    crate::macos_fs_debug::log("prepare exit: defer toolbar reveal until after notify");
 }
 
 /// Hide or show the macOS traffic-light buttons on the NSWindow that hosts `widget`.

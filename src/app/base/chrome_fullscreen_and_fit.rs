@@ -90,14 +90,7 @@ where
 fn apply_chrome<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>) {
     c.root.set_extend_content_to_top_edge(true);
     c.root.set_extend_content_to_bottom_edge(true);
-    #[cfg(not(target_os = "macos"))]
     let show = c.recent.is_visible() || c.bar_show.get();
-    #[cfg(target_os = "macos")]
-    let mut show = c.recent.is_visible() || c.bar_show.get();
-    #[cfg(target_os = "macos")]
-    if crate::macos_fs_exit::exit_armed() {
-        show = true;
-    }
     let reveal_changed = set_toolbar_reveal(c.root, show);
     sync_header_window_controls(c.header, c.hdr_csd_baseline, show, c.root);
     if let Some(win) = c

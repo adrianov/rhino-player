@@ -42,8 +42,6 @@ fn wire_handlers_before_mpv(
     dvd_bar: &Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
 ) -> HandlersBeforeMpv {
     #[cfg(target_os = "macos")]
-    crate::macos_window::register_win_bar_show(&w.win, Rc::clone(bar_show), w.root.clone());
-    #[cfg(target_os = "macos")]
     wire_macos_header_menu_cluster(
         &w.root,
         &w.header,

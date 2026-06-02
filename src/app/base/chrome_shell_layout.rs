@@ -34,16 +34,7 @@ pub(crate) fn wire_shell_layout_chrome(touch: Rc<dyn Fn()>) {
 }
 
 fn toolbar_show(ctx: &ShellLayoutCtx) -> bool {
-    #[cfg(not(target_os = "macos"))]
-    return ctx.recent.is_visible() || ctx.bar_show.get();
-    #[cfg(target_os = "macos")]
-    {
-        let mut show = ctx.recent.is_visible() || ctx.bar_show.get();
-        if crate::macos_fs_exit::exit_armed() {
-            show = true;
-        }
-        show
-    }
+    ctx.recent.is_visible() || ctx.bar_show.get()
 }
 
 /// Wait until GTK client size matches `(target_w, target_h)` then run [`schedule_shell_layout_sync`].
