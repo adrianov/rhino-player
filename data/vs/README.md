@@ -22,27 +22,28 @@ For genuinely VFR sources mpv has no `container-fps` either, so `RHINO_SOURCE_FP
 
 Rhino uses the **system** `libmpv` (see `ldd` on the binary). The error is **not** the `.vpy` file first: many Linux distros ship **mpv** / **libmpv2** built **without** the `vapoursynth` **video** filter, so that filter name never appears in `mpv -vf help` and the client API cannot add it.
 
-- **Check:** `mpv -vf help 2>&1 | grep -E '^\s+vapoursynth\b'` — if there is **no** line, replace `libmpv`+`mpv` with a build that has VapourSynth by building [mpv](https://github.com/mpv-player/mpv) with `-Dvapoursynth=enabled` after VapourSynth is installed.
+- **Check:** `mpv -vf help 2>&1 | grep vapoursynth` — if there is **no** line, replace `libmpv`+`mpv` with a build that has VapourSynth by building [mpv](https://github.com/mpv-player/mpv) with `-Dvapoursynth=enabled` after VapourSynth is installed.
 - **Then** install the [mvtools] plugin (`.so` for VapourSynth) so `core.mv` works in the bundled script.
 
 ## Bundled script (default 60 fps mode)
 
-When **Preferences → Smooth Video (60 FPS)** is on, [mpv] **speed** is **~1.0×**, and the DB has **no** custom **Choose VapourSynth Script** path, Rhino runs **`rhino_60_mvtools.vpy`** (bundled FlowFPS toward ~60): source fps tagging, **`RHINO_PLAYBACK_SPEED`** from [mpv] `speed`, MVTools **`FlowFPS`**, **`RHINO_SMOOTH_MAX_AREA`** synced from SQLite **`video_smooth_max_area`**, **`RHINO_MVTOOLS_LIB`** discovery. **Concrete tunables** — MVTools **`blksize`**, **`overlap`**, **`Super`/`Analyse`/`FlowFPS` knobs**, **`core.num_threads`**, **`max_cache_size`**, ME crop/resize — live **only** in **`data/vs/rhino_60_mvtools.vpy`** (**`overlap` < `blksize`** remains an MVTools rule). mpv **`buffered-frames=N`** matches **`SMOOTH_VF_BUFFERED_FRAMES`** (**`src/video_pref/smooth_motion_tier.rs`**). Persisted-cap overload logic: **`src/video_pref/smooth_budget.rs`**. See also [`docs/references-mvtools-super-levels.md`](../docs/references-mvtools-super-levels.md). With Smooth vf active, Rhino sets **`video-sync=display-resample`** and **`interpolation=no`**, and reports swaps after each GL draw so interpolated vf cadence can reach the screen; stripping Smooth restores **`video-sync=audio`**. The app locates the MVTools plugin (order: **`RHINO_MVTOOLS_LIB`**, then a path **cached in SQLite** (`video_mvtools_lib`) if that file still exists—**no full rescan**—else: Linux uses Debian-style `vapoursynth/` paths, pipx/vsrepo under `~/.local`, then a bounded search of the rest of `~/.local`; macOS uses `/opt/homebrew/lib/libmvtools.dylib` and `/usr/local/lib/libmvtools.dylib`), sets **`RHINO_MVTOOLS_LIB`**, and prints **`libmvtools -> <path>`** to stderr. **Override** MVTools with `export RHINO_MVTOOLS_LIB=/path/to/libmvtools.so` (or `…/libmvtools.dylib` on macOS). For CLI **mpv** without Rhino, **`export RHINO_PLAYBACK_SPEED=1.0`** (or `1.5`, `2.0`, …) and **`RHINO_SMOOTH_MAX_AREA`** as **px²** should match whichever ME cap you want Rhino to imitate (SQLite **`video_smooth_max_area`** row or documented default — see **`docs/features/26-sixty-fps-motion.md` Notes**).
+When **Preferences → Smooth Video (60 FPS)** is on, [mpv] **speed** is **~1.0×**, and the DB has **no** custom **Choose VapourSynth Script** path, Rhino runs **`rhino_60_mvtools.vpy`** (bundled FlowFPS toward ~60): source fps tagging, **`RHINO_PLAYBACK_SPEED`** from [mpv] `speed`, MVTools **`FlowFPS`**, **`RHINO_SMOOTH_MAX_AREA`** synced from SQLite **`video_smooth_max_area`**, **`RHINO_MVTOOLS_LIB`** discovery. **Concrete tunables** — MVTools **`blksize`**, **`overlap`**, **`Super`/`Analyse`/`FlowFPS` knobs**, **`core.num_threads`**, **`max_cache_size`**, ME crop/resize — live **only** in **`data/vs/rhino_60_mvtools.vpy`** (**`overlap` < `blksize`** remains an MVTools rule). mpv **`buffered-frames=N`** matches **`SMOOTH_VF_BUFFERED_FRAMES`** (**`src/video_pref/smooth_motion_tier.rs`**). Persisted-cap overload logic: **`src/video_pref/smooth_budget.rs`**. See also [`docs/references-mvtools-super-levels.md`](../docs/references-mvtools-super-levels.md). With Smooth vf active, Rhino sets **`video-sync=display-resample`** and **`interpolation=no`**, and reports swaps after each GL draw so interpolated vf cadence can reach the screen; stripping Smooth restores **`video-sync=audio`**. The app locates the MVTools plugin (order: **`RHINO_MVTOOLS_LIB`**, then a path **cached in SQLite** (`video_mvtools_lib`) if that file still exists—**no full rescan**—else: Linux uses Debian-style `vapoursynth/` paths, pipx/vsrepo under `~/.local`, then a bounded search of the rest of `~/.local`; macOS uses Homebrew **`vapoursynth-mvtools`** (`mvtools.dylib` under `…/vapoursynth/plugins/`) and legacy **`libmvtools.dylib`** under **`$(brew --prefix)/lib`**), sets **`RHINO_MVTOOLS_LIB`**, and prints **`libmvtools -> <path>`** to stderr. **Override** MVTools with `export RHINO_MVTOOLS_LIB=/path/to/libmvtools.so` (Linux) or `…/mvtools.dylib` / `…/libmvtools.dylib` (macOS). For CLI **mpv** without Rhino, **`export RHINO_PLAYBACK_SPEED=1.0`** (or `1.5`, `2.0`, …) and **`RHINO_SMOOTH_MAX_AREA`** as **px²** should match whichever ME cap you want Rhino to imitate (SQLite **`video_smooth_max_area`** row or documented default — see **`docs/features/26-sixty-fps-motion.md` Notes**).
 
 - **VapourSynth** + the **mvtools** plugin must be installed so `core.mv.*` works.
 - **mpv** (the same one linked as **libmpv** for this app) must include the `vapoursynth` [vf] (`mpv -vf help`).
 
 **macOS manual install**
 
-`brew install mpv mvtools` is the whole story:
+`brew install mpv vapoursynth-mvtools` is the whole story:
 
 ```bash
-brew install mpv mvtools
-mpv --vf=help 2>&1 | grep -E '^[[:space:]]*vapoursynth[[:space:]]'
-python3 -c "import vapoursynth as vs; vs.core.std.LoadPlugin('$(brew --prefix)/lib/libmvtools.dylib'); print(vs.core.mv)"
+brew install mpv vapoursynth-mvtools
+mpv -vf help 2>&1 | grep vapoursynth
+MT=$(find "$(brew --prefix vapoursynth-mvtools)/lib" \( -name mvtools.dylib -o -name libmvtools.dylib \) | head -1)
+python3 -c "import vapoursynth as vs; vs.core.std.LoadPlugin('$MT'); print(vs.core.mv)"
 ```
 
-`brew install mvtools` pulls in `vapoursynth` as a dependency and installs `libmvtools.dylib` under `$(brew --prefix)/lib`; Homebrew’s `mpv` formula (0.41+) already lists VapourSynth as a build dependency so the same `libmpv` Rhino links against can run the bundled script. Both verification commands must print non-empty output. Apple Silicon Homebrew prefix is `/opt/homebrew`, Intel is `/usr/local`; Rhino searches both. To override, `export RHINO_MVTOOLS_LIB=/full/path/to/libmvtools.dylib`. If a future Homebrew `mpv` revision drops VapourSynth again, `brew reinstall mpv --build-from-source` or build it yourself with `meson setup build -Dvapoursynth=enabled`.
+`brew install vapoursynth-mvtools` (formerly `mvtools`) pulls in `vapoursynth` and installs **`mvtools.dylib`** under `$(brew --prefix vapoursynth-mvtools)/lib/python*/site-packages/vapoursynth/plugins/`; Homebrew’s `mpv` formula (0.41+) already lists VapourSynth as a build dependency so the same `libmpv` Rhino links against can run the bundled script. Both verification commands must print non-empty output. Apple Silicon Homebrew prefix is `/opt/homebrew`, Intel is `/usr/local`; Rhino searches both layouts (including legacy **`libmvtools.dylib`** under `$(brew --prefix)/lib`). To override, `export RHINO_MVTOOLS_LIB=/full/path/to/mvtools.dylib`. If a future Homebrew `mpv` revision drops VapourSynth again, `brew reinstall mpv --build-from-source` or build it yourself with `meson setup build -Dvapoursynth=enabled`.
 
 **Debian / Ubuntu manual install**
 
@@ -83,7 +84,7 @@ except AttributeError:
 PY
 ```
 
-If `mpv -vf help 2>&1 | grep -E '^[[:space:]]*vapoursynth[[:space:]]'` prints no line, build and install `mpv` + `libmpv` with VapourSynth enabled:
+If `mpv -vf help 2>&1 | grep vapoursynth` prints no line, build and install `mpv` + `libmpv` with VapourSynth enabled:
 
 ```bash
 sudo apt-get build-dep mpv
@@ -93,7 +94,7 @@ meson setup build -Dlibmpv=true -Dvapoursynth=enabled --prefix=/usr/local
 meson compile -C build
 sudo meson install -C build
 sudo ldconfig
-mpv -vf help 2>&1 | grep -E '^[[:space:]]*vapoursynth[[:space:]]'
+mpv -vf help 2>&1 | grep vapoursynth
 ```
 
 Ubuntu source repositories must be enabled for `apt-get build-dep`. `v0.38.0` is a conservative baseline for older VapourSynth R55 systems; if your VapourSynth is R56 or newer, a newer mpv tag is usually fine. If Meson reports that `build/meson-private/build.dat` was generated by an old Meson version, run `meson setup build --wipe -Dlibmpv=true -Dvapoursynth=enabled --prefix=/usr/local`, then compile and install again. If Meson is installed under `~/.local` and `sudo meson install -C build` cannot import it, use `sudo env PYTHONPATH="$(python3 -m site --user-site)" "$(command -v meson)" install -C build`. Linux builds from this repo prefer `/usr/local/lib/<multiarch>` and `/usr/local/lib` through runpath, so the locally installed `libmpv` should be found without `LD_LIBRARY_PATH`; verify with `ldd /path/to/rhino-player | grep libmpv`.
@@ -128,7 +129,7 @@ macOS (**Homebrew** dylib):
 ```bash
 export RHINO_REPO="$HOME/rhino-player"
 BF=$(sed -n 's/.*SMOOTH_VF_BUFFERED_FRAMES:.*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$RHINO_REPO/src/video_pref/smooth_motion_tier.rs" | head -1)
-export RHINO_MVTOOLS_LIB="$(brew --prefix)/lib/libmvtools.dylib"
+export RHINO_MVTOOLS_LIB="$(find "$(brew --prefix vapoursynth-mvtools)/lib" \( -name mvtools.dylib -o -name libmvtools.dylib \) | head -1)"
 mpv --vf=append=vapoursynth:file="$RHINO_REPO/data/vs/rhino_60_mvtools.vpy":buffered-frames=${BF}:concurrent-frames=auto The.File.mkv
 ```
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prepare **VapourSynth** + plugins for Rhino’s **vf=vapoursynth** path.
 # The usual blocker is not Python: **libmpv** must expose the native `vapoursynth` vf. Check:
-#   mpv -vf help 2>&1 | grep -E '^\s+vapoursynth\b'
+#   mpv -vf help 2>&1 | grep vapoursynth
 set -euo pipefail
 
 if ! command -v apt-get >/dev/null 2>&1; then
@@ -10,7 +10,7 @@ if ! command -v apt-get >/dev/null 2>&1; then
 fi
 
 lists_vapour_vf() {
-  command -v mpv >/dev/null 2>&1 && mpv -vf help 2>&1 | grep -qE '^[[:space:]]*vapoursynth[[:space:]]'
+  command -v mpv >/dev/null 2>&1 && mpv -vf help 2>&1 | grep -q vapoursynth
 }
 
 has_core_mv() {

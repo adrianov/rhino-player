@@ -15,3 +15,8 @@ fi
 pfx="$(brew --prefix)"
 export PATH="${pfx}/bin:${PATH}"
 export PKG_CONFIG_PATH="${pfx}/lib/pkgconfig:${pfx}/share/pkgconfig"
+# mpv `vf=vapoursynth` dlopen legacy `libvapoursynth-script.dylib` (Rhino also primes this at startup).
+if vs_lib="$(find "${pfx}/opt/vapoursynth/libexec/lib" -path '*/site-packages/vapoursynth/libvsscript.dylib' 2>/dev/null | head -1)"; then
+  vs_dir="$(dirname "$vs_lib")"
+  export DYLD_LIBRARY_PATH="${vs_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
+fi

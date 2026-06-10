@@ -1,6 +1,6 @@
 //! XDG config: `~/.config/rhino/…` and project data paths (bundled [`.vpy`] for VapourSynth).
 //! [mvtools_from_env] / [mvtools_lib_search] find the **MVTools** plugin file
-//! (`libmvtools.so` on Linux, `libmvtools.dylib` on macOS). The app caches the path in SQLite and sets
+//! (`libmvtools.so` on Linux; `mvtools.dylib` / legacy `libmvtools.dylib` on macOS). The app caches the path in SQLite and sets
 //! `RHINO_MVTOOLS_LIB` (see `video_pref`).
 
 use std::ffi::OsStr;
@@ -99,8 +99,8 @@ pub fn bundled_mvtools_60() -> Option<PathBuf> {
 }
 
 /// Plugin file basename for the Linux pipx/vsrepo fallback search. Linux ships MVTools as
-/// `libmvtools.so`. macOS uses fixed Homebrew paths in [DISTRO_MVTOOLS_PATHS] (where the file
-/// is `libmvtools.dylib`) and never falls back to a name-based scan.
+/// `libmvtools.so`. macOS uses [macos_mvtools_lib_search] (legacy `libmvtools.dylib` and Homebrew
+/// **`vapoursynth-mvtools`** `mvtools.dylib`).
 #[cfg(not(target_os = "macos"))]
 const MVTOOLS_FILE: &str = "libmvtools.so";
 
@@ -111,6 +111,8 @@ pub const RHINO_MVTOOLS_LIB_VAR: &str = "RHINO_MVTOOLS_LIB";
 // Bundled ME px²: `RHINO_SMOOTH_MAX_AREA` (see `paths_smooth_me_budget_env`).
 
 include!("paths_smooth_me_budget_env.rs");
+include!("paths_mvtools_macos.rs");
+include!("paths_vapoursynth_macos.rs");
 
 /// Playback speed (e.g. `1.0`, `1.5`, `2.0`, `8.0`) for the bundled `rhino_60_mvtools.vpy` so **FlowFPS** only fills
 /// frames to **~60** against **(source fps × speed)**. Set with [crate::video_pref::set_playback_speed_env_from_mpv] or [crate::video_pref::set_playback_speed_env] (known UI value) before the vf is built.
@@ -144,22 +146,23 @@ pub fn mvtools_from_env() -> Option<PathBuf> {
 ///
 /// - **Linux**: common distro paths, **pipx vsrepo** under `~/.local/share/pipx/venvs/…`, then a
 ///   broader walk of `~/.local` (see [find_file_breadth_first]).
-/// - **macOS**: Homebrew prefix `lib/` (`/opt/homebrew/lib` Apple Silicon, `/usr/local/lib` Intel)
-///   where `brew install mvtools` drops `libmvtools.dylib`; vsrepo is Linux-only and there is no
-///   pipx layout to scan.
+/// - **macOS**: legacy **`$(brew --prefix)/lib/libmvtools.dylib`**, then Homebrew **`vapoursynth-mvtools`**
+///   (`mvtools.dylib` under `…/site-packages/vapoursynth/plugins/`); vsrepo is Linux-only.
 pub fn mvtools_lib_search() -> Option<PathBuf> {
-    for c in DISTRO_MVTOOLS_PATHS {
-        let p = Path::new(c);
-        if p.is_file() {
-            return std::fs::canonicalize(p).ok().or(Some(p.to_path_buf()));
-        }
+    #[cfg(target_os = "macos")]
+    {
+        return macos_mvtools_lib_search();
     }
-    extra_mvtools_search()
-}
-
-#[cfg(target_os = "macos")]
-fn extra_mvtools_search() -> Option<PathBuf> {
-    None
+    #[cfg(not(target_os = "macos"))]
+    {
+        for c in DISTRO_MVTOOLS_PATHS {
+            let p = Path::new(c);
+            if p.is_file() {
+                return std::fs::canonicalize(p).ok().or(Some(p.to_path_buf()));
+            }
+        }
+        extra_mvtools_search()
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -169,12 +172,6 @@ fn extra_mvtools_search() -> Option<PathBuf> {
     mvtools_in_pipx_venvs(&local)
         .or_else(|| find_file_breadth_first(&local, MVTOOLS_FILE, 14, 8000))
 }
-
-#[cfg(target_os = "macos")]
-const DISTRO_MVTOOLS_PATHS: &[&str] = &[
-    "/opt/homebrew/lib/libmvtools.dylib",
-    "/usr/local/lib/libmvtools.dylib",
-];
 
 #[cfg(not(target_os = "macos"))]
 const DISTRO_MVTOOLS_PATHS: &[&str] = &[

@@ -87,7 +87,7 @@ fn apply_mvtools_env(v: &mut crate::db::VideoPrefs) -> bool {
     } else {
         eprintln!(
             "[rhino] video: libmvtools not found; set {} or install MVTools (Linux: vsrepo / \
-             distro package, macOS: `brew install mvtools`). See `data/vs/README.md`.",
+             distro package, macOS: `brew install vapoursynth-mvtools`). See `data/vs/README.md`.",
             crate::paths::RHINO_MVTOOLS_LIB_VAR
         );
         false

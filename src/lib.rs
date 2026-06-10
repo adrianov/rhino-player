@@ -58,6 +58,7 @@ mod theme;
 mod theme_cursor;
 mod window_present;
 mod time;
+mod user_action_log;
 mod track_label_match;
 mod track_menu_label;
 #[cfg(target_os = "macos")]
@@ -69,3 +70,6 @@ mod video_pref;
 
 pub use app::{run, APP_ID};
 pub use time::format_time;
+
+#[cfg(target_os = "macos")]
+pub use paths::macos_reexec_for_vapoursynth_dyld_if_needed;

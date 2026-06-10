@@ -3,6 +3,8 @@
 //! Copyright © 2026 Peter Adrianov. GPL-3.0-or-later.
 
 fn main() -> ! {
+    #[cfg(target_os = "macos")]
+    rhino_player::macos_reexec_for_vapoursynth_dyld_if_needed();
     // Before GLib / GTK: on Linux, best-effort I/O scheduling *class* (not niceness); see `sched`.
     rhino_player::sched::raise_process_priority();
     // libmpv checks the locale at init; keep numeric C rules before any other setup.
