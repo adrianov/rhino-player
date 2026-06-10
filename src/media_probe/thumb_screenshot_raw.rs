@@ -5,11 +5,13 @@ use zenwebp::PixelLayout;
 use crate::thumb_texture;
 
 /// Poll until one decoded frame is available, then return WebP bytes (no temp files).
+/// Blank-frame polls are coalesced: one line on the first blank, a count on timeout.
 pub(super) fn capture_screenshot_webp(m: &mut Mpv, wait_secs: u64) -> Option<Vec<u8>> {
     let deadline = Instant::now() + Duration::from_secs(wait_secs);
+    let mut polls: u32 = 0;
     loop {
         while m.wait_event(0.0).is_some() {}
-        match try_screenshot_raw_webp(m) {
+        match try_screenshot_raw_webp(m, polls == 0) {
             Some(b) if thumb_texture::thumb_webp_valid(&b) => return Some(b),
             Some(b) => {
                 eprintln!(
@@ -19,18 +21,19 @@ pub(super) fn capture_screenshot_webp(m: &mut Mpv, wait_secs: u64) -> Option<Vec
             }
             None => {}
         }
+        polls += 1;
         if Instant::now() >= deadline {
-            eprintln!("[rhino] grid_thumb screenshot-raw capture timeout");
+            eprintln!("[rhino] grid_thumb screenshot-raw capture timeout after {polls} polls");
             return None;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
 }
 
-fn try_screenshot_raw_webp(m: &Mpv) -> Option<Vec<u8>> {
+fn try_screenshot_raw_webp(m: &Mpv, log_blank: bool) -> Option<Vec<u8>> {
     let mut root = mpv_command_ret(m, &["screenshot-raw", "video"])?;
     // Encode from mpv's byte slice before freeing the node (no pixel-buffer copy).
-    let out = unsafe { encode_screenshot_node(&root) };
+    let out = unsafe { encode_screenshot_node(&root, log_blank) };
     unsafe {
         libmpv2_sys::mpv_free_node_contents(&mut root);
     }
@@ -56,7 +59,7 @@ fn mpv_command_ret(m: &Mpv, args: &[&str]) -> Option<libmpv2_sys::mpv_node> {
 }
 
 /// Borrow mpv `screenshot-raw` pixels and hand them to zenwebp without copying.
-unsafe fn encode_screenshot_node(root: &libmpv2_sys::mpv_node) -> Option<Vec<u8>> {
+unsafe fn encode_screenshot_node(root: &libmpv2_sys::mpv_node, log_blank: bool) -> Option<Vec<u8>> {
     let w = map_i64(root, b"w")? as usize;
     let h = map_i64(root, b"h")? as usize;
     if w == 0 || h == 0 {
@@ -65,7 +68,7 @@ unsafe fn encode_screenshot_node(root: &libmpv2_sys::mpv_node) -> Option<Vec<u8>
     let stride = map_i64(root, b"stride")? as isize;
     let fmt = map_format_str(root, b"format").unwrap_or("bgr0");
     let data = map_byte_slice(root, b"data")?;
-    raw_frame_to_webp(w, h, stride, fmt, data)
+    raw_frame_to_webp(w, h, stride, fmt, data, log_blank)
 }
 
 unsafe fn map_i64(map: &libmpv2_sys::mpv_node, want: &[u8]) -> Option<i64> {
@@ -214,6 +217,7 @@ fn raw_frame_to_webp(
     stride: isize,
     fmt: &str,
     data: &[u8],
+    log_blank: bool,
 ) -> Option<Vec<u8>> {
     let pf = mpv_packed_fmt(fmt)?;
     let row_stride = stride.unsigned_abs() as usize;
@@ -237,7 +241,9 @@ fn raw_frame_to_webp(
         return None;
     }
     if packed_frame_mostly_black(w, h, row_stride, pf.bpp, fmt, data) {
-        eprintln!("[rhino] grid_thumb screenshot-raw blank frame {w}x{h} fmt={fmt}");
+        if log_blank {
+            eprintln!("[rhino] grid_thumb screenshot-raw blank frame {w}x{h} fmt={fmt} (suppressing repeats)");
+        }
         return None;
     }
     let stride_pixels = row_stride / pf.bpp;
@@ -259,7 +265,7 @@ mod tests {
             px[2] = 30 + i as u8;
             px[3] = 255;
         }
-        let wbytes = raw_frame_to_webp(w, h, (w * 4) as isize, "bgr0", &data).unwrap();
+        let wbytes = raw_frame_to_webp(w, h, (w * 4) as isize, "bgr0", &data, true).unwrap();
         assert!(thumb_texture::thumb_webp_valid(&wbytes));
         let (rgb, dw, dh) = zenwebp::oneshot::decode_rgb(&wbytes).unwrap();
         assert_eq!((dw, dh), (w as u32, h as u32));
@@ -271,6 +277,6 @@ mod tests {
         let w = 8;
         let h = 8;
         let data = vec![0u8; w * h * 4];
-        assert!(raw_frame_to_webp(w, h, (w * 4) as isize, "bgr0", &data).is_none());
+        assert!(raw_frame_to_webp(w, h, (w * 4) as isize, "bgr0", &data, true).is_none());
     }
 }
