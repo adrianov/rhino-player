@@ -215,10 +215,16 @@ fn wire_transport_events(s: TransportSetup) {
     });
 
     let ctx_smooth = Rc::clone(&ctx);
+    let smooth_resync: Rc<dyn Fn()> = Rc::new(move || {
+        schedule_smooth_60_resync_idle(&ctx_smooth);
+    });
     REQUEST_SMOOTH_60_RESYNC.with(|slot| {
-        *slot.borrow_mut() = Some(Rc::new(move || {
-            schedule_smooth_60_resync_idle(&ctx_smooth);
-        }));
+        *slot.borrow_mut() = Some(Rc::clone(&smooth_resync));
+    });
+    crate::video_pref::register_vf_swap_smooth_resync(Rc::clone(&smooth_resync));
+    let ctx_cancel = Rc::clone(&ctx);
+    CANCEL_SMOOTH_60_RESYNC.with(|slot| {
+        *slot.borrow_mut() = Some(Rc::new(move || cancel_smooth_60_resync_idle(&ctx_cancel)));
     });
 
     if !install_observers_when_ready(&ctx) {
@@ -248,11 +254,21 @@ thread_local! {
     /// Set by [wire_transport_events]. Seek / keyframe tails and **unpause** schedule the same debounced
     /// [schedule_smooth_60_resync_idle] as `FileLoaded` so Smooth is not applied twice in one interaction.
     static REQUEST_SMOOTH_60_RESYNC: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+    static CANCEL_SMOOTH_60_RESYNC: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
 }
 
 /// Coalesce Smooth 60 / VapourSynth rebuild with transport (same timer as `FileLoaded` / `path` churn).
 fn request_smooth_60_transport_resync() {
     REQUEST_SMOOTH_60_RESYNC.with(|slot| {
+        if let Some(f) = slot.borrow().as_ref() {
+            f();
+        }
+    });
+}
+
+/// Cancel a pending debounced Smooth rebuild (call before a direct **`apply_mpv_video`** from the menu).
+pub(crate) fn cancel_smooth_60_transport_resync() {
+    CANCEL_SMOOTH_60_RESYNC.with(|slot| {
         if let Some(f) = slot.borrow().as_ref() {
             f();
         }

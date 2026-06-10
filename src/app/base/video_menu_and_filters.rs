@@ -74,6 +74,85 @@ fn video_pref_submenu_rebuild(m: &gio::Menu, p: &db::VideoPrefs, app: &adw::Appl
 }
 
 /// Main menu: [db::VideoPrefs] and `app.*` actions for `gio::Menu` (before [win::present]).
+fn handle_smooth_apply_result(
+    app: &adw::Application,
+    pl: &Rc<RefCell<Option<MpvBundle>>>,
+    r: video_pref::MpvVideoApply,
+) {
+    if !r.smooth_auto_off {
+        return;
+    }
+    let vf_still_on = pl
+        .borrow()
+        .as_ref()
+        .is_some_and(|b| crate::video_pref::vf_chain_has_vapoursynth(&b.mpv));
+    if vf_still_on {
+        eprintln!(
+            "[rhino] video: vf add error ignored — vapoursynth still active; keeping Smooth on"
+        );
+        return;
+    }
+    sync_smooth_60_to_off(app);
+    show_smooth_setup_dialog(app);
+}
+
+struct Smooth60ToggleCtx {
+    app: adw::Application,
+    video_pref: Rc<RefCell<db::VideoPrefs>>,
+    player: Rc<RefCell<Option<MpvBundle>>>,
+    gl_area: gtk::GLArea,
+    smooth_lbl: Option<gtk::Label>,
+    smooth_btn: Option<gtk::Button>,
+}
+
+fn on_smooth_60_change_state(action: &gio::SimpleAction, value: &glib::Variant, ctx: &Smooth60ToggleCtx) {
+    let Some(b) = value.get::<bool>() else {
+        return;
+    };
+    if smooth_60_action_programmatic() {
+        crate::user_action_log::act(format!("smooth-60 menu sync (programmatic) -> {b}"));
+        action.set_state(value);
+        sync_smooth_toolbar_on(ctx.smooth_btn.as_ref(), b);
+        return;
+    }
+    crate::user_action_log::act(format!(
+        "smooth-60 menu -> {}",
+        if b { "on" } else { "off" }
+    ));
+    if b {
+        crate::app::cancel_smooth_60_transport_resync();
+        crate::video_pref::cancel_deferred_vf_swap();
+    }
+    if b && !can_find_mvtools(&ctx.video_pref.borrow()) {
+        let mut g = ctx.video_pref.borrow_mut();
+        g.smooth_60 = false;
+        db::save_video(&g);
+        action.set_state(&false.to_variant());
+        sync_smooth_toolbar_on(ctx.smooth_btn.as_ref(), false);
+        show_smooth_setup_dialog(&ctx.app);
+        ctx.gl_area.queue_render();
+        stamp_smooth_toolbar_readout(ctx.smooth_lbl.as_ref(), ctx.smooth_btn.as_ref(), &ctx.player);
+        return;
+    }
+    action.set_state(value);
+    sync_smooth_toolbar_on(ctx.smooth_btn.as_ref(), b);
+    {
+        let mut g = ctx.video_pref.borrow_mut();
+        g.smooth_60 = b;
+        db::save_video(&g);
+    }
+    if ctx.player.borrow().as_ref().is_some() {
+        let mut g = ctx.video_pref.borrow_mut();
+        let reload = b && video_pref::smooth_user_enable_playing_reset(&ctx.player, &mut g);
+        if !reload {
+            let r = video_pref::apply_mpv_video(&ctx.player, &mut g, None);
+            handle_smooth_apply_result(&ctx.app, &ctx.player, r);
+        }
+    }
+    ctx.gl_area.queue_render();
+    stamp_smooth_toolbar_readout(ctx.smooth_lbl.as_ref(), ctx.smooth_btn.as_ref(), &ctx.player);
+}
+
 fn register_video_app_actions(
     app: &adw::Application,
     win: &adw::ApplicationWindow,
@@ -91,59 +170,20 @@ fn register_video_app_actions(
     let v0 = video_pref.borrow().clone();
     let app_s = app.clone();
     let smooth_60 = gio::SimpleAction::new_stateful("smooth-60", None, &v0.smooth_60.to_variant());
-    {
-        let p = Rc::clone(&video_pref);
-        let pl = Rc::clone(player);
-        let gla = gl_area.clone();
-        let smooth_lbl = smooth_toolbar_status.clone();
-        let smooth_btn = smooth_toolbar_btn.clone();
-        smooth_60.connect_change_state(move |a, s| {
-            let Some(s) = s else {
-                return;
-            };
-            let Some(b) = s.get::<bool>() else {
-                return;
-            };
-            if b && !can_find_mvtools(&p.borrow()) {
-                {
-                    let mut g = p.borrow_mut();
-                    g.smooth_60 = false;
-                    db::save_video(&g);
-                }
-                a.set_state(&false.to_variant());
-                sync_smooth_toolbar_on(smooth_btn.as_ref(), false);
-                show_smooth_setup_dialog(&app_s);
-                gla.queue_render();
-                stamp_smooth_toolbar_readout(smooth_lbl.as_ref(), smooth_btn.as_ref(), &pl);
-                return;
-            }
-            a.set_state(s);
-            sync_smooth_toolbar_on(smooth_btn.as_ref(), b);
-            {
-                let mut g = p.borrow_mut();
-                g.smooth_60 = b;
-                db::save_video(&g);
-            }
-            if let Some(plr) = pl.borrow().as_ref() {
-                let r = {
-                    let mut g = p.borrow_mut();
-                    video_pref::apply_mpv_video(plr, &mut g, None)
-                };
-                if r.smooth_auto_off {
-                    sync_smooth_60_to_off(&app_s);
-                    show_smooth_setup_dialog(&app_s);
-                } else if b {
-                    schedule_smooth_toggle_reattach(
-                        Rc::clone(&pl),
-                        Rc::clone(&p),
-                        gla.clone(),
-                    );
-                }
-            }
-            gla.queue_render();
-            stamp_smooth_toolbar_readout(smooth_lbl.as_ref(), smooth_btn.as_ref(), &pl);
-        });
-    }
+    let smooth_ctx = Smooth60ToggleCtx {
+        app: app_s,
+        video_pref: Rc::clone(&video_pref),
+        player: Rc::clone(player),
+        gl_area: gl_area.clone(),
+        smooth_lbl: smooth_toolbar_status.clone(),
+        smooth_btn: smooth_toolbar_btn.clone(),
+    };
+    smooth_60.connect_change_state(move |a, s| {
+        let Some(s) = s else {
+            return;
+        };
+        on_smooth_60_change_state(a, s, &smooth_ctx);
+    });
     app.add_action(&smooth_60);
     if let Some(ref btn) = smooth_toolbar_btn {
         wire_smooth_toolbar_button(
@@ -175,6 +215,10 @@ fn register_video_app_actions(
             a.set_state(s);
             on.set(b);
             db::save_seek_bar_preview(b);
+            crate::user_action_log::act(format!(
+                "preferences seek-bar-preview -> {}",
+                if b { "on" } else { "off" }
+            ));
         });
     }
     app.add_action(&seek_bar_preview);
@@ -201,6 +245,7 @@ fn register_video_app_actions(
             if checked {
                 return;
             }
+            crate::user_action_log::act("preferences vs-custom -> off (bundled script)");
             {
                 let mut g = p.borrow_mut();
                 if g.vs_path.trim().is_empty() {
@@ -209,10 +254,10 @@ fn register_video_app_actions(
                 g.vs_path.clear();
                 db::save_video(&g);
             }
-            if let Some(plr) = pl.borrow().as_ref() {
+            if pl.borrow().as_ref().is_some() {
                 let r = {
                     let mut g = p.borrow_mut();
-                    video_pref::apply_mpv_video(plr, &mut g, None)
+                    video_pref::apply_mpv_video(&pl, &mut g, None)
                 };
                 if r.smooth_auto_off {
                     sync_smooth_60_to_off(&app_c);
@@ -236,6 +281,7 @@ fn register_video_app_actions(
         let smooth_pick_lbl = smooth_toolbar_status.clone();
         let smooth_pick_btn = smooth_toolbar_btn.clone();
         choose.connect_activate(move |_, _| {
+            crate::user_action_log::act("menu choose VapourSynth script");
             let vf = vpy_file_filter();
             let filters = gio::ListStore::new::<gtk::FileFilter>();
             filters.append(&vf);

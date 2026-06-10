@@ -231,6 +231,8 @@ pub fn load_file_path(
         ));
     }
     self.clear_chapter_scrub_pause_hold();
+    self.clear_smooth_vf_stripped_this_open();
+    self.clear_smooth_vf_reload_attempted();
     self.chapter_scrub_resume.set(false);
     self.dvd_chain_bar_sync.set(None);
     self.dvd_hold_global.set(if unified { stored } else { None });

@@ -45,6 +45,7 @@ fn apply_speed_row_pick(c: &SpeedPick, list: &gtk::ListBox, row: &gtk::ListBoxRo
         return;
     }
     let v = playback_speed::value_at(speed_row_index(list, row));
+    crate::user_action_log::act(format!("speed menu row -> {v:.1}×"));
     #[cfg(target_os = "macos")]
     crate::macos_header_menu_debug::log_event("speed", "row_apply", &format!("rate={v}"));
     let guard = c.player.borrow();
@@ -64,11 +65,11 @@ fn apply_speed_row_pick(c: &SpeedPick, list: &gtk::ListBox, row: &gtk::ListBoxRo
     let vp_idle = Rc::clone(&c.video_pref);
     let app_idle = c.app.clone();
     let _ = glib::idle_add_local_once(move || {
-        let guard = player_idle.borrow();
-        let Some(pl) = guard.as_ref() else {
+        if player_idle.borrow().as_ref().is_none() {
             return;
-        };
-        let r = video_pref::refresh_smooth_for_playback_speed(pl, &mut vp_idle.borrow_mut(), Some(v));
+        }
+        let r =
+            video_pref::refresh_smooth_for_playback_speed(&player_idle, &mut vp_idle.borrow_mut(), Some(v));
         if r.smooth_auto_off {
             sync_smooth_60_to_off(&app_idle);
         }

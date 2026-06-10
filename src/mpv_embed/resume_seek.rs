@@ -37,7 +37,7 @@ pub(crate) fn resume_already_at(mpv: &Mpv, target: f64) -> bool {
 }
 
 pub(crate) fn seek_to_resume_sec(mpv: &Mpv, t: f64) {
-    let _ = crate::video_pref::unload_smooth_on_pause(mpv);
+    let _ = crate::video_pref::unload_smooth_on_pause(mpv, None);
     let s = format!("{t:.4}");
     let _ = mpv.command("seek", &[s.as_str(), "absolute+exact"]);
 }

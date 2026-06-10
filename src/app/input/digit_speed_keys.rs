@@ -55,12 +55,16 @@ fn schedule_digit_speed_resync(c: DigitSpeedShortcutCtx, v: f64) {
     let sl = speed_list.clone();
     let spd_lbl = speed_readout.clone();
     let _ = glib::idle_add_local_once(move || {
-        let Some(ref pl) = *bref.borrow() else { return };
-        let r = video_pref::refresh_smooth_for_playback_speed(pl, &mut vp2.borrow_mut(), Some(v));
+        if bref.borrow().is_none() {
+            return;
+        }
+        let r = video_pref::refresh_smooth_for_playback_speed(&bref, &mut vp2.borrow_mut(), Some(v));
         if r.smooth_auto_off {
             sync_smooth_60_to_off(&ap2);
         }
-        let _ = playback_speed::sync_list(&pl.mpv, &sy, &sl, &spd_m, &spd_lbl);
+        if let Some(pl) = bref.borrow().as_ref() {
+            let _ = playback_speed::sync_list(&pl.mpv, &sy, &sl, &spd_m, &spd_lbl);
+        }
     });
 }
 
@@ -74,6 +78,7 @@ fn try_digit_speed_shortcut(
         return Some(glib::Propagation::Proceed);
     }
     let v = digit_speed_value(n);
+    crate::user_action_log::act(format!("key digit {n} -> speed {v:.1}×"));
     let g = c.player.borrow();
     let Some(b) = g.as_ref() else {
         return Some(glib::Propagation::Proceed);

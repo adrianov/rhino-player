@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod smooth_vf_lifecycle_tests {
-    use super::{smooth_vf_attach_pending_is_stale, vf_resync_sec_from_sources};
+    use super::vf_resync_sec_from_sources;
 
     #[test]
     fn resync_prefers_pending_resume_over_early_time_pos() {
@@ -27,16 +27,5 @@ mod smooth_vf_lifecycle_tests {
             vf_resync_sec_from_sources(Some(f64::NAN), Some(-1.0), None),
             None
         );
-    }
-
-    #[test]
-    fn attach_pending_stale_after_resume_seek_strips_vf() {
-        assert!(smooth_vf_attach_pending_is_stale(true, false));
-    }
-
-    #[test]
-    fn attach_pending_not_stale_when_vf_present() {
-        assert!(!smooth_vf_attach_pending_is_stale(true, true));
-        assert!(!smooth_vf_attach_pending_is_stale(false, false));
     }
 }

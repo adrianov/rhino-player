@@ -1,5 +1,5 @@
 pub fn apply_mpv_video_init(mpv: &Mpv, v: &mut VideoPrefs) -> MpvVideoApply {
-    apply_mpv_video_impl(mpv, None, v, None)
+    apply_mpv_video_impl(mpv, None, None, v, None)
 }
 
 /// Normal playback is intentionally a no-op: leave mpv's timing, decode, and filter defaults alone.
@@ -21,8 +21,121 @@ fn log_apply(v: &VideoPrefs) {
     }
 }
 
-pub fn apply_mpv_video(b: &MpvBundle, v: &mut VideoPrefs, speed_hint: Option<f64>) -> MpvVideoApply {
-    apply_mpv_video_impl(&b.mpv, Some(b), v, speed_hint)
+pub fn apply_mpv_video(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    v: &mut VideoPrefs,
+    speed_hint: Option<f64>,
+) -> MpvVideoApply {
+    let g = player.borrow();
+    let Some(b) = g.as_ref() else {
+        return MpvVideoApply::default();
+    };
+    apply_mpv_video_impl(&b.mpv, Some(b), Some(player), v, speed_hint)
+}
+
+/// User enabled Smooth while playing: reload at playhead so **`vf add`** runs after resume (A/V aligned).
+/// Returns **true** when **`loadfile replace`** started — caller must skip **`apply_mpv_video`** (FileLoaded resync attaches **`vf`**).
+pub fn smooth_user_enable_playing_reset(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    v: &mut VideoPrefs,
+) -> bool {
+    let g = player.borrow();
+    let Some(b) = g.as_ref() else {
+        return false;
+    };
+    let mpv = &b.mpv;
+    if !v.smooth_60
+        || mpv.get_property::<bool>("pause").unwrap_or(true)
+        || vf_chain_has_vapoursynth(mpv)
+        || !mpv_has_open_media(mpv)
+    {
+        return false;
+    }
+    if prep_smooth_60_for_vf(mpv, v, None, Some(b), None) {
+        return false;
+    }
+    if reload_open_media_for_vf_reset(b, true) {
+        eprintln!("[rhino] video: smooth-on loadfile reset (user toggle while playing)");
+        return true;
+    }
+    eprintln!("[rhino] video: smooth-on loadfile reset failed — apply will try live vf add");
+    false
+}
+
+/// Seek (or Smooth off→on) stripped the graph: defer + keyframe-seek reattach — never a
+/// **`loadfile`** here. The reload fallback lives in [add_smooth_60]'s **`vf add`**-failure branch.
+fn smooth_reattach_after_vf_strip(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    mpv: &Mpv,
+    bundle: Option<&MpvBundle>,
+    v: &mut VideoPrefs,
+    speed_hint: Option<f64>,
+    cadence_hz: Option<f64>,
+) -> bool {
+    let snap = vf_swap_snap(mpv, true);
+    let disabled_60 = prep_smooth_60_for_vf(mpv, v, speed_hint, bundle, cadence_hz);
+    if disabled_60 {
+        vf_swap_unpause(mpv, &snap);
+        return true;
+    }
+    eprintln!("[rhino] video: deferred smooth reattach after vf strip");
+    defer_smooth_vf_swap(player, mpv, bundle, snap, true, "smooth-reattach");
+    false
+}
+
+fn add_smooth_60_with_av_log(
+    mpv: &Mpv,
+    v: &mut VideoPrefs,
+    speed_hint: Option<f64>,
+    bundle: Option<&MpvBundle>,
+    cadence_hz: Option<f64>,
+) -> bool {
+    let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle, cadence_hz);
+    if !disabled_60 {
+        log_smooth_avsync(mpv);
+        vf_av_ping_render(bundle);
+    }
+    disabled_60
+}
+
+/// First attach (open / smooth-on after off): **`vf add`** immediately. Replacing a live graph: defer + keyframe.
+fn rebuild_smooth_vf_chain(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    mpv: &Mpv,
+    bundle: Option<&MpvBundle>,
+    v: &mut VideoPrefs,
+    speed_hint: Option<f64>,
+    cadence_hz: Option<f64>,
+    vlog: bool,
+) -> bool {
+    if vf_swap_post_seek_attach_active() {
+        let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle, cadence_hz);
+        vf_swap_clear_post_seek_attach();
+        if !disabled_60 {
+            log_smooth_avsync(mpv);
+            vf_av_ping_render(bundle);
+        }
+        return disabled_60;
+    }
+    if vf_swap_defer_in_flight() {
+        return false;
+    }
+    let had_vf = vf_chain_has_vapoursynth(mpv);
+    if !had_vf {
+        if bundle.is_some_and(|b| b.smooth_vf_stripped_this_open()) {
+            return smooth_reattach_after_vf_strip(player, mpv, bundle, v, speed_hint, cadence_hz);
+        }
+        return add_smooth_60_with_av_log(mpv, v, speed_hint, bundle, cadence_hz);
+    }
+    let snap = vf_swap_snap(mpv, true);
+    let disabled_60 = prep_smooth_60_for_vf(mpv, v, speed_hint, bundle, cadence_hz);
+    if disabled_60 {
+        vf_swap_unpause(mpv, &snap);
+        return true;
+    }
+    clear_vf(mpv, bundle, vlog);
+    defer_smooth_vf_swap(player, mpv, bundle, snap, true, "smooth-swap");
+    false
 }
 
 fn apply_mpv_video_without_mvtools(
@@ -30,20 +143,28 @@ fn apply_mpv_video_without_mvtools(
     bundle: Option<&MpvBundle>,
     v: &mut VideoPrefs,
     speed_hint: Option<f64>,
-    paused: bool,
+    _paused: bool,
     want_60: bool,
     had_vapoursynth: bool,
     vlog: bool,
 ) -> MpvVideoApply {
     let eligible_1x = mvtools_vf_eligible(mpv, speed_hint);
     let display_only = smooth_prefers_display_resample_bundle(mpv, bundle);
-    let keep_vf_during_pause = paused && want_60 && !display_only;
-    let stripped_vf = had_vapoursynth && !keep_vf_during_pause;
+    let keep_vf = want_60 && eligible_1x && !display_only;
+    let stripped_vf = had_vapoursynth && !keep_vf;
     if stripped_vf {
+        if let Some(b) = bundle {
+            b.set_smooth_vf_stripped_this_open(true);
+            b.clear_smooth_vf_reload_attempted();
+        }
+        let snap = vf_swap_snap(mpv, true);
         clear_vf(mpv, bundle, vlog);
         set_auto_decode(mpv, vlog);
         if !want_60 {
-            smooth_off_refresh_playhead(mpv, bundle);
+            smooth_off_refresh_playhead(mpv, bundle, &snap);
+        } else {
+            vf_swap_unpause(mpv, &snap);
+            vf_av_ping_render(bundle);
         }
     }
     if want_60 && eligible_1x && display_only {
@@ -61,11 +182,16 @@ fn apply_mpv_video_without_mvtools(
 fn apply_mpv_video_impl(
     mpv: &Mpv,
     bundle: Option<&MpvBundle>,
+    player: Option<&Rc<RefCell<Option<MpvBundle>>>>,
     v: &mut VideoPrefs,
     speed_hint: Option<f64>,
 ) -> MpvVideoApply {
     let vlog = video_log();
     log_apply(v);
+    if bundle.is_some_and(|b| b.smooth_vf_attach_pending()) {
+        eprintln!("[rhino] video: apply_mpv_video skipped (vapoursynth attach in flight)");
+        return MpvVideoApply::default();
+    }
     let paused = mpv.get_property::<bool>("pause").unwrap_or(true);
     let want_60 = v.smooth_60;
     let cadence_hz = want_60.then(|| refresh_smooth_cadence_gate(mpv, bundle)).flatten();
@@ -101,6 +227,11 @@ fn apply_mpv_video_impl(
         };
     }
 
+    let Some(pl) = player else {
+        eprintln!("[rhino] video: smooth vf rebuild skipped (no player handle for A/V resync)");
+        return MpvVideoApply::default();
+    };
+
     if had_vapoursynth && vf_smooth_matches_prefs(mpv, v, bundle) {
         if smooth_prefers_display_resample_bundle(mpv, bundle) {
             apply_interleaved_display_resample(mpv, bundle, vlog);
@@ -127,9 +258,6 @@ fn apply_mpv_video_impl(
             _ => false,
         };
         apply_source_fps_env(fps_opt);
-        // `RHINO_SOURCE_FPS` is read when the `.vpy` graph starts; refreshing env alone does not
-        // re-run the script after `vf add`. Rebuild when the **numeric** cadence changed — not when
-        // the var was empty and we only re-published the same Hz (warm reopen / redundant resync).
         if cadence_unchanged {
             apply_smooth_vf_present_opts(mpv);
             post_smooth_60_state(mpv, v, want_60, false, vlog);
@@ -139,48 +267,16 @@ fn apply_mpv_video_impl(
             "[rhino] video: rebuilding vapoursynth vf ({} changed)",
             crate::paths::RHINO_SOURCE_FPS_VAR
         );
-        clear_vf(mpv, bundle, vlog);
-        let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle, cadence_hz);
+        let disabled_60 = rebuild_smooth_vf_chain(pl, mpv, bundle, v, speed_hint, cadence_hz, vlog);
         post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
         return MpvVideoApply {
             smooth_auto_off: disabled_60,
         };
     }
 
-    // Smooth vf presentation + swap timing; stripping vf restores plain opts (clear_vf).
-    clear_vf(mpv, bundle, vlog);
-    let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle, cadence_hz);
+    let disabled_60 = rebuild_smooth_vf_chain(pl, mpv, bundle, v, speed_hint, cadence_hz, vlog);
     post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
     MpvVideoApply {
         smooth_auto_off: disabled_60,
     }
-}
-
-/// If Smooth 60 is on, **speed** is ~1.0×, and `vapoursynth` is still not in the `vf` list, run
-/// [apply_mpv_video] once (covers a rare missed attach).
-pub fn reapply_60_if_still_missing(b: &MpvBundle, v: &mut VideoPrefs) -> MpvVideoApply {
-    let mpv = &b.mpv;
-    if mpv.get_property::<bool>("pause").unwrap_or(true) {
-        return MpvVideoApply::default();
-    }
-    if !v.smooth_60 || !mpv_has_open_media(mpv) {
-        return MpvVideoApply::default();
-    }
-    if !mvtools_vf_eligible(mpv, None) {
-        return MpvVideoApply::default();
-    }
-    if smooth_prefers_display_resample_bundle(mpv, Some(b)) {
-        if vf_chain_has_vapoursynth(mpv) {
-            apply_interleaved_display_resample(mpv, Some(b), video_log());
-        }
-        return MpvVideoApply::default();
-    }
-    if vf_chain_has_vapoursynth(mpv) {
-        return MpvVideoApply::default();
-    }
-    if vf_smooth_matches_prefs(mpv, v, Some(b)) && !smooth_prefers_display_resample_bundle(mpv, Some(b)) {
-        return MpvVideoApply::default();
-    }
-    eprintln!("[rhino] video: reapply_60_if_still_missing → apply_mpv_video");
-    apply_mpv_video(b, v, None)
 }

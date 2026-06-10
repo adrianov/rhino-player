@@ -45,6 +45,12 @@ pub struct MpvBundle {
     chapter_scrub_hold_pause: std::cell::Cell<bool>,
     /// Unpause when hold ends when [load_chapter_seek] was called with `resume_playing=true`.
     chapter_scrub_unpause_after: std::cell::Cell<bool>,
+    /// True between **`vf add vapoursynth`** and mpv reporting the filter in **`vf`** (coalesces duplicate applies).
+    smooth_vf_attach_pending: std::cell::Cell<bool>,
+    /// Set when **`vf remove vapoursynth`** ran on the current open media (mpv often rejects immediate re-add).
+    smooth_vf_stripped_this_open: std::cell::Cell<bool>,
+    /// One **`loadfile replace`** per strip cycle so a failed **`vf add`** does not loop reloads.
+    smooth_vf_reload_attempted: std::cell::Cell<bool>,
 
     #[cfg(not(target_os = "macos"))]
     _gl: GlDynLib,
@@ -142,6 +148,9 @@ impl MpvBundle {
                 chapter_scrub_resume: std::cell::Cell::new(false),
                 chapter_scrub_hold_pause: std::cell::Cell::new(false),
                 chapter_scrub_unpause_after: std::cell::Cell::new(false),
+                smooth_vf_attach_pending: std::cell::Cell::new(false),
+                smooth_vf_stripped_this_open: std::cell::Cell::new(false),
+                smooth_vf_reload_attempted: std::cell::Cell::new(false),
             },
             auto_off,
         ))
@@ -165,6 +174,9 @@ impl MpvBundle {
                 chapter_scrub_resume: std::cell::Cell::new(false),
                 chapter_scrub_hold_pause: std::cell::Cell::new(false),
                 chapter_scrub_unpause_after: std::cell::Cell::new(false),
+                smooth_vf_attach_pending: std::cell::Cell::new(false),
+                smooth_vf_stripped_this_open: std::cell::Cell::new(false),
+                smooth_vf_reload_attempted: std::cell::Cell::new(false),
                 macos: Some(macos),
             },
             auto_off,

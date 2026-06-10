@@ -1,6 +1,38 @@
 // Pending resume + DVD chain-bar handoff after chapter scrub (`impl MpvBundle` extension).
 
 impl MpvBundle {
+    pub(crate) fn smooth_vf_attach_pending(&self) -> bool {
+        self.smooth_vf_attach_pending.get()
+    }
+
+    pub(crate) fn set_smooth_vf_attach_pending(&self, pending: bool) {
+        self.smooth_vf_attach_pending.set(pending);
+    }
+
+    pub(crate) fn smooth_vf_stripped_this_open(&self) -> bool {
+        self.smooth_vf_stripped_this_open.get()
+    }
+
+    pub(crate) fn set_smooth_vf_stripped_this_open(&self, stripped: bool) {
+        self.smooth_vf_stripped_this_open.set(stripped);
+    }
+
+    pub(crate) fn clear_smooth_vf_stripped_this_open(&self) {
+        self.smooth_vf_stripped_this_open.set(false);
+    }
+
+    pub(crate) fn smooth_vf_reload_attempted(&self) -> bool {
+        self.smooth_vf_reload_attempted.get()
+    }
+
+    pub(crate) fn set_smooth_vf_reload_attempted(&self, attempted: bool) {
+        self.smooth_vf_reload_attempted.set(attempted);
+    }
+
+    pub(crate) fn clear_smooth_vf_reload_attempted(&self) {
+        self.smooth_vf_reload_attempted.set(false);
+    }
+
     /// Chapter-local resume seconds from SQLite for the open shell path (warm reopen fallback).
     fn stored_resume_local_for_shell(&self) -> Option<f64> {
         let shell = self.me_budget_shell_path.borrow().clone()?;
@@ -297,6 +329,11 @@ impl MpvBundle {
                 .unwrap_or_else(|| "none".into())
         ));
         warm
+    }
+
+    /// Resume target seconds stashed before **`loadfile`** (consumed by [apply_pending_resume]).
+    pub(crate) fn stashed_resume_sec(&self) -> Option<f64> {
+        self.pending_resume.get()
     }
 
     #[must_use]

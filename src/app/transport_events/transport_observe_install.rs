@@ -35,6 +35,7 @@ fn install_observers_when_ready(ctx: &Rc<TransportCtx>) -> bool {
         eprintln!("[rhino] transport observe_props failed: {e}");
         return false;
     }
+    request_mpv_warn_logs(&b.mpv);
     let drain_ctx = ctx.clone();
     b.install_event_drain(move || drain_into_main(&drain_ctx));
     if trace {
@@ -48,6 +49,41 @@ fn install_observers_when_ready(ctx: &Rc<TransportCtx>) -> bool {
     drain_into_main(ctx);
     install_transport_tick(ctx);
     true
+}
+
+/// Surface mpv's own warnings/errors on stderr (e.g. why `vf add vapoursynth` was rejected),
+/// instead of only seeing the opaque MPV_ERROR_COMMAND from the command call.
+fn request_mpv_warn_logs(mpv: &libmpv2::Mpv) {
+    let Ok(level) = std::ffi::CString::new("warn") else {
+        return;
+    };
+    let r = unsafe { libmpv2_sys::mpv_request_log_messages(mpv.ctx.as_ptr(), level.as_ptr()) };
+    if r < 0 {
+        eprintln!("[rhino] mpv: request_log_messages failed err={r}");
+    }
+}
+
+/// Print mpv warnings/errors. The vapoursynth pair that fires on every seek while the
+/// smoothing graph re-initializes ("Frame requested during init" / "black dummy frame")
+/// is expected and printed once, then muted.
+fn log_mpv_message(prefix: &str, level: &str, text: &str) {
+    thread_local! {
+        static VS_INIT_NOISE_SEEN: Cell<bool> = const { Cell::new(false) };
+    }
+    let vs_init_noise = prefix == "vapoursynth"
+        && (text.contains("Frame requested during init") || text.contains("black dummy frame"));
+    if vs_init_noise {
+        if VS_INIT_NOISE_SEEN.with(Cell::get) {
+            return;
+        }
+        VS_INIT_NOISE_SEEN.with(|s| s.set(true));
+        eprintln!(
+            "[rhino] mpv: [{prefix}] {level}: {} (expected while the smoothing graph re-inits on seek; repeats muted)",
+            text.trim_end()
+        );
+        return;
+    }
+    eprintln!("[rhino] mpv: [{prefix}] {level}: {}", text.trim_end());
 }
 
 fn drain_into_main(ctx: &Rc<TransportCtx>) {
@@ -92,6 +128,9 @@ fn collect_events(ctx: &Rc<TransportCtx>) -> Vec<TransportEv> {
         }
         Event::FileLoaded => out.push(TransportEv::FileLoaded),
         Event::VideoReconfig => out.push(TransportEv::VideoReconfig),
+        Event::LogMessage { prefix, level, text, .. } => {
+            log_mpv_message(prefix, level, text);
+        }
         _ => {}
     });
     out

@@ -169,6 +169,7 @@ fn commit_preview_seek(ctx: &SeekCtx) {
         return;
     }
     let t = release_seek_time(ctx);
+    crate::user_action_log::act(format!("seek bar release -> t={t:.2}s"));
     ctx.seek_sync.set(true);
     ctx.seek.set_value(t);
     ctx.seek_sync.set(false);
@@ -261,6 +262,9 @@ fn seek_arrow_step(d: &SeekArrowDeps<'_>, delta_sec: f64) {
         (pos + delta_sec).clamp(0.0, len)
     };
     let s_abs = format!("{nt:.4}");
+    crate::user_action_log::act(format!(
+        "seek arrow {delta_sec:+.0}s -> t={s_abs}s"
+    ));
     main_player_seek_keyframes(
         &SeekKeyframeParams {
             player: d.player,

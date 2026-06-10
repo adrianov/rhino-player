@@ -107,7 +107,7 @@ fn apply_mpv_pause(ctx: &PlayToggleCtx, want_pause: bool) -> bool {
 
     let smooth_off = if !want_pause && cur_pause {
         let mut pref = ctx.video_pref.borrow_mut();
-        video_pref::resync_smooth_if_speed_mismatch(b, &mut pref).smooth_auto_off
+        video_pref::resync_smooth_if_speed_mismatch(&ctx.player, &mut pref).smooth_auto_off
     } else {
         false
     };
@@ -139,6 +139,7 @@ fn toggle_play_pause(ctx: &PlayToggleCtx) -> bool {
         return false;
     }
     if ctx.recent.is_visible() {
+        crate::user_action_log::act("play/pause (continue grid) -> open from warm card");
         if let Some(path) = local_file_from_mpv(&b.mpv) {
             *ctx.last_path.borrow_mut() = std::fs::canonicalize(&path).ok();
             let ttl = title_for_open_path(&path);
@@ -152,6 +153,10 @@ fn toggle_play_pause(ctx: &PlayToggleCtx) -> bool {
     }
     let paused = b.mpv.get_property::<bool>("pause").unwrap_or(false);
     drop(g);
+    crate::user_action_log::act(format!(
+        "play/pause button -> {}",
+        if paused { "play" } else { "pause" }
+    ));
     apply_mpv_pause(ctx, !paused)
 }
 

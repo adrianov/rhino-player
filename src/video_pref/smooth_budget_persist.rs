@@ -97,8 +97,10 @@ fn persist_budget_and_maybe_rebuild_vf(
             // used to skip `media_save_smooth_me_budget` while vf still rebuilt — then `resolve_media_smooth_me_budget`
             // fell through to another file's lower neighbor px² and **`smooth_cap`** lagged prefs.
             persist_budget_save_media_row_verbose(b, new_budget_px, stderr_reason_suffix);
+            // Release the player borrow before reapplying: `apply_mpv_video` borrows `player` itself.
+            drop(g);
             let mut vp = video_pref.borrow_mut();
-            let _ = apply_mpv_video(b, &mut vp, None);
+            let _ = apply_mpv_video(player, &mut vp, None);
         }
         Err(_) => {
             if video_log() {

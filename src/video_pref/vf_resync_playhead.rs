@@ -19,7 +19,7 @@ pub(crate) fn vf_resync_playhead_sec(
     mpv: &Mpv,
     bundle: Option<&crate::mpv_embed::MpvBundle>,
 ) -> Option<f64> {
-    let pending = bundle.and_then(|b| b.pending_resume_sec());
+    let pending = bundle.and_then(|b| b.stashed_resume_sec());
     let playback_time = mpv
         .get_property::<f64>("playback-time")
         .ok()

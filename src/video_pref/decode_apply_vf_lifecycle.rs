@@ -34,11 +34,41 @@ fn set_auto_decode(mpv: &Mpv, vlog: bool) {
     }
 }
 
-/// Plain playback after Smooth **off** / **`vf`** strip — prefer **`clear_vf`** which ends with this once **`vf`** is empty.
+/// Strip every **`vapoursynth`** node from the **`vf`** chain. Returns whether at least one remove succeeded.
+fn remove_vapoursynth_vf(mpv: &Mpv, vlog: bool) -> bool {
+    let mut any = false;
+    for attempt in 0..8 {
+        let specs = vapoursynth_vf_remove_specs(mpv);
+        if specs.is_empty() {
+            break;
+        }
+        for spec in specs {
+            match mpv.command("vf", &["remove", spec.as_str()]) {
+                Ok(()) => {
+                    any = true;
+                    if vlog {
+                        eprintln!("[rhino] video: vf remove ok ({spec})");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[rhino] video: vf remove {spec} failed (attempt {}): {e:?}", attempt + 1);
+                }
+            }
+        }
+    }
+    if vf_chain_has_vapoursynth(mpv) {
+        eprintln!("[rhino] video: vapoursynth vf still present after vf remove");
+    } else {
+        forget_bundled_me_budget_vf_apply();
+    }
+    any
+}
+
+/// Plain playback after Smooth **off** / **`vf`** strip — prefer [remove_vapoursynth_vf] once vapoursynth is gone.
 ///
 /// **`vo=libmpv`**: **`display-resample`** + **`report_swap`** (Linux **EGL** / **GLArea** + macOS **CVDisplayLink**).
 /// Fallback **`audio`** + swap gate off if **`display-resample`** fails.
-/// **`vf clr`** runs inside **`with_macos_vf_teardown`** when a bundle is passed (macOS).
+/// Vapoursynth teardown runs inside **`with_macos_vf_teardown`** when a bundle is passed (macOS).
 fn restore_non_smooth_present_opts(mpv: &Mpv) {
     let _ = mpv.set_property("interpolation", "no");
     if mpv.set_property("video-sync", "display-resample").is_ok() {
@@ -69,17 +99,20 @@ fn apply_smooth_vf_present_opts(mpv: &Mpv) {
 }
 
 fn clear_vf(mpv: &Mpv, bundle: Option<&MpvBundle>, vlog: bool) {
+    let had_vapoursynth = vf_chain_has_vapoursynth(mpv);
     let inner = || {
-        forget_bundled_me_budget_vf_apply();
-        if let Err(e) = mpv.command("vf", &["clr", ""]) {
-            eprintln!("[rhino] video: vf clr failed: {e:?}; trying set_property vf");
-            if let Err(e2) = mpv.set_property("vf", "") {
-                eprintln!("[rhino] video: set_property vf (clear) failed: {e2:?}");
+        if had_vapoursynth {
+            remove_vapoursynth_vf(mpv, vlog);
+        } else if mpv
+            .get_property::<String>("vf")
+            .is_ok_and(|s| !s.trim().is_empty())
+        {
+            if let Err(e) = mpv.command("vf", &["clr", ""]) {
+                eprintln!("[rhino] video: vf clr failed: {e:?}");
+            } else if vlog {
+                eprintln!("[rhino] video: vf clr ok (non-vapoursynth chain)");
             }
-        } else if vlog {
-            eprintln!("[rhino] video: vf clr ok");
         }
-        let _ = mpv.set_property("vf", "");
         restore_non_smooth_present_opts(mpv);
     };
     #[cfg(target_os = "macos")]
@@ -98,6 +131,12 @@ fn clear_vf(mpv: &Mpv, bundle: Option<&MpvBundle>, vlog: bool) {
     {
         inner();
         sync_bluray_deinterlace_mpv(mpv, bundle);
+    }
+    if had_vapoursynth {
+        if let Some(b) = bundle {
+            b.set_smooth_vf_stripped_this_open(true);
+            b.clear_smooth_vf_reload_attempted();
+        }
     }
 }
 
@@ -134,13 +173,13 @@ fn log_vf_diagnostics(mpv: &Mpv, vlog: bool) {
 /// Drop the vapoursynth `vf` immediately before a **seek** (or similar position jump) when it is
 /// still present so mpv can decode a real frame — especially while **paused**. Plain pause/unpause
 /// does not call this.
-pub fn unload_smooth_on_pause(mpv: &Mpv) -> bool {
+pub fn unload_smooth_on_pause(mpv: &Mpv, bundle: Option<&MpvBundle>) -> bool {
     mark_smooth_cadence_unstable_after_seek_if_disc(mpv);
     if !vf_chain_has_vapoursynth(mpv) {
         return false;
     }
     let vlog = video_log();
-    clear_vf(mpv, None, vlog);
+    clear_vf(mpv, bundle, vlog);
     set_auto_decode(mpv, vlog);
     true
 }

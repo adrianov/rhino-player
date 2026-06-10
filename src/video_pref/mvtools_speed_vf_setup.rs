@@ -6,7 +6,7 @@ use crate::db::VideoPrefs;
 use crate::paths;
 use crate::paths::{
     publish_smooth_me_budget_env, smooth_max_area_env_matches, RHINO_PLAYBACK_SPEED_VAR,
-    RHINO_SMOOTH_MAX_AREA_VAR, RHINO_VPY_LOG_EPOCH_VAR,
+    RHINO_VPY_LOG_EPOCH_VAR,
 };
 use crate::playback_speed::MAX_FIXED_SPEED;
 
@@ -99,20 +99,31 @@ pub fn needs_playback_speed_env_resync(mpv: &Mpv) -> bool {
 /// only at ~1.0×; strip when sped up), or the loaded `vf` does not match prefs/script/buffer options.
 /// Returns the same shape as [apply_mpv_video].
 pub fn resync_smooth_if_speed_mismatch(
-    b: &crate::mpv_embed::MpvBundle,
+    player: &std::rc::Rc<std::cell::RefCell<Option<crate::mpv_embed::MpvBundle>>>,
     v: &mut VideoPrefs,
 ) -> MpvVideoApply {
+    let g = player.borrow();
+    let Some(b) = g.as_ref() else {
+        return MpvVideoApply::default();
+    };
     let mpv = &b.mpv;
     if !v.smooth_60 || !mpv_has_open_media(mpv) {
+        return MpvVideoApply::default();
+    }
+    if b.smooth_vf_attach_pending() {
         return MpvVideoApply::default();
     }
     let want_mvtools = smooth_wants_vapoursynth_vf(mpv, Some(b), None);
     let has = vf_chain_has_vapoursynth(mpv);
     let graph_ok = !has || vf_smooth_matches_prefs(mpv, v, Some(b));
-    if !needs_playback_speed_env_resync(mpv) && want_mvtools == has && graph_ok {
+    if want_mvtools == has && graph_ok {
+        if needs_playback_speed_env_resync(mpv) {
+            set_playback_speed_env_from_mpv(mpv);
+        }
         return MpvVideoApply::default();
     }
-    apply_mpv_video(b, v, None)
+    drop(g);
+    apply_mpv_video(player, v, None)
 }
 
 /// After [libmpv2::Mpv] `speed` changes: re-run [apply_mpv_video] so `vf` / decode match
@@ -120,10 +131,14 @@ pub fn resync_smooth_if_speed_mismatch(
 /// Pass [speed_hint] with the `speed` you just set in mpv to avoid a **get_property** race; use `None` to
 /// read the current [mpv] value.
 pub fn refresh_smooth_for_playback_speed(
-    b: &crate::mpv_embed::MpvBundle,
+    player: &std::rc::Rc<std::cell::RefCell<Option<crate::mpv_embed::MpvBundle>>>,
     v: &mut VideoPrefs,
     speed_hint: Option<f64>,
 ) -> MpvVideoApply {
+    let g = player.borrow();
+    let Some(b) = g.as_ref() else {
+        return MpvVideoApply::default();
+    };
     let mpv = &b.mpv;
     if !v.smooth_60 || !mpv_has_open_media(mpv) {
         return MpvVideoApply::default();
@@ -133,7 +148,8 @@ pub fn refresh_smooth_for_playback_speed(
         Some(s) => set_playback_speed_env(s),
         None => set_playback_speed_env_from_mpv(mpv),
     }
-    apply_mpv_video(b, v, speed_hint)
+    drop(g);
+    apply_mpv_video(player, v, speed_hint)
 }
 
 /// True when mpv's `vf` chain already matches what [add_smooth_60] would install for current prefs
@@ -216,76 +232,4 @@ pub(crate) fn mpv_has_open_media(mpv: &Mpv) -> bool {
     matches!(mpv.get_property::<String>("path"), Ok(s) if !s.trim().is_empty())
 }
 
-fn add_smooth_60(
-    mpv: &Mpv,
-    v: &mut VideoPrefs,
-    speed_hint: Option<f64>,
-    bundle: Option<&crate::mpv_embed::MpvBundle>,
-    cadence_hz: Option<f64>,
-) -> bool {
-    if !v.smooth_60 {
-        return false;
-    }
-    if !mpv_has_open_media(mpv) {
-        // Init-time [apply_mpv_video] and pre-load calls must *not* run `vf add` (no `video_in` / no
-        // `path` yet) — a failed add used to look like a broken install and **disabled 60p in the DB**.
-        eprintln!(
-            "[rhino] video: VapourSynth deferred (no `path` yet — will apply after loadfile)"
-        );
-        return false;
-    }
-    if !smooth_wants_vapoursynth_vf(mpv, bundle, speed_hint) {
-        return false;
-    }
-    ensure_hwdec_vf_copy(mpv);
-    match speed_hint {
-        Some(s) => set_playback_speed_env(s),
-        None => set_playback_speed_env_from_mpv(mpv),
-    }
-    let cap_px = effective_smooth_me_budget_px(mpv, v, bundle);
-    let fps_opt = cadence_hz.or_else(|| refresh_smooth_cadence_gate(mpv, bundle));
-    if v.vs_path.trim().is_empty() {
-        publish_smooth_me_budget_env(cap_px);
-        if video_log() {
-            eprintln!(
-                "[rhino] video: (verbose) bundled ME px²={cap_px} ({})",
-                RHINO_SMOOTH_MAX_AREA_VAR
-            );
-        }
-    }
-    apply_source_fps_env(fps_opt);
-    if video_log() {
-        eprintln!(
-            "[rhino] video: (verbose) vapoursynth buffered-frames={}",
-            SMOOTH_VF_BUFFERED_FRAMES
-        );
-    }
-    let epoch = VPY_LOG_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    std::env::set_var(RHINO_VPY_LOG_EPOCH_VAR, format!("{epoch}"));
-    if !apply_mvtools_env(v) {
-        turn_off_smooth_60_in_prefs(v);
-        return true;
-    }
-    let Some(p) = resolve_vs_script_path(v) else {
-        eprintln!(
-            "[rhino] video: VapourSynth: no .vpy (install mvtools + data/vs bundle; see `data/vs/README.md`)."
-        );
-        turn_off_smooth_60_in_prefs(v);
-        return true;
-    };
-    eprintln!("[rhino] video: VapourSynth script = {p}");
-    let p_esc = mpv_escape_path(&p);
-    let me_cap = cap_px;
-    if !smooth_vapoursynth_vf_try_attach(mpv, &p_esc) {
-        turn_off_smooth_60_in_prefs(v);
-        return true;
-    }
-    if v.vs_path.trim().is_empty() {
-        let media_key = me_budget_local_path(mpv, bundle)
-            .as_ref()
-            .and_then(|p| crate::db::history_key(p.as_path()));
-        note_bundled_me_budget_vf_applied(me_cap, media_key);
-    }
-    apply_smooth_vf_present_opts(mpv);
-    false
-}
+// `prep_smooth_60_for_vf` + `add_smooth_60` live in `smooth_vf_add.rs`.

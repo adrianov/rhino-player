@@ -237,7 +237,7 @@ fn seek_global_borrowed(
     b.dvd_hold_global.set(Some(g_target));
     b.dvd_chain_bar_sync.set(None);
     let s = format!("{local:.4}");
-    let _ = crate::video_pref::unload_smooth_on_pause(&b.mpv);
+    let _ = crate::video_pref::unload_smooth_on_pause(&b.mpv, Some(b));
     let _ = b.mpv.command("seek", &[s.as_str(), "absolute+exact"]);
     persist_seek_global_entity(b, dvd_bar, g_target);
     SeekGlobalOutcome {

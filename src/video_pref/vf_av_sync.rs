@@ -31,34 +31,25 @@ pub(crate) fn log_smooth_avsync(mpv: &libmpv2::Mpv) {
     );
 }
 
-/// Pause across a **`vf`** change so the chain reconfigures cleanly, then resume — **without** a
-/// position **`seek`**. mpv keeps audio/video aligned by PTS through a live **`vf add`/`vf clr`**
-/// (**`avsync`** stays ~0), so the old "A/V resync seek" only moved the picture (visible jump) and
-/// never changed alignment. Position seeks are reserved for resume / user scrub / audio-track reopen.
+/// Pause across a **`vf`** swap when playback was running; paired with [schedule_vf_playhead_resync].
+#[derive(Clone, Copy)]
 pub(crate) struct VfAvSnap {
-    was_playing: bool,
+    pub(crate) was_playing: bool,
 }
 
-pub(crate) fn vf_av_pause_begin(mpv: &libmpv2::Mpv) -> VfAvSnap {
+/// When [pause_if_playing] is false (first **`vf add`** after open), record play state but do not pause.
+pub(crate) fn vf_swap_snap(mpv: &libmpv2::Mpv, pause_if_playing: bool) -> VfAvSnap {
     let was_playing = !mpv.get_property::<bool>("pause").unwrap_or(true);
-    if was_playing {
+    if pause_if_playing && was_playing {
         let _ = mpv.set_property("pause", true);
     }
     VfAvSnap { was_playing }
 }
 
-pub(crate) fn vf_av_resume_end(
-    mpv: &libmpv2::Mpv,
-    bundle: Option<&crate::mpv_embed::MpvBundle>,
-    snap: &VfAvSnap,
-    tag: &str,
-) {
-    let state = if snap.was_playing { "playing" } else { "paused" };
-    eprintln!("[rhino] video: {tag} vf change applied ({state}, no seek)");
+pub(crate) fn vf_swap_unpause(mpv: &libmpv2::Mpv, snap: &VfAvSnap) {
     if snap.was_playing {
         let _ = mpv.set_property("pause", false);
     }
-    vf_av_ping_render(bundle);
 }
 
 pub(crate) fn vf_av_ping_render(bundle: Option<&crate::mpv_embed::MpvBundle>) {

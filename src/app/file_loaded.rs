@@ -213,7 +213,7 @@ fn on_320ms_tick(c: On320Ctx) {
         );
         let mut g = c.video_pref.borrow_mut();
         if g.smooth_60 {
-            let r = resync_smooth_speed(b, &mut g, listed);
+            let r = resync_smooth_speed(&c.player, &mut g, listed);
             if r.smooth_auto_off {
                 sync_smooth_60_to_off(&c.app);
             }
@@ -228,15 +228,21 @@ fn on_320ms_tick(c: On320Ctx) {
 }
 
 fn resync_smooth_speed(
-    b: &MpvBundle,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
     vp: &mut db::VideoPrefs,
     listed: Option<f64>,
 ) -> video_pref::MpvVideoApply {
-    if let Some(s) = listed {
-        video_pref::refresh_smooth_for_playback_speed(b, vp, Some(s))
+    let g = player.borrow();
+    let Some(b) = g.as_ref() else {
+        return video_pref::MpvVideoApply::default();
+    };
+    let r = if let Some(s) = listed {
+        video_pref::refresh_smooth_for_playback_speed(player, vp, Some(s))
     } else if video_pref::needs_playback_speed_env_resync(&b.mpv) {
-        video_pref::refresh_smooth_for_playback_speed(b, vp, None)
+        video_pref::refresh_smooth_for_playback_speed(player, vp, None)
     } else {
-        video_pref::resync_smooth_if_speed_mismatch(b, vp)
-    }
+        video_pref::resync_smooth_if_speed_mismatch(player, vp)
+    };
+    drop(g);
+    r
 }
