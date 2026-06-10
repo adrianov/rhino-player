@@ -1,13 +1,16 @@
 /// Main application window shell (Chrome, CSD, default size).
 fn build_main_application_window(app: &adw::Application) -> adw::ApplicationWindow {
-    adw::ApplicationWindow::builder()
+    let win = adw::ApplicationWindow::builder()
         .application(app)
         .title(APP_WIN_TITLE)
         .icon_name(APP_ID)
         .default_width(WIN_INIT_W)
         .default_height(WIN_INIT_H)
         .css_classes(["rp-win"])
-        .build()
+        .build();
+    #[cfg(target_os = "macos")]
+    win.add_css_class("rp-macos");
+    win
 }
 
 struct PlaybackChromeRow {

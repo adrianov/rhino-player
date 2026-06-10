@@ -46,6 +46,7 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
     let audio_tracks_block = Rc::new(Cell::new(false));
     let audio_tracks_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
     audio_tracks_box.set_margin_top(2);
+    audio_tracks_box.add_css_class("rp-track-list-box");
     let audio_tracks_scrl = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vscrollbar_policy(gtk::PolicyType::Automatic)
@@ -104,6 +105,7 @@ fn build_header_popovers(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> HeaderPopovers
     let sub_tracks_block = Rc::new(Cell::new(false));
     let sub_tracks_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
     sub_tracks_box.set_margin_top(2);
+    sub_tracks_box.add_css_class("rp-track-list-box");
     let sub_tracks_scrl = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vscrollbar_policy(gtk::PolicyType::Automatic)

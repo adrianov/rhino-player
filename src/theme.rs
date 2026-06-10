@@ -274,6 +274,8 @@ const MACOS_TRANSPARENT_CONTENT_CSS: &str = include_str!("theme_macos_transparen
 /// Bottom transport chrome on gdk-macos (USER priority — wins over transparent window rules).
 #[cfg(target_os = "macos")]
 const MACOS_BOTTOM_CHROME_CSS: &str = include_str!("theme_macos_bottom.css");
+#[cfg(target_os = "macos")]
+const MACOS_NATIVE_LISTS_CSS: &str = include_str!("theme_macos_native_lists.css");
 
 pub fn apply() {
     let mut css = String::with_capacity(
@@ -305,6 +307,7 @@ pub fn apply() {
         {
             let mut user = MACOS_BOTTOM_CHROME_CSS.to_string();
             user.push_str(include_str!("theme_macos_header_compact.css"));
+            user.push_str(MACOS_NATIVE_LISTS_CSS);
             let chrome = gtk::CssProvider::new();
             chrome.load_from_string(&user);
             gtk::style_context_add_provider_for_display(
