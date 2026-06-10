@@ -9,7 +9,7 @@ alwaysApply: true
 
 ## Default: always-on failure logs
 
-Log to **`stderr`** with the existing **`[rhino]`** prefix and a short area tag (e.g. **`[rhino] preview:`**, **`[rhino] dvd:`**).
+Log to **`stderr`** with the existing **`[rhino]`** prefix and a short area tag (e.g. **`[rhino] preview:`**, **`[rhino] dvd:`**, **`[rhino] ui:`** for buttons/keys/menus via **`user_action_log::act`**).
 
 **Always print (no env var)** for:
 

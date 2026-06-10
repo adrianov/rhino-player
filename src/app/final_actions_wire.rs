@@ -28,6 +28,7 @@ fn wire_final_open_dialog(ctx: &FinalActionCtx) {
         #[strong]
         video_pref_open,
         move |_, _| {
+            crate::user_action_log::act("menu Open (file picker)");
             let Some(w) = app.active_window() else {
                 return;
             };

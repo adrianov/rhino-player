@@ -21,12 +21,14 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
         let app_q = app.clone();
         close_video.connect_activate(move |_, _| {
             if r.is_visible() || !crate::app::has_loaded_local_media(&p) {
+                crate::user_action_log::act("close video (browse) -> quit");
                 app_q.activate_action("quit", None);
                 return;
             }
             if p.borrow().is_none() {
                 return;
             }
+            crate::user_action_log::act("close video button -> back to browse");
             bb(true);
         });
     }
@@ -62,6 +64,7 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
             if r.is_visible() {
                 return;
             }
+            crate::user_action_log::act("move to trash (playing file)");
             let path = {
                 let g = p.borrow();
                 let Some(b) = g.as_ref() else { return };

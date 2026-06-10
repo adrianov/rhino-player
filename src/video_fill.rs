@@ -135,7 +135,14 @@ pub fn build_fill_header(
     });
 
     let sc = Rc::clone(&sync);
-    btn.connect_clicked(move |_| sc.apply_panscan(!sc.preferred.get()));
+    btn.connect_clicked(move |_| {
+        let on = !sc.preferred.get();
+        crate::user_action_log::act(format!(
+            "fill screen button -> {}",
+            if on { "on" } else { "off" }
+        ));
+        sc.apply_panscan(on);
+    });
 
     // Defer sync: window dimensions are updated after fullscreened-notify fires.
     let sw = Rc::clone(&sync);

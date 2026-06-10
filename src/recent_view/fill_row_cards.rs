@@ -195,6 +195,7 @@ fn append_history_card(
             let path = c.clone();
             let tr = h.on_trash.clone();
             trash.connect_clicked(move |_| {
+                crate::user_action_log::act(format!("continue trash {}", path.display()));
                 tr(&path);
             });
         }
@@ -215,6 +216,7 @@ fn append_history_card(
             &card,
             &c,
             Rc::new(move |()| {
+                crate::user_action_log::act(format!("continue remove {}", path.display()));
                 rem(&path);
             }),
             &hover_btns,
@@ -227,6 +229,7 @@ fn append_history_card(
             &card,
             &c,
             Rc::new(move |()| {
+                crate::user_action_log::act(format!("continue open {}", path.display()));
                 op(&path);
             }),
             &hover_btns,

@@ -16,7 +16,7 @@ struct OpenHandlerCtx {
 
 fn make_on_open_handler(ctx: OpenHandlerCtx) -> RcPathFn {
     Rc::new(move |path: &Path| {
-        eprintln!("[rhino] on_open from recent/menu: {}", path.display());
+        crate::user_action_log::act(format!("open video: {}", path.display()));
         let loaded = try_load(
             path,
             &ctx.player,

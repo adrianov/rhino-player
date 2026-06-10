@@ -35,6 +35,10 @@ fn try_load_sibling_pick(
     let Some(np) = pick(&cur) else {
         return;
     };
+    crate::user_action_log::act(format!(
+        "sibling {log_tag} button -> {}",
+        np.file_name().and_then(|s| s.to_str()).unwrap_or("?")
+    ));
     r.sibling_seof.done.set(false);
     r.sibling_seof.reset_playback_span();
     drop(g);

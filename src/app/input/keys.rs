@@ -20,18 +20,22 @@ fn propagation_for_media_keys(
     nav: &SiblingNavTryRefs,
 ) -> Option<glib::Propagation> {
     if key == gtk::gdk::Key::AudioPlay || key == gtk::gdk::Key::AudioPause {
+        crate::user_action_log::act("media key play/pause");
         let _ = toggle_play_pause(play_key);
         return Some(glib::Propagation::Stop);
     }
     if key == gtk::gdk::Key::AudioStop {
+        crate::user_action_log::act("media key stop");
         media_stop(play_key);
         return Some(glib::Propagation::Stop);
     }
     if key == gtk::gdk::Key::AudioPrev {
+        crate::user_action_log::act("media key previous");
         try_load_sibling_pick(sibling_advance::prev_before_current, "previous", nav);
         return Some(glib::Propagation::Stop);
     }
     if key == gtk::gdk::Key::AudioNext {
+        crate::user_action_log::act("media key next");
         try_load_sibling_pick(sibling_advance::next_after_eof, "next", nav);
         return Some(glib::Propagation::Stop);
     }
@@ -142,6 +146,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
             || key == gtk::gdk::Key::f
             || key == gtk::gdk::Key::F
         {
+            crate::user_action_log::act("key fullscreen (Enter/F)");
             toggle_fullscreen(
                 &win_key,
                 &fr_key,
@@ -152,6 +157,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
             return glib::Propagation::Stop;
         }
         if key == gtk::gdk::Key::m || key == gtk::gdk::Key::M {
+            crate::user_action_log::act("key mute toggle (M)");
             let g = p.borrow();
             let Some(b) = g.as_ref() else {
                 return glib::Propagation::Proceed;
@@ -166,6 +172,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
             return r;
         }
         if key == gtk::gdk::Key::Up {
+            crate::user_action_log::act("key volume up");
             let g = p.borrow();
             let Some(b) = g.as_ref() else {
                 return glib::Propagation::Proceed;
@@ -174,6 +181,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
             return glib::Propagation::Stop;
         }
         if key == gtk::gdk::Key::Down {
+            crate::user_action_log::act("key volume down");
             let g = p.borrow();
             let Some(b) = g.as_ref() else {
                 return glib::Propagation::Proceed;
@@ -183,10 +191,12 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
         }
         if m.contains(gtk::gdk::ModifierType::CONTROL_MASK) {
             if key == gtk::gdk::Key::Left || key == gtk::gdk::Key::KP_Left {
+                crate::user_action_log::act("key Ctrl+Left -> previous file");
                 try_load_sibling_pick(sibling_advance::prev_before_current, "previous", &nav);
                 return glib::Propagation::Stop;
             }
             if key == gtk::gdk::Key::Right || key == gtk::gdk::Key::KP_Right {
+                crate::user_action_log::act("key Ctrl+Right -> next file");
                 try_load_sibling_pick(sibling_advance::next_after_eof, "next", &nav);
                 return glib::Propagation::Stop;
             }
@@ -210,6 +220,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
         if key != gtk::gdk::Key::space {
             return glib::Propagation::Proceed;
         }
+        crate::user_action_log::act("key Space -> play/pause");
         if !toggle_play_pause(&play_key) {
             return glib::Propagation::Proceed;
         }

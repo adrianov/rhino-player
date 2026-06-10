@@ -13,6 +13,7 @@ fn propagation_escape_key(
     if player.borrow().is_none() {
         return Some(glib::Propagation::Stop);
     }
+    crate::user_action_log::act("key Escape -> back to browse");
     browse_back(true);
     Some(glib::Propagation::Stop)
 }
