@@ -38,24 +38,44 @@ fn wire_opaque_preview(st: &SeekPreviewState) {
     crate::macos_header_menu::attach_opaque_widget(st.container.upcast_ref());
 }
 
-fn win_fullscreen(st: &SeekPreviewState) -> bool {
+pub(super) fn win_fullscreen(st: &SeekPreviewState) -> bool {
     st.ovl
         .root()
         .and_then(|r| r.downcast::<adw::ApplicationWindow>().ok())
         .is_some_and(|w| w.is_fullscreen())
 }
 
+pub(crate) fn wire_theater_lifecycle(st: &std::rc::Rc<SeekPreviewState>) {
+    let Some(win) = st
+        .ovl
+        .root()
+        .and_then(|r| r.downcast::<adw::ApplicationWindow>().ok())
+    else {
+        return;
+    };
+    let st2 = std::rc::Rc::clone(st);
+    win.connect_fullscreened_notify(move |w| {
+        if !w.is_fullscreen() {
+            st2.theater_wired.set(false);
+            crate::preview_debug::info("theater exit — preview overlay raise may re-run");
+        }
+    });
+}
+
 pub(super) fn on_open(st: &SeekPreviewState) {
     if !win_fullscreen(st) {
         return;
     }
+    if st.theater_wired.get() {
+        st.gl.queue_render();
+        return;
+    }
     wire_opaque_preview(st);
+    // Once per theater session: re-adding unparents the frame and tears down GLArea.
     crate::macos_header_menu_overlay::raise_overlay_child(&st.ovl, &st.container);
+    st.theater_wired.set(true);
+    crate::preview_debug::info("theater overlay raised (once per fullscreen)");
     st.container.queue_allocate();
     st.gl.queue_render();
     crate::macos_header_menu::on_overlay_surface_opened();
-}
-
-pub(super) fn on_close() {
-    crate::macos_header_menu::on_menu_surface_closed();
 }

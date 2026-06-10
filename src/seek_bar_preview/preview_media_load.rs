@@ -109,16 +109,23 @@ pub(crate) fn preview_run_seek(mpv: &Mpv, load: &str, ifo_t: f64, optical: bool)
         .is_ok()
 }
 
+/// Downscale decode so hover scrub does not contend with main Smooth / VapourSynth decode.
+const PREVIEW_DECODE_MAX_W: i32 = 480;
+
 /// Lightweight decode for thumbnails; main-player `vf` / Bob deinterlace must not apply here.
 pub(crate) fn prepare_preview_player(mpv: &Mpv, load: &str) {
     // Software decode only — `hwdec=auto` on DVD `.vob` has broken `vo=libmpv` on macOS.
     let _ = mpv.set_property("hwdec", "no");
     if preview_media_is_optical(load) {
         let _ = mpv.set_property("hr-seek", "yes");
+        let _ = mpv.command("vf", &["clr", ""]);
     } else {
         let _ = mpv.set_property("hr-seek", false);
+        let w = PREVIEW_DECODE_MAX_W.to_string();
+        let scale = format!("scale={w}:-2");
+        let _ = mpv.command("vf", &["clr", ""]);
+        let _ = mpv.command("vf", &["append", scale.as_str()]);
     }
-    let _ = mpv.command("vf", &["clr", ""]);
     crate::mpv_embed::set_preview_tracks(mpv);
 }
 

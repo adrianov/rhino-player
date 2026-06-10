@@ -28,6 +28,10 @@ pub struct SeekPreviewState {
     pub hover_t: Rc<Cell<f64>>,
     pub last_xy: Rc<RefCell<Option<(f64, f64)>>>,
     pub deb: Rc<RefCell<Option<glib::SourceId>>>,
+    /// User-visible preview (theater uses opacity hide so the GLArea stays realised).
+    pub shown: Rc<Cell<bool>>,
+    /// macOS theater: overlay raise + opaque CSS wired once per fullscreen session.
+    pub theater_wired: Rc<Cell<bool>>,
     pub bottom: gtk::Box,
     pub ovl: gtk::Overlay,
 }
@@ -39,9 +43,24 @@ impl SeekPreviewState {
         }
     }
 
+    /// Auxiliary player still has the cached clip decoded and ready to render.
+    pub(crate) fn preview_media_warm(&self) -> bool {
+        if self.loaded_target.borrow().is_none() {
+            return false;
+        }
+        let g = self.preview.borrow();
+        let Some(pr) = g.as_ref() else {
+            return false;
+        };
+        pr.mpv.get_property::<bool>("vo-configured") == Ok(true)
+    }
+
+    pub(crate) fn is_open(&self) -> bool {
+        self.shown.get()
+    }
+
     pub(crate) fn show_at(&self, x: f64) {
-        #[cfg(target_os = "macos")]
-        let was_visible = self.container.is_visible();
+        let reopening = !self.shown.get();
         // frame: padding 3px + border 1px per side = 8px over gl width; use allocated width when ready.
         let preview_w = self.container.width().max(self.gl.width_request() + 8).max(1) as f64;
         let ovl_w = self.ovl.width().max(1) as f64;
@@ -56,21 +75,36 @@ impl SeekPreviewState {
         self.container.set_margin_start(margin_start);
         self.container.set_margin_bottom(margin_bottom);
         self.container.set_can_target(false);
-        self.container.set_visible(true);
+        self.shown.set(true);
         #[cfg(target_os = "macos")]
-        if !was_visible {
-            macos_compositing::on_open(self);
+        if macos_compositing::win_fullscreen(self) {
+            self.container.set_opacity(1.0);
+            self.container.set_visible(true);
+            if reopening {
+                macos_compositing::on_open(self);
+                if self.preview_media_warm() {
+                    self.gl.queue_render();
+                }
+            }
+            return;
+        }
+        self.container.set_visible(true);
+        if reopening && self.preview_media_warm() {
+            self.gl.queue_render();
         }
     }
 
     pub(crate) fn hide(&self) {
-        #[cfg(target_os = "macos")]
-        let was_visible = self.container.is_visible();
-        self.container.set_visible(false);
-        #[cfg(target_os = "macos")]
-        if was_visible {
-            macos_compositing::on_close();
+        if !self.shown.replace(false) {
+            return;
         }
+        #[cfg(target_os = "macos")]
+        if macos_compositing::win_fullscreen(self) {
+            self.container.set_opacity(0.0);
+            self.container.set_can_target(false);
+            return;
+        }
+        self.container.set_visible(false);
     }
 
     /// Main player opened another file — drop cached load target and hide until re-hover.
@@ -82,9 +116,10 @@ impl SeekPreviewState {
                 .borrow()
                 .as_ref()
                 .map(|p| p.display().to_string()),
-            self.container.is_visible()
+            self.is_open()
         ));
         self.serial.set(self.serial.get().wrapping_add(1));
+        self.shown.set(false);
         crate::glib_source_drop::drop_glib_source(self.deb.as_ref());
         crate::glib_source_drop::drop_glib_source(self.pump.as_ref());
         *self.loaded_target.borrow_mut() = None;
@@ -93,6 +128,7 @@ impl SeekPreviewState {
         *self.last_xy.borrow_mut() = None;
         if let Some(pr) = self.preview.borrow().as_ref() {
             reset_preview_player_decode(&pr.mpv);
+            self.clear_preview_visual();
         }
         self.hide();
     }
@@ -129,105 +165,7 @@ pub(crate) fn set_preview_size(st: &SeekPreviewState) {
     }
 }
 
-pub(crate) fn start_preview_frame_pump(
-    gl: &gtk::GLArea,
-    preview: &Rc<RefCell<Option<MpvPreviewGl>>>,
-    pump: &Rc<RefCell<Option<glib::SourceId>>>,
-    serial: &Rc<Cell<u64>>,
-    run_id: u64,
-    load: &str,
-    content_dur: f64,
-    seek_sec: f64,
-    optical: bool,
-) {
-    crate::glib_source_drop::drop_glib_source(pump.as_ref());
-    let gl2 = gl.clone();
-    let pr2 = Rc::clone(preview);
-    let pump2 = Rc::clone(pump);
-    let serial2 = Rc::clone(serial);
-    let n = Rc::new(Cell::new(0i32));
-    let max_ticks = if optical { 180 } else { 90 };
-    crate::preview_debug::info(format!(
-        "pump start run={run_id} seek={seek_sec:.2} dur={content_dur:.2} optical={optical} max_ticks={max_ticks}"
-    ));
-    let load_s = load.to_string();
-    let id = glib::source::timeout_add_local_full(VO_PUMP_STEP, glib::Priority::DEFAULT, move || {
-        if serial2.get() != run_id {
-            *pump2.borrow_mut() = None;
-            crate::preview_debug::log(format!("pump run={run_id} cancelled (serial stale)"));
-            return glib::ControlFlow::Break;
-        }
-        n.set(n.get() + 1);
-        if n.get() > max_ticks {
-            *pump2.borrow_mut() = None;
-            let snap = pr2
-                .borrow()
-                .as_ref()
-                .map(|pr| crate::preview_debug::mpv_line(&pr.mpv))
-                .unwrap_or_else(|| "no preview".into());
-            crate::preview_debug::warn(format!(
-                "pump timeout run={run_id} ticks={max_ticks} {snap}"
-            ));
-            return glib::ControlFlow::Break;
-        }
-        let mut p = pr2.borrow_mut();
-        let Some(pr) = p.as_mut() else {
-            *pump2.borrow_mut() = None;
-            crate::preview_debug::warn(format!("pump run={run_id} tick={}: no preview player", n.get()));
-            return glib::ControlFlow::Break;
-        };
-        while pr.mpv.wait_event(0.0).is_some() {}
-        if pr.mpv.get_property::<bool>("vo-configured") != Ok(true) {
-            if n.get() == 1 || n.get() % 15 == 0 {
-                crate::preview_debug::log(format!(
-                    "pump run={run_id} tick={}: waiting vo-configured ({})",
-                    n.get(),
-                    crate::preview_debug::mpv_line(&pr.mpv)
-                ));
-            }
-            return glib::ControlFlow::Continue;
-        }
-        let chapter = std::path::Path::new(&load_s);
-        if optical
-            && crate::dvd_vob_mpv_probe::is_title_chain_head(chapter)
-            && !crate::dvd_vob_timeline::chain_head_mpv_ready(chapter, &pr.mpv)
-        {
-            if n.get() == 1 || n.get() % 15 == 0 {
-                crate::preview_debug::log(format!(
-                    "pump run={run_id} tick={}: waiting chain-head duration ({})",
-                    n.get(),
-                    crate::preview_debug::mpv_line(&pr.mpv)
-                ));
-            }
-            return glib::ControlFlow::Continue;
-        }
-        let t = cap_preview_seek_time(seek_sec, content_dur);
-        let seek_ok = preview_run_seek(&pr.mpv, &load_s, t, optical);
-        crate::preview_debug::log(format!(
-            "pump run={run_id} tick={} seek={t:.2} ok={seek_ok} gl={}x{} ({})",
-            n.get(),
-            gl2.width(),
-            gl2.height(),
-            crate::preview_debug::mpv_line(&pr.mpv)
-        ));
-        if !seek_ok {
-            crate::preview_debug::warn(format!(
-                "pump run={run_id} seek failed t={t:.2} optical={optical}"
-            ));
-        }
-        if seek_ok {
-            gl2.queue_render();
-            crate::preview_debug::info(format!(
-                "pump done run={run_id} tick={} seek={t:.2} ({})",
-                n.get(),
-                crate::preview_debug::mpv_line(&pr.mpv)
-            ));
-        }
-        *pump2.borrow_mut() = None;
-        glib::ControlFlow::Break
-    });
-    *pump.borrow_mut() = Some(id);
-}
+include!("preview_frame_pump.rs");
 
 #[cfg(target_os = "macos")]
 mod macos_compositing {

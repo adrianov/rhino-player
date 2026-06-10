@@ -36,7 +36,7 @@ impl MpvPreviewGl {
             let _ = init.set_option("hwdec", "no");
             let _ = init.set_option("terminal", false);
             let _ = init.set_option("msg-level", "all=no");
-            let _ = init.set_option("vd-lavc-threads", 2i64);
+            let _ = init.set_option("vd-lavc-threads", 1i64);
             let _ = init.set_option("vd-lavc-fast", true);
             let _ = init.set_option("vd-lavc-skiploopfilter", "all");
             let _ = init.set_option("vd-lavc-skipidct", "nonkey");

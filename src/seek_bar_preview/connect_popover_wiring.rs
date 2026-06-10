@@ -48,37 +48,9 @@ pub fn connect(
     container.set_can_target(false);
 
     let preview = Rc::new(RefCell::new(None::<MpvPreviewGl>));
-    let pr_realize = Rc::clone(&preview);
-    gl.connect_realize(move |a| {
-        a.make_current();
-        if pr_realize.borrow().is_some() {
-            return;
-        }
-        match MpvPreviewGl::new(a) {
-            Ok(p) => {
-                crate::preview_debug::info("GLArea realised, preview mpv ready");
-                *pr_realize.borrow_mut() = Some(p);
-            }
-            Err(e) => crate::preview_debug::warn(format!("GL/mpv init failed: {e}")),
-        }
-    });
-    let pr_unrealize = Rc::clone(&preview);
-    gl.connect_unrealize(move |a| {
-        a.make_current();
-        if let Some(old) = pr_unrealize.borrow_mut().take() {
-            old.dispose(a);
-        }
-    });
-
-    let pr_draw = Rc::clone(&preview);
-    let gl_draw = gl.clone();
-    gl.connect_render(move |area, _| {
-        area.make_current();
-        if let Some(p) = pr_draw.borrow().as_ref() {
-            p.draw(&gl_draw);
-        }
-        glib::Propagation::Stop
-    });
+    let loaded_path = Rc::new(RefCell::new(None::<PathBuf>));
+    let loaded_target = Rc::new(RefCell::new(None::<String>));
+    let preview_owner_db = Rc::new(RefCell::new(None::<PathBuf>));
 
     let st = Rc::new(SeekPreviewState {
         container,
@@ -88,9 +60,9 @@ pub fn connect(
         preview,
         pump: Rc::new(RefCell::new(None)),
         serial: Rc::new(Cell::new(0)),
-        loaded_path: Rc::new(RefCell::new(None)),
-        loaded_target: Rc::new(RefCell::new(None)),
-        preview_owner_db: Rc::new(RefCell::new(None)),
+        loaded_path,
+        loaded_target,
+        preview_owner_db,
         enabled,
         seek: seek.clone(),
         seek_adj: seek_adj.clone(),
@@ -101,9 +73,15 @@ pub fn connect(
         hover_t: Rc::new(Cell::new(0.0)),
         last_xy: Rc::new(RefCell::new(None)),
         deb: Rc::new(RefCell::new(None)),
+        shown: Rc::new(Cell::new(false)),
+        theater_wired: Rc::new(Cell::new(false)),
         bottom,
         ovl,
     });
+
+    wire_preview_gl(&st);
+    #[cfg(target_os = "macos")]
+    macos_compositing::wire_theater_lifecycle(&st);
 
     let mot = gtk::EventControllerMotion::new();
 
@@ -172,9 +150,19 @@ pub fn connect(
                 return;
             }
 
+            let reopening = !st.is_open();
             st.show_at(x);
             crate::glib_source_drop::drop_glib_source(st.pump.as_ref());
-            arm_preview_debounce(Rc::clone(&st));
+            if reopening {
+                crate::preview_debug::info(format!(
+                    "reopen warm={} hover={:.2}",
+                    st.preview_media_warm(),
+                    st.hover_t.get()
+                ));
+                run_preview_seek_now(&st);
+            } else {
+                arm_preview_debounce(Rc::clone(&st));
+            }
         }
     ));
 
@@ -186,10 +174,6 @@ pub fn connect(
             crate::glib_source_drop::drop_glib_source(st.deb.as_ref());
             crate::glib_source_drop::drop_glib_source(st.pump.as_ref());
             *st.last_xy.borrow_mut() = None;
-            *st.loaded_target.borrow_mut() = None;
-            *st.loaded_path.borrow_mut() = None;
-            *st.preview_owner_db.borrow_mut() = None;
-            st.clear_preview_visual();
             st.hide();
         }
     ));

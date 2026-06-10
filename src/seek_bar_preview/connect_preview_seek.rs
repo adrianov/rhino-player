@@ -83,8 +83,21 @@ fn execute_preview_seek(st: &Rc<SeekPreviewState>, run_id: u64) -> glib::Control
         st.hide();
         return glib::ControlFlow::Break;
     };
-    do_preview_seek(st, &load_s, content_dur, t, run_id);
+    do_preview_seek(st, &load_s, content_dur, t, run_id, false);
     glib::ControlFlow::Break
+}
+
+fn preview_debounce(st: &SeekPreviewState) -> Duration {
+    let smooth = st
+        .player
+        .borrow()
+        .as_ref()
+        .is_some_and(|b| crate::video_pref::vf_chain_has_vapoursynth(&b.mpv));
+    if smooth {
+        Duration::from_millis(200)
+    } else {
+        PREVIEW_DEBOUNCE
+    }
 }
 
 /// Arm one trailing debounce; motion updates `hover_t` without resetting the timer.
@@ -97,13 +110,15 @@ pub(crate) fn arm_preview_debounce(st: Rc<SeekPreviewState>) {
         return;
     }
     let run_id = st.serial.get();
+    let deb = preview_debounce(&st);
     crate::preview_debug::info(format!(
-        "debounce arm run={run_id} hover={:.2}",
-        st.hover_t.get()
+        "debounce arm run={run_id} hover={:.2} ms={}",
+        st.hover_t.get(),
+        deb.as_millis()
     ));
     let st2 = Rc::clone(&st);
     let id = glib::source::timeout_add_local_full(
-        PREVIEW_DEBOUNCE,
+        deb,
         glib::Priority::DEFAULT,
         move || {
             let _ = st2.deb.borrow_mut().take();
@@ -117,79 +132,46 @@ pub(crate) fn schedule_preview_seek(st: Rc<SeekPreviewState>) {
     arm_preview_debounce(st);
 }
 
-fn preview_owner_db(player: &Rc<RefCell<Option<MpvBundle>>>) -> Option<PathBuf> {
-    let g = player.borrow();
-    let b = g.as_ref()?;
-    let shell = b.me_budget_shell_path.borrow().clone();
-    crate::playback_entity::open_playback(&b.mpv, shell.as_deref())
-        .map(|(ent, _)| ent.db_path())
+/// Seek immediately (no debounce) — reopen after hide or GL realise while hover is active.
+pub(crate) fn run_preview_seek_now(st: &Rc<SeekPreviewState>) {
+    crate::glib_source_drop::drop_glib_source(st.deb.as_ref());
+    let run_id = st.serial.get();
+    execute_preview_seek_instant(st, run_id);
 }
 
-fn do_preview_seek(
-    st: &Rc<SeekPreviewState>,
-    load_s: &str,
-    content_dur: f64,
-    t: f64,
-    run_id: u64,
-) {
-    let owner_db = preview_owner_db(&st.player);
-    let mut g = st.preview.borrow_mut();
-    let Some(pr) = g.as_mut() else {
-        crate::preview_debug::warn("do_seek: preview GL/mpv not realised yet");
+fn execute_preview_seek_instant(st: &Rc<SeekPreviewState>, run_id: u64) {
+    if st.serial.get() != run_id || !st.enabled.get() {
+        return;
+    }
+    let seek = {
+        let g = st.player.borrow();
+        let Some(b) = g.as_ref() else {
+            st.hide();
+            return;
+        };
+        let shell = b.me_budget_shell_path.borrow().clone();
+        let bar_d = st.seek_adj.upper();
+        let hover = st.hover_t.get();
+        let preview_guard = st.preview.borrow();
+        let preview_mpv = preview_guard.as_ref().map(|p| &p.mpv);
+        crate::playback_entity::preview_seek_plan_for_open(
+            &b.mpv,
+            shell.as_deref(),
+            hover,
+            bar_d,
+            Some(&st.dvd_bar),
+            preview_mpv,
+        )
+        .map(|plan| {
+            let t = cap_preview_seek_time(plan.local_sec, plan.content_dur);
+            (plan.load, plan.content_dur, t)
+        })
+    };
+    let Some((load_s, content_dur, t)) = seek else {
+        st.hide();
         return;
     };
-    if load_s.is_empty() {
-        crate::preview_debug::warn("do_seek: empty load target");
-        return;
-    }
-    let cache = preview_cache_path(load_s);
-    let entity_changed = owner_db.as_ref() != st.preview_owner_db.borrow().as_ref();
-    let need_load =
-        entity_changed || st.loaded_target.borrow().as_deref() != Some(load_s);
-    let optical = preview_media_is_optical(load_s);
-    crate::preview_debug::info(format!(
-        "do_seek load={load_s} t={t:.2} dur={content_dur:.2} need_load={need_load} entity_chg={entity_changed} optical={optical}"
-    ));
-
-    if need_load {
-        pr.clear_framebuffer(&st.gl);
-        prepare_preview_player(&pr.mpv, load_s);
-        if let Err(e) = pr.mpv.command("loadfile", &[load_s, "replace"]) {
-            crate::preview_debug::warn(format!("loadfile failed: {e:?} ({load_s})"));
-            return;
-        }
-        crate::preview_debug::info(format!(
-            "loadfile ok ({})",
-            crate::preview_debug::mpv_line(&pr.mpv)
-        ));
-        *st.loaded_path.borrow_mut() = Some(cache);
-        *st.loaded_target.borrow_mut() = Some(load_s.to_string());
-        *st.preview_owner_db.borrow_mut() = owner_db;
-        drop(g);
-        start_preview_frame_pump(
-            &st.gl,
-            &st.preview,
-            &st.pump,
-            &st.serial,
-            run_id,
-            load_s,
-            content_dur,
-            t,
-            optical,
-        );
-    } else {
-        set_preview_tracks(&pr.mpv);
-        drop(g);
-        start_preview_frame_pump(
-            &st.gl,
-            &st.preview,
-            &st.pump,
-            &st.serial,
-            run_id,
-            load_s,
-            content_dur,
-            t,
-            optical,
-        );
-    }
+    do_preview_seek(st, &load_s, content_dur, t, run_id, true);
 }
+
+include!("preview_do_seek.rs");
