@@ -4,25 +4,44 @@ use zenwebp::PixelLayout;
 
 use crate::thumb_texture;
 
+/// One encoded screenshot; `dark` marks a mostly-black frame (real dark scene or not-yet-decoded VO buffer).
+struct Capture {
+    webp: Vec<u8>,
+    dark: bool,
+}
+
+/// Consecutive dark polls (50 ms apart) before a dark frame counts as the real decoded picture
+/// (legit dark scene at the continue position) rather than an undecoded buffer.
+const DARK_STABLE_POLLS: u32 = 20;
+
 /// Poll until one decoded frame is available, then return WebP bytes (no temp files).
-/// Blank-frame polls are coalesced: one line on the first blank, a count on timeout.
+/// A bright frame returns immediately; a stable dark frame is accepted after
+/// [DARK_STABLE_POLLS] so dark scenes (night shots, logos) still get a thumbnail.
 pub(super) fn capture_screenshot_webp(m: &mut Mpv, wait_secs: u64) -> Option<Vec<u8>> {
     let deadline = Instant::now() + Duration::from_secs(wait_secs);
     let mut polls: u32 = 0;
+    let mut dark_run: u32 = 0;
+    let mut dark_webp: Option<Vec<u8>> = None;
     loop {
         while m.wait_event(0.0).is_some() {}
         match try_screenshot_raw_webp(m, polls == 0) {
-            Some(b) if thumb_texture::thumb_webp_valid(&b) => return Some(b),
-            Some(b) => {
-                eprintln!(
-                    "[rhino] grid_thumb screenshot-raw incomplete webp bytes={}",
-                    b.len()
-                );
+            Some(c) if !c.dark => return Some(c.webp),
+            Some(c) => {
+                dark_run += 1;
+                dark_webp = Some(c.webp);
             }
-            None => {}
+            None => dark_run = 0,
+        }
+        if dark_run >= DARK_STABLE_POLLS {
+            eprintln!("[rhino] grid_thumb dark frame accepted after {dark_run} stable polls");
+            return dark_webp;
         }
         polls += 1;
         if Instant::now() >= deadline {
+            if dark_webp.is_some() {
+                eprintln!("[rhino] grid_thumb dark frame accepted at timeout");
+                return dark_webp;
+            }
             eprintln!("[rhino] grid_thumb screenshot-raw capture timeout after {polls} polls");
             return None;
         }
@@ -30,36 +49,29 @@ pub(super) fn capture_screenshot_webp(m: &mut Mpv, wait_secs: u64) -> Option<Vec
     }
 }
 
-fn try_screenshot_raw_webp(m: &Mpv, log_blank: bool) -> Option<Vec<u8>> {
+fn try_screenshot_raw_webp(m: &Mpv, log_blank: bool) -> Option<Capture> {
     let mut root = mpv_command_ret(m, &["screenshot-raw", "video"])?;
     // Encode from mpv's byte slice before freeing the node (no pixel-buffer copy).
     let out = unsafe { encode_screenshot_node(&root, log_blank) };
     unsafe {
         libmpv2_sys::mpv_free_node_contents(&mut root);
     }
-    out
-}
-
-fn mpv_command_ret(m: &Mpv, args: &[&str]) -> Option<libmpv2_sys::mpv_node> {
-    let mut cstr_args: Vec<CString> = Vec::with_capacity(args.len());
-    for arg in args {
-        cstr_args.push(CString::new(*arg).ok()?);
-    }
-    let mut ptrs: Vec<_> = cstr_args.iter().map(|c| c.as_ptr()).collect();
-    ptrs.push(std::ptr::null());
-    let mut result = std::mem::MaybeUninit::<libmpv2_sys::mpv_node>::zeroed();
-    let err = unsafe {
-        libmpv2_sys::mpv_command_ret(m.ctx.as_ptr(), ptrs.as_mut_ptr(), result.as_mut_ptr())
-    };
-    if err < 0 {
-        eprintln!("[rhino] grid_thumb screenshot-raw mpv err={err}");
+    let c = out?;
+    if !thumb_texture::thumb_webp_valid(&c.webp) {
+        eprintln!(
+            "[rhino] grid_thumb screenshot-raw incomplete webp bytes={}",
+            c.webp.len()
+        );
         return None;
     }
-    Some(unsafe { result.assume_init() })
+    Some(c)
 }
 
+include!("thumb_mpv_node.rs");
+include!("thumb_frame_dark.rs");
+
 /// Borrow mpv `screenshot-raw` pixels and hand them to zenwebp without copying.
-unsafe fn encode_screenshot_node(root: &libmpv2_sys::mpv_node, log_blank: bool) -> Option<Vec<u8>> {
+unsafe fn encode_screenshot_node(root: &libmpv2_sys::mpv_node, log_blank: bool) -> Option<Capture> {
     let w = map_i64(root, b"w")? as usize;
     let h = map_i64(root, b"h")? as usize;
     if w == 0 || h == 0 {
@@ -71,146 +83,6 @@ unsafe fn encode_screenshot_node(root: &libmpv2_sys::mpv_node, log_blank: bool) 
     raw_frame_to_webp(w, h, stride, fmt, data, log_blank)
 }
 
-unsafe fn map_i64(map: &libmpv2_sys::mpv_node, want: &[u8]) -> Option<i64> {
-    let vn = map_field(map, want)?;
-    if vn.format == libmpv2_sys::mpv_format_MPV_FORMAT_INT64 {
-        Some(vn.u.int64)
-    } else if vn.format == libmpv2_sys::mpv_format_MPV_FORMAT_DOUBLE {
-        Some(vn.u.double_ as i64)
-    } else {
-        None
-    }
-}
-
-unsafe fn map_format_str<'a>(map: &'a libmpv2_sys::mpv_node, want: &[u8]) -> Option<&'a str> {
-    let vn = map_field(map, want)?;
-    if vn.format != libmpv2_sys::mpv_format_MPV_FORMAT_STRING {
-        return None;
-    }
-    let sp = vn.u.string;
-    if sp.is_null() {
-        return None;
-    }
-    CStr::from_ptr(sp).to_str().ok()
-}
-
-unsafe fn map_byte_slice<'a>(map: &'a libmpv2_sys::mpv_node, want: &[u8]) -> Option<&'a [u8]> {
-    let vn = map_field(map, want)?;
-    if vn.format != libmpv2_sys::mpv_format_MPV_FORMAT_BYTE_ARRAY {
-        return None;
-    }
-    let ba = vn.u.ba;
-    if ba.is_null() {
-        return None;
-    }
-    let data = (*ba).data;
-    let size = (*ba).size as usize;
-    if data.is_null() || size == 0 {
-        return None;
-    }
-    Some(std::slice::from_raw_parts(data.cast::<u8>(), size))
-}
-
-unsafe fn map_field<'a>(
-    map: &'a libmpv2_sys::mpv_node,
-    want: &[u8],
-) -> Option<&'a libmpv2_sys::mpv_node> {
-    if map.format != libmpv2_sys::mpv_format_MPV_FORMAT_NODE_MAP {
-        return None;
-    }
-    let list_ptr = map.u.list;
-    if list_ptr.is_null() {
-        return None;
-    }
-    let n = (*list_ptr).num as usize;
-    let keys = (*list_ptr).keys;
-    let vals = (*list_ptr).values;
-    if keys.is_null() || vals.is_null() || n == 0 {
-        return None;
-    }
-    for i in 0..n {
-        let key_ptr = *keys.add(i);
-        if key_ptr.is_null() {
-            continue;
-        }
-        if CStr::from_ptr(key_ptr).to_bytes() != want {
-            continue;
-        }
-        return Some(&*vals.add(i));
-    }
-    None
-}
-
-struct MpvPackedFmt {
-    layout: PixelLayout,
-    bpp: usize,
-}
-
-fn mpv_packed_fmt(fmt: &str) -> Option<MpvPackedFmt> {
-    match fmt {
-        "bgr0" | "bgr24" | "bgra" => Some(MpvPackedFmt {
-            layout: if fmt == "bgr24" {
-                PixelLayout::Bgr8
-            } else {
-                PixelLayout::Bgra8
-            },
-            bpp: if fmt == "bgr24" { 3 } else { 4 },
-        }),
-        "rgb0" | "rgb24" | "rgba" => Some(MpvPackedFmt {
-            layout: if fmt == "rgb24" {
-                PixelLayout::Rgb8
-            } else {
-                PixelLayout::Rgba8
-            },
-            bpp: if fmt == "rgb24" { 3 } else { 4 },
-        }),
-        _ => {
-            eprintln!("[rhino] grid_thumb screenshot-raw unsupported format={fmt}");
-            None
-        }
-    }
-}
-
-fn channel_order(fmt: &str) -> (usize, usize, usize) {
-    match fmt {
-        "bgr0" | "bgr24" | "bgra" => (2, 1, 0),
-        _ => (0, 1, 2),
-    }
-}
-
-/// Reject undecoded / empty VO buffers (all near-black samples).
-fn packed_frame_mostly_black(
-    w: usize,
-    h: usize,
-    row_stride: usize,
-    bpp: usize,
-    fmt: &str,
-    data: &[u8],
-) -> bool {
-    let (ri, gi, bi) = channel_order(fmt);
-    let step_y = (h / 8).max(1);
-    let step_x = (w / 8).max(1);
-    let mut samples = 0u32;
-    let mut bright = 0u32;
-    for y in (0..h).step_by(step_y) {
-        let row = y * row_stride;
-        for x in (0..w).step_by(step_x) {
-            let i = row + x * bpp;
-            if i + bi >= data.len() {
-                continue;
-            }
-            samples += 1;
-            let r = data[i + ri];
-            let g = data[i + gi];
-            let b = data[i + bi];
-            if r.max(g).max(b) > 12 {
-                bright += 1;
-            }
-        }
-    }
-    samples > 0 && bright * 20 < samples
-}
-
 fn raw_frame_to_webp(
     w: usize,
     h: usize,
@@ -218,9 +90,9 @@ fn raw_frame_to_webp(
     fmt: &str,
     data: &[u8],
     log_blank: bool,
-) -> Option<Vec<u8>> {
+) -> Option<Capture> {
     let pf = mpv_packed_fmt(fmt)?;
-    let row_stride = stride.unsigned_abs() as usize;
+    let row_stride = stride.unsigned_abs();
     if row_stride < w * pf.bpp {
         eprintln!(
             "[rhino] grid_thumb screenshot-raw short stride={row_stride} need={} {w}x{h} fmt={fmt}",
@@ -240,14 +112,14 @@ fn raw_frame_to_webp(
         );
         return None;
     }
-    if packed_frame_mostly_black(w, h, row_stride, pf.bpp, fmt, data) {
-        if log_blank {
-            eprintln!("[rhino] grid_thumb screenshot-raw blank frame {w}x{h} fmt={fmt} (suppressing repeats)");
-        }
-        return None;
+    let dark = packed_frame_mostly_black(w, h, row_stride, pf.bpp, fmt, data);
+    if dark && log_blank {
+        eprintln!("[rhino] grid_thumb screenshot-raw dark frame {w}x{h} fmt={fmt} (accept when stable)");
     }
     let stride_pixels = row_stride / pf.bpp;
-    thumb_texture::encode_packed_webp(data, w as u32, h as u32, stride_pixels, pf.layout)
+    let webp =
+        thumb_texture::encode_packed_webp(data, w as u32, h as u32, stride_pixels, pf.layout)?;
+    Some(Capture { webp, dark })
 }
 
 #[cfg(test)]
@@ -265,18 +137,21 @@ mod tests {
             px[2] = 30 + i as u8;
             px[3] = 255;
         }
-        let wbytes = raw_frame_to_webp(w, h, (w * 4) as isize, "bgr0", &data, true).unwrap();
-        assert!(thumb_texture::thumb_webp_valid(&wbytes));
-        let (rgb, dw, dh) = zenwebp::oneshot::decode_rgb(&wbytes).unwrap();
+        let c = raw_frame_to_webp(w, h, (w * 4) as isize, "bgr0", &data, true).unwrap();
+        assert!(!c.dark);
+        assert!(thumb_texture::thumb_webp_valid(&c.webp));
+        let (rgb, dw, dh) = zenwebp::oneshot::decode_rgb(&c.webp).unwrap();
         assert_eq!((dw, dh), (w as u32, h as u32));
         assert_eq!(rgb.len(), w * h * 3);
     }
 
     #[test]
-    fn all_black_frame_rejected() {
+    fn all_black_frame_marked_dark() {
         let w = 8;
         let h = 8;
         let data = vec![0u8; w * h * 4];
-        assert!(raw_frame_to_webp(w, h, (w * 4) as isize, "bgr0", &data, true).is_none());
+        let c = raw_frame_to_webp(w, h, (w * 4) as isize, "bgr0", &data, true).unwrap();
+        assert!(c.dark);
+        assert!(thumb_texture::thumb_webp_valid(&c.webp));
     }
 }
