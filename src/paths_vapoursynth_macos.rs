@@ -2,6 +2,7 @@
 // dlopen **`libvapoursynth-script.dylib`**. macOS dyld only honors **`DYLD_LIBRARY_PATH` at process start**
 // — set it via a one-time **re-exec** ([`macos_reexec_for_vapoursynth_dyld_if_needed`]).
 
+#[cfg(target_os = "macos")]
 use std::ffi::{CString, OsString};
 
 #[cfg(target_os = "macos")]

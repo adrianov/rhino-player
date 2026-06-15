@@ -74,6 +74,7 @@ pub fn connect(
         last_xy: Rc::new(RefCell::new(None)),
         deb: Rc::new(RefCell::new(None)),
         shown: Rc::new(Cell::new(false)),
+        #[cfg(target_os = "macos")]
         theater_wired: Rc::new(Cell::new(false)),
         bottom,
         ovl,

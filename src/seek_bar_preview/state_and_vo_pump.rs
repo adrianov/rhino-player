@@ -31,6 +31,7 @@ pub struct SeekPreviewState {
     /// User-visible preview (theater uses opacity hide so the GLArea stays realised).
     pub shown: Rc<Cell<bool>>,
     /// macOS theater: overlay raise + opaque CSS wired once per fullscreen session.
+    #[cfg(target_os = "macos")]
     pub theater_wired: Rc<Cell<bool>>,
     pub bottom: gtk::Box,
     pub ovl: gtk::Overlay,
