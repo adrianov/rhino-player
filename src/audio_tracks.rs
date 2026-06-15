@@ -50,10 +50,11 @@ fn apply_user_audio_pick(bundle: &MpvBundle, row: &AudioMenuRow, label: &str, sh
         return;
     };
     let changed = current_aid(&bundle.mpv) != Some(aid);
+    let av_prep = changed.then(|| crate::video_pref::snap_audio_track_av_resync(bundle)).flatten();
     set_aid(&bundle.mpv, aid);
     save_choice(&bundle.mpv, aid, label, shell);
     if changed {
-        crate::video_pref::resync_av_after_audio_track_change(bundle);
+        crate::video_pref::finish_audio_track_av_resync(bundle, av_prep);
     }
 }
 

@@ -114,16 +114,51 @@ pub(crate) fn smooth_off_refresh_playhead(
     vf_av_ping_render(bundle);
 }
 
-/// User picked another audio stream while the smooth motion filter graph is active.
-pub(crate) fn resync_av_after_audio_track_change(b: &crate::mpv_embed::MpvBundle) {
+/// Pause + playhead captured **before** `aid` changes (decoder reopen would skew clocks).
+pub(crate) struct AudioTrackAvSnap {
+    snap: VfAvSnap,
+    playhead: f64,
+}
+
+/// Call immediately before `set_property("aid", …)` when Smooth **`vf`** is active and playing.
+pub(crate) fn snap_audio_track_av_resync(b: &crate::mpv_embed::MpvBundle) -> Option<AudioTrackAvSnap> {
     let mpv = &b.mpv;
     if !vf_chain_has_vapoursynth(mpv) || mpv.get_property::<bool>("pause").unwrap_or(true) {
+        return None;
+    }
+    cancel_deferred_vf_swap();
+    let playhead = vf_resync_playhead_sec(mpv, Some(b))?;
+    Some(AudioTrackAvSnap {
+        snap: vf_swap_snap(mpv, true),
+        playhead,
+    })
+}
+
+fn schedule_audio_track_resync_tail() {
+    let gen = VF_SWAP_GEN.get().saturating_add(1);
+    VF_SWAP_GEN.set(gen);
+    let _ = glib::timeout_add_local_once(std::time::Duration::from_millis(VF_SWAP_TAIL_MS), move || {
+        if VF_SWAP_GEN.get() != gen {
+            return;
+        }
+        request_smooth_resync_after_swap();
+    });
+}
+
+/// Exact seek to the pre-**`aid`** playhead, then debounced transport resync after the **`vf`** re-inits.
+pub(crate) fn finish_audio_track_av_resync(
+    b: &crate::mpv_embed::MpvBundle,
+    prep: Option<AudioTrackAvSnap>,
+) {
+    let Some(prep) = prep else {
         return;
-    }
-    if let Some(t) = vf_resync_playhead_sec(mpv, Some(b)) {
-        let s = format!("{t:.4}");
-        let _ = mpv.command("seek", &[s.as_str(), "absolute+exact"]);
-        eprintln!("[rhino] video: audio-track playhead resync seek t={s}");
-    }
+    };
+    let mpv = &b.mpv;
+    let s = format!("{:.4}", prep.playhead);
+    let _ = mpv.command("seek", &[s.as_str(), "absolute+exact"]);
+    eprintln!("[rhino] video: audio-track playhead resync seek t={s}");
+    vf_swap_unpause(mpv, &prep.snap);
     vf_av_ping_render(Some(b));
+    schedule_audio_track_resync_tail();
+    log_smooth_avsync(mpv);
 }
