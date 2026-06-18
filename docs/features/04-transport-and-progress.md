@@ -37,6 +37,12 @@ Feature: Transport controls and progress
     Then the seek control is disabled
     And the speed control sensitivity matches the seek bar
 
+  Scenario: Long single-file duration is not capped like a DVD chapter
+    Given a local file longer than four hours is open with a known duration from the playback engine
+    When the transport bar updates
+    Then the total time label shows the full file length
+    And the seek bar range matches that length
+
   Scenario: Play / Pause is enabled only when duration is known
     Given a media file is loading
     When duration becomes greater than zero
@@ -65,6 +71,7 @@ Feature: Transport controls and progress
 ## Notes
 - Properties observed: `time-pos`, `duration`, `pause`, `mute`, `volume`, `volume-max`, `speed`, `path`, `fullscreen`, `media-title`.
 - When `core-idle` or `eof-reached` and position is within `NEAR_END_SEC` of reported duration but streams ended earlier, the seek bar and duration label use `time-pos` after playback has entered the tail (same gate as sibling EOF advance).
+- Per-chapter DVD `.vob` duration cap (`MAX_VOB_DUR_SEC`, 4 h) applies only to unified DVD title timelines — not to single-file media (long MKV/MP4 must keep mpv `duration` intact).
 - Seek uses `seek <seconds> absolute+keyframes` (fallback: setting `time-pos`).
 - Optional hover preview popover is owned by [18-thumbnail-preview](18-thumbnail-preview.md).
 - Keyboard arrow seeks (± five seconds) live in this feature; transport uses the same seek behavior as the bottom bar ([04-transport-and-progress](04-transport-and-progress.md)).
