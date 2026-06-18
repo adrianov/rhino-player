@@ -32,6 +32,12 @@ fn transport_bar_ignores_dvd_bar_for_single_file() {
         file_ent.transport_bar(&mkv, 12.0, 3600.0, Some(&bar), None),
         (3600.0, 12.0)
     );
+    // DVD per-`.vob` cap must not zero long single-file durations (e.g. 4+ h MKV).
+    let long_sec = crate::dvd_vob_timeline::MAX_VOB_DUR_SEC + 743.0;
+    assert_eq!(
+        file_ent.transport_bar(&mkv, 100.0, long_sec, None, None),
+        (long_sec, 100.0)
+    );
     let dvd_ent = PlaybackEntity::resolve(&p1);
     assert!(dvd_ent.uses_dvd_bar_cache());
     assert_eq!(dvd_ent.transport_duration_from_bar(&p1, &bar), Some(300.0));

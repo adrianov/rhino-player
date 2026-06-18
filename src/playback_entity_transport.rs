@@ -55,7 +55,12 @@ impl PlaybackEntity {
             0.0
         };
         let local_dur = if local_dur.is_finite() {
-            crate::dvd_vob_timeline::clamp_vob_duration(local_dur.max(0.0))
+            let d = local_dur.max(0.0);
+            if self.has_unified_timeline() {
+                crate::dvd_vob_timeline::clamp_vob_duration(d)
+            } else {
+                d
+            }
         } else {
             0.0
         };

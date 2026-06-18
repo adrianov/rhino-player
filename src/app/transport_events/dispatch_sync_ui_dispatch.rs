@@ -10,6 +10,32 @@ fn sync_smooth_vf_on_pause_transition(ctx: &Rc<TransportCtx>, paused: bool) {
     ctx.eof.gl.queue_render();
 }
 
+fn dispatch_duration_event(ctx: &Rc<TransportCtx>, raw: f64) {
+    let w = &ctx.widgets;
+    let mut d = if raw.is_finite() { raw } else { 0.0 };
+    if d > 0.0 {
+        maybe_refresh_dvd_bar_cache(ctx);
+        if !ctx.recent_visible.get() {
+            try_apply_pending_resume(ctx);
+        }
+    }
+    if let Some(ch) = transport_chapter_path_for_ctx(ctx) {
+        if crate::playback_entity::PlaybackEntity::resolve(&ch).has_unified_timeline() {
+            d = crate::dvd_vob_timeline::clamp_vob_duration(d);
+        }
+    }
+    let bar_d = dvd_bar_duration(ctx).unwrap_or(d);
+    ctx.cache.borrow_mut().duration = bar_d;
+    sync_seek_range(w, bar_d);
+    sync_duration_label(w, bar_d);
+    sync_speed_header(&ctx.player, w, d);
+    refresh_play_button(ctx);
+    sync_seek_chapters(ctx);
+    if ctx.recent_visible.get() && d > 0.0 {
+        schedule_warm_path_settle(Rc::clone(&ctx.player));
+    }
+}
+
 fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
     let w = &ctx.widgets;
     if std::env::var_os("RHINO_TRANSPORT_TRACE").is_some() {
@@ -22,28 +48,7 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             sync_smooth_vf_on_pause_transition(ctx, p);
             ctx.blackout.sync();
         }
-        TransportEv::Duration(d) => {
-            let mut d = if d.is_finite() { d } else { 0.0 };
-            if d > 0.0 {
-                maybe_refresh_dvd_bar_cache(ctx);
-                if !ctx.recent_visible.get() {
-                    try_apply_pending_resume(ctx);
-                }
-            }
-            if transport_chapter_path_for_ctx(ctx).is_some() {
-                d = crate::dvd_vob_timeline::clamp_vob_duration(d);
-            }
-            let bar_d = dvd_bar_duration(ctx).unwrap_or(d);
-            ctx.cache.borrow_mut().duration = bar_d;
-            sync_seek_range(w, bar_d);
-            sync_duration_label(w, bar_d);
-            sync_speed_header(&ctx.player, w, d);
-            refresh_play_button(ctx);
-            sync_seek_chapters(ctx);
-            if ctx.recent_visible.get() && d > 0.0 {
-                schedule_warm_path_settle(Rc::clone(&ctx.player));
-            }
-        }
+        TransportEv::Duration(d) => dispatch_duration_event(ctx, d),
         TransportEv::Volume(v) => sync_volume(w, v),
         TransportEv::Mute(m) => sync_mute(w, m),
         TransportEv::VolumeMax(vmax) => sync_volume_max(w, vmax),
