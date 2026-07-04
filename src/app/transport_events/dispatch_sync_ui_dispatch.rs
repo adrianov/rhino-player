@@ -1,12 +1,27 @@
+/// Unpause needs a Smooth resync only when the graph is missing / was stripped (Smooth on),
+/// or a stale graph must be removed (Smooth off). Plain pause→resume with a live graph skips it.
+fn smooth_needs_reattach_on_unpause(ctx: &Rc<TransportCtx>) -> bool {
+    // try_borrow: pause events may be dispatched while the bundle is already borrowed.
+    let Ok(g) = ctx.player.try_borrow() else {
+        return false;
+    };
+    let Some(b) = g.as_ref() else {
+        return false;
+    };
+    if !has_open_path(&b.mpv) {
+        return false;
+    }
+    let has_vf = crate::video_pref::vf_chain_has_vapoursynth(&b.mpv);
+    if !ctx.video_pref.borrow().smooth_60 {
+        return has_vf;
+    }
+    b.smooth_vf_stripped_this_open() || !has_vf
+}
+
 fn sync_smooth_vf_on_pause_transition(ctx: &Rc<TransportCtx>, paused: bool) {
-    with_bundle(&ctx.player, |b| {
-        if !has_open_path(&b.mpv) {
-            return;
-        }
-        if !paused {
-            schedule_smooth_60_resync_idle(ctx);
-        }
-    });
+    if !paused && smooth_needs_reattach_on_unpause(ctx) {
+        schedule_smooth_60_resync_idle(ctx);
+    }
     ctx.eof.gl.queue_render();
 }
 

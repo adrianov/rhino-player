@@ -55,14 +55,15 @@ fn schedule_seek_burst_tail(
     *slot.borrow_mut() = Some(id);
 }
 
-/// Seek main mpv with `absolute+keyframes`, keeping any vapoursynth **`vf`** attached.
+/// Seek main mpv with `absolute+keyframes`. **While already paused**, strip vapoursynth **`vf`**
+/// before the seek so the still frame appears quickly; **while playing**, keep the graph attached.
 ///
 /// **[SeekKeyframeKind::ArrowBurst]**: pause through **`apply_mpv_pause`** when the clip was
 /// playing; remember “should resume” for the whole burst; after [`SEEK_BURST_TAIL_IDLE_MS`] without
-/// another seek, unpause if so and reattach Smooth — coalesces rapid arrow seeks.
+/// another seek, unpause if so — coalesces rapid arrow seeks.
 ///
 /// **[SeekKeyframeKind::ScaleOrExternal]**: leaves pause alone; if this seek begins while playing,
-/// debounce Smooth reattach only. If an arrow burst left **`resume_after_seek_idle`** latched, the
+/// debounce Smooth resync only. If an arrow burst left **`resume_after_seek_idle`** latched, the
 /// same tail timer still runs (seek-bar scrub while “held” paused for arrows).
 fn seek_keyframes_after_command(
     p: &SeekKeyframeParams<'_>,
@@ -139,10 +140,17 @@ fn main_player_seek_keyframes(p: &SeekKeyframeParams<'_>, kind: SeekKeyframeKind
             ));
             return;
         }
-        // Keep the vapoursynth graph attached through seeks: once mpv destroys that filter,
-        // every later `vf add vapoursynth` in this process fails with MPV_ERROR_COMMAND
-        // (observed on macOS; see feature 26 Notes). Only the disc cadence gate is marked.
-        video_pref::mark_smooth_cadence_unstable_after_seek_if_disc(&b.mpv);
+        // Strip only when the user is genuinely paused: a latched `resume_after_seek_idle`
+        // means this pause is a transient arrow-burst hold and playback resumes at the tail.
+        let user_paused = paused_before && !p.resume_after_seek_idle.get();
+        if user_paused {
+            // Also marks the disc cadence gate internally.
+            if video_pref::unload_smooth_on_pause(&b.mpv, Some(b)) {
+                eprintln!("[rhino] video: vf stripped for paused seek (fast still frame)");
+            }
+        } else {
+            video_pref::mark_smooth_cadence_unstable_after_seek_if_disc(&b.mpv);
+        }
         let _ = b.mpv.command("seek", &[seconds, "absolute+keyframes"]);
     }
     seek_keyframes_after_command(p, kind, paused_before);

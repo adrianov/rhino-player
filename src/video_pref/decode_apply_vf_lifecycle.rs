@@ -170,9 +170,8 @@ fn log_vf_diagnostics(mpv: &Mpv, vlog: bool) {
     }
 }
 
-/// Drop the vapoursynth `vf` immediately before a **seek** (or similar position jump) when it is
-/// still present so mpv can decode a real frame — especially while **paused**. Plain pause/unpause
-/// does not call this.
+/// Drop the vapoursynth `vf` before a **seek while paused** (or similar position jump) so mpv can
+/// show a still frame quickly. Plain pause/unpause does not call this; playing seeks keep the graph.
 pub fn unload_smooth_on_pause(mpv: &Mpv, bundle: Option<&MpvBundle>) -> bool {
     mark_smooth_cadence_unstable_after_seek_if_disc(mpv);
     if !vf_chain_has_vapoursynth(mpv) {
