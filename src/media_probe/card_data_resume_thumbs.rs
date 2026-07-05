@@ -244,13 +244,5 @@ pub(crate) fn db_thumb_for_entity_key(
 /// Card art: fresh frame when available, else last stored BLOB (avoids placeholder flash while backfill runs).
 pub(crate) fn cached_thumbnail_for_display(path: &Path) -> Option<Vec<u8>> {
     let entity = crate::playback_entity::db_path_for(path);
-    cached_thumbnail_fresh(path).or_else(|| {
-        db::stored_thumb_webp(&entity).and_then(|b| {
-            if crate::thumb_texture::thumb_webp_is_flat_fill(&b) {
-                None
-            } else {
-                Some(b)
-            }
-        })
-    })
+    cached_thumbnail_fresh(path).or_else(|| db::stored_thumb_webp(&entity))
 }
