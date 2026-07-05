@@ -70,3 +70,32 @@ fn packed_frame_mostly_black(
     }
     samples > 0 && bright * 20 < samples
 }
+
+/// Almost no color variation across samples: mpv vo=null placeholder after hr-seek, not a real picture.
+fn packed_frame_mostly_flat(
+    w: usize,
+    h: usize,
+    row_stride: usize,
+    bpp: usize,
+    fmt: &str,
+    data: &[u8],
+) -> bool {
+    let (ri, gi, bi) = channel_order(fmt);
+    let step_y = (h / 8).max(1);
+    let step_x = (w / 8).max(1);
+    let mut buckets = std::collections::HashSet::new();
+    for y in (0..h).step_by(step_y) {
+        let row = y * row_stride;
+        for x in (0..w).step_by(step_x) {
+            let i = row + x * bpp;
+            if i + bi >= data.len() {
+                continue;
+            }
+            let r = data[i + ri] / 16;
+            let g = data[i + gi] / 16;
+            let b = data[i + bi] / 16;
+            buckets.insert((r, g, b));
+        }
+    }
+    buckets.len() < 8
+}

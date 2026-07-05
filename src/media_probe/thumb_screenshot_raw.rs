@@ -5,36 +5,60 @@ use zenwebp::PixelLayout;
 use crate::thumb_texture;
 
 /// One encoded screenshot; `dark` marks a mostly-black frame (real dark scene or not-yet-decoded VO buffer).
+/// `flat` marks an almost-uniform buffer (mpv placeholder after seek before decode finishes).
 struct Capture {
     webp: Vec<u8>,
     dark: bool,
+    flat: bool,
 }
 
 /// Consecutive dark polls (50 ms apart) before a dark frame counts as the real decoded picture
 /// (legit dark scene at the continue position) rather than an undecoded buffer.
 const DARK_STABLE_POLLS: u32 = 20;
 
+/// Same stability window for flat placeholder frames after hr-seek.
+const FLAT_STABLE_POLLS: u32 = 20;
+
 /// Poll until one decoded frame is available, then return WebP bytes (no temp files).
-/// A bright frame returns immediately; a stable dark frame is accepted after
-/// [DARK_STABLE_POLLS] so dark scenes (night shots, logos) still get a thumbnail.
+/// A bright frame returns immediately; stable dark or flat frames are accepted after their
+/// stability windows so dark scenes and solid title cards still get a thumbnail.
 pub(super) fn capture_screenshot_webp(m: &mut Mpv, wait_secs: u64) -> Option<Vec<u8>> {
     let deadline = Instant::now() + Duration::from_secs(wait_secs);
     let mut polls: u32 = 0;
     let mut dark_run: u32 = 0;
+    let mut flat_run: u32 = 0;
     let mut dark_webp: Option<Vec<u8>> = None;
+    let mut flat_webp: Option<Vec<u8>> = None;
     loop {
         while m.wait_event(0.0).is_some() {}
+        let _ = m.command("frame-step", &[] as &[&str]);
         match try_screenshot_raw_webp(m, polls == 0) {
-            Some(c) if !c.dark => return Some(c.webp),
             Some(c) => {
-                dark_run += 1;
-                dark_webp = Some(c.webp);
+                if !c.dark && !c.flat {
+                    return Some(c.webp);
+                }
+                if c.dark {
+                    dark_run += 1;
+                    flat_run = 0;
+                    dark_webp = Some(c.webp);
+                } else {
+                    flat_run += 1;
+                    dark_run = 0;
+                    flat_webp = Some(c.webp);
+                }
             }
-            None => dark_run = 0,
+            None => {
+                dark_run = 0;
+                flat_run = 0;
+            }
         }
         if dark_run >= DARK_STABLE_POLLS {
             eprintln!("[rhino] grid_thumb dark frame accepted after {dark_run} stable polls");
             return dark_webp;
+        }
+        if flat_run >= FLAT_STABLE_POLLS {
+            eprintln!("[rhino] grid_thumb flat frame accepted after {flat_run} stable polls");
+            return flat_webp;
         }
         polls += 1;
         if Instant::now() >= deadline {
@@ -113,13 +137,17 @@ fn raw_frame_to_webp(
         return None;
     }
     let dark = packed_frame_mostly_black(w, h, row_stride, pf.bpp, fmt, data);
+    let flat = !dark && packed_frame_mostly_flat(w, h, row_stride, pf.bpp, fmt, data);
     if dark && log_blank {
         eprintln!("[rhino] grid_thumb screenshot-raw dark frame {w}x{h} fmt={fmt} (accept when stable)");
+    }
+    if flat && log_blank {
+        eprintln!("[rhino] grid_thumb screenshot-raw flat frame {w}x{h} fmt={fmt} (accept when stable)");
     }
     let stride_pixels = row_stride / pf.bpp;
     let webp =
         thumb_texture::encode_packed_webp(data, w as u32, h as u32, stride_pixels, pf.layout)?;
-    Some(Capture { webp, dark })
+    Some(Capture { webp, dark, flat })
 }
 
 #[cfg(test)]
@@ -152,6 +180,7 @@ mod tests {
         let data = vec![0u8; w * h * 4];
         let c = raw_frame_to_webp(w, h, (w * 4) as isize, "bgr0", &data, true).unwrap();
         assert!(c.dark);
+        assert!(!c.flat);
         assert!(thumb_texture::thumb_webp_valid(&c.webp));
     }
 }

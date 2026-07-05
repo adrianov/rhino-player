@@ -9,6 +9,13 @@ pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
     }
     let mtime = db::file_mtime_sec(&target.load)?;
     let b = run_libmpv_image_frame(&target.load, target.seek_sec, target.chapter_dur)?;
+    if thumb_texture::thumb_webp_is_flat_fill(&b) {
+        eprintln!(
+            "[rhino] grid_thumb reject flat fill {}",
+            target.load.display()
+        );
+        return None;
+    }
     db::set_thumb(
         &db_key,
         &b,

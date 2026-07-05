@@ -46,6 +46,35 @@ pub fn thumb_webp_valid(bytes: &[u8]) -> bool {
     bytes.len() >= 12 && bytes.starts_with(b"RIFF") && bytes[8..12] == *b"WEBP"
 }
 
+/// Reject almost-uniform WebP fills (mpv vo=null placeholder after hr-seek stored before decode).
+pub fn thumb_webp_is_flat_fill(bytes: &[u8]) -> bool {
+    if !thumb_webp_valid(bytes) {
+        return true;
+    }
+    let Ok((rgb, w, h)) = zenwebp::oneshot::decode_rgb(bytes) else {
+        return true;
+    };
+    let w = w as usize;
+    let h = h as usize;
+    if w == 0 || h == 0 || rgb.len() < w * h * 3 {
+        return true;
+    }
+    let step_y = (h / 8).max(1);
+    let step_x = (w / 8).max(1);
+    let mut buckets = std::collections::HashSet::new();
+    for y in (0..h).step_by(step_y) {
+        let row = y * w * 3;
+        for x in (0..w).step_by(step_x) {
+            let i = row + x * 3;
+            if i + 2 >= rgb.len() {
+                continue;
+            }
+            buckets.insert((rgb[i] / 16, rgb[i + 1] / 16, rgb[i + 2] / 16));
+        }
+    }
+    buckets.len() < 8
+}
+
 thread_local! {
     static THUMB_TEX_CACHE: RefCell<HashMap<String, (Vec<u8>, gdk::Texture)>> =
         RefCell::new(HashMap::new());
@@ -107,6 +136,22 @@ mod tests {
     fn non_webp_bytes_rejected() {
         let j = vec![0xFF, 0xD8, 0xFF, 0xD9];
         assert!(!thumb_webp_valid(&j));
+    }
+
+    #[test]
+    fn flat_fill_webp_detected() {
+        let w = 64u32;
+        let h = 36u32;
+        let mut bgra = vec![0u8; w as usize * h as usize * 4];
+        for px in bgra.chunks_mut(4) {
+            px[0] = 231;
+            px[1] = 139;
+            px[2] = 250;
+            px[3] = 255;
+        }
+        let webp =
+            encode_packed_webp(&bgra, w, h, w as usize, PixelLayout::Bgra8).expect("encode");
+        assert!(thumb_webp_is_flat_fill(&webp));
     }
 
     #[test]
