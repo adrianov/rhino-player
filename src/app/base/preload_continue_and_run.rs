@@ -164,11 +164,17 @@ pub fn run() -> i32 {
         app.connect_open(move |app, files, _| {
             let path = match files.first().and_then(|f| f.path()) {
                 Some(p) => p,
-                None => return,
+                None => {
+                    eprintln!("[rhino] open: no local path in file list");
+                    return;
+                }
             };
             if p_open.borrow().is_some() {
-                if let Some(f) = slot.borrow().as_ref() {
-                    f(&path);
+                // Never run try_load synchronously here: macOS Finder / "Open With" delivers
+                // g_application_open during Apple Event handling; a nested player RefCell
+                // borrow (transport drain, loadfile) aborts via panic_cannot_unwind.
+                if let Some(f) = slot.borrow().clone() {
+                    glib::idle_add_local_once(move || f(&path));
                 } else {
                     *fb.borrow_mut() = Some(path);
                 }

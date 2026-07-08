@@ -45,6 +45,11 @@ fn try_load(
     transport_drain_after_loadfile();
     reveal_ui_after_load(player, win, gl, recent_layer, o, warm_hit);
     let _ = glib::idle_add_local_once(transport_drain_after_loadfile);
+    // FileLoaded can run while the continue grid is still visible (drain precedes reveal), and
+    // unpause may race a live player borrow — attach Smooth on the next idle once reveal settles.
+    if o.play_on_start && o.video_pref.borrow().smooth_60 {
+        glib::idle_add_local_once(request_smooth_60_transport_resync);
+    }
     if let Some(f) = o.on_loaded.clone() {
         glib::source::idle_add_local_once(move || f());
     }
@@ -59,7 +64,9 @@ fn load_file_into_player(
     recent_layer: &impl IsA<gtk::Widget>,
     o: &LoadOpts,
 ) -> Result<bool, String> {
-    let mut g = player.borrow_mut();
+    let mut g = player
+        .try_borrow_mut()
+        .map_err(|_| "Player busy (transport or load in progress).".to_string())?;
     let b = g.as_mut().ok_or("Player not ready. Wait for GL init.")?;
     let prev = crate::media_probe::shell_media_path(
         &b.mpv,

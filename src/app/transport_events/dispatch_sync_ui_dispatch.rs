@@ -1,26 +1,52 @@
+enum ReattachNeed {
+    Yes,
+    No,
+    /// Pause(false) arrived while [TransportCtx::player] was already borrowed (load / drain).
+    BorrowBusy,
+}
+
 /// Unpause needs a Smooth resync only when the graph is missing / was stripped (Smooth on),
 /// or a stale graph must be removed (Smooth off). Plain pause→resume with a live graph skips it.
-fn smooth_needs_reattach_on_unpause(ctx: &Rc<TransportCtx>) -> bool {
+fn smooth_needs_reattach_on_unpause(ctx: &Rc<TransportCtx>) -> ReattachNeed {
     // try_borrow: pause events may be dispatched while the bundle is already borrowed.
     let Ok(g) = ctx.player.try_borrow() else {
-        return false;
+        return ReattachNeed::BorrowBusy;
     };
     let Some(b) = g.as_ref() else {
-        return false;
+        return ReattachNeed::No;
     };
     if !has_open_path(&b.mpv) {
-        return false;
+        return ReattachNeed::No;
     }
     let has_vf = crate::video_pref::vf_chain_has_vapoursynth(&b.mpv);
     if !ctx.video_pref.borrow().smooth_60 {
-        return has_vf;
+        return if has_vf {
+            ReattachNeed::Yes
+        } else {
+            ReattachNeed::No
+        };
     }
-    b.smooth_vf_stripped_this_open() || !has_vf
+    if b.smooth_vf_stripped_this_open() || !has_vf {
+        ReattachNeed::Yes
+    } else {
+        ReattachNeed::No
+    }
 }
 
 fn sync_smooth_vf_on_pause_transition(ctx: &Rc<TransportCtx>, paused: bool) {
-    if !paused && smooth_needs_reattach_on_unpause(ctx) {
-        schedule_smooth_60_resync_idle(ctx);
+    if !paused {
+        match smooth_needs_reattach_on_unpause(ctx) {
+            ReattachNeed::Yes => schedule_smooth_60_resync_idle(ctx),
+            ReattachNeed::BorrowBusy if ctx.video_pref.borrow().smooth_60 => {
+                let c = Rc::clone(ctx);
+                glib::idle_add_local_once(move || {
+                    if matches!(smooth_needs_reattach_on_unpause(&c), ReattachNeed::Yes) {
+                        schedule_smooth_60_resync_idle(&c);
+                    }
+                });
+            }
+            _ => {}
+        }
     }
     ctx.eof.gl.queue_render();
 }
@@ -31,7 +57,21 @@ fn dispatch_duration_event(ctx: &Rc<TransportCtx>, raw: f64) {
     if d > 0.0 {
         maybe_refresh_dvd_bar_cache(ctx);
         if !ctx.recent_visible.get() {
+            let resume_was_pending = ctx
+                .player
+                .borrow()
+                .as_ref()
+                .is_some_and(|b| b.resume_seek_pending());
             try_apply_pending_resume(ctx);
+            let resume_cleared = resume_was_pending
+                && !ctx
+                    .player
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|b| b.resume_seek_pending());
+            if resume_cleared && ctx.video_pref.borrow().smooth_60 {
+                schedule_smooth_60_resync_idle(ctx);
+            }
         }
     }
     if let Some(ch) = transport_chapter_path_for_ctx(ctx) {

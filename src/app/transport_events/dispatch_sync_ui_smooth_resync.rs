@@ -52,6 +52,13 @@ fn cancel_smooth_60_resync_idle(ctx: &Rc<TransportCtx>) {
 
 fn schedule_smooth_60_resync_idle(ctx: &Rc<TransportCtx>) {
     if ctx.recent_visible.get() {
+        // [transport_drain_after_loadfile] can emit FileLoaded before [reveal_ui_after_load] hides
+        // the continue grid on a playback open — retry once recent hides. Browse-only warm preload
+        // (grid stays up, no playback focus) keeps the early return.
+        if ctx.eof.playback_focus.get() {
+            let c = Rc::clone(ctx);
+            glib::idle_add_local_once(move || schedule_smooth_60_resync_idle(&c));
+        }
         return;
     }
     if ctx

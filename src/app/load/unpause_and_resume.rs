@@ -29,6 +29,7 @@ fn schedule_resume_after_unpause(player: Rc<RefCell<Option<MpvBundle>>>) {
                 ));
             }
             if !b.resume_seek_pending() {
+                request_smooth_60_transport_resync();
                 return;
             }
             transport_nudge_tick();

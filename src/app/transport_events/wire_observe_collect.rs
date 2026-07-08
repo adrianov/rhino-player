@@ -258,7 +258,7 @@ thread_local! {
 }
 
 /// Coalesce Smooth 60 / VapourSynth rebuild with transport (same timer as `FileLoaded` / `path` churn).
-fn request_smooth_60_transport_resync() {
+pub(crate) fn request_smooth_60_transport_resync() {
     REQUEST_SMOOTH_60_RESYNC.with(|slot| {
         if let Some(f) = slot.borrow().as_ref() {
             f();
