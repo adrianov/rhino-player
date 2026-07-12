@@ -477,7 +477,8 @@ mod tests {
 
     #[test]
     fn bar_cache_not_stale_for_full_title_on_short_chapter() {
-        let base = std::env::temp_dir().join(format!("rhino-dvd-stale-{}", std::process::id()));
+        // Not `rhino-dvd-stale`: `dvd_entity` tests use that dir and run in parallel.
+        let base = std::env::temp_dir().join(format!("rhino-dvd-bar-stale-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let vts = base.join("VIDEO_TS");
         fs::create_dir_all(&vts).expect("mkdir");
