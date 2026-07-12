@@ -36,6 +36,8 @@ fn panel_allowed_content_types() -> objc2::rc::Retained<NSArray<UTType>> {
         "public.folder",
         "public.avchd-collection",
         "public.avchd-content",
+        "public.mpeg",
+        "jp.co.dvdfllc.vob",
     ] {
         push_uti_id(&mut types, uti);
     }
