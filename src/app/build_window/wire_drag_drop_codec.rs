@@ -1,23 +1,12 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 
-/// Local paths whose extension counts as external subtitles for [sub-add].
-const SUBTITLE_EXT: &[&str] = &[
-    "srt", "vtt", "ass", "ssa", "smi", "sub", "sup", "idx", "mpl2", "mks",
-];
-
 const DROP_READ_MIME_PREF: &[&str] = &[
     "text/uri-list",
     "text/plain;charset=utf-8",
     "text/plain",
     "x-special/gnome-copied-files",
 ];
-
-fn is_subtitle_path(p: &Path) -> bool {
-    p.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| SUBTITLE_EXT.iter().any(|s| *s == e.to_ascii_lowercase()))
-}
 
 fn mime_base(mime: &str) -> &str {
     mime.split(';').next().unwrap_or(mime).trim()

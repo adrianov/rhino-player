@@ -35,6 +35,10 @@ mod macos_header_menu_debug;
 #[cfg(target_os = "macos")]
 mod macos_header_menu_overlay;
 #[cfg(target_os = "macos")]
+mod macos_shell_compositing;
+#[cfg(target_os = "macos")]
+mod macos_drag_drop;
+#[cfg(target_os = "macos")]
 mod macos_open_video;
 #[cfg(target_os = "macos")]
 mod macos_window;

@@ -1,7 +1,7 @@
 # Drag and drop
 
 ---
-status: wip
+status: done
 priority: p2
 layers: [ui, playback]
 related: [06, 07, 08, 24]
@@ -17,7 +17,7 @@ The main window accepts drops of local paths from the system file list: the prim
 ## Behavior
 
 ```gherkin
-@status:wip @priority:p2 @layer:ui @area:dnd
+@status:done @priority:p2 @layer:ui @area:dnd
 Feature: Drag and drop onto the video surface
 
   Scenario: Drop opens media
@@ -38,7 +38,7 @@ Feature: Drag and drop onto the video surface
 ```
 
 ## Notes
-- **`GtkDropTargetAsync`** on **`GtkApplicationWindow`**. Primary payload: **`gdk_drop_read_async`** over MIME (**`text/uri-list`**, **`text/plain`**, **`x-special/gnome-copied-files`**, …); full stream drain then URI parse — avoids empty paths when GObject negotiation mismatches **`gdk_drop_read_value_finish`**. Secondary: **`GdkDrop.read_value_async`** for **`GdkFileList`** and **`GFile`**. Wired under `build_window/wire_drag_drop*.rs`; **`on_open`** (**`replace_media`**, **`play_on_start`**).
-- Playlist tail: **`loadfile`** with **`append`** on an idle following the replace (UTF-8 paths only).
-- Subtitles: heuristic extensions (e.g. **`.srt`**, **`.ass`**) while **`mpv`** already reports an open **`path`** → **`sub-add`**, then **`schedule_sub_button_scan`**.
-- Remaining gaps: uncommon portal-only MIME blobs, URLs without local **`file:`** schemes, dedicated inline drop-error UI (`stderr` only).
+- **Linux:** **`GtkDropTargetAsync`** on **`GtkApplicationWindow`** (`build_window/wire_drag_drop*.rs`). Primary payload: **`gdk_drop_read_async`** over MIME (**`text/uri-list`**, **`text/plain`**, **`x-special/gnome-copied-files`**, …); full stream drain then URI parse. Secondary: **`GdkDrop.read_value_async`** for **`GdkFileList`** / **`GFile`**.
+- **macOS:** AppKit **`NSDraggingDestination`** on a transparent **`RhinoDropView`** subview of the window **`contentView`** (`macos_drag_drop.rs`) — gdk-macos GTK drop targets often miss Finder drops (especially when unfocused). **`hitTest:`** returns the view only while the drag pasteboard offers file URLs / filenames so normal GTK clicks pass through.
+- Shared open: **`consume_dropped_paths`** → **`on_open`** (**`replace_media`**, **`play_on_start`**). Playlist tail: **`loadfile`** **`append`** on an idle. Subtitles: heuristic extensions while media is open → **`sub-add`**, then **`schedule_sub_button_scan`**.
+- Remaining gaps: uncommon portal-only MIME blobs, URLs without local **`file:`** schemes, dedicated inline drop-error UI (`stderr` **`[rhino] dnd:`** only).

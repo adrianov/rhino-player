@@ -30,7 +30,7 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 08 | [Tracks: audio, video, subtitles](features/08-tracks.md) | wip |
 | 09 | [Chapters: marks, menu, seek bar hover](features/09-chapters.md) | wip |
 | 10 | [Video options: aspect, crop, zoom, filters](features/10-video-options.md) | planned |
-| 11 | [Drag and drop](features/11-drag-and-drop.md) | wip |
+| 11 | [Drag and drop](features/11-drag-and-drop.md) | done |
 | 12 | [URL and network streams (yt-dlp / protocols)](features/12-url-and-streams.md) | planned |
 | 13 | [Keyboard, mouse, and shortcuts](features/13-input-shortcuts.md) | done |
 | 14 | [Preferences and persistent settings](features/14-preferences.md) | wip |

@@ -44,6 +44,8 @@ objc2-app-kit = { version = "0.3.2", features = [
     "NSResponder",
     "NSColor",
     "NSCursor",
+    "NSDragging",
+    "NSPasteboard",
     "NSOpenPanel",
     "NSSavePanel",
     "objc2-uniform-type-identifiers",
@@ -64,6 +66,7 @@ objc2-foundation = { version = "0.3.2", features = [
     "NSThread",
     "NSURL",
     "NSValue",
+    "NSEnumerator",
 ] }
 objc2-media-player = { version = "0.3.2", default-features = false, features = [
     "MPMediaItem",

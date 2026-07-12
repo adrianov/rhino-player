@@ -1,3 +1,14 @@
+/// Local paths whose extension counts as external subtitles for [sub-add].
+const SUBTITLE_EXT: &[&str] = &[
+    "srt", "vtt", "ass", "ssa", "smi", "sub", "sup", "idx", "mpl2", "mks",
+];
+
+fn is_subtitle_path(p: &Path) -> bool {
+    p.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| SUBTITLE_EXT.iter().any(|s| *s == e.to_ascii_lowercase()))
+}
+
 fn drop_subtitles_on_mpv(mpv: &Mpv, subs: &[PathBuf]) {
     for utf8 in subs.iter().filter_map(|p| p.to_str()) {
         let _ = mpv.command("sub-add", &[utf8]);
@@ -17,8 +28,10 @@ fn consume_dropped_paths(
     on_open: &RcPathFn,
 ) {
     if paths.is_empty() {
+        eprintln!("[rhino] dnd: empty path list");
         return;
     }
+    let dropped_n = paths.len();
 
     let mpv_loaded = player.borrow().as_ref().is_some_and(|b| {
         crate::media_probe::local_file_from_mpv(&b.mpv).is_some()
@@ -45,6 +58,7 @@ fn consume_dropped_paths(
     }
 
     if media.is_empty() {
+        eprintln!("[rhino] dnd: no openable media ({dropped_n} path(s) dropped)");
         return;
     }
 
@@ -62,6 +76,7 @@ fn consume_dropped_paths(
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn dispatch_paths_and_finish_drop(
     paths: Vec<PathBuf>,
     player: &Rc<RefCell<Option<MpvBundle>>>,
