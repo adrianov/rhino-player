@@ -74,16 +74,8 @@ pub fn register_overlay(ov: Rc<HeaderMenuOverlay>) {
     OVERLAY.with(|s| *s.borrow_mut() = Some(ov));
 }
 
-pub fn raise_overlay_child(shell: &gtk::Overlay, w: &impl IsA<gtk::Widget>) {
-    raise_overlay_top(shell, w);
-}
-
 pub fn overlay_visible() -> bool {
-    OVERLAY.with(|s| {
-        s.borrow()
-            .as_ref()
-            .is_some_and(|o| o.panel.is_visible())
-    })
+    OVERLAY.with(|s| s.borrow().as_ref().is_some_and(|o| o.panel.is_visible()))
 }
 
 pub fn overlay_close_all(reason: &str) {

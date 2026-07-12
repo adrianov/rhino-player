@@ -28,11 +28,8 @@ pub struct SeekPreviewState {
     pub hover_t: Rc<Cell<f64>>,
     pub last_xy: Rc<RefCell<Option<(f64, f64)>>>,
     pub deb: Rc<RefCell<Option<glib::SourceId>>>,
-    /// User-visible preview (theater uses opacity hide so the GLArea stays realised).
+    /// User-visible preview; hide uses `set_visible(false)` only.
     pub shown: Rc<Cell<bool>>,
-    /// macOS theater: overlay raise + opaque CSS wired once per fullscreen session.
-    #[cfg(target_os = "macos")]
-    pub theater_wired: Rc<Cell<bool>>,
     pub bottom: gtk::Box,
     pub ovl: gtk::Overlay,
 }
@@ -63,7 +60,11 @@ impl SeekPreviewState {
     pub(crate) fn show_at(&self, x: f64) {
         let reopening = !self.shown.get();
         // frame: padding 3px + border 1px per side = 8px over gl width; use allocated width when ready.
-        let preview_w = self.container.width().max(self.gl.width_request() + 8).max(1) as f64;
+        let preview_w = self
+            .container
+            .width()
+            .max(self.gl.width_request() + 8)
+            .max(1) as f64;
         let ovl_w = self.ovl.width().max(1) as f64;
         let cursor_x = self
             .seek
@@ -77,19 +78,11 @@ impl SeekPreviewState {
         self.container.set_margin_bottom(margin_bottom);
         self.container.set_can_target(false);
         self.shown.set(true);
-        #[cfg(target_os = "macos")]
-        if macos_compositing::win_fullscreen(self) {
-            self.container.set_opacity(1.0);
-            self.container.set_visible(true);
-            if reopening {
-                macos_compositing::on_open(self);
-                if self.preview_media_warm() {
-                    self.gl.queue_render();
-                }
-            }
-            return;
-        }
         self.container.set_visible(true);
+        #[cfg(target_os = "macos")]
+        if reopening {
+            macos_compositing::on_open(self);
+        }
         if reopening && self.preview_media_warm() {
             self.gl.queue_render();
         }
@@ -99,13 +92,10 @@ impl SeekPreviewState {
         if !self.shown.replace(false) {
             return;
         }
-        #[cfg(target_os = "macos")]
-        if macos_compositing::win_fullscreen(self) {
-            self.container.set_opacity(0.0);
-            self.container.set_can_target(false);
-            return;
-        }
         self.container.set_visible(false);
+        self.container.set_can_target(false);
+        #[cfg(target_os = "macos")]
+        macos_compositing::on_close();
     }
 
     /// Main player opened another file — drop cached load target and hide until re-hover.
@@ -120,7 +110,6 @@ impl SeekPreviewState {
             self.is_open()
         ));
         self.serial.set(self.serial.get().wrapping_add(1));
-        self.shown.set(false);
         crate::glib_source_drop::drop_glib_source(self.deb.as_ref());
         crate::glib_source_drop::drop_glib_source(self.pump.as_ref());
         *self.loaded_target.borrow_mut() = None;

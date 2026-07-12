@@ -14,7 +14,6 @@ thread_local! {
     static CHROME_HOLD: RefCell<Option<Rc<dyn Fn() -> bool>>> = const { RefCell::new(None) };
     static POP_VISIBLE: RefCell<Option<Rc<dyn Fn() -> bool>>> = const { RefCell::new(None) };
     static DISMISS_OK: Cell<bool> = const { Cell::new(true) };
-    static COMPOSITING_ARMED: Cell<bool> = const { Cell::new(false) };
 }
 
 pub fn register_checks(chrome_hold: Rc<dyn Fn() -> bool>, pop_visible: Rc<dyn Fn() -> bool>) {
@@ -33,7 +32,7 @@ fn pop_surface_visible() -> bool {
 
 /// Skip layer invalidation during the brief open/arm window or while a popover popup exists.
 pub fn defer_layer_invalidate() -> bool {
-    pop_surface_visible() || COMPOSITING_ARMED.get()
+    pop_surface_visible() || crate::macos_shell_compositing::armed()
 }
 
 pub fn dismiss_allowed() -> bool {
@@ -48,50 +47,19 @@ fn pause_dismiss() {
     );
 }
 
-fn arm_compositing_hold() {
-    COMPOSITING_ARMED.set(true);
-    let _ = glib::timeout_add_local_once(
-        std::time::Duration::from_millis(u64::from(MENU_HOLD_MS)),
-        || COMPOSITING_ARMED.set(false),
-    );
-}
-
-fn disarm_compositing_hold() {
-    COMPOSITING_ARMED.set(false);
-}
-
-pub fn arm_shell_compositing_hold() {
-    arm_compositing_hold();
-}
-
-/// Fullscreen overlay opened (header menu or seek preview): queue shell repaint, then full refresh
-/// after the compositing arm window (avoids stale gdk-macos header tiles on the video layer).
+/// Fullscreen overlay opened — see [`macos_shell_compositing::overlay_opened`].
 pub fn on_overlay_surface_opened() {
-    arm_shell_compositing_hold();
-    crate::app::refresh_registered_shell_compositing();
-    let _ = glib::timeout_add_local_once(
-        std::time::Duration::from_millis(u64::from(MENU_HOLD_MS) + 32),
-        crate::app::refresh_registered_shell_compositing,
-    );
+    crate::macos_shell_compositing::overlay_opened();
 }
 
 pub fn on_header_menu_press(_btn: &gtk::MenuButton) {
     pause_dismiss();
-    arm_compositing_hold();
+    crate::macos_shell_compositing::arm_hold();
 }
 
-/// Fullscreen overlay panel closed (same compositing tail as popover `closed`).
+/// Overlay / popover closed — see [`macos_shell_compositing::overlay_closed`].
 pub fn on_menu_surface_closed() {
-    disarm_compositing_hold();
-    schedule_compositing_refresh_after_menu();
-}
-
-fn schedule_compositing_refresh_after_menu() {
-    let _ = glib::idle_add_local_once(|| {
-        if !defer_layer_invalidate() {
-            crate::app::refresh_registered_shell_compositing();
-        }
-    });
+    crate::macos_shell_compositing::overlay_closed();
 }
 
 fn provider() -> &'static gtk::CssProvider {
@@ -168,11 +136,10 @@ pub fn wire_popover(pop: &gtk::Popover) {
         paint_opaque(p);
         p.queue_draw();
         pause_dismiss();
-        arm_compositing_hold();
+        crate::macos_shell_compositing::arm_hold();
     });
     pop.connect_closed(move |_| {
-        disarm_compositing_hold();
-        schedule_compositing_refresh_after_menu();
+        on_menu_surface_closed();
     });
 }
 
@@ -269,6 +236,5 @@ pub fn popdown_all(menus: &[gtk::MenuButton], reason: &str) {
         }
         btn.set_active(false);
     }
-    disarm_compositing_hold();
+    crate::macos_shell_compositing::disarm_hold();
 }
-

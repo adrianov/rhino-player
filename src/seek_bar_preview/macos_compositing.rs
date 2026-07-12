@@ -1,4 +1,5 @@
-// macOS gdk-macos: seek preview overlay can leave stale header tiles on the video layer in theater mode.
+// macOS: opaque CSS for the seek preview frame over the native video layer.
+// Compositing open/close is owned by `macos_shell_compositing` — not duplicated here.
 
 use gtk::prelude::*;
 
@@ -12,12 +13,10 @@ fn preview_provider() -> &'static gtk::CssProvider {
             frame.rp-seek-thumb-frame > border {\
                 background-color: #2d2d2d;\
                 background: #2d2d2d;\
-                opacity: 1;\
             }\
             frame.rp-seek-thumb-frame glarea {\
                 background-color: #000000;\
                 background: #000000;\
-                opacity: 1;\
             }",
         );
         p
@@ -33,7 +32,8 @@ fn attach_provider(w: &gtk::Widget) {
     );
 }
 
-fn wire_opaque_preview(st: &SeekPreviewState) {
+/// Widget-level opaque paint (display CSS is not enough over the native video layer).
+pub(super) fn wire_opaque_frame(st: &SeekPreviewState) {
     attach_provider(st.container.upcast_ref());
     crate::macos_header_menu::attach_opaque_widget(st.container.upcast_ref());
 }
@@ -45,37 +45,15 @@ pub(super) fn win_fullscreen(st: &SeekPreviewState) -> bool {
         .is_some_and(|w| w.is_fullscreen())
 }
 
-pub(crate) fn wire_theater_lifecycle(st: &std::rc::Rc<SeekPreviewState>) {
-    let Some(win) = st
-        .ovl
-        .root()
-        .and_then(|r| r.downcast::<adw::ApplicationWindow>().ok())
-    else {
-        return;
-    };
-    let st2 = std::rc::Rc::clone(st);
-    win.connect_fullscreened_notify(move |w| {
-        if !w.is_fullscreen() {
-            st2.theater_wired.set(false);
-            crate::preview_debug::info("theater exit — preview overlay raise may re-run");
-        }
-    });
-}
-
 pub(super) fn on_open(st: &SeekPreviewState) {
     if !win_fullscreen(st) {
         return;
     }
-    if st.theater_wired.get() {
-        st.gl.queue_render();
-        return;
-    }
-    wire_opaque_preview(st);
-    // Once per theater session: re-adding unparents the frame and tears down GLArea.
-    crate::macos_header_menu_overlay::raise_overlay_child(&st.ovl, &st.container);
-    st.theater_wired.set(true);
-    crate::preview_debug::info("theater overlay raised (once per fullscreen)");
-    st.container.queue_allocate();
     st.gl.queue_render();
-    crate::macos_header_menu::on_overlay_surface_opened();
+    crate::macos_shell_compositing::overlay_opened();
+}
+
+/// Every hide refreshes shell chrome — the stale-arrangement bug also occurs windowed.
+pub(super) fn on_close() {
+    crate::macos_shell_compositing::overlay_closed();
 }

@@ -74,15 +74,13 @@ pub fn connect(
         last_xy: Rc::new(RefCell::new(None)),
         deb: Rc::new(RefCell::new(None)),
         shown: Rc::new(Cell::new(false)),
-        #[cfg(target_os = "macos")]
-        theater_wired: Rc::new(Cell::new(false)),
         bottom,
         ovl,
     });
 
     wire_preview_gl(&st);
     #[cfg(target_os = "macos")]
-    macos_compositing::wire_theater_lifecycle(&st);
+    macos_compositing::wire_opaque_frame(&st);
 
     let mot = gtk::EventControllerMotion::new();
 
