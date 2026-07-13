@@ -34,6 +34,7 @@ fn attach_provider(w: &gtk::Widget) {
 
 /// Widget-level opaque paint (display CSS is not enough over the native video layer).
 pub(super) fn wire_opaque_frame(st: &SeekPreviewState) {
+    st.container.set_opacity(1.0);
     attach_provider(st.container.upcast_ref());
     crate::macos_header_menu::attach_opaque_widget(st.container.upcast_ref());
 }

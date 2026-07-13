@@ -82,6 +82,10 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
             Rc::clone(&dvd_bar),
             seek_bar_preview::SeekPreviewCtx {
                 ovl: w.outer_ovl.clone(),
+                // Lift above the chrome that is actually in the toolbar (shell on macOS).
+                #[cfg(target_os = "macos")]
+                bottom: w.bottom_shell.clone(),
+                #[cfg(not(target_os = "macos"))]
                 bottom: w.bottom.clone(),
             },
         );

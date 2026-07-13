@@ -1,5 +1,6 @@
 pub struct SeekPreviewCtx {
     pub ovl: gtk::Overlay,
+    /// Bottom chrome used for preview lift (`bottom_shell` on macOS, row elsewhere).
     pub bottom: gtk::Box,
 }
 

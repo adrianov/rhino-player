@@ -73,7 +73,7 @@ impl SeekPreviewState {
             .unwrap_or(x);
         let raw = (cursor_x - preview_w / 2.0).round();
         let margin_start = raw.clamp(0.0, (ovl_w - preview_w).max(0.0)) as i32;
-        let margin_bottom = self.bottom.height() + PREVIEW_GAP;
+        let margin_bottom = self.bottom.height().max(1) + PREVIEW_GAP;
         self.container.set_margin_start(margin_start);
         self.container.set_margin_bottom(margin_bottom);
         self.container.set_can_target(false);
@@ -81,6 +81,8 @@ impl SeekPreviewState {
         self.container.set_visible(true);
         #[cfg(target_os = "macos")]
         if reopening {
+            // Defensive: older theater hide used opacity 0; never show a transparent frame.
+            self.container.set_opacity(1.0);
             macos_compositing::on_open(self);
         }
         if reopening && self.preview_media_warm() {
