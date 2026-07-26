@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Release: Rhino Player.app with Info.plist document types + AppIcon.icns + bundled vs/ + icons.
+# Release: Rhino Player.app with Info.plist document types + AppIcon.icns + bundled vs/ + icons
+# + vendored Smooth MVTools (mvtools.dylib + libfftw3f, Homebrew-path-free).
 # Requires Homebrew GTK 4 stack (same as README). Outputs dist/macos/Rhino Player.app by default.
 #
 # Usage: ./scripts/macos-build-app-bundle.sh
@@ -34,6 +35,9 @@ install -m 0755 "$REPO/target/release/$BIN_NAME" "$CONTENTS/MacOS/$BIN_NAME"
 sed "s/@VERSION@/${VERSION}/g" "$REPO/packaging/macos/Info.plist.in" >"$CONTENTS/Info.plist"
 
 cp -a "$REPO/data/vs/"*.vpy "$CONTENTS/Resources/share/rhino-player/vs/"
+
+# Smooth 60: freeze MVTools inside the .app so Homebrew formula layout churn cannot break LoadPlugin.
+"$REPO/scripts/macos-vendor-smooth-libs.sh" "$CONTENTS/Resources/lib/vapoursynth"
 
 DEST_ICONS="$CONTENTS/Resources/data/icons"
 mkdir -p "$DEST_ICONS"

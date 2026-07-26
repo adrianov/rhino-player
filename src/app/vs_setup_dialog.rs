@@ -61,52 +61,50 @@ ldd /path/to/rhino-player | grep libmpv
 # - /usr/local is preferred by Rhino's runpath on Linux builds from this repo."#;
 
 #[cfg(target_os = "macos")]
-const SMOOTH_SETUP_TEXT_MACOS: &str = r#"# Smooth 60 needs all three parts. On macOS Homebrew gives you everything in one shot:
-# 1. VapourSynth Python module      (`brew install vapoursynth`, pulled in by vapoursynth-mvtools)
-# 2. MVTools plugin (mvtools.dylib)   (`brew install vapoursynth-mvtools`)
-# 3. mpv/libmpv with the `vapoursynth` video filter  (Homebrew's `mpv` already enables it)
+const SMOOTH_SETUP_TEXT_MACOS: &str = r#"# Smooth 60 on macOS needs VapourSynth + a vapoursynth-capable libmpv.
+# MVTools is vendored by Rhino (not left on Homebrew paths):
+#   • packaged .app  → Contents/Resources/lib/vapoursynth/plugins/mvtools.dylib
+#   • cargo run      → ~/.config/rhino/lib/vapoursynth/plugins/mvtools.dylib
+#                     (copied once from brew; survives `brew upgrade`)
 
-# One-shot install (Apple Silicon and Intel both work):
+# Install the Homebrew pieces Rhino still links at runtime:
 brew install mpv vapoursynth vapoursynth-mvtools
 
 # Verify mpv has the vapoursynth filter:
 mpv -vf help 2>&1 | grep vapoursynth
 
-# Verify Python can import VapourSynth and load MVTools:
+# First Smooth enable (or: open Rhino once) seeds ~/.config/rhino/lib from brew.
+# Or seed manually from the repo checkout:
+#   ./scripts/macos-vendor-smooth-libs.sh ~/.config/rhino/lib/vapoursynth
+
+# Verify VapourSynth + the vendored plugin:
 python3 - <<'PY'
-import glob
+import os
+from pathlib import Path
 import vapoursynth as vs
 
-def find_mvtools():
-    for prefix in ("/opt/homebrew", "/usr/local"):
-        legacy = f"{prefix}/lib/libmvtools.dylib"
-        if __import__("os").path.isfile(legacy):
-            return legacy
-        for pattern in (
-            f"{prefix}/opt/vapoursynth-mvtools/lib/python*/site-packages/vapoursynth/plugins/mvtools.dylib",
-            f"{prefix}/Cellar/vapoursynth-mvtools/*/lib/python*/site-packages/vapoursynth/plugins/mvtools.dylib",
-        ):
-            hits = glob.glob(pattern)
-            if hits:
-                return hits[0]
-    return None
-
-hit = find_mvtools()
+candidates = [
+    Path.home() / ".config/rhino/lib/vapoursynth/plugins/mvtools.dylib",
+]
+env = os.environ.get("RHINO_MVTOOLS_LIB")
+if env:
+    candidates.insert(0, Path(env))
+hit = next((p for p in candidates if p.is_file()), None)
 if hit is None:
-    raise SystemExit("mvtools.dylib not found — run `brew install vapoursynth-mvtools` first")
-vs.core.std.LoadPlugin(path=hit)
+    raise SystemExit("mvtools.dylib not vendored yet — run Rhino once or macos-vendor-smooth-libs.sh")
+vs.core.std.LoadPlugin(path=str(hit))
 print(vs.core.mv)
 PY
 
-# Override the plugin location (only if you installed MVTools somewhere unusual):
+# Optional override:
 export RHINO_MVTOOLS_LIB=/full/path/to/mvtools.dylib
 
 # Notes:
-# - Apple Silicon Homebrew prefix is /opt/homebrew, Intel is /usr/local — Rhino searches both.
-# - Legacy `brew install mvtools` (old formula name) used libmvtools.dylib under $(brew --prefix)/lib; Rhino still finds that.
-# - If `brew install mpv` ever ships without VapourSynth on your system, run
-#   `brew reinstall mpv --build-from-source` (or `brew edit mpv` and add the option),
-#   then restart Rhino so it picks up the new libmpv."#;
+# - VapourSynth + libmpv still come from Homebrew (Python / VSScript).
+# - MVTools is frozen under Rhino paths (@loader_path).
+# - After `brew upgrade python`, Rhino rewrites ~/.config/vapoursynth/vapoursynth.toml
+#   to opt/python@* (stale Cellar patch paths break VSScript).
+# - If Homebrew mpv ever lacks the vapoursynth filter: brew reinstall mpv --build-from-source"#;
 
 #[cfg(target_os = "macos")]
 const SMOOTH_SETUP_TEXT: &str = SMOOTH_SETUP_TEXT_MACOS;
@@ -115,18 +113,30 @@ const SMOOTH_SETUP_TEXT: &str = SMOOTH_SETUP_TEXT_LINUX;
 
 #[cfg(target_os = "macos")]
 const SMOOTH_SETUP_HEADLINE: &str =
-    "Rhino could not enable Smooth 60 FPS. Run `brew install mpv vapoursynth vapoursynth-mvtools`, \
-     then enable Smooth Video again.";
+    "Rhino could not enable Smooth 60 FPS. Run `brew install mpv vapoursynth vapoursynth-mvtools` \
+     (MVTools is then vendored under ~/.config/rhino/lib), then enable Smooth Video again.";
 #[cfg(not(target_os = "macos"))]
 const SMOOTH_SETUP_HEADLINE: &str =
     "Rhino could not enable Smooth 60 FPS. Install VapourSynth, MVTools, and an mpv/libmpv build \
      with VapourSynth support, then enable Smooth Video again.";
 
 fn can_find_mvtools(v: &db::VideoPrefs) -> bool {
+    if crate::paths::mvtools_from_env().is_some() {
+        return true;
+    }
+    can_find_mvtools_os(v)
+}
+
+#[cfg(target_os = "macos")]
+fn can_find_mvtools_os(_v: &db::VideoPrefs) -> bool {
+    // Ignore sticky Homebrew Cellar paths in settings; do not seed as a side effect of the check.
+    crate::paths::macos_mvtools_available()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn can_find_mvtools_os(v: &db::VideoPrefs) -> bool {
     let cached = std::path::Path::new(v.mvtools_lib.trim());
-    cached.is_file()
-        || crate::paths::mvtools_from_env().is_some()
-        || crate::paths::mvtools_lib_search().is_some()
+    cached.is_file() || crate::paths::mvtools_lib_search().is_some()
 }
 
 /// Copy-paste setup instructions shown when Smooth 60 cannot attach its VapourSynth filter.

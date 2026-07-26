@@ -191,6 +191,24 @@ def _stderr_banner_once_per_rhino_attach(msg: str) -> bool:
     print(msg, file=sys.stderr, flush=True)
     return True
 
+def _darwin_stable_mvtools_candidates():
+    """Prefer Rhino-vendored copies (.app / ~/.config) over Homebrew Cellar paths."""
+    home = os.environ.get("HOME")
+    if home:
+        cfg = os.path.join(
+            home, ".config", "rhino", "lib", "vapoursynth", "plugins", "mvtools.dylib"
+        )
+        if os.path.isfile(cfg):
+            yield cfg
+    # Packaged .app: …/Contents/Resources/share/rhino-player/vs/<this>.vpy
+    here = os.path.abspath(os.path.dirname(__file__))
+    app_plugin = os.path.normpath(
+        os.path.join(here, "..", "..", "..", "lib", "vapoursynth", "plugins", "mvtools.dylib")
+    )
+    if os.path.isfile(app_plugin):
+        yield app_plugin
+
+
 def _darwin_homebrew_mvtools_candidates():
     import glob
 
@@ -213,6 +231,7 @@ def _mvtools_paths():
     if p:
         yield os.path.expanduser(p)
     if _IS_DARWIN:
+        yield from _darwin_stable_mvtools_candidates()
         yield from _darwin_homebrew_mvtools_candidates()
         return
     for c in (

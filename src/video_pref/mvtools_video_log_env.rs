@@ -41,58 +41,7 @@ pub(crate) fn video_log() -> bool {
         .unwrap_or(false)
 }
 
-/// Stores a stable absolute path for SQLite ([crate::db::VideoPrefs::mvtools_lib]).
-fn mvt_path_to_store(p: &std::path::Path) -> String {
-    p.canonicalize()
-        .map(|c| c.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| p.to_string_lossy().into_owned())
-}
-
-/// Resolves the **MVTools** plugin file (`libmvtools.so` on Linux, `libmvtools.dylib` on macOS),
-/// sets `RHINO_MVTOOLS_LIB` (in-process mpv inherits the environment).
-/// Order: env [crate::paths::mvtools_from_env], then **cached** [crate::db::VideoPrefs::mvtools_lib] if still a file, else
-/// [crate::paths::mvtools_lib_search]; on success, saves the full path in settings so the scan is not repeated
-/// while the file exists. Returns `false` when MVTools cannot be resolved.
-fn apply_mvtools_env(v: &mut crate::db::VideoPrefs) -> bool {
-    if let Some(p) = crate::paths::mvtools_from_env() {
-        let s = mvt_path_to_store(&p);
-        if v.mvtools_lib != s {
-            v.mvtools_lib = s;
-            crate::db::save_video(v);
-        }
-        std::env::set_var(crate::paths::RHINO_MVTOOLS_LIB_VAR, &v.mvtools_lib);
-        eprintln!(
-            "[rhino] video: libmvtools -> {} (from {})",
-            v.mvtools_lib,
-            crate::paths::RHINO_MVTOOLS_LIB_VAR
-        );
-        return true;
-    }
-    let c = v.mvtools_lib.trim();
-    if !c.is_empty() {
-        if std::path::Path::new(c).is_file() {
-            std::env::set_var(crate::paths::RHINO_MVTOOLS_LIB_VAR, c);
-            eprintln!("[rhino] video: libmvtools -> {c} (cached in settings)");
-            return true;
-        }
-        v.mvtools_lib.clear();
-        crate::db::save_video(v);
-    }
-    if let Some(p) = crate::paths::mvtools_lib_search() {
-        v.mvtools_lib = mvt_path_to_store(&p);
-        crate::db::save_video(v);
-        std::env::set_var(crate::paths::RHINO_MVTOOLS_LIB_VAR, &v.mvtools_lib);
-        eprintln!("[rhino] video: libmvtools -> {}", v.mvtools_lib);
-        true
-    } else {
-        eprintln!(
-            "[rhino] video: libmvtools not found; set {} or install MVTools (Linux: vsrepo / \
-             distro package, macOS: `brew install vapoursynth-mvtools`). See `data/vs/README.md`.",
-            crate::paths::RHINO_MVTOOLS_LIB_VAR
-        );
-        false
-    }
-}
+include!("mvtools_resolve_env.rs");
 
 /// Preferred frame rate from mpv for Smooth cadence: `container-fps` with `estimated-vf-fps` tie-break.
 ///
