@@ -98,20 +98,15 @@ pub fn bundled_mvtools_60() -> Option<PathBuf> {
     None
 }
 
-/// Plugin file basename for the Linux pipx/vsrepo fallback search. Linux ships MVTools as
-/// `libmvtools.so`. macOS uses [macos_mvtools_lib_search] (legacy `libmvtools.dylib` and Homebrew
-/// **`vapoursynth-mvtools`** `mvtools.dylib`).
-#[cfg(not(target_os = "macos"))]
-const MVTOOLS_FILE: &str = "libmvtools.so";
-
 /// Environment key for the absolute path to the **MVTools** plugin file (Rhino and bundled
-/// `.vpy` `LoadPlugin`). The basename differs per OS — see [MVTOOLS_FILE].
+/// `.vpy` `LoadPlugin`). Basename: `libmvtools.so` (Linux) or `mvtools.dylib` (macOS).
 pub const RHINO_MVTOOLS_LIB_VAR: &str = "RHINO_MVTOOLS_LIB";
 
 // Bundled ME px²: `RHINO_SMOOTH_MAX_AREA` (see `paths_smooth_me_budget_env`).
 
 include!("paths_smooth_me_budget_env.rs");
 include!("paths_mvtools_macos.rs");
+include!("paths_mvtools_linux.rs");
 include!("paths_vapoursynth_macos.rs");
 
 /// Playback speed (e.g. `1.0`, `1.5`, `2.0`, `8.0`) for the bundled `rhino_60_mvtools.vpy` so **FlowFPS** only fills
@@ -145,128 +140,17 @@ pub fn mvtools_from_env() -> Option<PathBuf> {
 /// **Search only** (no env, no SQLite cache).
 ///
 /// - **Linux**: common distro paths, **pipx vsrepo** under `~/.local/share/pipx/venvs/…`, then a
-///   broader walk of `~/.local` (see [find_file_breadth_first]).
-/// - **macOS**: legacy **`$(brew --prefix)/lib/libmvtools.dylib`**, then Homebrew **`vapoursynth-mvtools`**
-///   (`mvtools.dylib` under `…/site-packages/vapoursynth/plugins/`); vsrepo is Linux-only.
+///   broader walk of `~/.local` ([paths_mvtools_linux]).
+/// - **macOS**: `.app` **`Contents/Resources/lib/vapoursynth/plugins/mvtools.dylib`**, then
+///   **`~/.config/rhino/lib/…`** (seeded once), then Homebrew **`vapoursynth-mvtools`** /
+///   legacy **`libmvtools.dylib`**. vsrepo is Linux-only.
 pub fn mvtools_lib_search() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
-        return macos_mvtools_lib_search();
+        macos_mvtools_lib_search()
     }
     #[cfg(not(target_os = "macos"))]
     {
-        for c in DISTRO_MVTOOLS_PATHS {
-            let p = Path::new(c);
-            if p.is_file() {
-                return std::fs::canonicalize(p).ok().or(Some(p.to_path_buf()));
-            }
-        }
-        extra_mvtools_search()
+        linux_mvtools_lib_search()
     }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn extra_mvtools_search() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    let local = PathBuf::from(home).join(".local");
-    mvtools_in_pipx_venvs(&local)
-        .or_else(|| find_file_breadth_first(&local, MVTOOLS_FILE, 14, 8000))
-}
-
-#[cfg(not(target_os = "macos"))]
-const DISTRO_MVTOOLS_PATHS: &[&str] = &[
-    "/usr/lib/x86_64-linux-gnu/vapoursynth/libmvtools.so",
-    "/usr/lib/vapoursynth/libmvtools.so",
-    "/usr/local/lib/vapoursynth/libmvtools.so",
-];
-
-/// Pipx venvs under **`~/.local/share/pipx/venvs`**, **`~/.local/pipx/venvs`**, or **`$PIPX_HOME/venvs`**:
-/// **`…/site-packages/vapoursynth/plugins/vsrepo/libmvtools.so`**. Linux-only: macOS uses Homebrew paths.
-#[cfg(not(target_os = "macos"))]
-fn mvtools_scan_pipx_venvs_root(venvs_root: &Path) -> Option<PathBuf> {
-    let venvs = std::fs::read_dir(venvs_root).ok()?;
-    for venv in venvs.flatten() {
-        let Ok(vft) = venv.file_type() else {
-            continue;
-        };
-        if !vft.is_dir() {
-            continue;
-        }
-        let lib = venv.path().join("lib");
-        let pys = std::fs::read_dir(&lib).ok()?;
-        for py in pys.flatten() {
-            let Ok(pft) = py.file_type() else {
-                continue;
-            };
-            if !pft.is_dir() {
-                continue;
-            }
-            if !py.file_name().to_string_lossy().starts_with("python") {
-                continue;
-            }
-            let p = py
-                .path()
-                .join("site-packages/vapoursynth/plugins/vsrepo")
-                .join(MVTOOLS_FILE);
-            if p.is_file() {
-                return std::fs::canonicalize(&p).ok().or(Some(p));
-            }
-        }
-    }
-    None
-}
-
-#[cfg(not(target_os = "macos"))]
-fn mvtools_in_pipx_venvs(local: &Path) -> Option<PathBuf> {
-    mvtools_scan_pipx_venvs_root(&local.join("share/pipx/venvs"))
-        .or_else(|| mvtools_scan_pipx_venvs_root(&local.join("pipx/venvs")))
-        .or_else(|| {
-            let ph = std::env::var_os("PIPX_HOME")?;
-            mvtools_scan_pipx_venvs_root(&PathBuf::from(ph).join("venvs"))
-        })
-}
-
-#[cfg(not(target_os = "macos"))]
-/// Breadth-first search for `file_name` under `root`, at most `max_depth` directory levels from
-/// `root`, stopping after `max_dir_reads` `read_dir` calls (avoids huge trees). Symlink directories
-/// are not descended (same idea as Python `follow_symlinks=False`), so cycles do not burn the read budget.
-/// Used for **MVTools** pipx / `~/.local` fallback search on Linux ([extra_mvtools_search]).
-fn find_file_breadth_first(
-    root: &Path,
-    file_name: &str,
-    max_depth: u32,
-    max_dir_reads: usize,
-) -> Option<PathBuf> {
-    if !root.is_dir() {
-        return None;
-    }
-    use std::collections::VecDeque;
-    let mut q: VecDeque<(PathBuf, u32)> = VecDeque::new();
-    q.push_back((root.to_path_buf(), 0));
-    let mut reads = 0usize;
-    while let Some((dir, depth)) = q.pop_front() {
-        if reads >= max_dir_reads {
-            return None;
-        }
-        reads += 1;
-        let read = match std::fs::read_dir(&dir) {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-        for e in read.flatten() {
-            let Ok(ft) = e.file_type() else {
-                continue;
-            };
-            let p = e.path();
-            // Do not follow symlink directories (avoids cycles and matches Python's follow_symlinks=False).
-            if ft.is_dir() && !ft.is_symlink() {
-                if depth < max_depth {
-                    q.push_back((p, depth + 1));
-                }
-            } else if p.file_name().is_some_and(|f| f == file_name) {
-                return std::fs::canonicalize(&p).ok().or(Some(p));
-            }
-        }
-    }
-    None
 }
