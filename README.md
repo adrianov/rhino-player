@@ -144,19 +144,23 @@ Rhino’s **Preferences → Smooth Video (60 FPS)** uses mpv’s VapourSynth vid
 
 ### macOS
 
-Homebrew packages everything Smooth 60 needs:
+Homebrew still supplies **VapourSynth** and a **vapoursynth-capable libmpv**. **MVTools** is vendored by Rhino so Smooth does not chase Homebrew Cellar / `python*` layout changes after `brew upgrade`:
+
+- Packaged **`Rhino Player.app`**: `Contents/Resources/lib/vapoursynth/plugins/mvtools.dylib` (written by `scripts/macos-build-app-bundle.sh` via `scripts/macos-vendor-smooth-libs.sh`)
+- **`cargo run`**: first successful Homebrew find seeds `~/.config/rhino/lib/vapoursynth/plugins/mvtools.dylib` (same script; `@loader_path` + ad-hoc codesign)
 
 ```bash
 brew install mpv vapoursynth-mvtools
 ```
 
-`brew install vapoursynth-mvtools` (formerly `mvtools`) pulls VapourSynth in as a dependency and installs **`mvtools.dylib`** under `$(brew --prefix vapoursynth-mvtools)/lib/python*/site-packages/vapoursynth/plugins/`. Homebrew’s `mpv` formula (0.41+) already ships with the `vapoursynth` video filter, so the same `libmpv` Rhino links against can run the bundled script. Rhino searches Apple Silicon and Intel Homebrew prefixes for that layout and for legacy **`libmvtools.dylib`** under `$(brew --prefix)/lib`; override with `export RHINO_MVTOOLS_LIB=/full/path/to/mvtools.dylib` if you installed it elsewhere.
+Homebrew’s `mpv` formula (0.41+) already ships the `vapoursynth` video filter. Optional override: `export RHINO_MVTOOLS_LIB=/full/path/to/mvtools.dylib`.
 
 Verify before turning the preference on:
 
 ```bash
 mpv -vf help 2>&1 | grep vapoursynth
-MT=$(find "$(brew --prefix vapoursynth-mvtools)/lib" \( -name mvtools.dylib -o -name libmvtools.dylib \) | head -1)
+# After one Rhino launch (or: ./scripts/macos-vendor-smooth-libs.sh ~/.config/rhino/lib/vapoursynth):
+MT="$HOME/.config/rhino/lib/vapoursynth/plugins/mvtools.dylib"
 python3 -c "import vapoursynth as vs; vs.core.std.LoadPlugin('$MT'); print(vs.core.mv)"
 ```
 
