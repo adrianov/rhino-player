@@ -78,6 +78,47 @@ fn macos_vs_python_mapping_ok(exe: &str, lib: &str) -> bool {
         && lib.contains("/opt/python@")
 }
 
+/// Replace or append the VSScript→Python mapping; keep every other line.
+#[cfg(target_os = "macos")]
+fn merge_vs_toml_mapping(existing: &str, key: &str, exe: &str, lib: &str) -> String {
+    let mapping = format!(
+        "{} = [{},{}]",
+        toml_escape(key),
+        toml_escape(exe),
+        toml_escape(lib)
+    );
+    let mut out = String::new();
+    let mut replaced = false;
+    for line in existing.lines() {
+        if let Some((k, _, _)) = parse_vs_toml_line(line) {
+            if same_vsscript_key(&k, key) {
+                if !replaced {
+                    out.push_str(&mapping);
+                    out.push('\n');
+                    replaced = true;
+                }
+                continue;
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    if !replaced {
+        out.push_str(&mapping);
+        out.push('\n');
+    }
+    out
+}
+
+#[cfg(target_os = "macos")]
+fn vs_toml_mapping_already_ok(text: &str, key: &str) -> bool {
+    text.lines().any(|line| {
+        parse_vs_toml_line(line).is_some_and(|(k, exe, lib)| {
+            same_vsscript_key(&k, key) && macos_vs_python_mapping_ok(&exe, &lib)
+        })
+    })
+}
+
 /// Rewrite VSScript → Python mapping to stable Homebrew **`opt/python@*`** when stale/missing.
 #[cfg(target_os = "macos")]
 pub(crate) fn macos_ensure_vapoursynth_python_config() {
@@ -116,32 +157,21 @@ pub(crate) fn macos_ensure_vapoursynth_python_config() {
     let key_s = key.to_string_lossy();
     let want_lib = py_lib.to_string_lossy();
     let want_exe = py_exe.to_string_lossy();
-
-    if let Ok(text) = std::fs::read_to_string(&toml_path) {
-        for line in text.lines() {
-            let Some((k, exe, lib)) = parse_vs_toml_line(line) else {
-                continue;
-            };
-            if !same_vsscript_key(&k, key_s.as_ref()) {
-                continue;
-            }
-            if macos_vs_python_mapping_ok(&exe, &lib) {
-                return;
-            }
-            break;
-        }
+    let existing = std::fs::read_to_string(&toml_path).unwrap_or_default();
+    if vs_toml_mapping_already_ok(&existing, key_s.as_ref()) {
+        return;
     }
 
     if let Some(parent) = toml_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let line = format!(
-        "{} = [{},{}]\n",
-        toml_escape(&key_s),
-        toml_escape(&want_exe),
-        toml_escape(&want_lib)
+    let text = merge_vs_toml_mapping(
+        &existing,
+        key_s.as_ref(),
+        want_exe.as_ref(),
+        want_lib.as_ref(),
     );
-    match std::fs::write(&toml_path, line) {
+    match std::fs::write(&toml_path, text) {
         Ok(()) => eprintln!(
             "[rhino] video: refreshed {} → {}",
             toml_path.display(),
