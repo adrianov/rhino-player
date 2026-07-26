@@ -17,6 +17,8 @@ const MPV_VSSCRIPT_DYLIB: &str = "libvapoursynth-script.dylib";
 #[cfg(target_os = "macos")]
 const DYLD_PRIMED_VAR: &str = "RHINO_DYLD_PRIMED";
 
+include!("paths_vapoursynth_macos_config.rs");
+
 #[cfg(target_os = "macos")]
 fn vsscript_dir_under_libexec(lib_root: &Path) -> Option<PathBuf> {
     if !lib_root.is_dir() {
@@ -127,6 +129,8 @@ pub fn macos_reexec_for_vapoursynth_dyld_if_needed() {
     if std::env::var_os(DYLD_PRIMED_VAR).is_some() {
         return;
     }
+    // Before VSScript/mpv load: repair stale Cellar Python paths from `brew upgrade python`.
+    macos_ensure_vapoursynth_python_config();
     let Some(add) = macos_vapoursynth_dyld_paths() else {
         eprintln!(
             "[rhino] video: VapourSynth not found — Smooth 60 needs `brew install vapoursynth vapoursynth-mvtools`"
@@ -185,18 +189,5 @@ pub fn macos_reexec_for_vapoursynth_dyld_if_needed() {
 
 #[cfg(all(test, target_os = "macos"))]
 mod macos_vapoursynth_lib_tests {
-    use super::*;
-
-    #[test]
-    fn homebrew_vapoursynth_lib_if_installed() {
-        if !Path::new("/opt/homebrew/opt/vapoursynth").exists()
-            && !Path::new("/usr/local/opt/vapoursynth").exists()
-        {
-            return;
-        }
-        let dir = macos_vapoursynth_lib_dir().expect("vapoursynth installed but lib dir missing");
-        assert!(dir.join(VSSCRIPT_DYLIB).is_file());
-        let dyld = macos_vapoursynth_dyld_paths().expect("dyld paths");
-        assert!(!dyld.is_empty());
-    }
+    include!("paths_vapoursynth_macos_tests.rs");
 }
