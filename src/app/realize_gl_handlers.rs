@@ -26,6 +26,7 @@ fn mpv_gl_realize_attach(
         hdr_title_mirror: ok_refs.hdr_title_mirror.clone(),
         playback_focus: Rc::clone(&ok_refs.playback_focus),
         close_video_btn: ok_refs.close_video_btn.clone(),
+        on_open_fail: Rc::clone(&ok_refs.on_open_fail),
     };
     let file_boot_rz = Rc::clone(file_boot_rz);
     let vp_realize = Rc::clone(vp_realize);
@@ -64,6 +65,7 @@ fn mpv_gl_realize_attach_now(
                     hdr_title_mirror: ok_refs.hdr_title_mirror.clone(),
                 });
                 o.playback_focus = Some(Rc::clone(&ok_refs.playback_focus));
+                o.on_open_fail = Some(Rc::clone(&ok_refs.on_open_fail));
                 if let Err(e) = try_load(
                     &p,
                     &ok_refs.p_realize,

@@ -85,6 +85,7 @@ fn build_window(
         close_action_cell,
         trash_action_cell,
         warm_preload,
+        on_open_fail,
     } = h;
 
     let video_file_actions = wire_video_file_actions(VideoFileActionCtx {
@@ -108,6 +109,7 @@ fn build_window(
         mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
         hdr_title_mirror: w.hdr_title_mirror.clone(), playback_focus: Rc::clone(&playback_focus),
         close_video_btn: w.close_video_btn.clone(),
+        on_open_fail: Rc::clone(&on_open_fail),
     });
 
     let vol_sync = Rc::new(Cell::new(false));
@@ -161,6 +163,7 @@ fn build_window(
         file_boot,
         warm_preload,
         continue_grid_cache,
+        on_open_fail,
     });
 
     crate::window_present::present_on_activation_display(&win_present);

@@ -86,10 +86,11 @@ fn new_undo_bar() -> UndoBar {
 
 /// Scrolled row of at most five continue cards, with the undo snackbar **under** the strip but
 /// outside the horizontal scroller — the pill stays centered on the viewport when the strip scrolls.
+/// Open-failure notices share that under-strip band ([NoticeToast]).
 ///
 /// The two `[gtk::Box]` spacers (top, bottom) are the **empty** hit area for main-window
 /// double-click fullscreen: not the card strip or undo bar.
-pub fn new_scroll() -> (gtk::Box, gtk::Box, [gtk::Box; 2], UndoBar) {
+pub fn new_scroll() -> (gtk::Box, gtk::Box, [gtk::Box; 2], UndoBar, NoticeToast) {
     let h = gtk::Box::new(gtk::Orientation::Horizontal, 16);
     // Equal width comes from [sync_card_sizes]; homogeneous only stretches height to the
     // tallest child's natural size (thumbnails / Open tile) before the first sync on Linux.
@@ -125,12 +126,14 @@ pub fn new_scroll() -> (gtk::Box, gtk::Box, [gtk::Box; 2], UndoBar) {
     let sp_bot = gtk::Box::new(gtk::Orientation::Vertical, 0);
     sp_bot.set_vexpand(true);
     let undo_bar = new_undo_bar();
+    let notice = new_notice_toast();
     v.append(&sp_top);
     v.append(&card_scr);
     v.append(&undo_bar.shell);
+    v.append(&notice.shell);
     v.append(&sp_bot);
 
-    (v, h, [sp_top, sp_bot], undo_bar)
+    (v, h, [sp_top, sp_bot], undo_bar, notice)
 }
 
 fn clear(f: &gtk::Box) {

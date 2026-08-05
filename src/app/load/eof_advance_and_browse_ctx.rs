@@ -20,6 +20,7 @@ fn maybe_advance_sibling_on_eof(
     on_loaded: Option<Rc<dyn Fn()>>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     playback_focus: Rc<Cell<bool>>,
+    on_open_fail: &Rc<dyn Fn(String)>,
 ) {
     let g = match player.try_borrow() {
         Ok(b) => b,
@@ -65,6 +66,7 @@ fn maybe_advance_sibling_on_eof(
             hdr_title_mirror,
         });
         o.playback_focus = Some(Rc::clone(&playback_focus));
+        o.on_open_fail = Some(Rc::clone(on_open_fail));
         if let Err(e) = try_load(&np, player, win, gl, recent, &o) {
             eprintln!("[rhino] sibling advance: {e}");
             seof.done.set(false);

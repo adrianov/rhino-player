@@ -10,6 +10,7 @@ fn wire_final_open_dialog(ctx: &FinalActionCtx) {
     let hdr_mirror_o = ctx.hdr_title_mirror.clone();
     let app = ctx.app.clone();
     let playback_open = Rc::clone(&ctx.playback_focus);
+    let fail_open = Rc::clone(&ctx.on_open_fail);
     let video_pref_open = Rc::clone(&ctx.video_pref);
 
     open.connect_activate(glib::clone!(
@@ -25,6 +26,8 @@ fn wire_final_open_dialog(ctx: &FinalActionCtx) {
         hdr_mirror_o,
         #[strong]
         playback_open,
+        #[strong]
+        fail_open,
         #[strong]
         video_pref_open,
         move |_, _| {
@@ -44,6 +47,7 @@ fn wire_final_open_dialog(ctx: &FinalActionCtx) {
             let oload = Rc::clone(&on_file_loaded_o);
             let mirror_pick = hdr_mirror_o.clone();
             let pf_pick = Rc::clone(&playback_open);
+            let fail_pick = Rc::clone(&fail_open);
             let vp_pick = video_pref_open.clone();
             let aw_load = aw.clone();
             let on_path = move |path: Option<std::path::PathBuf>| {
@@ -55,6 +59,7 @@ fn wire_final_open_dialog(ctx: &FinalActionCtx) {
                         "[rhino] open: not a video file or optical-disc folder: {}",
                         path.display()
                     );
+                    fail_pick(crate::media_open_fail::msg::UNREADABLE_MEDIA.to_string());
                     return;
                 }
                 let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
@@ -68,6 +73,7 @@ fn wire_final_open_dialog(ctx: &FinalActionCtx) {
                     hdr_title_mirror: mirror_pick.clone(),
                 });
                 o.playback_focus = Some(Rc::clone(&pf_pick));
+                o.on_open_fail = Some(Rc::clone(&fail_pick));
                 if let Err(e) = try_load(&path, &p_c, &aw_load, &gl_w, &recent_choose, &o) {
                     eprintln!("[rhino] open: try_load: {e}");
                 }

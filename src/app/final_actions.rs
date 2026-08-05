@@ -32,6 +32,7 @@ struct FinalActionCtx {
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     smooth_toolbar_btn: gtk::Button,
     smooth_toolbar_status: gtk::Label,
+    on_open_fail: Rc<dyn Fn(String)>,
 }
 
 include!("final_actions_smooth_resize.rs");

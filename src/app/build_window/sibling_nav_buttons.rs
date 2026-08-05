@@ -12,6 +12,7 @@ struct SiblingNavTryRefs {
     on_file_loaded: Rc<dyn Fn()>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     playback_focus: Rc<Cell<bool>>,
+    on_open_fail: Rc<dyn Fn(String)>,
 }
 
 /// Loads another local file using the same sibling-folder ordering as EOF advance (**Previous** /
@@ -53,6 +54,7 @@ fn try_load_sibling_pick(
         hdr_title_mirror: r.hdr_title_mirror.clone(),
     });
     o.playback_focus = Some(Rc::clone(&r.playback_focus));
+    o.on_open_fail = Some(Rc::clone(&r.on_open_fail));
     if let Err(e) = try_load(&np, &r.player, &r.win, &r.gl, &r.recent, &o) {
         eprintln!("[rhino] {log_tag}: {e}");
     }
@@ -82,6 +84,7 @@ struct SiblingNavCtx {
     on_file_loaded: Rc<dyn Fn()>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     playback_focus: Rc<Cell<bool>>,
+    on_open_fail: Rc<dyn Fn(String)>,
 }
 
 impl SiblingNavCtx {
@@ -99,6 +102,7 @@ impl SiblingNavCtx {
             on_file_loaded: self.on_file_loaded.clone(),
             hdr_title_mirror: self.hdr_title_mirror.clone(),
             playback_focus: Rc::clone(&self.playback_focus),
+            on_open_fail: Rc::clone(&self.on_open_fail),
         }
     }
 }

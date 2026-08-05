@@ -17,6 +17,7 @@ struct MprisLinuxWireCtx<'a> {
     on_video_chrome: &'a Rc<dyn Fn()>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     playback_focus: &'a Rc<Cell<bool>>,
+    on_open_fail: &'a Rc<dyn Fn(String)>,
 }
 
 #[cfg(target_os = "linux")]
@@ -39,8 +40,10 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
         on_video_chrome,
         hdr_title_mirror,
         playback_focus,
+        on_open_fail,
     } = ctx;
     let vp_seek = video_pref.clone();
+    let on_open_fail = Rc::clone(on_open_fail);
     let p_seek = player.clone();
     let gl_seek = gl_area.clone();
     let deb_seek = smooth_seek_debounce.clone();
@@ -74,6 +77,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
         let hm = hdr_title_mirror.clone();
         let pf = Rc::clone(playback_focus);
         let vp = vp_seek.clone();
+        let fail = on_open_fail.clone();
         move || {
             try_load_sibling_pick(sibling_advance::prev_before_current, "previous", &SiblingNavTryRefs {
                 player: player.clone(),
@@ -88,6 +92,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
                 on_file_loaded: on_loaded.clone(),
                 hdr_title_mirror: hm.clone(),
                 playback_focus: pf.clone(),
+                on_open_fail: fail.clone(),
             });
         }
     };
@@ -104,6 +109,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
         let hm = hdr_title_mirror.clone();
         let pf = Rc::clone(playback_focus);
         let vp = vp_seek.clone();
+        let fail = on_open_fail.clone();
         move || {
             try_load_sibling_pick(sibling_advance::next_after_eof, "next", &SiblingNavTryRefs {
                 player: player.clone(),
@@ -118,6 +124,7 @@ fn wire_mpris_linux_after_seek(ctx: MprisLinuxWireCtx<'_>) {
                 on_file_loaded: on_loaded.clone(),
                 hdr_title_mirror: hm.clone(),
                 playback_focus: pf.clone(),
+                on_open_fail: fail.clone(),
             });
         }
     };

@@ -64,6 +64,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         file_boot,
         warm_preload,
         continue_grid_cache,
+        on_open_fail,
     } = args;
 
     // Same as continue-strip launch (`file_boot` none); do not use `recent_visible.get()`
@@ -140,6 +141,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         win_aspect: win_aspect.clone(),
         sibling_seof: sibling_seof.clone(),
         playback_focus: Rc::clone(&playback_focus),
+        on_open_fail: Rc::clone(&on_open_fail),
         play_pause: w.play_pause.clone(),
         seek: w.seek.clone(),
         seek_sync: seek_sync.clone(),
@@ -174,6 +176,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
             on_file_loaded: Rc::clone(&on_file_loaded),
             hdr_title_mirror: hdr_title_mirror.clone(),
             playback_focus: Rc::clone(&playback_focus),
+        on_open_fail: Rc::clone(&on_open_fail),
         };
         wire_macos_now_playing_remote(play_ctx.clone(), nav);
     }
@@ -212,6 +215,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         on_video_chrome: &on_video_chrome,
         hdr_title_mirror: hdr_title_mirror.clone(),
         playback_focus: &playback_focus,
+        on_open_fail: &on_open_fail,
     });
 
     wire_volume_controls(VolumeCtx {
@@ -255,6 +259,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         seek_chapters: Rc::clone(&seek_chapters),
         dvd_bar: Rc::clone(&dvd_bar),
         blackout: Rc::clone(&w.blackout_sync),
+        on_open_fail: Rc::clone(&on_open_fail),
         widgets: TransportWidgets {
             play_pause: w.play_pause.clone(),
             seek: w.seek.clone(),
@@ -309,6 +314,7 @@ fn wire_window_after_present(args: WindowAfterPresentArgs) {
         hdr_title_mirror,
         smooth_toolbar_btn: w.smooth_btn.clone(),
         smooth_toolbar_status: w.smooth_status.clone(),
+        on_open_fail: Rc::clone(&on_open_fail),
     });
 
     if let Some(ctx) = warm_preload {
@@ -374,5 +380,6 @@ struct WindowAfterPresentArgs {
     file_boot: Rc<RefCell<Option<PathBuf>>>,
     warm_preload: Option<Rc<WarmPreloadCtx>>,
     continue_grid_cache: crate::media_probe::ContinueGridCache,
+    on_open_fail: Rc<dyn Fn(String)>,
 }
 

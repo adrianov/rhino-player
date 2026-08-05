@@ -12,6 +12,7 @@ struct OpenHandlerCtx {
     sub_menu: gtk::MenuButton,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     playback_focus: Rc<Cell<bool>>,
+    on_open_fail: Rc<dyn Fn(String)>,
 }
 
 fn make_on_open_handler(ctx: OpenHandlerCtx) -> RcPathFn {
@@ -35,6 +36,7 @@ fn make_on_open_handler(ctx: OpenHandlerCtx) -> RcPathFn {
                     hdr_title_mirror: ctx.hdr_title_mirror.clone(),
                 });
                 o.playback_focus = Some(Rc::clone(&ctx.playback_focus));
+                o.on_open_fail = Some(Rc::clone(&ctx.on_open_fail));
                 o
             },
         );

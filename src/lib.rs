@@ -42,6 +42,7 @@ mod macos_drag_drop;
 mod macos_open_video;
 #[cfg(target_os = "macos")]
 mod macos_window;
+mod media_open_fail;
 mod media_probe;
 mod mpris;
 mod mpv_embed;

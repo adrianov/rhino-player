@@ -2,6 +2,7 @@
 
 include!("recent_view/card_dims.rs");
 include!("recent_view/undo_bar_scroll_new_row.rs");
+include!("recent_view/notice_toast.rs");
 include!("recent_view/backfill_context_schedule.rs");
 include!("recent_view/fill_row_cards.rs");
 include!("recent_view/fill_idle_probe.rs");

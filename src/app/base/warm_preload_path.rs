@@ -58,6 +58,7 @@ fn preload_continue_path(
         hdr_title_mirror: None,
         playback_focus: None,
         warm_preload: true,
+        on_open_fail: None,
     };
     let warm_hit = match load_file_into_player(&path, player, recent, &o) {
         Err(e) => {

@@ -26,13 +26,21 @@ fn try_load(
         player.borrow().is_some(),
         o.play_on_start
     );
+    if !o.warm_preload {
+        if let Some(msg) = crate::media_open_fail::preflight_user_message(&path) {
+            return fail_open(o, &path, msg.to_string());
+        }
+    }
     if o.play_on_start && !o.warm_preload {
         crate::app::cancel_warm_preload_for_playback();
         if let Some(pf) = o.playback_focus.as_ref() {
             pf.set(true);
         }
     }
-    let warm_hit = load_file_into_player(&path, player, recent_layer, o)?;
+    let warm_hit = match load_file_into_player(&path, player, recent_layer, o) {
+        Ok(v) => v,
+        Err(e) => return fail_open(o, &path, e),
+    };
     *o.last_path.borrow_mut() = std::fs::canonicalize(&path).ok();
     if o.record {
         history::record(&path);
@@ -260,6 +268,21 @@ fn vol_mute_pop_icon(muted: bool) -> &'static str {
     } else {
         "audio-volume-high-symbolic"
     }
+}
+
+
+fn fail_open(o: &LoadOpts, path: &Path, err: String) -> Result<(), String> {
+    let msg = crate::media_open_fail::message_for_load_err(&err, path);
+    eprintln!("[rhino] open failed: {msg} ({})", path.display());
+    // User-initiated open (toast callback present): drop hollow/corrupt continue cards.
+    // Warm preload leaves `on_open_fail` unset and must not rewrite history.
+    if o.on_open_fail.is_some() && crate::media_open_fail::should_drop_from_continue(&msg) {
+        remove_continue_entry(path);
+    }
+    if let Some(f) = o.on_open_fail.as_ref() {
+        f(msg.clone());
+    }
+    Err(msg)
 }
 
 include!("sibling_eof_state.rs");

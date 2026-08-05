@@ -153,3 +153,6 @@
             border-radius: 9999px;
             background-color: #62a0ea;
         }
+
+        /* Open-failure notice: same pill as undo, under the continue strip. */
+        .rp-notice-toast label.rp-notice-toast-text { color: #f6f5f4; }

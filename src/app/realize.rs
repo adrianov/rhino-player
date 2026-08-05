@@ -23,6 +23,7 @@ struct MpvRealizeCtx {
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     playback_focus: Rc<Cell<bool>>,
     close_video_btn: gtk::Button,
+    on_open_fail: Rc<dyn Fn(String)>,
 }
 
 struct GlRealizeOkRefs {
@@ -46,6 +47,7 @@ struct GlRealizeOkRefs {
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     playback_focus: Rc<Cell<bool>>,
     close_video_btn: gtk::Button,
+    on_open_fail: Rc<dyn Fn(String)>,
 }
 
 fn gl_realize_bundle_ready(
@@ -119,6 +121,7 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
         hdr_title_mirror,
         playback_focus,
         close_video_btn,
+        on_open_fail,
     } = ctx;
 
     let p_realize = player.clone();
@@ -158,6 +161,7 @@ fn wire_mpv_realize(ctx: MpvRealizeCtx) {
         hdr_title_mirror: hdr_title_mirror.clone(),
         playback_focus: Rc::clone(&playback_focus),
         close_video_btn: close_video_btn.clone(),
+        on_open_fail: Rc::clone(&on_open_fail),
     };
     gl.connect_realize(move |area| {
         mpv_gl_realize_attach(area, &ok_refs, &file_boot_rz, &vp_realize);

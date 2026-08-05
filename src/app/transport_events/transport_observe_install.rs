@@ -118,7 +118,7 @@ fn collect_events(ctx: &Rc<TransportCtx>) -> Vec<TransportEv> {
     let Some(b) = g.as_mut() else {
         return out;
     };
-    b.drain_events(|ev| match ev {
+    let saw_err = b.drain_events(|ev| match ev {
         Event::PropertyChange {
             reply_userdata, change, ..
         } => {
@@ -128,11 +128,19 @@ fn collect_events(ctx: &Rc<TransportCtx>) -> Vec<TransportEv> {
         }
         Event::FileLoaded => out.push(TransportEv::FileLoaded),
         Event::VideoReconfig => out.push(TransportEv::VideoReconfig),
+        Event::EndFile(r) => {
+            if r == libmpv2::mpv_end_file_reason::Error {
+                out.push(TransportEv::LoadFailed);
+            }
+        }
         Event::LogMessage { prefix, level, text, .. } => {
             log_mpv_message(prefix, level, text);
         }
         _ => {}
     });
+    if saw_err {
+        out.push(TransportEv::LoadFailed);
+    }
     out
 }
 

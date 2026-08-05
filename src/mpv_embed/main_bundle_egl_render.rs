@@ -17,6 +17,19 @@ use gl_platform::GlDynLib;
 // EGL helper types (`EglState`, `egl_proc`, `GL_FRAMEBUFFER_BINDING`) live in
 // `mpv_embed/linux_egl_helpers.rs` and are included into the same module.
 
+
+fn wait_event_err_is_load_fail(err: &libmpv2::Error) -> bool {
+    match err {
+        libmpv2::Error::Raw(code) => matches!(
+            *code,
+            libmpv2::mpv_error::LoadingFailed
+                | libmpv2::mpv_error::NothingToPlay
+                | libmpv2::mpv_error::UnknownFormat
+        ),
+        _ => false,
+    }
+}
+
 /// Owns loaded GL/EGL (Linux) or a native [`CAOpenGLLayer`] surface (macOS).
 pub struct MpvBundle {
     pub mpv: Mpv,
@@ -310,13 +323,26 @@ impl MpvBundle {
 
     /// Drain libmpv events until the queue is empty, dispatching each to `handler`.
     /// Call from the closure registered by [install_event_drain].
-    pub fn drain_events(&mut self, mut handler: impl FnMut(Event<'_>)) {
+    ///
+    /// Returns `true` when libmpv2 surfaces a **load/demux** failure as `wait_event` `Err`
+    /// (it maps `EndFile` with a file error that way — see libmpv2 `events.rs`). Property /
+    /// command `Err` values are ignored so they do not look like open failures.
+    pub fn drain_events(&mut self, mut handler: impl FnMut(Event<'_>)) -> bool {
+        let mut load_failed = false;
         while let Some(ev) = self.mpv.wait_event(0.0) {
             match ev {
                 Ok(e) => handler(e),
-                Err(_) => continue,
+                Err(e) => {
+                    if wait_event_err_is_load_fail(&e) {
+                        load_failed = true;
+                    }
+                    if std::env::var_os("RHINO_TRANSPORT_TRACE").is_some() {
+                        eprintln!("[rhino] transport wait_event err: {e:?}");
+                    }
+                }
             }
         }
+        load_failed
     }
 
     /// End embedded playback for process quit without going through [`libmpv2::Mpv`]'s `Drop`, which

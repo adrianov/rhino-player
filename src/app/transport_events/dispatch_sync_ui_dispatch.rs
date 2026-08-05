@@ -137,8 +137,40 @@ fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
             sync_audio_tooltip(ctx);
         }
         TransportEv::ContainerFpsChanged => schedule_smooth_60_resync_idle(ctx),
+        TransportEv::LoadFailed => dispatch_load_failed(ctx),
     }
     mpris_enqueue_snapshot(ctx);
+}
+
+
+fn dispatch_load_failed(ctx: &Rc<TransportCtx>) {
+    // Warm continue-grid preload: stay silent (hover may probe incomplete files).
+    if crate::app::browse_overlay_active(&ctx.eof.recent) && !ctx.eof.playback_focus.get() {
+        eprintln!("[rhino] load failed during browse warm preload");
+        return;
+    }
+    let path = ctx.eof.last_path.borrow().clone().or_else(|| {
+        ctx.player.borrow().as_ref().and_then(|b| {
+            crate::media_probe::shell_media_path(
+                &b.mpv,
+                b.me_budget_shell_path.borrow().as_deref(),
+            )
+        })
+    });
+    let msg = crate::media_open_fail::message_for_demux_error(path.as_deref());
+    eprintln!(
+        "[rhino] load failed (EndFile error): {} ({})",
+        msg,
+        path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "?".into())
+    );
+    if let Some(p) = path.as_ref() {
+        remove_continue_entry(p);
+    }
+    if let Some(b) = ctx.player.borrow().as_ref() {
+        b.stop_playback();
+    }
+    *ctx.eof.last_path.borrow_mut() = None;
+    (ctx.eof.on_open_fail)(msg.to_string());
 }
 
 fn refresh_sibling_nav(ctx: &Rc<TransportCtx>) {
@@ -176,6 +208,7 @@ fn run_sibling_eof(ctx: &Rc<TransportCtx>) {
         Some(Rc::clone(&e.on_file_loaded)),
         e.hdr_title_mirror.clone(),
         Rc::clone(&e.playback_focus),
+        &e.on_open_fail,
     );
 }
 

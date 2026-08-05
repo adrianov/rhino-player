@@ -49,6 +49,7 @@ struct WindowWidgets {
     flow_recent: gtk::Box,
     recent_spacers: [gtk::Box; 2],
     undo_bar: crate::recent_view::UndoBar,
+    notice_toast: crate::recent_view::NoticeToast,
     /// Local wall-clock readout; visible only in fullscreen (`docs/features/17-window-behavior.md`).
     fs_clock: gtk::Label,
     /// macOS GTK: optional label in [`adw::HeaderBar::title_widget`] so double-click toggles fullscreen.
@@ -98,7 +99,7 @@ fn build_widgets(
     } = build_speed_menu(player, &gl_area, video_pref, app);
 
     let SmoothToolbarWidgets { smooth_btn, smooth_status } = build_smooth_video_toolbar();
-    let (recent_scrl, flow_recent, recent_spacers, undo_bar) = recent_view::new_scroll();
+    let (recent_scrl, flow_recent, recent_spacers, undo_bar, notice_toast) = recent_view::new_scroll();
     recent_scrl.set_vexpand(true);
     recent_scrl.set_hexpand(true);
     recent_scrl.set_halign(gtk::Align::Fill);
@@ -175,7 +176,7 @@ fn build_widgets(
         #[cfg(target_os = "macos")]
         main_menu: menubar_model,
         pref_menu,
-        recent_scrl, flow_recent, recent_spacers, undo_bar,
+        recent_scrl, flow_recent, recent_spacers, undo_bar, notice_toast,
         fs_clock,
         hdr_title_mirror,
         close_video_btn,

@@ -41,6 +41,7 @@ struct WindowInputCtx {
     sibling_seof: Rc<SiblingEofState>,
     /// Shared with [try_load] reveal / [back_to_browse].
     playback_focus: Rc<Cell<bool>>,
+    on_open_fail: Rc<dyn Fn(String)>,
     play_pause: gtk::Button,
     seek: gtk::Scale,
     seek_sync: Rc<Cell<bool>>,

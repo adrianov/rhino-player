@@ -38,6 +38,8 @@ enum TransportEv {
     PathChanged,
     /// `container-fps` changed — refresh `RHINO_SOURCE_FPS` / `.vpy` graph after prev/next `loadfile`.
     ContainerFpsChanged,
+    /// mpv `EndFile` with error reason (unrecognized / demux failure after async `loadfile`).
+    LoadFailed,
 }
 
 struct TransportWidgets {
@@ -89,6 +91,7 @@ struct TransportEofCtx {
     reapply_60: VideoReapply60,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     playback_focus: Rc<Cell<bool>>,
+    on_open_fail: Rc<dyn Fn(String)>,
 }
 
 struct TransportCtx {
@@ -148,6 +151,7 @@ struct TransportSetup {
     dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
     blackout: Rc<crate::screen_blackout::BlackoutSync>,
     continue_grid_cache: crate::media_probe::ContinueGridCache,
+    on_open_fail: Rc<dyn Fn(String)>,
 }
 
 fn wire_transport_events(s: TransportSetup) {
@@ -171,6 +175,7 @@ fn wire_transport_events(s: TransportSetup) {
             reapply_60: s.reapply_60,
             hdr_title_mirror: s.hdr_title_mirror.clone(),
             playback_focus: Rc::clone(&s.playback_focus),
+            on_open_fail: Rc::clone(&s.on_open_fail),
         },
         video_pref: s.video_pref.clone(),
         smooth_budget_decoder: Rc::new(RefCell::new(

@@ -25,6 +25,8 @@ struct LoadOpts {
     playback_focus: Option<Rc<Cell<bool>>>,
     /// Continue-grid hover/first-card preload: skip outgoing SQLite snapshot; see [MpvBundle::load_file_path].
     warm_preload: bool,
+    /// User-facing open failure (continue-grid notice). `None` for warm preload.
+    on_open_fail: Option<Rc<dyn Fn(String)>>,
 }
 
 /// Bundles **`replace_media`** inputs (keeps Clippy arity down).
@@ -55,6 +57,7 @@ impl LoadOpts {
             hdr_title_mirror: b.hdr_title_mirror,
             playback_focus: None,
             warm_preload: false,
+            on_open_fail: None,
         }
     }
 }

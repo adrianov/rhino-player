@@ -18,6 +18,7 @@ struct HandlersBeforeMpv {
     close_action_cell: Rc<RefCell<Option<gio::SimpleAction>>>,
     trash_action_cell: Rc<RefCell<Option<gio::SimpleAction>>>,
     warm_preload: Option<Rc<WarmPreloadCtx>>,
+    on_open_fail: Rc<dyn Fn(String)>,
 }
 
 fn wire_handlers_before_mpv(
@@ -71,6 +72,28 @@ fn wire_handlers_before_mpv(
     let undo_shell = w.undo_bar.shell.clone();
     let undo_label = w.undo_bar.label.clone();
     let undo_btn = w.undo_bar.undo.clone();
+    let notice_ctrl = crate::recent_view::NoticeToastCtrl::new(w.notice_toast.clone());
+    // Late-bound: filled after [make_browse_back] so open failures can return to the continue grid.
+    let browse_back_slot: Rc<RefCell<Option<Rc<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
+    let on_open_fail: Rc<dyn Fn(String)> = {
+        let notice = Rc::clone(&notice_ctrl);
+        let recent = w.recent_scrl.clone();
+        let slot = Rc::clone(&browse_back_slot);
+        let playback_focus = Rc::clone(playback_focus);
+        Rc::new(move |msg: String| {
+            // Notice lives under the continue strip. Return to browse when playback UI is up
+            // (async demux failure after reveal, or CLI boot with the strip hidden). If already
+            // browsing, only show the toast — do not reset undo / refill.
+            if !recent.is_visible() || playback_focus.get() {
+                if let Some(bb) = slot.borrow().as_ref() {
+                    bb(false);
+                }
+                recent.set_visible(true);
+                playback_focus.set(false);
+            }
+            notice.show(&msg);
+        })
+    };
     let close_act_for_sync: Rc<RefCell<Option<gio::SimpleAction>>> = Rc::new(RefCell::new(None));
     let trash_act_for_sync: Rc<RefCell<Option<gio::SimpleAction>>> = Rc::new(RefCell::new(None));
 
@@ -245,6 +268,7 @@ fn wire_handlers_before_mpv(
         sub_menu: w.sub_menu.clone(),
         hdr_title_mirror: w.hdr_title_mirror.clone(),
         playback_focus: Rc::clone(playback_focus),
+        on_open_fail: Rc::clone(&on_open_fail),
     });
     *on_open_slot.borrow_mut() = Some(on_open.clone());
     wire_window_drop_targets(&w.win, player, &w.sub_menu, &on_open);
@@ -263,6 +287,7 @@ fn wire_handlers_before_mpv(
         on_file_loaded: Rc::clone(&on_file_loaded),
         hdr_title_mirror: w.hdr_title_mirror.clone(),
         playback_focus: Rc::clone(playback_focus),
+        on_open_fail: Rc::clone(&on_open_fail),
     });
 
     let warm_preload = want_recent.then(|| {
@@ -315,13 +340,16 @@ fn wire_handlers_before_mpv(
             undo_remove_stack: recent_wiring.undo_remove_stack.clone(),
             recent_visible: Rc::clone(&recent_visible),
             playback_focus: Rc::clone(playback_focus),
-            browse_has_strip: want_recent,
+            // Always allow the Open tile when history is empty (incl. failed CLI boot).
+            browse_has_strip: true,
             hdr_title_mirror: w.hdr_title_mirror.clone(),
             continue_grid_cache: Rc::clone(&continue_grid_cache),
             dvd_bar: Rc::clone(dvd_bar),
         },
         w.win.clone(), w.gl_area.clone(), w.recent_scrl.clone(), w.flow_recent.clone(),
     );
+
+    *browse_back_slot.borrow_mut() = Some(Rc::clone(&on_browse_back));
 
     HandlersBeforeMpv {
         continue_grid_cache,
@@ -343,5 +371,6 @@ fn wire_handlers_before_mpv(
         close_action_cell: close_act_for_sync,
         trash_action_cell: trash_act_for_sync,
         warm_preload,
+        on_open_fail,
     }
 }

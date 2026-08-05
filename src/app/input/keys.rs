@@ -105,6 +105,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
     let on_loaded_nav = ctx.on_file_loaded.clone();
     let hdr_mirror_nav = ctx.hdr_title_mirror.clone();
     let playback_nav = Rc::clone(&ctx.playback_focus);
+    let fail_nav = Rc::clone(&ctx.on_open_fail);
     let video_pref_nav = ctx.video_pref.clone();
     let k = gtk::EventControllerKey::new();
     // Capture phase: run before the focused widget (e.g. bottom-bar buttons, scales) so Space /
@@ -128,6 +129,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
             on_file_loaded: on_loaded_nav.clone(),
             hdr_title_mirror: hdr_mirror_nav.clone(),
             playback_focus: playback_nav.clone(),
+            on_open_fail: fail_nav.clone(),
         };
         if let Some(r) = propagation_for_media_keys(key, &play_key, &nav) {
             return r;
