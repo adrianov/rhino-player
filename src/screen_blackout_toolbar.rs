@@ -75,6 +75,8 @@ pub fn build_blackout_header(
         dirty: Cell::new(false),
         scheduled: Cell::new(false),
     });
+    // Holds start outside the transport (vf swap, seek burst, chapter scrub) and need this handle.
+    ACTIVE_SYNC.with(|s| *s.borrow_mut() = Some(Rc::clone(&sync)));
 
     let sync_clk = Rc::clone(&sync);
     let btn_clk = btn.clone();

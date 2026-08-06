@@ -12,16 +12,42 @@ const ICON: &str = "video-display-symbolic";
 thread_local! {
     /// Depth of engine-held pauses (smooth `vf` swap, seek burst, chapter scrub) — not user pause.
     static TECH_HOLD: Cell<u32> = const { Cell::new(0) };
+    /// Handle for refreshes that start outside the transport, e.g. the hold below.
+    static ACTIVE_SYNC: RefCell<Option<Rc<BlackoutSync>>> = const { RefCell::new(None) };
 }
 
-/// Keep blackout up across an engine-held pause.
+/// Keep blackout up across an engine-held pause. Entering and leaving the hold changes what
+/// [tech_hold_active] reports, so both edges refresh — a paused engine hold and a user pause look
+/// the same to the transport, and no pause event follows a hold that ends while playback stays paused.
 pub fn begin_tech_hold() {
-    TECH_HOLD.with(|d| d.set(d.get().saturating_add(1)));
+    let entered = TECH_HOLD.with(|d| {
+        let next = d.get().saturating_add(1);
+        d.set(next);
+        next == 1
+    });
+    if entered {
+        refresh_for_hold();
+    }
 }
 
 /// Pair with [begin_tech_hold] when that hold ends.
 pub fn end_tech_hold() {
-    TECH_HOLD.with(|d| d.set(d.get().saturating_sub(1)));
+    let left = TECH_HOLD.with(|d| {
+        let next = d.get().saturating_sub(1);
+        d.set(next);
+        next == 0
+    });
+    if left {
+        refresh_for_hold();
+    }
+}
+
+/// No-op until the header control is built.
+fn refresh_for_hold() {
+    let sync = ACTIVE_SYNC.with(|s| s.borrow().clone());
+    if let Some(sync) = sync {
+        sync.sync();
+    }
 }
 
 fn tech_hold_active() -> bool {
