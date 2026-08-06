@@ -105,6 +105,30 @@ fn try_dvd_global_seek(p: &SeekKeyframeParams<'_>, seconds: &str, resume_playing
     ok
 }
 
+/// Keyframe seek inside the current file. Skipped for DVD VOB sets, which only seek globally.
+/// `user_paused` distinguishes a real user pause (strip Smooth for a fast still frame) from the
+/// transient arrow-burst hold that resumes at the tail.
+fn seek_local_file(b: &MpvBundle, seconds: &str, user_paused: bool) {
+    let shell = b.me_budget_shell_path.borrow();
+    if crate::media_probe::shell_media_path(&b.mpv, shell.as_deref())
+        .is_some_and(|path| crate::video_ext::is_dvd_vob_path(&path))
+    {
+        crate::dvd_vob_log::dvd_seek_log(format!(
+            "seek blocked: DVD global seek failed for t={seconds}s (no local fallback)"
+        ));
+        return;
+    }
+    if user_paused {
+        // Also marks the disc cadence gate internally.
+        if video_pref::unload_smooth_on_pause(&b.mpv, Some(b)) {
+            eprintln!("[rhino] video: vf stripped for paused seek (fast still frame)");
+        }
+    } else {
+        video_pref::mark_smooth_cadence_unstable_after_seek_if_disc(&b.mpv);
+    }
+    let _ = b.mpv.command("seek", &[seconds, "absolute+keyframes"]);
+}
+
 fn main_player_seek_keyframes(p: &SeekKeyframeParams<'_>, kind: SeekKeyframeKind, seconds: &str) {
     cancel_smooth_seek_debounce(p.smooth_seek_debounce);
     let paused_before;
@@ -128,32 +152,10 @@ fn main_player_seek_keyframes(p: &SeekKeyframeParams<'_>, kind: SeekKeyframeKind
         seek_keyframes_after_command(p, kind, paused_before);
         return;
     }
-    {
-        let g = p.player.borrow();
-        let Some(b) = g.as_ref() else {
-            return;
-        };
-        let shell = b.me_budget_shell_path.borrow();
-        if crate::media_probe::shell_media_path(&b.mpv, shell.as_deref())
-            .is_some_and(|path| crate::video_ext::is_dvd_vob_path(&path))
-        {
-            crate::dvd_vob_log::dvd_seek_log(format!(
-                "seek blocked: DVD global seek failed for t={seconds}s (no local fallback)"
-            ));
-            return;
-        }
-        // Strip only when the user is genuinely paused: a latched `resume_after_seek_idle`
-        // means this pause is a transient arrow-burst hold and playback resumes at the tail.
-        let user_paused = paused_before && !p.resume_after_seek_idle.get();
-        if user_paused {
-            // Also marks the disc cadence gate internally.
-            if video_pref::unload_smooth_on_pause(&b.mpv, Some(b)) {
-                eprintln!("[rhino] video: vf stripped for paused seek (fast still frame)");
-            }
-        } else {
-            video_pref::mark_smooth_cadence_unstable_after_seek_if_disc(&b.mpv);
-        }
-        let _ = b.mpv.command("seek", &[seconds, "absolute+keyframes"]);
+    // A blocked seek still runs the tail below: it owns the arrow-burst unpause and the blackout
+    // hold, so returning early here would leave playback paused and blackout stuck on.
+    if let Some(b) = p.player.borrow().as_ref() {
+        seek_local_file(b, seconds, paused_before && !p.resume_after_seek_idle.get());
     }
     seek_keyframes_after_command(p, kind, paused_before);
 }
