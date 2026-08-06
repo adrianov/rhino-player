@@ -30,6 +30,7 @@ fn wire_quit_close(
         #[strong]
         td_quit,
         move |_, _| {
+            eprintln!("[rhino] quit: quit action");
             schedule_quit_persist(
                 &app,
                 &win_q,
@@ -65,6 +66,7 @@ fn wire_quit_close(
         #[strong]
         td_close,
         move |_win| {
+            eprintln!("[rhino] quit: window close request");
             schedule_quit_persist(
                 &app,
                 &w,

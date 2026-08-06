@@ -39,6 +39,7 @@ fn maybe_advance_sibling_on_eof(
     if exit_after_current.get() {
         seof.done.set(true);
         drop(g);
+        eprintln!("[rhino] quit: exit after current video");
         schedule_quit_persist(app, win, gl, player, sub_pref, idle_inhib, teardown_after_draw);
         return;
     }

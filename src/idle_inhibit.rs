@@ -2,21 +2,22 @@
 //!
 //! **Linux**: [`gtk::Application::inhibit`](https://docs.gtk.org/gtk4/method.Application.inhibit.html)
 //! with IDLE + SUSPEND (D‑Bus / portal — GNOME dims and sleeps respect it).
-//! **macOS**: `NSProcessInfo` activity with idle display/system sleep disabled — see
-//! [Apple: beginActivity(withOptions:reason:)](https://developer.apple.com/documentation/foundation/nsprocessinfo/beginactivitywithoptions).
-//! disables idle display and system sleep (`IdleDisplaySleepDisabled` + `IdleSystemSleepDisabled`); GTK inhibit is not relied on.
+//! **macOS**: an IOKit power assertion (`PreventUserIdleDisplaySleep`) — see
+//! [Apple: IOPMAssertionCreateWithName](https://developer.apple.com/documentation/iokit/1557134-iopmassertioncreatewithname).
+//! GTK inhibit is not relied on.
+//!
+//! Do **not** go back to `NSProcessInfo::beginActivityWithOptions` here. Taking an activity re-enters
+//! the run loop underneath us, and because this runs from a GLib source, the next dispatch aborts with
+//! `g_main_dispatch: assertion failed: (source)` in release builds. IOKit assertions are a plain C call
+//! and leave the loop alone.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::mpv_embed::MpvBundle;
 
-#[cfg(not(target_os = "macos"))]
+/// Linux: GTK inhibit cookie. macOS: IOKit assertion id.
 pub type Held = u32;
-
-#[cfg(target_os = "macos")]
-pub type Held =
-    objc2::rc::Retained<objc2::runtime::ProtocolObject<dyn objc2::runtime::NSObjectProtocol>>;
 
 /// True when a file is loaded, **not** paused, and the **continue** grid is hidden (we are in playback).
 pub fn should_inhibit(
@@ -68,27 +69,71 @@ pub fn sync(
 }
 
 #[cfg(target_os = "macos")]
+mod iokit {
+    use objc2_foundation::NSString;
+    use std::ffi::c_void;
+
+    const ASSERT_ON: u32 = 255;
+
+    #[link(name = "IOKit", kind = "framework")]
+    unsafe extern "C" {
+        fn IOPMAssertionCreateWithName(
+            kind: *const c_void,
+            level: u32,
+            name: *const c_void,
+            id: *mut u32,
+        ) -> i32;
+        fn IOPMAssertionRelease(id: u32) -> i32;
+    }
+
+    /// `NSString` is toll-free bridged to `CFStringRef`, so the object pointer is the argument.
+    fn cf_string(s: &NSString) -> *const c_void {
+        (s as *const NSString).cast()
+    }
+
+    /// Assertion id, or `None` when IOKit refused it (`kIOReturnSuccess` is 0).
+    pub fn take() -> Option<u32> {
+        let kind = NSString::from_str("PreventUserIdleDisplaySleep");
+        let name = NSString::from_str("Video playback");
+        let mut id = 0u32;
+        let rc = unsafe {
+            IOPMAssertionCreateWithName(
+                cf_string(&kind),
+                ASSERT_ON,
+                cf_string(&name),
+                &mut id as *mut u32,
+            )
+        };
+        if rc != 0 {
+            eprintln!("[rhino] idle: IOPMAssertionCreateWithName failed rc={rc}");
+            return None;
+        }
+        Some(id)
+    }
+
+    pub fn release(id: u32) {
+        let rc = unsafe { IOPMAssertionRelease(id) };
+        if rc != 0 {
+            eprintln!("[rhino] idle: IOPMAssertionRelease failed rc={rc}");
+        }
+    }
+}
+
+/// Request or clear the display-sleep assertion; [`RefCell`] holds the id while active.
+#[cfg(target_os = "macos")]
 pub fn sync(
     app: &impl gtk::prelude::IsA<gtk::Application>,
     win: Option<&impl gtk::prelude::IsA<gtk::Window>>,
     should: bool,
     cookie: &RefCell<Option<Held>>,
 ) {
-    use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
-    let _ = app;
-    let _ = win;
+    let _ = (app, win);
     if should {
         if cookie.borrow().is_none() {
-            let info = NSProcessInfo::processInfo();
-            let opts = NSActivityOptions::IdleDisplaySleepDisabled
-                .union(NSActivityOptions::IdleSystemSleepDisabled);
-            let reason = NSString::from_str("Video playback");
-            let act = info.beginActivityWithOptions_reason(opts, &reason);
-            *cookie.borrow_mut() = Some(act);
+            *cookie.borrow_mut() = iokit::take();
         }
-    } else if let Some(a) = cookie.borrow_mut().take() {
-        let info = NSProcessInfo::processInfo();
-        unsafe { info.endActivity(&a) };
+    } else if let Some(id) = cookie.borrow_mut().take() {
+        iokit::release(id);
     }
 }
 
@@ -101,11 +146,8 @@ pub fn clear(app: &impl IsA<gtk::Application>, cookie: &RefCell<Option<Held>>) {
 
 #[cfg(target_os = "macos")]
 pub fn clear(app: &impl gtk::prelude::IsA<gtk::Application>, cookie: &RefCell<Option<Held>>) {
-    use objc2_foundation::NSProcessInfo;
     let _ = app;
-    let Some(activity) = cookie.borrow_mut().take() else {
-        return;
-    };
-    let info = NSProcessInfo::processInfo();
-    unsafe { info.endActivity(&activity) };
+    if let Some(id) = cookie.borrow_mut().take() {
+        iokit::release(id);
+    }
 }
