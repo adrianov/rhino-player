@@ -48,6 +48,7 @@ fn schedule_seek_burst_tail(
         let trust_unpause = resume_after_seek_idle.replace(false);
         if trust_unpause {
             let _ = apply_mpv_pause(&play_toggle, false);
+            crate::screen_blackout::end_tech_hold();
         }
         request_smooth_60_transport_resync();
         gl2.queue_render();
@@ -119,6 +120,7 @@ fn main_player_seek_keyframes(p: &SeekKeyframeParams<'_>, kind: SeekKeyframeKind
         p.resume_after_seek_idle
             .set(p.resume_after_seek_idle.get() || was_playing);
         if was_playing {
+            crate::screen_blackout::begin_tech_hold();
             let _ = apply_mpv_pause(p.play_toggle, true);
         }
     }

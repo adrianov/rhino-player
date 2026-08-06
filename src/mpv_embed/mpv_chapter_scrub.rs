@@ -5,6 +5,9 @@ impl MpvBundle {
     pub(super) fn begin_chapter_scrub_pause_hold(&self, resume_playing: bool) {
         self.chapter_scrub_unpause_after.set(resume_playing);
         self.chapter_scrub_hold_pause.set(true);
+        if resume_playing {
+            crate::screen_blackout::begin_tech_hold();
+        }
         let _ = self.mpv.set_property("pause", true);
         crate::dvd_vob_log::dvd_seek_log(format!(
             "chapter_scrub: pause hold (resume playing={resume_playing})"
@@ -17,6 +20,9 @@ impl MpvBundle {
         }
         let playing = self.chapter_scrub_unpause_after.get();
         let _ = self.mpv.set_property("pause", !playing);
+        if playing {
+            crate::screen_blackout::end_tech_hold();
+        }
         crate::dvd_vob_log::dvd_seek_log(if playing {
             "chapter_scrub: unpause after resume seek"
         } else {
@@ -159,6 +165,9 @@ impl MpvBundle {
     }
 
     pub(crate) fn clear_chapter_scrub_pause_hold(&self) {
+        if self.chapter_scrub_hold_pause.get() && self.chapter_scrub_unpause_after.get() {
+            crate::screen_blackout::end_tech_hold();
+        }
         self.chapter_scrub_hold_pause.set(false);
         self.chapter_scrub_unpause_after.set(false);
     }

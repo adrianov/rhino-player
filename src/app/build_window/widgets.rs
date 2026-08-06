@@ -56,7 +56,6 @@ struct WindowWidgets {
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     /// Bottom-bar `app.close-video`; tooltip from [sync_close_video_action].
     close_video_btn: gtk::Button,
-    blackout_menu: gtk::Button,
     blackout_sync: Rc<crate::screen_blackout::BlackoutSync>,
     /// Keeps header [`gtk::SizeGroup`] alive for the window lifetime.
     _header_btn_heights: gtk::SizeGroup,
@@ -180,7 +179,6 @@ fn build_widgets(
         fs_clock,
         hdr_title_mirror,
         close_video_btn,
-        blackout_menu,
         blackout_sync,
         _header_btn_heights,
     }

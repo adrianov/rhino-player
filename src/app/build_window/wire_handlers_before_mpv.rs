@@ -64,7 +64,7 @@ fn wire_handlers_before_mpv(
     ]);
 
     wire_popover_shows(player, w, sub_pref);
-    crate::screen_blackout::wire_blackout_hooks(&w.blackout_sync, &w.blackout_menu);
+    crate::screen_blackout::wire_blackout_hooks(&w.blackout_sync);
     let (seek_sync, seek_grabbed) = (Rc::new(Cell::new(false)), Rc::new(Cell::new(false)));
     let smooth_seek_debounce = Rc::new(RefCell::new(None::<glib::SourceId>));
     let resume_after_seek_idle = Rc::new(Cell::new(false));

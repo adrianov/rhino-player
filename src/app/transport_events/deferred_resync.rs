@@ -151,7 +151,6 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
         );
     }
     mpris_enqueue_snapshot(ctx);
-    ctx.blackout.sync();
     maybe_dvd_transport_periodic_log(ctx, pos, dur);
 }
 

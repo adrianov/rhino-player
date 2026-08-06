@@ -35,20 +35,31 @@ pub(crate) fn log_smooth_avsync(mpv: &libmpv2::Mpv) {
 #[derive(Clone, Copy)]
 pub(crate) struct VfAvSnap {
     pub(crate) was_playing: bool,
+    /// True when this snap called [screen_blackout::begin_tech_hold].
+    tech_hold: bool,
 }
 
 /// When [pause_if_playing] is false (first **`vf add`** after open), record play state but do not pause.
 pub(crate) fn vf_swap_snap(mpv: &libmpv2::Mpv, pause_if_playing: bool) -> VfAvSnap {
     let was_playing = !mpv.get_property::<bool>("pause").unwrap_or(true);
+    let mut tech_hold = false;
     if pause_if_playing && was_playing {
+        crate::screen_blackout::begin_tech_hold();
+        tech_hold = true;
         let _ = mpv.set_property("pause", true);
     }
-    VfAvSnap { was_playing }
+    VfAvSnap {
+        was_playing,
+        tech_hold,
+    }
 }
 
 pub(crate) fn vf_swap_unpause(mpv: &libmpv2::Mpv, snap: &VfAvSnap) {
     if snap.was_playing {
         let _ = mpv.set_property("pause", false);
+    }
+    if snap.tech_hold {
+        crate::screen_blackout::end_tech_hold();
     }
 }
 

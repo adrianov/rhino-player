@@ -152,32 +152,39 @@ Feature: Window, fullscreen, and presentation
     And a media title is loaded and playing
     And the viewer window is the active window on one display
     When the user turns on blackout-other-displays
-    Then every other connected display shows a solid black surface above normal content
+    Then every other connected display is blacked out
     And the display showing the viewer remains unchanged
 
-  Scenario: Blackout does not apply while paused
+  Scenario: User pause clears blackout
     Given blackout-other-displays is on
-    And playback is paused
+    And the user has paused playback
     When the viewer window is the active window
-    Then the black surfaces on other displays are not shown
+    Then other displays are not blacked out
 
-  Scenario: Disable blackout while active
+  Scenario: Blackout survives an engine-held pause
+    Given blackout-other-displays is on
+    And a media title is playing with other displays blacked out
+    When playback pauses briefly for a non-user reason
+    # e.g. smooth-motion script attach, seek/rewind hold, filter rebuild after a speed change
+    Then other displays stay blacked out
+
+  Scenario: Turn off blackout while playing
     Given blackout-other-displays is on and playback is playing
     When the user turns off blackout-other-displays
-    Then the black surfaces on other displays are removed
+    Then other displays are no longer blacked out
 
-  Scenario: Blackout clears when the viewer loses focus
+  Scenario: Losing focus clears blackout
     Given blackout-other-displays is on and playback is playing
     When the viewer window is no longer the active window
-    Then the black surfaces on other displays are removed
+    Then other displays are no longer blacked out
 
-  Scenario: Blackout follows the viewer across displays
+  Scenario: Blackout follows the viewer to another display
     Given blackout-other-displays is on and playback is playing
     When the viewer window moves to another connected display
-    Then the black surfaces are recalculated so the new host display stays visible
+    Then the new host display stays visible
     And every other connected display is blacked out
 
-  Scenario: Blackout preference persists
+  Scenario: Blackout preference survives restart
     Given the user enabled blackout-other-displays
     When the application restarts
     Then blackout-other-displays remains enabled
@@ -204,9 +211,9 @@ Feature: Window, fullscreen, and presentation
 - See [GTK4 toplevel / aspect notes](../references-gtk4-toplevel-aspect.md) for upstream context (the prior `compute-size` approach was abandoned due to feedback loops).
 - Header menu switching attempts: `Popover:modal=false`, capture-phase GestureClick, idle `MenuButton::set_active`. Manual testing still required a second click on Linux; revisit with a deeper GTK / GNOME review.
 - **Multi-monitor activation:** Portable behavior is `gtk_window_present` only (compositor picks the output on Wayland). **macOS:** `window_present::present_on_activation_display` (startup only) sets `NSWindow` frame on the `NSScreen` under `NSEvent::mouseLocation` (else `mainScreen`) **before** `present`, briefly hides an already-visible window to avoid one frame on the wrong display, then re-applies frame synchronously after `present`; skipped when fullscreen or maximized. Later `NSApplicationDidBecomeActiveNotification` (Dock or clicking the window) calls `present` only — no re-centering.
-- **Startup shell:** Continue strip uses `recent_view::fill_continue_strip` (SQLite durations + cached WebP thumbs only) **before** `present`. libmpv init is queued from `GLArea` realize on the next idle; transport / seek-preview / input wiring runs on the next idle after that (`deferred_after_present.rs`; seek preview only when the preference is on). Warm preload of the first continue file runs on the next idle after transport observers are installed (`run_continue_warm_preload`); card hover uses immediate `warm_hover_hooks` with a single-flight gate (one `loadfile`, one queued path after full load). `recent_visible` is seeded from the continue-strip intent (`want_recent`), not `Widget::is_visible()` (false until the window is mapped). While the grid is visible, Smooth / VapourSynth resync and the resume seek are deferred until reveal/unpause. Resume is applied on `FileLoaded` only (never before the demuxer is ready).
+- **Startup shell:** Continue strip uses `recent_view::fill_continue_strip` (SQLite durations + cached WebP thumbs only) **before** `present`. libmpv init is queued from `GLArea` realize on the next idle; transport / seek-preview / input wiring runs on the next idle after that (`deferred_after_present.rs`; seek preview only when the preference is on). Warm preload of the first continue file runs on the next idle after transport observers are installed (`run_continue_warm_preload`); card hover uses immediate `warm_hover_hooks` with a single-flight gate (one `loadfile`, one queued path after full load). `recent_visible` is seeded from the continue-strip intent (`want_recent`), not `Widget::is_visible()` (false until the window is mapped). Browse mode is simply the strip's own visibility (`Widget::is_visible()`); playback hides it. macOS release builds used to abort with `g_main_dispatch: assertion failed: (source)` about a second after playback started — the trigger was the display-sleep assertion in `idle_inhibit` (see its module docs), so keep that binding IOKit-only. While the strip is shown, Smooth / VapourSynth resync and the resume seek are deferred until reveal/unpause. Resume is applied on deferred `FileLoaded` (and Duration) only (never before the demuxer is ready).
 - **macOS header menus:** Windowed — standard [`GtkMenuButton`] + [`GtkPopover`]; gdk-macos opaque CSS on map/show (`macos_header_menu::wire_popover`); `autohide=false` + capture dismiss on **`outer_ovl`**; 300 ms speed pick guard; defer **`invalidate_window_layers`** while a popover popup exists. **Native theater fullscreen** — popovers detached from buttons; same menu **child** reparented into **`outer_ovl`** overlay panel (no gdk popup surface); class **`rp-header-menu-fs`** for enabled chrome; **`on_overlay_surface_opened`** on panel show — full binding in [`references-gtk4-macos-header-menus.md`](../references-gtk4-macos-header-menus.md) (**Theater overlay compositing**).
 - **macOS fullscreen:** Native AppKit style mask is authoritative; GDK **`is_fullscreen`** can stick after exit. **`clear_stale_gtk_fullscreen`** when GDK fullscreen but AppKit is not. **Toggle:** **`chrome_macos_toggle`** — does not use **`fs_transition_try_begin`** (380 ms busy blocked rapid Enter after exit); defers while **`inFullscreenTransition`**. **Exit:** arm **`macos_fs_exit`**, settle (**`TRANSITION_SETTLE`**), libdispatch hop, then **`toggleFullScreen:`** (`chrome_macos_unfullscreen_defer` — avoids nesting GDK into `_NSExitFullScreenTransitionController` / titlebar recursion on macOS 26.x); do **not** reveal toolbar bars while the native mask is set; chrome restore from **`fullscreened_notify`** + **`macos_schedule_leave_fs_restore_chrome`**. **Enter:** **`enter fullscreen`** log + **`native_toggle_fullscreen_enter`**. **`RHINO_MACOS_FS_DEBUG=1`**. Notify busy clear **120 ms** on macOS (Linux **380 ms**).
-- **Multi-monitor blackout (macOS):** `screen_blackout` — borderless `NSWindow` per non-viewer `NSScreen` at `NSMainMenuWindowLevel + 1`, black background, `orderFront` relative to the viewer's native window. Active when the preference is on, the viewer is the active window, and playback is running (same gate as idle inhibit: loaded path, not paused, continue grid hidden); cleared on pause, deactivation, browse overlay, or preference off. Header `MenuButton` (`rp-blackout-mbtn`, bundled `video-display-symbolic`, readout **On** / **Off**); hidden when `NSScreen::screens().len() < 2`. SQLite key `black_out_screens`. `NSApplicationDidChangeScreenParametersNotification` and `NSWindowDidChangeScreenNotification` refresh overlay geometry; transport pause / tick resync overlays. Linux: control hidden (no binding yet).
+- **Multi-monitor blackout (macOS):** `screen_blackout` — one borderless `NSWindow` per non-viewer `NSScreen` at `NSMainMenuWindowLevel + 1`, solid black, shown with `orderFrontRegardless` (does not become key or activate the app). On when the preference is enabled, the viewer is focused, and playback is in session (path loaded, continue grid hidden, not user-paused). Engine-held pauses (`begin_tech_hold` / `end_tech_hold`: smooth `vf` swap, arrow-seek burst, chapter scrub) keep blackout up; user pause (Space / play / MPRIS / Now Playing) clears it — as do deactivate, browse overlay, and preference off. Scheduling: GLib idle for GTK only; AppKit create / `orderOut` / `orderFrontRegardless` on libdispatch main (no GTK on that hop — avoids `Idle source dispatched without callback`). Duplicate rebuilds coalesce via `cover_pending`. Header `rp-blackout-mbtn` (`video-display-symbolic`, **On** / **Off**); hidden below two screens. SQLite `black_out_screens`. Linux: control hidden.
 - **macOS theater overlay compositing (fixed):** showing **`outer_ovl`** children (header menu panel, seek preview) in native fullscreen used to leave stale gdk-macos header tiles on the video; **`on_overlay_surface_opened`** + close tail **`on_menu_surface_closed`** refresh the shell (arm 300 ms → queue_draw → full invalidate ~332 ms later). See [`references-gtk4-macos-header-menus.md`](../references-gtk4-macos-header-menus.md).
 - **Known macOS glitch (partial):** after programmatic fit-on-open or VapourSynth attach, gdk-macos can still leave the **bottom toolbar** layer transparent until a surface resize triggers compositing refresh; USER-priority bottom CSS + surface-notify refresh + post-`vf` passes mitigate DVD/VOB open. Repeated zoom/maximize/fullscreen churn can briefly show video through opaque chrome — **`invalidate_window_layers`** helps Space/cross-fade staleness only.
