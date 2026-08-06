@@ -62,5 +62,9 @@ cp "$HICON/1024x1024/apps/ch.rhino.RhinoPlayer.png" "$ICONSET/icon_512x512@2x.pn
 
 iconutil -c icns "$ICONSET" -o "$CONTENTS/Resources/AppIcon.icns"
 
+# Bundle-sign so Launch Services binds Info.plist and seals AppIcon.icns (linker-signed
+# binary alone → unbound plist / no sealed resources → generic Finder/Dock icon).
+codesign --force --sign - --timestamp=none "$APP_PATH"
+
 echo "Built $APP_PATH (version ${VERSION}). Drag to /Applications or run: open \"$APP_PATH\""
 open -R "$APP_PATH"
