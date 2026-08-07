@@ -1,4 +1,4 @@
-//! Undo bar: restore after **remove from list** or **move to trash** (see [crate::trash_xdg]).
+//! Undo bar: restore after **Remove from list** or **Move to Trash** (see [crate::trash_xdg]).
 //!
 //! `history::record` is left to the app after `apply`; both branches fix disk + `db`.
 

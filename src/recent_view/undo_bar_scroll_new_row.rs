@@ -37,9 +37,7 @@ fn new_undo_bar() -> UndoBar {
     label.add_css_class("rp-undo-toast-text");
 
     let undo = gtk::Button::with_label("Undo");
-    undo.set_tooltip_text(Some(
-        "Put the most recently removed file back on the continue list",
-    ));
+    undo.set_tooltip_text(Some("Restore the last remove or trash"));
     undo.set_valign(gtk::Align::Center);
     undo.set_halign(gtk::Align::Center);
     undo.add_css_class("flat");

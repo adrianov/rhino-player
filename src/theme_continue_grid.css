@@ -95,13 +95,14 @@
         }
         .rp-stale { opacity: 0.6; }
         .rp-recent-pict { color: #9a9996; }
-        button.rp-recent-dismiss {
+        button.rp-recent-action {
             min-width: 28px;
             min-height: 28px;
             padding: 0;
+            color: #f6f5f4;
             background-color: rgba(0, 0, 0, 0.5);
         }
-        button.rp-recent-dismiss:hover { background-color: rgba(0, 0, 0, 0.68); }
+        button.rp-recent-action:hover { background-color: rgba(0, 0, 0, 0.68); }
         /* Undo shell: zero paint so only the pill (.rp-undo-toast) is visible. */
         .rp-undo-shell {
             background: none;

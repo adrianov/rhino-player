@@ -100,7 +100,7 @@ pub fn schedule_thumb_backfill(ctx: Rc<RecentContext>, paths: Vec<std::path::Pat
     ctx.workers.borrow_mut().push(h);
 }
 
-/// Hand on hover, primary click triggers [act]. [show_on_hover] (e.g. trash + remove) is shown on hover.
+/// Hand on hover, primary click triggers [act]. [show_on_hover] (Remove / Move to Trash) shows on hover.
 /// Uses [PropagationPhase::Target] so nested [gtk::Button]s receive the click first.
 fn add_click_and_pointer(
     card: &impl IsA<gtk::Widget>,

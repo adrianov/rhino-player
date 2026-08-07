@@ -194,12 +194,10 @@ fn sync_undo_bar(
     }
     match n {
         1 => btn.set_tooltip_text(Some(
-            "Undo: put the file back on the list with prior resume/cache, or restore from trash when the last action was trash.",
+            "Restore to the list (and from Trash if that was the last action)",
         )),
         n => {
-            let s = format!(
-                "Restores the most recent action. {n} step(s) on the stack (one per click, newest first)."
-            );
+            let s = format!("Undo newest first — {n} steps left");
             btn.set_tooltip_text(Some(s.as_str()));
         }
     }
@@ -210,14 +208,14 @@ fn sync_undo_bar(
                     .file_name()
                     .and_then(|s| s.to_str())
                     .unwrap_or("file"),
-                "removed from continue list",
+                "removed from list",
             ),
             ContinueBarUndo::Trash { snap, .. } => (
                 snap.path
                     .file_name()
                     .and_then(|s| s.to_str())
                     .unwrap_or("file"),
-                "moved to trash",
+                "moved to Trash",
             ),
         };
         let line = format!("\u{201c}{name}\u{201d} {tail}");
