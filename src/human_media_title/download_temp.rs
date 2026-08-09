@@ -38,12 +38,14 @@ pub(crate) fn finished_download_path(incomplete: &Path) -> Option<PathBuf> {
 }
 
 fn strip_ci_suffix(s: &mut String, suffix: &str) -> bool {
-    let sl = suffix.len();
-    if s.len() >= sl && s[s.len() - sl..].eq_ignore_ascii_case(suffix) {
-        s.truncate(s.len() - sl);
-        true
-    } else {
-        false
+    let start = s.len().saturating_sub(suffix.len());
+    // `get` is None when `start` splits a multi-byte character.
+    match s.get(start..) {
+        Some(tail) if tail.eq_ignore_ascii_case(suffix) => {
+            s.truncate(start);
+            true
+        }
+        _ => false,
     }
 }
 
@@ -80,6 +82,16 @@ mod tests {
     #[test]
     fn leaves_finished_names() {
         assert_eq!(peel_download_temp("Movie.Name.2020.mkv"), "Movie.Name.2020.mkv");
+    }
+
+    #[test]
+    fn utf8_name_survives_suffix_check() {
+        // Trailing six bytes of "фильм.webm" start mid-letter; a raw slice used to panic.
+        assert_eq!(peel_download_temp("фильм.webm"), "фильм.webm");
+        assert_eq!(
+            peel_download_temp("фильм.webm.RSRXEZ4AWN67MGBANBT6YLR32JW32GVZSZLYN2Y.dctmp"),
+            "фильм.webm"
+        );
     }
 
     #[test]

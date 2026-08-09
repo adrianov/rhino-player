@@ -99,11 +99,18 @@ Feature: Sibling folder queue
     When the user hovers the corresponding button
     Then the tooltip shows the target filename
     And buttons without a sibling target show a no-neighbour tooltip
+
+  Scenario: Sibling tooltips keep non-Latin titles
+    Given nearby videos use non-Latin letters in their filenames
+    When the bottom-bar sibling controls update after a file loads
+    Then Previous and Next tooltips show those neighbour titles
+    And the viewer stays open
 ```
 
 ## Notes
 - When container duration exceeds the decoded tail (common on MKV with mismatched stream lengths), sibling advance uses a wider tail window (`NEAR_END_SEC`) while `core-idle`; transport clamps the seek bar to `time-pos` within that window after playback has entered the tail. Auto-advance requires **playing into** the tail (≥1s of position movement since load), not opening with resume already near end — avoids a chain load on continue-grid open.
 - Unfinished Direct Connect paths (`*.dctmp`): `IncompleteEofHold` pauses on every natural EOF and never auto-advances while the suffix remains (demux `duration` often equals the downloaded prefix). Play/Pause unpause arms continue **before** clearing `pause`, then re-seeks absolute+exact so demux can pick up newly grown bytes.
+- Sibling tooltip labels use `human_media_title` → `peel_download_temp`; strip the incomplete suffix with `str::get` (UTF-8–safe). A trailing byte slice used to panic on some non-Latin names plus odd-length extensions (e.g. `.webm`).
 - Before loading the next sibling after EOF, mpv `speed` is set to **1.0** when it was not already (see [28-playback-speed](28-playback-speed.md)).
 - The last successfully loaded canonical path is used when `path` is empty.
 - Local files only: with no resolvable path, no advance runs.

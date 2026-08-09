@@ -81,4 +81,5 @@ fn in_progress_download_title_drops_temp_wrappers() {
         "Связь (Coherence, 2013)"
     );
     assert_eq!(human_media_title("clip.mkv.dctmp"), "clip");
+    assert_eq!(human_media_title("фильм.webm"), "фильм");
 }
