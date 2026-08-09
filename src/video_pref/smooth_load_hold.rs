@@ -2,7 +2,7 @@
 // Player-heavy overload still lowers ME budget via **`smooth_budget_transport_apply`**.
 // (No `use` imports — `include!`d into `video_pref` before `smooth_budget`.)
 
-/// Pause length / recheck interval after an external-load pause.
+/// Cooldown before retrying Smooth after an external-load pause.
 const LOAD_HOLD_SECS: u64 = 60;
 
 /// 1‑minute load average per logical CPU above this ⇒ the machine is busy.
@@ -28,7 +28,7 @@ pub(crate) fn smooth_load_hold_clear() {
 
 #[must_use]
 pub(crate) fn smooth_load_hold_tooltip() -> &'static str {
-    "Smooth Video paused — other apps are using the CPU. Retries automatically."
+    "Smooth Video paused — CPU busy with other apps. Tries again in about a minute."
 }
 
 /// Pure gate used by tests and [`external_load_contention`].
@@ -102,12 +102,12 @@ pub(crate) fn enter_smooth_load_hold(
     }
 }
 
-/// While paused for load: skip budget adaptation. On expiry: extend or restore **vf**.
+/// While paused for load: skip budget adaptation. After about a minute, restore **vf**
+/// (overload may pause again if other apps are still saturating the machine).
 /// Returns **true** when Smooth is still paused for load or was just restored this tick.
 pub(crate) fn smooth_load_hold_on_tick(
     player: &std::rc::Rc<std::cell::RefCell<Option<crate::mpv_embed::MpvBundle>>>,
     video_pref: &std::rc::Rc<std::cell::RefCell<crate::db::VideoPrefs>>,
-    process_cpu_frac: Option<f64>,
 ) -> bool {
     if !video_pref.borrow().smooth_60 {
         smooth_load_hold_clear();
@@ -116,21 +116,11 @@ pub(crate) fn smooth_load_hold_on_tick(
     let Some(until) = LOAD_HOLD_UNTIL.with(|c| c.get()) else {
         return false;
     };
-    let now = std::time::Instant::now();
-    if now < until {
-        return true;
-    }
-    if external_load_contention(process_cpu_frac) {
-        arm_hold_until(now);
-        eprintln!(
-            "[rhino] smooth: decision load_hold_extend secs={LOAD_HOLD_SECS} loadavg_per_cpu={} process_cpu_frac={}",
-            fmt_cpu_frac(loadavg_per_cpu()),
-            fmt_cpu_frac(process_cpu_frac),
-        );
+    if std::time::Instant::now() < until {
         return true;
     }
     smooth_load_hold_clear();
-    eprintln!("[rhino] smooth: decision load_hold_resume (machine quieter — restoring Smooth)");
+    eprintln!("[rhino] smooth: decision load_hold_resume (pause elapsed — restoring Smooth)");
     let mut vp = video_pref.borrow_mut();
     let _ = apply_mpv_video(player, &mut vp, None);
     true

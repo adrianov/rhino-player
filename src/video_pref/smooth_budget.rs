@@ -8,16 +8,16 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 /// Sliding window length for decoding-stress (**seconds**).
-const DROP_WINDOW_SECS: u64 = 5;
+const DROP_WINDOW_SECS: u64 = 3;
 
 /// Overload fires when rolling strain **>** this fraction (**strict tail**, **`OVERLOAD_FIRE_STREAK_TICKS`** successive ticks).
 const OVERLOAD_STRAIN_GT_FRAC: f64 = 0.20;
 
-/// Consecutive overload ticks (**~seconds**) before persisting a lower ME budget.
-const OVERLOAD_FIRE_STREAK_TICKS: u32 = 5;
+/// Consecutive overload ticks (**~seconds**) before persisting a lower ME budget or busy-system pause.
+const OVERLOAD_FIRE_STREAK_TICKS: u32 = 2;
 
 /// **Recovery** rolling tail for **VO** / **decoder** when **`mistimed-frame-count`** is absent — minimum wall span before strain **rates** exist (`overload` shares this gate; samples still trimmed at **[`DROP_WINDOW_SECS`]**).
-const RECOVERY_STRAIN_TAIL_MIN_ELAPSED_SECS: f64 = 2.1;
+const RECOVERY_STRAIN_TAIL_MIN_ELAPSED_SECS: f64 = 1.0;
 
 /// Relaxed-window rolling strain must stay **strictly below** this **fraction** for **`RECOVERY_FIRE_STREAK_TICKS`** successive ticks before ME raise.
 const RECOVERY_STRAIN_LT_FRAC: f64 = 0.10;

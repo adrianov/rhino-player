@@ -18,7 +18,7 @@ fn fmt_delta_opt(cur: Option<u64>, baseline: Option<u64>, tag: &'static str) -> 
 }
 
 /// **`RHINO_SMOOTH_DROP_STATS`**: stderr approx. every **5 s**: **mistimed** / VO / decoder tallies (**`smooth_budget`** signal ladder).
-/// Skips **`eprintln`** when overload already shrank ME this open media **and** strict-window strain is **\<** **[`OVERLOAD_STRAIN_GT_FRAC`]** (still advances the **5 s** window so the next line is not a huge catch-up).
+/// Skips **`eprintln`** when overload already shrank ME this open media **and** strict-window strain is **\<** **[`OVERLOAD_STRAIN_GT_FRAC`]** (still advances the stats window so the next line is not a huge catch-up).
 fn maybe_emit_smooth_drop_stats_line(
     st: &mut SmoothBudgetDecoderState,
     snap: &SmoothBudgetSignalSnap,

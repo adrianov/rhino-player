@@ -1,5 +1,5 @@
 /// **`1 Hz`** transport tick (**bundled** `.vpy` only; **caller** skips ticks while the playback shell window is inactive / unmapped—see **`transport_events`**): tighten ME budget when the **playback smoothness strain tally**
-/// shows **>** **`OVERLOAD_STRAIN_GT_FRAC`** strict rolling strain **five** successive ticks; relax when relaxed-window strain **\<** **`RECOVERY_STRAIN_LT_FRAC`** **three hundred** successive ticks.
+/// shows **>** **`OVERLOAD_STRAIN_GT_FRAC`** strict rolling strain for **`OVERLOAD_FIRE_STREAK_TICKS`** successive ticks; relax when relaxed-window strain **\<** **`RECOVERY_STRAIN_LT_FRAC`** **three hundred** successive ticks.
 /// Busy-system pauses are maintained first (see **`smooth_load_hold`**).
 pub(crate) fn smooth_budget_on_transport_tick(
     player: &Rc<RefCell<Option<crate::mpv_embed::MpvBundle>>>,
@@ -12,7 +12,7 @@ pub(crate) fn smooth_budget_on_transport_tick(
         let mut st = state_cell.borrow_mut();
         smooth_budget_refresh_process_cpu_frac(&mut st)
     };
-    if smooth_load_hold_on_tick(player, video_pref, process_cpu_frac) {
+    if smooth_load_hold_on_tick(player, video_pref) {
         return;
     }
 

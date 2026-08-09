@@ -42,7 +42,7 @@ fn stamp_smooth_toolbar_readout(
     }
 }
 
-/// Yellow warning glyph beside the camera icon while Smooth is paused for external load.
+/// Small yellow warning beside the camera icon while Smooth is paused for external load.
 fn sync_smooth_load_hold_face(btn: &gtk::Button) {
     let held = crate::video_pref::smooth_load_hold_active();
     let Some(face) = btn.child().and_then(|c| c.downcast::<gtk::Box>().ok()) else {
@@ -67,6 +67,7 @@ fn smooth_load_warn_image(face: &gtk::Box) -> gtk::Image {
     }
     let img = gtk::Image::from_icon_name("dialog-warning-symbolic");
     img.add_css_class("rp-smooth-load-warn");
+    img.set_pixel_size(12);
     img.set_valign(gtk::Align::Center);
     img.set_visible(false);
     // Sit after the camera icon, before the FPS readout.

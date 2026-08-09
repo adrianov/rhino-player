@@ -29,7 +29,7 @@ fn bump_recovery_quiet_streak(st: &mut SmoothBudgetDecoderState, recovery_rate_o
     }
 }
 
-/// Record **`smooth_budget`** strain sample, trim **≈5 s** deque, return strict overload rate and fire flags.
+/// Record **`smooth_budget`** strain sample, trim the deque to **[`DROP_WINDOW_SECS`]**, return strict overload rate and fire flags.
 fn sample_window_and_fire_flags(
     st: &mut SmoothBudgetDecoderState,
     cur_count: u64,

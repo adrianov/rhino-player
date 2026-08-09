@@ -46,6 +46,7 @@
             color: #eeeeec;
             -gtk-icon-style: symbolic;
         }
+        /* Size: Image::set_pixel_size(12) in video_app_menu_wire — keep color here only. */
         .rpb-header button.rp-smooth-mbtn.flat image.rp-smooth-load-warn {
             color: #f6d32d;
         }

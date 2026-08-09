@@ -22,9 +22,9 @@
 //! is published as **`RHINO_SMOOTH_MAX_AREA`** before **`vf add`** when bundled (`.vpy` reads via libc **`getenv`**).
 //! With the bundled script, **`smooth_budget_on_transport_tick`** may **raise or lower** the **open file’s**
 //! **`media.smooth_me_budget_px2`** (and rebuild **`vf`**) on the
-//! **1 Hz** transport tick using **mpv** **presentation strain** tallies (**`mistimed-frame-count`**, else **`frame-drop-count`**, else **`decoder-frame-drop-count`**): a trailing **≈5 s** sliding window whose
-//! **strain rate** (**Δ** ÷ (wall × denominator Hz); **mistimed**/VO denominator **≥ ~60 Hz**, **decoder** path uses **`container-fps`×`speed`** or **`estimated-vf-fps`**) **> ~2%**
-//! for **five successive** ticks with strict-window strain **>** **~20%** shrinks the saved ME budget by ~**10%** per firing (**`budget_after_decoder_overload`** — symmetric integer half-up step to recovery raise); **300 successive** ticks (~**300 s**) with relaxed-window strain **\<** **~10%** step **up** ~**10%** toward the **recovery ceiling** (decoded width×height when known, else **`DEFAULT_SMOOTH_MAX_AREA`**)
+//! **1 Hz** transport tick using **mpv** **presentation strain** tallies (**`mistimed-frame-count`**, else **`frame-drop-count`**, else **`decoder-frame-drop-count`**): a short trailing window (**`DROP_WINDOW_SECS`**) whose
+//! **strain rate** (**Δ** ÷ (wall × denominator Hz); **mistimed**/VO denominator **≥ ~60 Hz**, **decoder** path uses **`container-fps`×`speed`** or **`estimated-vf-fps`**)
+//! for **`OVERLOAD_FIRE_STREAK_TICKS`** successive ticks with strict-window strain **>** **`OVERLOAD_STRAIN_GT_FRAC`** shrinks the saved ME budget by ~**10%** per firing (**`budget_after_decoder_overload`** — symmetric integer half-up step to recovery raise) or pauses on external load; **300 successive** ticks (~**300 s**) with relaxed-window strain **\<** **~10%** step **up** ~**10%** toward the **recovery ceiling** (decoded width×height when known, else **`DEFAULT_SMOOTH_MAX_AREA`**)
 //! when **`decode_px` exceeds the persisted ME clamp** (same condition as **`smooth_me_geometry`** downscale branch); recovery is **skipped** when decode already fits the cap (**native ME** path). Then **`apply_mpv_video`** on each persisted change (**`smooth_me_geometry.rs`** tests only).
 //! When **`FileLoaded`**, **`path`**, **`VideoReconfig`**, or **`container-fps`** triggers the debounced transport
 //! resync, **if** **`vf_smooth_matches_prefs`**
