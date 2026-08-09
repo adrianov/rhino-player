@@ -15,7 +15,6 @@ struct Patterns {
     bluray: Regex,
     resolution: Regex,
     season_leftover: Regex,
-    year_token: Regex,
     date_long: Regex,
     date_short: Regex,
     standalone_hyphen: Regex,
@@ -57,7 +56,6 @@ fn patterns() -> &'static Patterns {
         )
         .expect("res"),
         season_leftover: Regex::new(r"(?i)\.?S\d{1,2}(?:[-–]\d{1,2})?(?:E\d+)?\b").expect("sleft"),
-        year_token: Regex::new(r"(?i)\.?\(?\b(?:19\d{2}|20\d{2})\b\)?").expect("year"),
         date_long: Regex::new(r"\(?\d{2}\.\d{2}\.\d{4}\)?").expect("dlong"),
         date_short: Regex::new(r"\(?\d{2}\.\d{2}\.\d{2}\)?").expect("dshort"),
         standalone_hyphen: Regex::new(r"(?:^|\s)-(?:\s|$)").expect("hyp"),

@@ -52,10 +52,6 @@ fn strip_leftover_season_tokens(s: &mut String) {
     *s = patterns().season_leftover.replace_all(s, " ").into_owned();
 }
 
-fn strip_year_tokens(s: &mut String) {
-    *s = patterns().year_token.replace_all(s, " ").into_owned();
-}
-
 fn strip_dd_dot_dates(s: &mut String) {
     let p = patterns();
     *s = p.date_long.replace_all(s, " ").into_owned();
@@ -86,7 +82,7 @@ fn strip_hd_sd_parens(s: &mut String) {
     *s = p.hd_sd_parens.replace_all(s, "").into_owned();
 }
 
-/// Collapse holes left when year / resolution tokens are removed inside `(…)`.
+/// Collapse holes left when resolution tokens are removed inside `(…)`.
 fn tidy_paren_commas(s: &mut String) {
     let p = patterns();
     for _ in 0..4 {

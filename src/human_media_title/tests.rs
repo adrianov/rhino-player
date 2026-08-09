@@ -55,18 +55,30 @@ fn dvd_folder_basename_keeps_label() {
 }
 
 #[test]
+fn keeps_release_year() {
+    assert_eq!(
+        human_media_title("Some.Film.2013.1080p.BluRay.x264.mkv"),
+        "Some Film 2013"
+    );
+    assert_eq!(
+        human_media_title("Movie (2013).mkv"),
+        "Movie (2013)"
+    );
+}
+
+#[test]
 fn in_progress_download_title_drops_temp_wrappers() {
     assert_eq!(
         human_media_title(
             "Связь (Coherence, 2013, 1080p).mkv.RSRXEZ4AWN67MGBANBT6YLR32JW32GVZSZLYN2Y.dctmp"
         ),
-        "Связь (Coherence)"
+        "Связь (Coherence, 2013)"
     );
     assert_eq!(
         human_media_title(
             "Связь (Coherence, 2013, 1080p).mkv.RSRXEZ4AWN67MGBANBT6YLR32JW32GVZSZLYN2Y.DCTMP"
         ),
-        "Связь (Coherence)"
+        "Связь (Coherence, 2013)"
     );
     assert_eq!(human_media_title("clip.mkv.dctmp"), "clip");
 }

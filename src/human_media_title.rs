@@ -58,7 +58,6 @@ fn process_release_style(trimmed: &str) -> String {
     strip_tech_tags(&mut title);
     strip_resolution_tokens(&mut title);
     strip_leftover_season_tokens(&mut title);
-    strip_year_tokens(&mut title);
     strip_dd_dot_dates(&mut title);
     tidy_paren_commas(&mut title);
 
