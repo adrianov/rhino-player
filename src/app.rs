@@ -30,7 +30,7 @@ use crate::video_ext;
 use libmpv2::Mpv;
 
 use crate::media_probe::{
-    capture_list_remove_undo, card_data_list, is_natural_end, local_file_from_mpv,
+    capture_list_remove_undo, card_data_list, is_continue_done, local_file_from_mpv,
     remove_continue_entry, CardData,
 };
 use crate::mpv_embed::{Event, Format, MpvBundle, PropertyData};

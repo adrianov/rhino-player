@@ -56,21 +56,15 @@ fn load_file_into_player(
     if o.reset_speed_to_normal {
         crate::playback_speed::force_normal(&b.mpv);
     }
-    // Only EOF / last ~3s ([is_natural_end]): the old "mostly watched" (~85%) heuristic could drop
-    // the previous continue entry while switching files if duration/`time-pos` was misleading.
-    let clear_resume = {
-        let outgoing = crate::media_probe::shell_media_path(
-            &b.mpv,
-            b.me_budget_shell_path.borrow().as_deref(),
-        );
-        is_natural_end(&b.mpv)
-            && outgoing
-                .as_ref()
-                .is_some_and(|p| crate::sibling_advance::next_after_eof(p).is_none())
-    };
-    let drop_prev = prev.as_ref().is_some_and(|p| {
-        !same_open_target(p, path) && is_natural_end(&b.mpv)
-    });
+    // Clear Continue when the outgoing title is finished ([is_continue_done]): EOF / last seconds,
+    // or past the watched threshold (Next during credits). Warm preload never clears.
+    let finished = is_continue_done(&b.mpv);
+    let clear_resume = finished
+        && prev
+            .as_ref()
+            .is_some_and(|p| crate::sibling_advance::next_after_eof(p).is_none());
+    let drop_prev =
+        finished && prev.as_ref().is_some_and(|p| !same_open_target(p, path));
     let snapshot_outgoing = !o.warm_preload;
     b.set_skip_media_persist(recent_layer.is_visible() && o.warm_preload);
     let tag = if o.warm_preload { "warm_preload" } else { "try_load" };
@@ -85,6 +79,7 @@ fn load_file_into_player(
     );
     if drop_prev && !o.warm_preload {
         if let Some(p) = prev {
+            eprintln!("[rhino] continue: drop finished {}", p.display());
             remove_continue_entry(&p);
         }
     }
