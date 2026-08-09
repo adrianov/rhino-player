@@ -105,6 +105,12 @@ Feature: Window, fullscreen, and presentation
     And the prominent window-management controls grouped with that top toolbar hide
     And any pointer motion reveals them immediately
 
+  Scenario: Seek and elapsed time match when chrome returns
+    Given a file is playing and the recent grid is hidden
+    And the header and bottom toolbars are hidden
+    When pointer motion shows the toolbars
+    Then the seek bar and elapsed time match the current playback position
+
   Scenario: Chrome stays visible on the recent grid
     Given the recent-videos overlay is showing
     When the user is idle
@@ -203,7 +209,7 @@ Feature: Window, fullscreen, and presentation
 - Header **double-click fullscreen:** primary **double-click** on `HeaderBar` calls the same fullscreen toggle as the video gesture; fullscreen **exit** ignores the browse-overlay guard so the toolbar is always a target to leave fullscreen; fullscreen **entry** skips while the overlay is visible (same as GL double-click). **`gtk-titlebar-double-click`** is set to **`none`** in **`theme::apply`** so GDK does not also run **toggle-maximize** on that gesture (capture order could demaximize after our toggle).
 - Fullscreen-only header clock: `GtkLabel` packed on `HeaderBar` before speed / sound / subtitle / main menu; reads **`org.gnome.desktop.interface`** (`clock-format` **12h** / **24h**, `clock-show-seconds`) when that schema exists so the string matches the desktop shell clock (no forced `%X` / seconds / AM–PM). Fallback **`%H:%M`** when settings are unavailable; visible updates use `glib::timeout_add_seconds_local(1, …)` while fullscreen because no toolkit signal fires per wall-clock second.
 - Inhibit implementation polls every ~500 ms to sync with pause / load / grid state; uninhibit always runs before quit.
-- Autohide default 2–3 s; menus or popovers being open keeps chrome visible.
+- Autohide default 2–3 s; open menus keep chrome visible. When bars become visible again, `apply_chrome` runs `transport_nudge_tick` so the seek thumb and elapsed time match live playback (thumb updates stay off while bars are hidden, which avoids flicker).
 - Fit-on-open: `chrome_window_video_fit.rs` + `chrome_shell_layout.rs` — landscape fit + **`schedule_shell_layout_after_gtk_resize`**. macOS bottom chrome: **`macos_bottom_bar.rs`** — [`gtk::Box`] with `.rpb-header` plus **widget-level** CSS provider (display CSS alone is insufficient on gdk-macos); **`nudge_gdk_compositing_width`** after shell sync mimics manual edge-drag repaint; **`schedule_macos_shell_refresh_after_vf`** after VapourSynth `vf add`. **`RHINO_SHELL_DEBUG=1`**: watch **`bottom_h`**, **`shell=…x…`**, **`gdk width nudge`** lines.
 - ToolbarView extends to top and bottom edges so the GLArea fills the available area and chrome overlays the video. Client-side decorations: baseline for `shows-start-title-buttons` / `shows-end-title-buttons` is sampled after map (idle) while chrome first shows—not after a hide—or `apply_chrome` would capture `(false,false)` and restore would leave traffic lights off; invalid pairs are ignored in favor of a short `(true,true)` fallback until GTK reports a decorated side.
 - **Fit-on-open:** `chrome_window_video_fit.rs` — landscape **960×540-class** fit only when the window is still the default size or **smaller** than that target (grow-only). Otherwise keeps size; optional aspect nudge via `snap_size_after_user_resize`.
