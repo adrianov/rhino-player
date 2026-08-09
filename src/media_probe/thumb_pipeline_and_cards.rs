@@ -33,8 +33,9 @@ fn run_libmpv_image_frame(src: &Path, start_sec: f64, chapter_dur: f64) -> Optio
 include!("thumb_screenshot_raw.rs");
 include!("thumb_vo_image.rs");
 
-/// Turn mpv [path] / [filename] into a local [PathBuf]. Rejects `http(s)://` etc. Accepts `file://`.
-pub(crate) fn local_path_from_mpv_str(path_s: &str) -> Option<PathBuf> {
+/// Read mpv [path] / [filename] as a local [PathBuf] without touching the filesystem.
+/// Accepts `file://`; rejects `http(s)://` and every other scheme.
+fn local_path_no_stat(path_s: &str) -> Option<PathBuf> {
     let rest = if let Some(r) = path_s.strip_prefix("file://") {
         r.strip_prefix("localhost/")
             .or_else(|| r.strip_prefix("localhost"))
@@ -44,17 +45,55 @@ pub(crate) fn local_path_from_mpv_str(path_s: &str) -> Option<PathBuf> {
     } else {
         path_s
     };
-    let raw = Path::new(rest);
-    if let Ok(can) = std::fs::canonicalize(raw) {
+    Some(PathBuf::from(rest))
+}
+
+/// Like [local_path_no_stat], but only while the file is still present; canonical form when available.
+pub(crate) fn local_path_from_mpv_str(path_s: &str) -> Option<PathBuf> {
+    let raw = local_path_no_stat(path_s)?;
+    if let Ok(can) = std::fs::canonicalize(&raw) {
         if can.is_file() {
             return Some(can);
         }
     }
-    raw.is_file().then(|| raw.to_path_buf())
+    raw.is_file().then_some(raw)
 }
 
-fn path_from_mpv_str(path_s: &str) -> Option<PathBuf> {
-    local_path_from_mpv_str(path_s)
+/// mpv `path`, else `filename`; `None` while mpv sits idle.
+fn mpv_path_str(mpv: &Mpv) -> Option<String> {
+    ["path", "filename"]
+        .iter()
+        .filter_map(|k| mpv.get_property::<String>(k).ok())
+        .find(|s| !s.is_empty())
+}
+
+/// The media item mpv holds, under the name it was opened with — still reported after that name
+/// disappears (a download renamed on completion, a file moved or deleted mid-playback). Answers
+/// “is something on screen?”; read or store the path through [shell_media_path] instead.
+/// `None` while mpv is idle or pulling a network stream.
+pub(crate) fn open_media_path(mpv: &Mpv, shell: Option<&std::path::Path>) -> Option<PathBuf> {
+    mpv_path_str(mpv)
+        .and_then(|s| local_path_no_stat(&s))
+        .or_else(|| shell.map(std::path::Path::to_path_buf))
+}
+
+#[cfg(test)]
+mod open_media_path_tests {
+    use super::local_path_no_stat;
+    use std::path::Path;
+
+    /// A finished download is renamed under mpv; the name it was opened with must still parse.
+    #[test]
+    fn keeps_vanished_local_path_and_skips_streams() {
+        let gone = "/dl/clip.mkv.RSRXEZ4AWN67MGBANBT6YLR32JW32GVZSZLYN2Y.dctmp";
+        assert_eq!(local_path_no_stat(gone).as_deref(), Some(Path::new(gone)));
+        assert_eq!(
+            local_path_no_stat("file:///dl/clip.mkv").as_deref(),
+            Some(Path::new("/dl/clip.mkv"))
+        );
+        assert!(local_path_no_stat("https://host/clip.mkv").is_none());
+        assert!(local_path_no_stat("bd://0").is_none());
+    }
 }
 
 /// Local filesystem path for the open item: mpv `path` when it is a file, else the shell path
@@ -109,14 +148,7 @@ pub(crate) fn mpv_warm_hit_ready(mpv: &Mpv, path: &std::path::Path) -> bool {
 
 /// Loaded local file, canonical, or `None` (idle, stream, or missing file).
 pub(crate) fn local_file_from_mpv(mpv: &Mpv) -> Option<PathBuf> {
-    let s = match mpv.get_property::<String>("path") {
-        Ok(s) if !s.is_empty() => s,
-        _ => match mpv.get_property::<String>("filename") {
-            Ok(s) if !s.is_empty() => s,
-            _ => return None,
-        },
-    };
-    path_from_mpv_str(&s)
+    mpv_path_str(mpv).and_then(|s| local_path_from_mpv_str(&s))
 }
 
 /// Store `duration` and `time-pos` in [crate::db] for the open item. Use before switching

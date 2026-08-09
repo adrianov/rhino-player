@@ -44,6 +44,14 @@ Feature: Application shell
     And the continue grid is shown
     And the application process keeps running
 
+  Scenario: Close Video returns to the list after a rename
+    Given a video is playing
+    And its file is renamed on disk meanwhile # an incomplete download that finished
+    When the user activates Close Video or Ctrl+W
+    Then playback stops
+    And the continue / recent grid is shown
+    And the application process keeps running
+
   Scenario: Close on continue list quits when only warm preload is active
     Given the continue grid is visible and a title is warm-preloaded paused in the background
     When the user activates Close Video or Ctrl+W
@@ -73,7 +81,7 @@ Feature: Application shell
 
 ## Notes
 - Global accelerators: `app.open` (Ctrl+O), `app.close-video` (Ctrl+W), `app.about` (F1), `app.quit` (q, Ctrl+Q).
-- `app.close-video`: **quit** when the continue grid is visible (browse / warm preload behind the grid) or when no openable local media is loaded; **back to browse** when the grid is hidden and a local file or Blu-ray disc tree is loaded (`wire_actions.rs`, `has_loaded_local_media` + `shell_media_path`).
+- `app.close-video`: **quit** when the continue grid is visible (browse / warm preload behind the grid) or when nothing local is loaded; **back to browse** when the grid is hidden and a local file or Blu-ray disc tree is loaded (`wire_actions.rs`, `has_loaded_local_media`). That gate reads `media_probe::open_media_path` rather than `shell_media_path`, so a file renamed or deleted mid-playback (a `*.dctmp` download that finished) still counts as loaded — its picture is on screen even though the opened name no longer resolves. Escape (`key_escape_seek.rs`) bypasses the gate and always returns to browse. The continue card afterwards comes from `history::load` adopting the finished sibling, carrying the position saved before the rename.
 - User-facing name: `glib::set_application_name` is set to the same string as the initial window title (**Rhino Player**); `glib::set_prgname` remains the application id for `.desktop` / shell matching.
 - **macOS:** `gtk_application_set_menubar` uses the **same** `GMenu` instance as the header hamburger (`Open`, `Close`, `Fullscreen`, … `Preferences`, `About`, `Quit`), after actions are registered and the Preferences submenu is rebuilt.
 - Main-menu labels use Title Case for desktop-menu readability.

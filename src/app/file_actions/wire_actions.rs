@@ -20,8 +20,13 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
         let bb = on_browse_back.clone();
         let app_q = app.clone();
         close_video.connect_activate(move |_, _| {
-            if r.is_visible() || !crate::app::has_loaded_local_media(&p) {
+            if r.is_visible() {
                 crate::user_action_log::act("close video (browse) -> quit");
+                app_q.activate_action("quit", None);
+                return;
+            }
+            if !crate::app::has_loaded_local_media(&p) {
+                crate::user_action_log::act("close video (no media loaded) -> quit");
                 app_q.activate_action("quit", None);
                 return;
             }

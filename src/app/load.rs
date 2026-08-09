@@ -6,3 +6,4 @@ include!("load/try_load_and_sibling_state.rs");
 include!("load/reveal_after_load.rs");
 include!("load/eof_advance_and_browse_ctx.rs");
 include!("load/back_to_browse_and_actions.rs");
+include!("load/close_actions_and_quit.rs");
