@@ -10,8 +10,9 @@ use gtk::prelude::NativeExt;
 
 include!("dvd_transport_periodic_log.rs");
 
-/// **`smooth_budget`** uses presentation strain; GTK / compositors mis-read it when unfocused,
-/// minimized, or unmapped. Skip **both** ladders until the playback shell suits pacing again.
+/// **`smooth_budget`** strain ladders use presentation tallies; GTK / compositors mis-read those
+/// when unfocused, minimized, or unmapped. Skip overload / recovery until the shell suits pacing.
+/// Busy-system **pause expiry** still runs in the background (see tick site).
 #[must_use]
 fn smooth_budget_transport_window_ticks_count(win: &adw::ApplicationWindow) -> bool {
     if !win.is_visible() || !win.is_mapped() || !win.is_active() {
@@ -136,11 +137,6 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
         run_sibling_eof(ctx);
     }
     sync_sub_header_readout(&ctx.player, &ctx.widgets.sub_readout);
-    stamp_smooth_toolbar_readout(
-        Some(&ctx.widgets.smooth_toolbar_status),
-        Some(&ctx.widgets.smooth_toolbar_btn),
-        &ctx.player,
-    );
     if smooth_budget_transport_window_ticks_count(&ctx.eof.win) {
         crate::video_pref::smooth_budget_on_transport_tick(
             &ctx.player,
@@ -149,94 +145,22 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
             core_idle,
             ctx.smooth_budget_decoder.as_ref(),
         );
+    } else if crate::video_pref::smooth_load_hold_active() {
+        // Background (unfocused / minimized): still restore Smooth after the busy-system pause.
+        let _ = crate::video_pref::smooth_load_hold_on_tick(&ctx.player, &ctx.video_pref);
     }
+    // After budget / hold so the busy-system warning clears on the same tick as resume.
+    stamp_smooth_toolbar_readout(
+        Some(&ctx.widgets.smooth_toolbar_status),
+        Some(&ctx.widgets.smooth_toolbar_btn),
+        &ctx.player,
+    );
     mpris_enqueue_snapshot(ctx);
     maybe_dvd_transport_periodic_log(ctx, pos, dur);
 }
 
 include!("transport_read_state.rs");
-
-fn natural_eof_for_advance(ctx: &TransportCtx, core_idle: bool) -> bool {
-    if core_idle {
-        return true;
-    }
-    let Ok(g) = ctx.player.try_borrow() else {
-        return false;
-    };
-    let Some(b) = g.as_ref() else {
-        return false;
-    };
-    b.mpv.get_property::<bool>("eof-reached").unwrap_or(false)
-}
-
-fn sibling_eof_ready(ctx: &TransportCtx, dur: f64, pos: f64, core_idle: bool) -> bool {
-    if ctx
-        .player
-        .borrow()
-        .as_ref()
-        .is_some_and(|b| b.resume_seek_pending())
-    {
-        return false;
-    }
-    let eof_reached = ctx
-        .player
-        .borrow()
-        .as_ref()
-        .is_some_and(|b| b.mpv.get_property::<bool>("eof-reached").unwrap_or(false));
-    if !ctx.eof.sibling_seof.played_into_tail(dur, eof_reached) {
-        return false;
-    }
-    dvd_eof_tail(ctx, dur, pos, core_idle)
-}
-
-fn maybe_advance_dvd_chapter_eof(ctx: &Rc<TransportCtx>) -> bool {
-    if crate::app::browse_overlay_active(&ctx.eof.recent) {
-        return false;
-    }
-    {
-        let Ok(g) = ctx.player.try_borrow() else {
-            return false;
-        };
-        let Some(b) = g.as_ref() else {
-            return false;
-        };
-        let shell = b.me_budget_shell_path.borrow();
-        crate::dvd_vob_timeline::refresh_dvd_bar_at_chapter_eof(
-            &ctx.dvd_bar,
-            &b.mpv,
-            shell.as_deref(),
-        );
-    }
-    let advanced = {
-        let bar = ctx.dvd_bar.borrow();
-        let Some(ref bar) = *bar else {
-            return false;
-        };
-        crate::dvd_vob_timeline::advance_title_chapter_eof(&ctx.player, bar)
-    };
-    if !advanced {
-        return false;
-    }
-    crate::app::transport_drain_after_loadfile_idle();
-    true
-}
-
-fn dvd_eof_tail(ctx: &TransportCtx, bar_dur: f64, bar_pos: f64, core_idle: bool) -> bool {
-    let Ok(g) = ctx.player.try_borrow() else {
-        return false;
-    };
-    let Some(b) = g.as_ref() else {
-        return false;
-    };
-    let bar = ctx.dvd_bar.borrow();
-    crate::dvd_vob_timeline::title_eof_for_sibling_advance(
-        &b.mpv,
-        bar.as_ref(),
-        bar_dur,
-        bar_pos,
-        core_idle,
-    )
-}
+include!("sibling_eof_transport.rs");
 
 fn schedule_transport_resync_on_idle(ctx: &Rc<TransportCtx>) {
     if ctx.idle_resync_pending.replace(true) {
