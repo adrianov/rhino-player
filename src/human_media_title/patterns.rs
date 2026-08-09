@@ -26,6 +26,9 @@ struct Patterns {
     strip_end_dot_word: Regex,
     empty_parens: Regex,
     hd_sd_parens: Regex,
+    comma_double: Regex,
+    comma_after_open: Regex,
+    comma_before_close: Regex,
 }
 
 fn patterns() -> &'static Patterns {
@@ -65,5 +68,8 @@ fn patterns() -> &'static Patterns {
         strip_end_dot_word: Regex::new(r"(?m)([^.])\.$").expect("sed"),
         empty_parens: Regex::new(r"\(\s*\)").expect("emp"),
         hd_sd_parens: Regex::new(r"\(\s*(?:HD|SD)\s*\)").expect("hdsd"),
+        comma_double: Regex::new(r",\s*,").expect("cdbl"),
+        comma_after_open: Regex::new(r"\(\s*,").expect("cao"),
+        comma_before_close: Regex::new(r",\s*\)").expect("cbc"),
     })
 }

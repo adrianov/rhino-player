@@ -5,28 +5,55 @@ use std::path::{Path, PathBuf};
 
 const MAX: usize = 20;
 
-/// Ordered recent paths (newest first), up to [MAX] entries. Entries whose paths **no longer exist**
-/// on disk are dropped from history and resume, then **omitted** from the result.
+/// Ordered recent paths (newest first), up to [MAX] entries. Missing paths are dropped from
+/// history and resume — unless an incomplete download was renamed to a finished sibling, in which
+/// case the persistent store adopts that finished path and the entry is kept.
 pub fn load() -> Vec<PathBuf> {
     let raw = crate::db::list_history(MAX);
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for p in raw {
-        if !p.exists() {
-            crate::media_probe::remove_continue_entry(&p);
+        let Some(p) = adopt_finished_download(p) else {
             continue;
-        }
+        };
         let entity = crate::playback_entity::db_path_for(&p);
         let Some(entity_key) = crate::db::history_key(&entity) else {
             continue;
         };
         if !seen.insert(entity_key.clone()) {
-            crate::db::delete_history_stored_path(&p);
+            // Drop redundant stored keys (e.g. extra DVD chapter rows), never the kept entity key.
+            if p.to_str() != Some(entity_key.as_str()) {
+                crate::db::delete_history_stored_path(&p);
+            }
             continue;
         }
         out.push(entity);
     }
     out
+}
+
+/// Keep existing paths; adopt a finished sibling for a gone incomplete download; else prune.
+fn adopt_finished_download(p: PathBuf) -> Option<PathBuf> {
+    if p.exists() {
+        return Some(p);
+    }
+    if let Some(finished) = crate::human_media_title::finished_download_path(&p) {
+        if crate::db::rekey_continue_path(&p, &finished) {
+            eprintln!(
+                "[rhino] history: incomplete download finished {} -> {}",
+                p.display(),
+                finished.display()
+            );
+            return Some(finished);
+        }
+        eprintln!(
+            "[rhino] history: could not adopt finished download {} -> {}",
+            p.display(),
+            finished.display()
+        );
+    }
+    crate::media_probe::remove_continue_entry(&p);
+    None
 }
 
 /// Insert at front, dedupe, trim; one row per DVD title (not per chapter `.vob`).

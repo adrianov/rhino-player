@@ -6,6 +6,12 @@ use std::sync::OnceLock;
 
 include!("human_media_title/patterns.rs");
 include!("human_media_title/tech_strip.rs");
+include!("human_media_title/cleanup.rs");
+
+#[path = "human_media_title/download_temp.rs"]
+mod download_temp;
+use download_temp::peel_download_temp;
+pub(crate) use download_temp::finished_download_path;
 
 /// Display name for a file **basename** (with or without extension).
 pub fn human_media_title(original: &str) -> String {
@@ -13,10 +19,11 @@ pub fn human_media_title(original: &str) -> String {
     if trimmed.is_empty() {
         return String::new();
     }
-    if let Some(s) = try_short_circuit(trimmed) {
+    let peeled = peel_download_temp(trimmed);
+    if let Some(s) = try_short_circuit(&peeled) {
         return s;
     }
-    process_release_style(trimmed)
+    process_release_style(&peeled)
 }
 
 fn try_short_circuit(trimmed: &str) -> Option<String> {
@@ -53,6 +60,7 @@ fn process_release_style(trimmed: &str) -> String {
     strip_leftover_season_tokens(&mut title);
     strip_year_tokens(&mut title);
     strip_dd_dot_dates(&mut title);
+    tidy_paren_commas(&mut title);
 
     if had_glued || (!title.contains(' ') && title.contains('.')) {
         title = title.replace('.', " ");
@@ -151,155 +159,6 @@ fn split_join_spaces(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn strip_year_ellipsis(s: &mut String) {
-    *s = patterns().year_ellipsis.replace_all(s, " ").into_owned();
-}
-
-fn fix_paren_edges(s: &mut String) {
-    let p = patterns();
-    *s = p.paren_open_space.replace_all(s, "(").into_owned();
-    *s = p.paren_close_space.replace_all(s, ")").into_owned();
-}
-
-fn insert_space_before_word_paren(s: &mut String) {
-    *s = patterns()
-        .word_then_paren
-        .replace_all(s, "$1 (")
-        .into_owned();
-}
-
-fn strip_curly_groups(s: &mut String) {
-    *s = patterns().curly.replace_all(s, " ").into_owned();
-}
-
-fn brackets_to_spaces(s: &mut String) {
-    *s = s.replace(['[', ']'], " ");
-}
-
-fn merged_rip_spacing(s: &mut String) {
-    *s = patterns().merged_rip.replace_all(s, "$1 $2").into_owned();
-}
-
-fn strip_bluray(s: &mut String) {
-    *s = patterns().bluray.replace_all(s, " ").into_owned();
-}
-
-fn strip_extra_word_tags(s: &mut String) {
-    for re in extra_regexes() {
-        *s = re.replace_all(s, " ").into_owned();
-    }
-}
-
-fn strip_tech_tags(s: &mut String) {
-    for re in tech_regexes() {
-        *s = re.replace_all(s, " ").into_owned();
-    }
-}
-
-fn strip_resolution_tokens(s: &mut String) {
-    let p = patterns();
-    *s = p.resolution.replace_all(s, " ").into_owned();
-}
-
-fn strip_leftover_season_tokens(s: &mut String) {
-    *s = patterns().season_leftover.replace_all(s, " ").into_owned();
-}
-
-fn strip_year_tokens(s: &mut String) {
-    *s = patterns().year_token.replace_all(s, " ").into_owned();
-}
-
-fn strip_dd_dot_dates(s: &mut String) {
-    let p = patterns();
-    *s = p.date_long.replace_all(s, " ").into_owned();
-    *s = p.date_short.replace_all(s, " ").into_owned();
-}
-
-fn normalize_hyphen_spaces(s: &mut String) {
-    let marker = '\u{0001}';
-    let tmp = s.replace(" - ", &marker.to_string());
-    let p = patterns();
-    let mut out = p.standalone_hyphen.replace_all(&tmp, " ").into_owned();
-    out = out.replace(marker, " - ");
-    *s = out;
-}
-
-fn cleanup_dot_edges(s: &mut String) {
-    let p = patterns();
-    *s = p.dot_space_dot.replace_all(s, ". ").into_owned();
-    *s = p.space_dot_word.replace_all(s, " $1").into_owned();
-    *s = p.trailing_space_dot.replace_all(s, "").into_owned();
-    *s = p.space_dot_space.replace_all(s, " ").into_owned();
-    *s = p.strip_end_dot_word.replace_all(s, "$1").into_owned();
-}
-
-fn strip_hd_sd_parens(s: &mut String) {
-    let p = patterns();
-    *s = p.empty_parens.replace_all(s, "").into_owned();
-    *s = p.hd_sd_parens.replace_all(s, "").into_owned();
-}
-
-fn trim_edges_inplace(s: &mut String) {
-    let mut t = s.trim().to_string();
-    t = t.trim_matches(|c| c == '-' || c == ' ').to_string();
-    *s = t;
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bdremux_stripped() {
-        assert_eq!(human_media_title("Movie Name BDRemux.mkv"), "Movie Name");
-        assert_eq!(human_media_title("Some.Film.BDRemux.mkv"), "Some Film");
-        assert_eq!(
-            human_media_title("Women in Love Criterion Collection-BDRemux.mkv"),
-            "Women in Love Criterion Collection"
-        );
-    }
-
-    #[test]
-    fn americans_sample() {
-        assert_eq!(
-            human_media_title("The.Americans.S04E04.1080p.WEB-DL.4xRus.Eng.TeamHD.mkv"),
-            "The Americans — Season 4, Episode 4"
-        );
-    }
-
-    #[test]
-    fn clean_name_unchanged() {
-        assert_eq!(human_media_title("My Home Video.mp4"), "My Home Video");
-    }
-
-    #[test]
-    fn season_only_dot_separated() {
-        let t = human_media_title("Some.Show.S02.720p.HDTV.x264-GROUP.mkv");
-        assert!(t.contains("Season 2"));
-        assert!(t.to_lowercase().contains("some show"));
-        assert!(!t.to_lowercase().contains("720p"));
-    }
-
-    #[test]
-    fn alternate_nx_episode() {
-        assert_eq!(
-            human_media_title("Ponies.3x05.Episode.Title.1080p.mkv"),
-            "Ponies Episode Title — Season 3, Episode 5"
-        );
-    }
-
-    #[test]
-    fn empty_returns_empty() {
-        assert_eq!(human_media_title(""), "");
-        assert_eq!(human_media_title("   "), "");
-    }
-
-    #[test]
-    fn dvd_folder_basename_keeps_label() {
-        let t = human_media_title("17_Mgnoveniy_DVD2");
-        assert!(
-            !t.trim().is_empty(),
-            "DVD rip folder names must not humanize to empty: {t:?}"
-        );
-    }
-}
+#[path = "human_media_title/tests.rs"]
+mod tests;

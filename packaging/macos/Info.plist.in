@@ -41,7 +41,7 @@
 			<key>CFBundleTypeExtensions</key>
 			<array>
 				<string>3g2</string><string>3gp</string><string>asf</string><string>avi</string>
-				<string>divx</string><string>dvr-ms</string><string>f4v</string><string>flv</string>
+				<string>dctmp</string><string>divx</string><string>dvr-ms</string><string>f4v</string><string>flv</string>
 				<string>h264</string><string>h265</string><string>hevc</string><string>m2ts</string>
 				<string>m4v</string><string>mkv</string><string>mov</string><string>mpeg</string>
 				<string>mpg</string><string>mp4</string><string>mts</string><string>mxf</string>

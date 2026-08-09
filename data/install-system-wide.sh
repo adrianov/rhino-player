@@ -30,8 +30,10 @@ install -m 0755 "$BIN" "$DEST_BIN"
 install -m 0644 "$DATA/vs"/*.vpy "$SHARE_RHINO/vs/"
 
 install -d -m 0755 "$APP_SHARE/applications" "$APP_SHARE/metainfo" "$APP_SHARE/icons" \
-  "$APP_SHARE/man/man1"
+  "$APP_SHARE/man/man1" "$APP_SHARE/mime/packages"
 cp -a "$DATA/icons/hicolor" "$APP_SHARE/icons/"
+install -m 0644 "$DATA/mime/packages/ch.rhino.RhinoPlayer.xml" \
+  "$APP_SHARE/mime/packages/ch.rhino.RhinoPlayer.xml"
 
 # Exec: full path so launch works even if /usr/local/bin is not first on a weird PATH
 if [[ "$DEST_BIN" == *" "* || "$DEST_BIN" == *"'"* ]]; then
@@ -64,6 +66,9 @@ if command -v gtk-update-icon-cache &>/dev/null; then
 fi
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$APP_SHARE/applications" 2>/dev/null || true
+fi
+if command -v update-mime-database &>/dev/null; then
+  update-mime-database "$APP_SHARE/mime" 2>/dev/null || true
 fi
 if command -v mandb &>/dev/null; then
   mandb -pq "$APP_SHARE/man" 2>/dev/null || true

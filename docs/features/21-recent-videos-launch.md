@@ -3,10 +3,8 @@
 ---
 status: done
 priority: p1
-layers: [ui, db, mpv, fs]
+layers: [ui, persistence, storage]
 related: [03, 06, 13, 14, 17, 18, 23, 27]
-settings: [seek_bar_preview]
-mpv_props: [path, time-pos, duration, eof-reached]
 ---
 
 ## Use cases
@@ -19,7 +17,7 @@ On empty launch (no CLI paths, no other "open this first" path takes over the fi
 
 Clicking a history card loads that file and unpauses, even if watch-later had stored a paused session. The first history card may be warm-preloaded paused behind the grid on launch; hovering any other card while the grid stays visible may warm-preload that file in the background after a short debounce. Activating a preloaded card (click or Space) hides the grid and reveals playback after a short reveal delay. Returning to the grid keeps the current file paused for warm reuse when the continue strip stays visible (including empty history while using this launch pattern). Playback stops when browsing back hides the strip (no boot-file launch paths).
 
-History is durable, deduplicated by canonical path, capped at 20 entries (showing five), and prunes missing files on `history::load`. Thumbnails are WebP BLOBs in the SQLite `media.thumb_webp` column, refreshed in the background by a headless libmpv decode near the stored continue position (`screenshot-raw` → WebP encode → DB, no temp files). Remove and Move to Trash share a session **LIFO undo stack** with a 10 s snackbar.
+History is durable, deduplicated by canonical path, capped at 20 entries (showing five), and drops missing files on load—except when an incomplete download path is gone and a finished file with the matching name (without the incomplete-download suffix) sits in the same folder: the persistent store then records that finished path for the entry and keeps it on the list. Thumbnails are WebP BLOBs in the SQLite `media.thumb_webp` column, refreshed in the background by a headless libmpv decode near the stored continue position (`screenshot-raw` → WebP encode → DB, no temp files). Remove and Move to Trash share a session **LIFO undo stack** with a 10 s snackbar.
 
 ## Behavior
 
@@ -86,6 +84,19 @@ Feature: Recent videos grid on empty launch
     And season and episode markers from the segment appear as readable season and episode wording when recognized
     And the progress bar shows numeric percent (0% if never started, 100% when finished)
 
+  Scenario: Card title omits incomplete download wrappers
+    Given a continue card references a local file whose basename ends with an incomplete-download suffix and a long download id
+    When the continue strip paints
+    Then the card title shows the humanized media name without that suffix or id
+
+  Scenario: Incomplete download entry adopts the finished file
+    Given a continue history entry references an incomplete download path that is gone from disk
+    And a finished media file with the matching name without that incomplete-download suffix sits in the same folder
+    When the continue list loads
+    Then the persistent store records the finished file path for that entry
+    And the finished file appears on the continue strip
+    And the stored resume position for that entry is kept
+
   Scenario: Remove from list with undo
     Given a card shows a remove control on hover
     When the user activates remove
@@ -145,8 +156,8 @@ Feature: Recent videos grid on empty launch
 
 ## Notes
 - Trigger: empty CLI args; first paint follows this grid and CLI rules in [06-open-and-cli](06-open-and-cli.md).
-- Deduplication: opening a path moves it to the front; capacity 20, display 5; `history::load` prunes missing files.
-- Card UI: each card uses about 40% of the strip width with a minimum size, with a fixed **16:9** thumbnail frame (width drives height); image uses cover style (no letterboxing); title and progress sit in a soft bottom gradient overlay; the percentage is a small translucent pill; **Move to Trash** sits left of **Remove** on hover (shared `rp-recent-action` chrome in `theme_continue_grid.css`). Hover warm preload is immediate via `warm_hover_hooks` / `run_continue_warm_preload_path` (`preload_continue_and_run.rs`). While the continue grid is visible and warm hover is active, `MpvBundle::skip_media_persist` blocks SQLite `media` writes (resume, decode size, smooth ME budget); close / back-from-playback / quit after real playback use `save_playback_state_for_close`. The card title uses `human_media_title` on the basename (Transmission-style cleanup; window title uses the same helper). The leading **Open Video** tile uses the same footprint and `rp-recent-card` chrome plus dashed border styling in `theme_continue_grid.css`; it activates `app.open` (same flow as the **Open Video** menu entry).
+- Deduplication: opening a path moves it to the front; capacity 20, display 5; `history::load` drops missing files, or adopts a finished Direct Connect sibling for a gone `*.dctmp` via `finished_download_path` + `db::rekey_continue_path` (history + media keys; on conflict keep the finished path and prefer the incomplete row’s media/resume). Entity-key dedupe must not delete the kept finished key when both incomplete and finished rows appear in one load.
+- Card UI: each card uses about 40% of the strip width with a minimum size, with a fixed **16:9** thumbnail frame (width drives height); image uses cover style (no letterboxing); title and progress sit in a soft bottom gradient overlay; the percentage is a small translucent pill; **Move to Trash** sits left of **Remove** on hover (shared `rp-recent-action` chrome in `theme_continue_grid.css`). Hover warm preload is immediate via `warm_hover_hooks` / `run_continue_warm_preload_path` (`preload_continue_and_run.rs`). While the continue grid is visible and warm hover is active, `MpvBundle::skip_media_persist` blocks SQLite `media` writes (resume, decode size, smooth ME budget); close / back-from-playback / quit after real playback use `save_playback_state_for_close`. The card title uses `human_media_title` on the basename (Transmission-style cleanup; window title uses the same helper). Incomplete Direct Connect names (`name.ext.<id>.dctmp`) are peeled in `download_temp.rs` before the usual tag cleanup. The leading **Open Video** tile uses the same footprint and `rp-recent-card` chrome plus dashed border styling in `theme_continue_grid.css`; it activates `app.open` (same flow as the **Open Video** menu entry).
 - Snackbar: pill-shaped at the bottom; auto-hide after 10 s; Remove and Move to Trash share one session LIFO stack; Undo snapshots include watch-later sidecar bytes plus the full media row; Trash entries also store the platform trash path for restore.
 - `back_to_browse` clears the session undo stack except for Trash (so the snackbar can still offer restore).
 - Length and progress: write libmpv `duration` and `time-pos` to the DB on file switch and window close (no `ffprobe`); fall back to watch-later (`start=` / `# path`) before showing 0%. When mpv reports `bd://`, keys use `shell_media_path` + `me_budget_shell_path` (disc root), same as history; resume seek and warm-hit matching also use `media_probe::mpv_matches_open_target` (not raw mpv `path`, which is not a filesystem path on Blu-ray). **`mpv_warm_hit_ready`** matches only mpv’s **local** open path (`mpv_local_open_path`) — never `me_budget_shell_path`, which hover updates via `last_path` / `transport_sync_warm_browse` before `loadfile` lands (otherwise a `bd://` title falsely warm-hits the hovered DVD). Warm `loadfile` skips outgoing SQLite snapshots (`warm_preload`); near-start mpv reads must not overwrite an existing resume (`db::set_playback`, `media_probe::NEAR_END_SEC`). Hover warm preload is scheduled on a low-priority GTK idle (coalesced per pointer enter, so scrolling the continue row stays smooth); at most one `loadfile` runs at a time with a single queued path after the previous title is fully loaded (`WarmPreloadGate`, `warm_preload_notify_loaded` on warm `FileLoaded` including superseded loads, debounced `schedule_warm_path_settle` on `path`/`duration` when `FileLoaded` is dropped during churn, 4s watchdog, or immediate gate release when mpv already has the hover target and the gate is idle). Re-hovering the same card while mpv still has that file is a no-op; switching away and back issues a new `loadfile` when mpv holds a different title. Card click / Space warm reopen is a hit only when mpv’s open title already matches the target (`mpv_warm_hit_ready` in `load_file_into_player` — not `last_path` alone, which hover sets before `loadfile`). While the continue grid is visible, transport snap reads `last_path` (hover/card intent), not `me_budget_shell_path`. `card_data_list` reads resume/duration once per grid fill; `ContinueGridCache` (`ContinueSnap` per canonical path) is refreshed in `fill_row` and shared with transport (`continue_grid_cache_lookup` in `read_transport_state` — no per-tick SQLite). `last_path` is updated via `transport_sync_warm_browse` on hover/load start. Rapid hover uses `warm_file_gen` so stale `FileLoaded` idles do not resume the wrong title. Modules: `warm_preload_idle.rs`, `warm_preload_path.rs`, `preload_continue_and_run.rs`.

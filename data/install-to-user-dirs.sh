@@ -21,7 +21,7 @@ if [[ "$BIN" == *" "* || "$BIN" == *"'"* ]]; then
 else
   export RHI_EXELINE="$BIN %F"
 fi
-mkdir -p "$LOCAL/icons" "$LOCAL/applications"
+mkdir -p "$LOCAL/icons" "$LOCAL/applications" "$LOCAL/mime/packages"
 cp -a "$DATA/icons/hicolor" "$LOCAL/icons/"
 tmp="$(mktemp)"
 awk '
@@ -31,11 +31,16 @@ awk '
 install -m 0644 "$tmp" "$LOCAL/applications/ch.rhino.RhinoPlayer.desktop"
 rm -f "$tmp"
 unset RHI_EXELINE
+install -m 0644 "$DATA/mime/packages/ch.rhino.RhinoPlayer.xml" \
+  "$LOCAL/mime/packages/ch.rhino.RhinoPlayer.xml"
 if command -v gtk-update-icon-cache &>/dev/null; then
   gtk-update-icon-cache -f -t "$LOCAL/icons/hicolor" 2>/dev/null || true
 fi
 if command -v update-desktop-database &>/dev/null; then
   update-desktop-database "$LOCAL/applications" 2>/dev/null || true
 fi
-echo "Installed desktop + icons under $LOCAL (Exec=$BIN)"
+if command -v update-mime-database &>/dev/null; then
+  update-mime-database "$LOCAL/mime" 2>/dev/null || true
+fi
+echo "Installed desktop + icons + mime under $LOCAL (Exec=$BIN)"
 echo "If the taskbar still shows a generic icon, log out and back in, or restart GNOME Shell once."

@@ -17,6 +17,7 @@
     <mediatype>video/mpeg</mediatype>
     <mediatype>video/mp2t</mediatype>
     <mediatype>video/x-matroska</mediatype>
+    <mediatype>application/x-dcpp-incomplete</mediatype>
   </provides>
   <releases>
     <release version="1.3.0" date="2026-05-08"/>
