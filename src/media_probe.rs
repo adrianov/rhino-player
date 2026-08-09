@@ -3,4 +3,5 @@
 mod continue_grid_cache_hook;
 
 include!("media_probe/card_data_resume_thumbs.rs");
+include!("media_probe/grid_thumb_cache.rs");
 include!("media_probe/thumb_pipeline_and_cards.rs");
