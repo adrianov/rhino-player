@@ -22,18 +22,60 @@ fn stamp_smooth_toolbar_readout(
     } else {
         ("—".to_string(), None)
     };
+    drop(g);
     if let Some(l) = lab {
         l.set_label(&fps_text);
     }
     if let Some(btn) = btn {
-        let tip = match src_fps {
-            Some(src) => format!("Smooth Video ({src} → 60 FPS)"),
-            None => SMOOTH60_MENU_LABEL.to_string(),
+        sync_smooth_load_hold_face(btn);
+        let tip = if crate::video_pref::smooth_load_hold_active() {
+            crate::video_pref::smooth_load_hold_tooltip().to_string()
+        } else {
+            match src_fps {
+                Some(src) => format!("Smooth Video ({src} → 60 FPS)"),
+                None => SMOOTH60_MENU_LABEL.to_string(),
+            }
         };
         if btn.tooltip_text().as_deref() != Some(&tip) {
             btn.set_tooltip_text(Some(&tip));
         }
     }
+}
+
+/// Yellow warning glyph beside the camera icon while Smooth is paused for external load.
+fn sync_smooth_load_hold_face(btn: &gtk::Button) {
+    let held = crate::video_pref::smooth_load_hold_active();
+    let Some(face) = btn.child().and_then(|c| c.downcast::<gtk::Box>().ok()) else {
+        return;
+    };
+    let warn = smooth_load_warn_image(&face);
+    if warn.is_visible() != held {
+        warn.set_visible(held);
+    }
+}
+
+fn smooth_load_warn_image(face: &gtk::Box) -> gtk::Image {
+    let mut child = face.first_child();
+    while let Some(w) = child {
+        let next = w.next_sibling();
+        if w.has_css_class("rp-smooth-load-warn") {
+            if let Ok(img) = w.downcast::<gtk::Image>() {
+                return img;
+            }
+        }
+        child = next;
+    }
+    let img = gtk::Image::from_icon_name("dialog-warning-symbolic");
+    img.add_css_class("rp-smooth-load-warn");
+    img.set_valign(gtk::Align::Center);
+    img.set_visible(false);
+    // Sit after the camera icon, before the FPS readout.
+    if let Some(cam) = face.first_child() {
+        face.insert_child_after(&img, Some(&cam));
+    } else {
+        face.append(&img);
+    }
+    img
 }
 
 fn sync_smooth_toolbar_on(btn: Option<&gtk::Button>, on: bool) {
@@ -43,6 +85,8 @@ fn sync_smooth_toolbar_on(btn: Option<&gtk::Button>, on: bool) {
     if on {
         b.add_css_class("rp-smooth-on");
     } else {
+        crate::video_pref::smooth_load_hold_clear();
         b.remove_css_class("rp-smooth-on");
+        sync_smooth_load_hold_face(b);
     }
 }

@@ -22,6 +22,11 @@ fn apply_budget_actions_after_sample(
     if o.overload_fire {
         match o.rate_opt.filter(|r| *r > OVERLOAD_STRAIN_GT_FRAC) {
             Some(r_high) => {
+                if external_load_contention(o.process_cpu_frac) {
+                    enter_smooth_load_hold(player, o.process_cpu_frac);
+                    reset_decoder_state_after_shrink(state_cell, o.now, o.cur_count);
+                    return;
+                }
                 let cand = budget_after_decoder_overload(o.current_budget_px, r_high);
                 eprintln_smooth_budget_overload(&o.snap, o.decode_fps, r_high, o.current_budget_px, cand);
                 if cand < o.current_budget_px {
@@ -31,13 +36,13 @@ fn apply_budget_actions_after_sample(
                     player,
                     video_pref,
                     cand,
-                    "(smooth playback timing strain — lowering ME budget)",
+                    "(presentation strain — lowering motion budget)",
                 );
                 reset_decoder_state_after_shrink(state_cell, o.now, o.cur_count);
             }
             None => {
                 eprintln!(
-                    "[rhino] smooth: decision hold anomaly overload_fire_but_no_strain_gt_overload_frac rate_opt {:?}",
+                    "[rhino] smooth: decision anomaly overload_fire_but_no_strain_gt_overload_frac rate_opt {:?}",
                     o.rate_opt,
                 );
             }
@@ -100,7 +105,7 @@ fn maybe_raise_budget(
         player,
         video_pref,
         recover_to,
-        "(smooth playback timing quiet — raising ME budget)",
+        "(presentation quiet — raising motion budget)",
     );
 }
 

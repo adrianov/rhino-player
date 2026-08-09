@@ -61,7 +61,8 @@ pub(crate) fn smooth_wants_vapoursynth_vf(
     bundle: Option<&crate::mpv_embed::MpvBundle>,
     speed_hint: Option<f64>,
 ) -> bool {
-    mvtools_vf_eligible(mpv, speed_hint)
+    !smooth_load_hold_active()
+        && mvtools_vf_eligible(mpv, speed_hint)
         && !smooth_prefers_display_resample_bundle(mpv, bundle)
 }
 

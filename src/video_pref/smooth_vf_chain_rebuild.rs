@@ -78,7 +78,8 @@ fn apply_mpv_video_without_mvtools(
 ) -> MpvVideoApply {
     let eligible_1x = mvtools_vf_eligible(mpv, speed_hint);
     let display_only = smooth_prefers_display_resample_bundle(mpv, bundle);
-    let keep_vf = want_60 && eligible_1x && !display_only;
+    // Respect load-hold / cadence gates — same eligibility as attach (`smooth_wants_vapoursynth_vf`).
+    let keep_vf = want_60 && smooth_wants_vapoursynth_vf(mpv, bundle, speed_hint);
     let stripped_vf = had_vapoursynth && !keep_vf;
     if stripped_vf {
         if let Some(b) = bundle {

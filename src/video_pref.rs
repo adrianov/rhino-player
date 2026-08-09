@@ -57,6 +57,7 @@ include!("video_pref/smooth_vf_swap_timing.rs");
 include!("video_pref/mpv_escape_path.rs");
 include!("video_pref/vsscript_pin.rs");
 include!("video_pref/smooth_vapoursynth_vf_attach.rs");
+include!("video_pref/smooth_load_hold.rs");
 include!("video_pref/mvtools_speed_vf_setup.rs");
 include!("video_pref/smooth_vf_add.rs");
 include!("video_pref/decode_apply_vf_lifecycle.rs");
