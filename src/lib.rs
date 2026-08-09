@@ -61,7 +61,6 @@ mod sub_prefs;
 mod sub_track_abbr;
 mod sub_tracks;
 mod theme;
-mod theme_cursor;
 mod window_present;
 mod time;
 mod user_action_log;

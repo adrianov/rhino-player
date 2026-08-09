@@ -1,15 +1,15 @@
 # GTK4 header menus on macOS (gdk-macos + native video)
 
-Standard **[Gtk.MenuButton](https://docs.gtk.org/gtk4/class.MenuButton.html)** + **[Gtk.Popover](https://docs.gtk.org/gtk4/class.Popover.html)** in **windowed** mode (same widgets and `theme.rs` classes as Linux). macOS adds a small platform binding layer only where gdk-macos needs it.
+Standard **[Gtk.MenuButton](https://docs.gtk.org/gtk4/class.MenuButton.html)** + **[Gtk.Popover](https://docs.gtk.org/gtk4/class.Popover.html)** in **windowed** mode (same widgets and `theme/shell.css` classes as Linux). macOS adds a small platform binding layer only where gdk-macos needs it.
 
 Speed, sound, and subtitles share one content widget per menu — **no duplicated menu trees**. Windowed mode shows it in [`Gtk.Popover`](https://docs.gtk.org/gtk4/class.Popover.html); native fullscreen **reparents that same child** into an overlay [`Frame`](https://docs.gtk.org/gtk4/class.Frame.html) (gdk-macos cannot host a working popover popup surface in theater mode). Track lists rebuild synchronously on open in both paths before layout.
 
 ## Standard GTK / Adwaita contract (windowed)
 
-- **`MenuButton.set_popover(Popover)`** — real menu control; shared **`rp-header-popover`** / **`rp-popover-box`** content (`theme.rs`).
+- **`MenuButton.set_popover(Popover)`** — real menu control; shared **`rp-header-popover`** / **`rp-popover-box`** content (`theme/shell.css`).
 - **Popover CSS** — style **`popover > contents`**, not the `popover` node ([Popover CSS nodes](https://docs.gtk.org/gtk4/class.Popover.html)).
 - **Popover parent** — GTK positions popovers from a mapped parent widget and its Gdk surface geometry ([Popover](https://docs.gtk.org/gtk4/class.Popover.html): parent must be visible and mapped). `MenuButton` sets the parent automatically.
-- **Layout** — display CSS in `theme.rs` (padding, list chrome). Adwaita draws popover frame, shadow, and arrow.
+- **Layout** — display CSS in `theme/shell.css` (padding, list chrome). Adwaita draws popover frame, shadow, and arrow.
 - **Outside dismiss** — `autohide=false` on header popovers; capture-phase dismiss on the shell (`chrome_macos_header_popovers.rs`).
 
 ## macOS binding (windowed)
@@ -63,7 +63,7 @@ Wiring: `chrome_header_menubtns.rs` → `HeaderMenuOverlay::wire(outer_ovl, win,
 
 1. Close any open overlay panel (`hide_panel`).
 2. **`detach_popovers`** — `MenuButton.set_popover(None)` on speed / sound / subtitles (stops gtk from spawning popup surfaces).
-3. Add CSS class **`rp-header-menu-fs`** on each `MenuButton` (keeps normal icon/readout styling — see `theme_macos_header_compact.css`).
+3. Add CSS class **`rp-header-menu-fs`** on each `MenuButton` (keeps normal icon/readout styling — see `theme/macos_header_compact.css`).
 
 **Open menu** (capture `GestureClick` on `MenuButton`, fullscreen only):
 
@@ -125,7 +125,7 @@ Dismiss controller lives on **`outer_ovl`**, not `ToolbarView`:
 
 ## Theater overlay compositing (stale gdk-macos layers)
 
-Rhino on macOS uses a **hybrid render stack**: native mpv video in a **`CAOpenGLLayer`** at index 0 of the AppKit **`contentView`**, with gdk-macos drawing GTK chrome in a sublayer above it. The main video **`GLArea`** is transparent (`theme_macos_transparent.css` + alpha-0 GL clear) so the native layer shows through; header and bottom bars use **widget-level opaque CSS** (`macos_header_menu`, `macos_bottom_bar`).
+Rhino on macOS uses a **hybrid render stack**: native mpv video in a **`CAOpenGLLayer`** at index 0 of the AppKit **`contentView`**, with gdk-macos drawing GTK chrome in a sublayer above it. The main video **`GLArea`** is transparent (`theme/macos_transparent.css` + alpha-0 GL clear) so the native layer shows through; header and bottom bars use **widget-level opaque CSS** (`macos_header_menu`, `macos_bottom_bar`).
 
 **Theater overlays** (header menu panel, seek-bar preview frame) are **`GtkOverlay`** children on **`outer_ovl`**, not separate Gdk popup surfaces — same surface as the main window, so no extra compositor window.
 
@@ -187,7 +187,7 @@ Windowed mode does not call **`on_overlay_surface_opened`** — popover popup su
 | `chrome_header_menubtns.rs` | Cluster wiring: switch (windowed) + overlay + dismiss |
 | `header_popovers.rs` / `speed_menu.rs` | Popover content trees (single widget reparented in theater) |
 | `header_menu_scroll.rs` | Shared scroll max heights + **`rp-header-scroll-*`** CSS tags for overlay restore |
-| `theme_macos_header_compact.css` | **`rp-header-menu-fs`** styling |
+| `theme/macos_header_compact.css` | **`rp-header-menu-fs`** styling |
 
 ## Debug
 
