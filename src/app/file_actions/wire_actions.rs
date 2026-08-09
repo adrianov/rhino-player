@@ -30,9 +30,6 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
                 app_q.activate_action("quit", None);
                 return;
             }
-            if p.borrow().is_none() {
-                return;
-            }
             crate::user_action_log::act("close video button -> back to browse");
             bb(true);
         });
