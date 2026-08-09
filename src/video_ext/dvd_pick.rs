@@ -3,10 +3,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use super::{
-    dvd_disc_root, dvd_video_ts_dir, is_playable_dvd_chapter, list_vobs_in_video_ts,
-    title_set_bytes,
-};
+use super::optical_disc::{dvd_disc_root, dvd_video_ts_dir};
+use super::video_ts::{is_playable_dvd_chapter, list_vobs_in_video_ts, title_set_bytes};
 
 /// Main feature: `VIDEO_TS.IFO` when sane, else largest title set on disk.
 pub(super) fn pick_main_dvd_vob(vts: &Path) -> Option<PathBuf> {

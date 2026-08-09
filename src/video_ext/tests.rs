@@ -132,3 +132,16 @@ fn dvd_vob_path_and_broadcast_fps() {
     assert!(dvd_vob_broadcast_fps(Some((1280, 720))).is_none());
     let _ = fs::remove_dir_all(&base);
 }
+
+#[test]
+fn dctmp_in_progress_download_is_openable() {
+    let base = std::env::temp_dir().join(format!("rhino-dctmp-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    fs::create_dir_all(&base).expect("mkdir");
+    let stub = base.join("clip.mkv.dctmp");
+    fs::write(&stub, b"x").expect("write");
+    assert!(is_video_path(&stub));
+    assert!(is_openable_media_path(&stub));
+    assert!(SUFFIX.contains(&"dctmp"));
+    let _ = fs::remove_dir_all(&base);
+}
