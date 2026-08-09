@@ -10,7 +10,9 @@ include!("build_window/volume_wiring.rs");
 include!("build_window/widgets.rs");
 include!("build_window/wire_drag_drop.rs");
 include!("build_window/header_fullscreen_toggle.rs");
-include!("build_window/browse_chrome_hover.rs");
+include!("build_window/video_chrome.rs");
+include!("build_window/media_open_wire.rs");
+include!("build_window/continue_browse.rs");
 include!("build_window/wire_handlers_before_mpv.rs");
 
 fn build_window(
@@ -47,6 +49,7 @@ fn build_window(
         pos_min: Cell::new(0.0),
         pos_max: Cell::new(0.0),
         pos_tracked: Cell::new(false),
+        incomplete_hold: crate::incomplete_download_eof::IncompleteEofHold::new(),
     });
     let fs_restore = Rc::new(RefCell::new(None::<(i32, i32)>));
     let fs_pause_stash = Rc::new(RefCell::new(None::<bool>));

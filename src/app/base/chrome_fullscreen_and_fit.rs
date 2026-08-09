@@ -117,6 +117,7 @@ fn window_size_for_horizontal_video(vw: i64, vh: i64) -> (i32, i32) {
 
 include!("chrome_shell_layout.rs");
 include!("chrome_window_video_fit.rs");
+include!("chrome_menu_wire.rs");
 
 fn schedule_or_defer_recent_backfill(
     player: &Rc<RefCell<Option<MpvBundle>>>,
