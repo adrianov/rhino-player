@@ -3,27 +3,27 @@
 ---
 status: done
 priority: p1
-layers: [mpv, fs, ui]
+layers: [playback, storage, ui]
 related: [02, 03, 04, 06, 13, 21, 28]
-mpv_props: [eof-reached, time-pos, duration, path]
 ---
 
 ## Use cases
 - After a file ends, continue with the next file in the same directory.
 - When the directory is exhausted, continue in the next sibling subdirectory under the same parent (e.g. next season folder).
 - Browse a folder tree without going back to **Open** between files.
+- Keep watching an unfinished download without jumping to the next folder neighbour when playable data runs out.
 
 ## Description
-On natural EOF, the next file in **sorted** order in the current directory loads automatically. If the current file was the last in its directory, the app looks only among **sibling directories that share the same immediate enclosing directory** (e.g. next season folder beside the current season); the first sorted video in the next such directory loads, and empty siblings are skipped. The queue **does not** walk further up the tree to other directory groups (e.g. it does not jump from one show folder to an unrelated show folder that lives beside it under a shared library folder). With no next file in-folder and no later sibling directory with a video, playback stops (no wrap).
+On natural end of playback, the next file in **sorted** order in the current directory loads automatically. If the current file was the last in its directory, the app looks only among **sibling directories that share the same immediate enclosing directory** (e.g. next season folder beside the current season); the first sorted video in the next such directory loads, and empty siblings are skipped. The queue **does not** walk further up the tree to other directory groups (e.g. it does not jump from one show folder to an unrelated show folder that lives beside it under a shared library folder). With no next file in-folder and no later sibling directory with a video, playback stops (no wrap).
 
-Sibling videos use the shared extension list from `src/video_ext.rs` (same as **Open Video**); the listing is non-recursive per directory and ordering uses `lexical_sort::natural_lexical_cmp` (case-insensitive, with natural digit runs). Bottom-bar **Previous** / **Next** use the same ordering when a local file with duration is loaded.
+Sibling videos use the shared extension list from open / folder scan; the listing is non-recursive per directory and ordering uses natural lexical comparison (case-insensitive, with natural digit runs). Bottom-bar **Previous** / **Next** use the same ordering when a local file with duration is loaded.
 
-The primary triggers are natural end-of-playback signals from the playback engine (`eof-reached` and end-of-file with EOF reason). There is no timed tail poll.
+An unfinished Direct Connect download (path still using the incomplete-download suffix) is special: when playback reaches natural end, the app treats that as “more of the file is not on disk yet”, pauses on the same file, and does not auto-advance. Unpausing tries to resume from that point once more bytes are available. Demux duration alone is not used as “finished” while the incomplete suffix remains.
 
 ## Behavior
 
 ```gherkin
-@status:done @priority:p1 @layer:mpv @area:sibling-queue
+@status:done @priority:p1 @layer:playback @area:sibling-queue
 Feature: Sibling folder queue
 
   Background:
@@ -59,10 +59,23 @@ Feature: Sibling folder queue
     Then the application exits without loading another sibling file
 
   Scenario: Auto-advance when container duration exceeds decoded streams
-    Given the loaded file reports a longer container duration than the longest decoded stream
+    Given the loaded file is not an unfinished download
+    And the loaded file reports a longer container duration than the longest decoded stream
     And playback stalls before the reported duration ends
     When natural end-of-playback occurs
     Then the next sorted sibling file loads automatically
+
+  Scenario: Unfinished download end pauses instead of advancing
+    Given the loaded file is an unfinished download still named with the incomplete-download suffix
+    When natural end-of-playback occurs
+    Then playback pauses on the same file
+    And no sibling file loads automatically
+
+  Scenario: Unpause after unfinished download pause resumes the same file
+    Given playback paused on an unfinished download after natural end
+    When the user unpauses
+    Then the player tries to resume the same file from that position
+    And no sibling file loads automatically while the path still uses the incomplete-download suffix
 
   Scenario: Manual Prev / Next matches automatic order
     Given a local file with duration is open
@@ -90,9 +103,10 @@ Feature: Sibling folder queue
 
 ## Notes
 - When container duration exceeds the decoded tail (common on MKV with mismatched stream lengths), sibling advance uses a wider tail window (`NEAR_END_SEC`) while `core-idle`; transport clamps the seek bar to `time-pos` within that window after playback has entered the tail. Auto-advance requires **playing into** the tail (≥1s of position movement since load), not opening with resume already near end — avoids a chain load on continue-grid open.
+- Unfinished Direct Connect paths (`*.dctmp`): `IncompleteEofHold` pauses on every natural EOF and never auto-advances while the suffix remains (demux `duration` often equals the downloaded prefix). Play/Pause unpause arms continue **before** clearing `pause`, then re-seeks absolute+exact so demux can pick up newly grown bytes.
 - Before loading the next sibling after EOF, mpv `speed` is set to **1.0** when it was not already (see [28-playback-speed](28-playback-speed.md)).
 - The last successfully loaded canonical path is used when `path` is empty.
 - Local files only: with no resolvable path, no advance runs.
-- Implementation: `src/sibling_advance.rs` (`dvd_disc_sibling` for `is_dvd_vob_path` / `is_dvd_disc_path`), `src/app/load.rs::maybe_advance_sibling_on_eof`, `src/app/transport_events.rs::wire_transport_events`.
+- Implementation: `src/sibling_advance.rs`, `src/incomplete_download_eof.rs` (`IncompleteEofHold`), `src/app/load.rs::maybe_advance_sibling_on_eof`, `src/app/transport_events.rs`.
 - Sensitivity and tooltips update on `path` change plus `FileLoaded` / `VideoReconfig`; chrome controls update from `mpv_observe_property` events with no-op-change guards (so tooltip-show timers are not reset).
 - Out of scope here: arbitrary multi-title playlists, shuffle, MIME probing.

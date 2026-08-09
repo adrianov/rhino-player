@@ -11,7 +11,7 @@ include!("human_media_title/cleanup.rs");
 #[path = "human_media_title/download_temp.rs"]
 mod download_temp;
 use download_temp::peel_download_temp;
-pub(crate) use download_temp::finished_download_path;
+pub(crate) use download_temp::{finished_download_path, is_incomplete_download_path};
 
 /// Display name for a file **basename** (with or without extension).
 pub fn human_media_title(original: &str) -> String {

@@ -4,6 +4,13 @@ use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+/// True for Direct Connect in-progress paths (`*.dctmp`, any case).
+pub(crate) fn is_incomplete_download_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("dctmp"))
+}
+
 /// `name.mkv.<id>.dctmp` → `name.mkv` (normal extension strip runs next).
 pub(super) fn peel_download_temp(name: &str) -> String {
     let mut s = name.to_string();
@@ -45,6 +52,15 @@ mod tests {
     use super::*;
     use std::fs;
     use std::io::Write;
+
+    #[test]
+    fn detects_dctmp_suffix() {
+        assert!(is_incomplete_download_path(Path::new(
+            "/dl/clip.mkv.RSRXEZ4AWN67MGBANBT6YLR32JW32GVZSZLYN2Y.dctmp"
+        )));
+        assert!(is_incomplete_download_path(Path::new("clip.DCTMP")));
+        assert!(!is_incomplete_download_path(Path::new("clip.mkv")));
+    }
 
     #[test]
     fn strips_id_and_dctmp() {

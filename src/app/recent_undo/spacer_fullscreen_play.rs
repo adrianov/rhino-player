@@ -43,6 +43,8 @@ struct PlayToggleCtx {
     /// optimistically so the click feels instant; the 1 Hz transport tick
     /// reconciles with mpv's actual state right after.
     play_pause: gtk::Button,
+    /// Shared with [SiblingEofState]: resume a paused incomplete download on unpause.
+    incomplete_hold: Rc<crate::incomplete_download_eof::IncompleteEofHold>,
 }
 
 /// Loaded media pause flag, if any (`None` when browse overlay, no player, or unknown duration).
@@ -114,6 +116,13 @@ fn apply_mpv_pause(ctx: &PlayToggleCtx, want_pause: bool) -> bool {
 
     if smooth_off {
         sync_smooth_60_to_off(&ctx.app);
+    }
+
+    if !want_pause && cur_pause {
+        let path = local_file_from_mpv(&b.mpv).or_else(|| ctx.last_path.borrow().clone());
+        if let Some(p) = path.as_deref() {
+            ctx.incomplete_hold.on_unpause(&b.mpv, p);
+        }
     }
 
     if b.mpv.set_property("pause", want_pause).is_ok() {

@@ -48,6 +48,9 @@ fn maybe_advance_sibling_on_eof(
         seof.done.set(true);
         return;
     };
+    if seof.incomplete_hold.hold_instead_of_advance(&pl.mpv, &finished) {
+        return;
+    }
     let next = sibling_advance::next_after_eof(&finished);
     let no_sibling = next.is_none();
     drop(g);

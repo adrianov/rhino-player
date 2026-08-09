@@ -78,6 +78,7 @@ fn w_in_key_controller(ctx: &WindowInputCtx) {
         play_pause: ctx.play_pause.clone(),
         hdr_title_mirror: ctx.hdr_title_mirror.clone(),
         playback_focus: Rc::clone(&ctx.playback_focus),
+        incomplete_hold: Rc::clone(&ctx.sibling_seof.incomplete_hold),
     };
     let seek_sc = ctx.seek.clone();
     let seek_sync_sc = ctx.seek_sync.clone();

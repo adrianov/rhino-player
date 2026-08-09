@@ -9,6 +9,8 @@ struct SiblingEofState {
     pos_min: Cell<f64>,
     pos_max: Cell<f64>,
     pos_tracked: Cell<bool>,
+    /// Incomplete `.dctmp` EOF pause / resume (shared with [PlayToggleCtx]).
+    incomplete_hold: Rc<crate::incomplete_download_eof::IncompleteEofHold>,
 }
 
 /// Minimum seconds of position movement before tail EOF counts as natural playback (not resume-at-end open).
@@ -50,6 +52,7 @@ impl SiblingEofState {
         self.pos_tracked.set(false);
         self.pos_min.set(0.0);
         self.pos_max.set(0.0);
+        self.incomplete_hold.reset();
     }
 
     fn note_transport_pos(&self, pos: f64) {
