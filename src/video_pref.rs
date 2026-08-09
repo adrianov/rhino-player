@@ -5,7 +5,7 @@
 //! **~96 ms** so one rebuild covers the post-**`loadfile`** burst — covering Open,
 //! drag-drop, sibling EOF advance, **Previous** / **Next**, and `loadfile`), when the user picks
 //! **playback speed** in the header (deferred idle), and after unpause when **`vapoursynth`** was
-//! stripped for a **paused seek** (or similar). There is **no** periodic "watch" on `vf` for runtime plugin failures — `vf` add failure still
+//! stripped before a **seek** (playing or paused). There is **no** periodic "watch" on `vf` for runtime plugin failures — `vf` add failure still
 //! clears the pref at apply time; a script that dies *after* add is a rare install issue (toggle off in
 //! **Preferences** or fix mvtools).
 //! Set `RHINO_VIDEO_LOG=1` for per-step mpv result lines on stderr.
@@ -68,6 +68,7 @@ include!("video_pref/vf_resync_playhead.rs");
 include!("video_pref/smooth_vf_lifecycle_tests.rs");
 include!("video_pref/smooth_off_playhead_refresh.rs");
 include!("video_pref/smooth_vf_media_reload.rs");
+include!("video_pref/smooth_vf_chain_rebuild.rs");
 include!("video_pref/decode_and_apply_mpv_video.rs");
 include!("video_pref/smooth_budget.rs");
 #[cfg(test)]

@@ -45,7 +45,7 @@ fn request_smooth_resync_after_swap() {
 }
 
 fn vf_swap_keyframe_seek(mpv: &Mpv, bundle: Option<&MpvBundle>, tag: &str) {
-    let _ = unload_smooth_on_pause(mpv, bundle);
+    let _ = unload_smooth_for_seek(mpv, bundle);
     let Some(t) = vf_resync_playhead_sec(mpv, bundle) else {
         eprintln!("[rhino] video: {tag} keyframe resync skipped (no playhead)");
         return;

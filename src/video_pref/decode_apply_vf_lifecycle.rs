@@ -140,8 +140,7 @@ fn clear_vf(mpv: &Mpv, bundle: Option<&MpvBundle>, vlog: bool) {
     }
 }
 
-/// Clear **`vf vapoursynth`** before mpv **`loadfile`** replaces media so the new file is not decoded
-/// through the previous clip's warm script (avoids wrong **`RHINO_SOURCE_FPS`** / duplicate preset lines).
+/// Clear vapoursynth before **`loadfile`** so the next clip does not inherit a warm script.
 pub fn strip_vapoursynth_before_replace_media(b: &MpvBundle) {
     if !vf_chain_has_vapoursynth(&b.mpv) {
         return;
@@ -170,9 +169,8 @@ fn log_vf_diagnostics(mpv: &Mpv, vlog: bool) {
     }
 }
 
-/// Drop the vapoursynth `vf` before a **seek while paused** (or similar position jump) so mpv can
-/// show a still frame quickly. Plain pause/unpause does not call this; playing seeks keep the graph.
-pub fn unload_smooth_on_pause(mpv: &Mpv, bundle: Option<&MpvBundle>) -> bool {
+/// Drop vapoursynth before a seek so mpv does not paint the filter's black placeholder on restart.
+pub fn unload_smooth_for_seek(mpv: &Mpv, bundle: Option<&MpvBundle>) -> bool {
     mark_smooth_cadence_unstable_after_seek_if_disc(mpv);
     if !vf_chain_has_vapoursynth(mpv) {
         return false;
@@ -192,13 +190,10 @@ fn apply_interleaved_display_resample(mpv: &Mpv, bundle: Option<&MpvBundle>, vlo
     }
     apply_source_fps_env(None);
     apply_smooth_vf_present_opts(mpv);
-    if bluray_playback_active(mpv, bundle) {
-        eprintln!(
-            "[rhino] video: Blu-ray smooth deferred — display-resample until cadence is known or stable"
-        );
+    let msg = if bluray_playback_active(mpv, bundle) {
+        "[rhino] video: Blu-ray smooth deferred — display-resample until cadence is known or stable"
     } else {
-        eprintln!(
-            "[rhino] video: unstable frame cadence — Smooth uses mpv display-resample (no VapourSynth)"
-        );
-    }
+        "[rhino] video: unstable frame cadence — Smooth uses mpv display-resample (no VapourSynth)"
+    };
+    eprintln!("{msg}");
 }
