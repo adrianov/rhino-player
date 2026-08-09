@@ -35,6 +35,10 @@ fn try_short_circuit(trimmed: &str) -> Option<String> {
     if patterns().tech_hint.is_match(no_ext) {
         return None;
     }
+    // Glued tags (`HDTV1080p`) miss `tech_hint` word boundaries.
+    if tech_regexes().iter().any(|re| re.is_match(no_ext)) {
+        return None;
+    }
     Some(collapse_ws(&normalize_commas(no_ext.to_string())))
 }
 

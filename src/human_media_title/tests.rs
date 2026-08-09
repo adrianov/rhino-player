@@ -19,6 +19,26 @@ fn americans_sample() {
 }
 
 #[test]
+fn glued_source_and_resolution() {
+    assert_eq!(
+        human_media_title("Legion.S01E01.WEB-DL1080p.Rus.Eng.DV.LostFilm.mkv"),
+        "Legion — Season 1, Episode 1"
+    );
+    assert_eq!(
+        human_media_title("Show.S02E03.WEBDL720p.mkv"),
+        "Show — Season 2, Episode 3"
+    );
+    assert_eq!(human_media_title("Foo.Bar.WEB-DL4K.mkv"), "Foo Bar");
+    assert_eq!(human_media_title("Foo.WEB-DLUHD.mkv"), "Foo");
+    assert_eq!(
+        human_media_title("Something.WEBDLRip720p.Group.mkv"),
+        "Something Group"
+    );
+    assert_eq!(human_media_title("Movie.HDTV1080p.mkv"), "Movie");
+    assert_eq!(human_media_title("Movie HDTV1080p.mkv"), "Movie");
+}
+
+#[test]
 fn clean_name_unchanged() {
     assert_eq!(human_media_title("My Home Video.mp4"), "My Home Video");
 }

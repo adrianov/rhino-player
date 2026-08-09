@@ -1,9 +1,10 @@
-/// Mirrors Transmission `techTags*` lists (resolution suffixes stripped separately).
+/// Mirrors Transmission `techTags*` lists (optional glued resolution via `GLUED_RES`).
 const TECH_TAGS: &[&str] = &[
     "WEBDL",
     "WEB-DL",
     "WEBRip",
     "WEB-DLRip",
+    "WEBDLRip",
     "DLRip",
     "BDRip",
     "BDRemux",
@@ -65,6 +66,9 @@ const TECH_TAGS: &[&str] = &[
     "TeamHD",
 ];
 
+/// Optional resolution glued to a tech tag (`WEB-DL1080p`, `HDTV720p`, `WEB-DL4K`).
+const GLUED_RES: &str = r"(?:2160p|1080p|720p|480p|8K|4K|UHD)?";
+
 fn tech_regexes() -> &'static [Regex] {
     static V: OnceLock<Vec<Regex>> = OnceLock::new();
     V.get_or_init(|| {
@@ -72,8 +76,9 @@ fn tech_regexes() -> &'static [Regex] {
             .iter()
             .map(|tag| {
                 Regex::new(&format!(
-                    r"(?i)(?:^|[.\s\-]){}(?:$|[.\s\-])",
-                    regex::escape(tag)
+                    r"(?i)(?:^|[.\s\-]){}{}(?:$|[.\s\-])",
+                    regex::escape(tag),
+                    GLUED_RES,
                 ))
                 .unwrap_or_else(|_| panic!("tech tag regex {tag}"))
             })
