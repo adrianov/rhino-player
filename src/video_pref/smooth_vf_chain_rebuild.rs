@@ -27,7 +27,8 @@ fn add_smooth_60_with_av_log(
     disabled_60
 }
 
-/// First attach (open / smooth-on after off): **`vf add`** immediately. Replacing a live graph: defer + keyframe.
+/// First attach (open / first Smooth-on): **`vf add`** immediately. After a strip: [smooth_reattach_after_vf_strip].
+/// Replacing a live graph: defer + keyframe.
 fn rebuild_smooth_vf_chain(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     mpv: &Mpv,

@@ -1,4 +1,4 @@
-// Same-media loadfile replace when vapoursynth must be reattached after vf remove / first Smooth-on.
+// Same-media `loadfile replace` for first Smooth-on while playing, or when `vf add` fails after a strip.
 
 use std::cell::Cell;
 
@@ -21,8 +21,9 @@ pub(crate) fn maybe_unpause_after_smooth_reload(mpv: &libmpv2::Mpv) {
 
 /// Reload the open file at the current playhead so mpv can attach vapoursynth again.
 ///
-/// Keeps **`pause`** through **`stop`+`loadfile`+resume** so playback does not start at t=0 before
-/// the playhead is restored. When `resume_playing`, arms [maybe_unpause_after_smooth_reload].
+/// Holds **`pause`** through **`loadfile replace`** and resume so playback does not start at t=0
+/// before the playhead is restored. When `resume_playing`, arms [maybe_unpause_after_smooth_reload].
+/// No **`stop`** beforehand — it can abort the following load and leave resume pending while paused.
 pub(crate) fn reload_open_media_for_vf_reset(b: &MpvBundle, resume_playing: bool) -> bool {
     let Some(path) = crate::media_probe::local_file_from_mpv(&b.mpv) else {
         eprintln!("[rhino] video: vf reset reload skipped (no local path)");
@@ -37,17 +38,17 @@ pub(crate) fn reload_open_media_for_vf_reset(b: &MpvBundle, resume_playing: bool
     };
     let _ = b.mpv.set_property("pause", true);
     strip_vapoursynth_before_replace_media(b);
-    let _ = b.mpv.command("stop", &[]);
     let resume = if pos > 0.05 { Some(pos) } else { None };
     match b.load_file_path(&path, false, false, false, resume) {
         Ok(()) => {
             eprintln!(
-                "[rhino] video: stop+loadfile replace for vapoursynth reattach path={} pos={pos:.2} resume_playing={resume_playing}",
+                "[rhino] video: loadfile replace for vapoursynth reattach path={} pos={pos:.2} resume_playing={resume_playing}",
                 path.display()
             );
             if resume_playing {
                 UNPAUSE_AFTER_SMOOTH_RELOAD.with(|c| c.set(true));
             }
+            // Idle only: callers hold `player` borrowed, so an immediate drain cannot `borrow_mut`.
             crate::app::transport_drain_after_loadfile_idle();
             true
         }

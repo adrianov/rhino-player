@@ -39,9 +39,21 @@ fn smooth_60_resync_fire(ctx: &Rc<TransportCtx>) {
         .as_ref()
         .is_some_and(|b| b.resume_seek_pending())
     {
-        eprintln!("[rhino] video: smooth resync deferred (resume seek pending)");
-        schedule_smooth_60_resync_idle(ctx);
-        return;
+        // Retry stashed resume (duration may land between debounce ticks) so Smooth-on reload
+        // cannot loop forever while pause is held.
+        with_bundle(&ctx.player, |b| {
+            b.apply_pending_resume();
+        });
+        if ctx
+            .player
+            .borrow()
+            .as_ref()
+            .is_some_and(|b| b.resume_seek_pending())
+        {
+            eprintln!("[rhino] video: smooth resync deferred (resume seek pending)");
+            schedule_smooth_60_resync_idle(ctx);
+            return;
+        }
     }
     smooth_60_full_resync_after_media_change(&ctx.player, &ctx.eof.gl, &ctx.eof.reapply_60);
 }

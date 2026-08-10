@@ -33,8 +33,12 @@ pub fn apply_mpv_video(
     apply_mpv_video_impl(&b.mpv, Some(b), Some(player), v, speed_hint)
 }
 
-/// User enabled Smooth while playing: reload at playhead so **`vf add`** runs after resume (A/V aligned).
-/// Returns **true** when **`loadfile replace`** started — caller must skip **`apply_mpv_video`** (FileLoaded resync attaches **`vf`**).
+/// First Smooth-on while playing (graph never stripped this open): **`loadfile replace`** at the
+/// playhead so **`vf add`** runs after resume (A/V aligned). When
+/// [MpvBundle::smooth_vf_stripped_this_open] is set (Smooth off→on, post-seek), returns **false** so
+/// the caller runs [apply_mpv_video] → [smooth_reattach_after_vf_strip] (**`vf add`** only).
+///
+/// Returns **true** when reload started — skip **`apply_mpv_video`**; FileLoaded resync attaches **`vf`**.
 pub fn smooth_user_enable_playing_reset(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     v: &mut VideoPrefs,
@@ -48,6 +52,7 @@ pub fn smooth_user_enable_playing_reset(
         || mpv.get_property::<bool>("pause").unwrap_or(true)
         || vf_chain_has_vapoursynth(mpv)
         || !mpv_has_open_media(mpv)
+        || b.smooth_vf_stripped_this_open()
     {
         return false;
     }
