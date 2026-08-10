@@ -3,7 +3,7 @@ struct SmoothToolbarWidgets {
     smooth_status: gtk::Label,
 }
 
-/// Header toolbar control: icon + rounded **playing FPS** readout; full title lives in the tooltip.
+/// Header Smooth control: icon + badge for **playing** FPS; title/intent stay in the tooltip.
 fn build_smooth_video_toolbar() -> SmoothToolbarWidgets {
     let smooth_btn = gtk::Button::new();
     smooth_btn.add_css_class("flat");

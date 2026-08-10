@@ -25,51 +25,62 @@ fn peek_sticky_local_source_fps(mpv: &libmpv2::Mpv) -> Option<f64> {
     })
 }
 
-/// Native video FPS for the Smooth tooltip (container-fps or sticky fallback), `None` if no media.
+const FPS_READOUT_LO: f64 = 0.05;
+const FPS_READOUT_HI: f64 = 960.0;
+
+fn fps_readout_ok(f: f64) -> bool {
+    f.is_finite() && f > FPS_READOUT_LO && f < FPS_READOUT_HI
+}
+
+fn round_fps_label(f: f64) -> String {
+    format!("{}", f.round() as i64)
+}
+
+/// Source cadence for the Smooth tooltip (demux or sticky), `None` if no media.
 pub fn source_fps_label(mpv: &libmpv2::Mpv) -> Option<String> {
-    const LO: f64 = 0.05;
-    const HI: f64 = 960.0;
     if !matches!(mpv.get_property::<String>("path"), Ok(s) if !s.trim().is_empty()) {
         return None;
     }
     let fps = mpv
         .get_property::<f64>("container-fps")
         .ok()
-        .filter(|&f| f.is_finite() && f > LO && f < HI)
-        .or_else(|| peek_sticky_local_source_fps(mpv).filter(|&f| f > LO && f < HI))?;
-    Some(format!("{}", fps.round() as i64))
+        .filter(|&f| fps_readout_ok(f))
+        .or_else(|| peek_sticky_local_source_fps(mpv).filter(|&f| fps_readout_ok(f)))?;
+    Some(round_fps_label(fps))
 }
 
-/// Header Smooth toolbar: rounded **playing** frame rate (`estimated-vf-fps` when known, else source×speed).
+/// Smooth toolbar badge: rounded **playing** FPS from mpv (`estimated-vf-fps`), never a selected-state target.
+///
+/// With **`vapoursynth`** loaded, skip estimates that still look like demux broadcast rates (stale
+/// ~24 while FlowFPS is ramping) and show **—** until the filter-output estimate settles.
 pub fn smooth_toolbar_fps_label(mpv: &libmpv2::Mpv) -> String {
-    const LO: f64 = 0.05;
-    const HI: f64 = 960.0;
     if !matches!(mpv.get_property::<String>("path"), Ok(s) if !s.trim().is_empty()) {
+        return "—".to_string();
+    }
+    let vs = vf_chain_has_vapoursynth(mpv);
+    if let Ok(est) = mpv.get_property::<f64>("estimated-vf-fps") {
+        if fps_readout_ok(est) && (!vs || !is_plausible_broadcast_fps(est)) {
+            return round_fps_label(est);
+        }
+    }
+    if vs {
         return "—".to_string();
     }
     let spd_raw = mpv.get_property::<f64>("speed").unwrap_or(1.0);
     let spd = if spd_raw.is_finite() && (0.01..=8.0).contains(&spd_raw) {
-        spd_raw.max(LO)
+        spd_raw.max(FPS_READOUT_LO)
     } else {
         1.0
     };
-    if let Ok(est) = mpv.get_property::<f64>("estimated-vf-fps") {
-        if est.is_finite() && est > LO && est < HI {
-            return format!("{}", est.round() as i64);
-        }
-    }
-    if vf_chain_has_vapoursynth(mpv) {
-        return "60".to_string();
-    }
     let nominal = mpv.get_property::<f64>("container-fps").unwrap_or(0.0);
-    if nominal.is_finite() && nominal > LO && nominal < HI {
-        return format!("{}", (nominal * spd).round() as i64);
+    if fps_readout_ok(nominal) {
+        return round_fps_label(nominal * spd);
     }
     if let Some(src) = peek_sticky_local_source_fps(mpv) {
-        return format!("{}", (src * spd).round() as i64);
+        return round_fps_label(src * spd);
     }
     if let Some(src) = source_fps_from_env_var() {
-        return format!("{}", (src * spd).round() as i64);
+        return round_fps_label(src * spd);
     }
     "—".to_string()
 }
