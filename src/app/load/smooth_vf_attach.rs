@@ -27,13 +27,14 @@ fn smooth_60_full_resync_after_media_change(
         });
         if defer_setup {
             eprintln!("[rhino] video: smooth setup dialog skipped (vf reattach in flight)");
-            gl.queue_render();
-            return;
+        } else {
+            sync_smooth_60_to_off(&r.app);
+            show_smooth_setup_dialog(&r.app);
         }
-        sync_smooth_60_to_off(&r.app);
-        show_smooth_setup_dialog(&r.app);
-        gl.queue_render();
-        return;
+    }
+    // Playing Smooth-on reload stays paused until resume + vf apply (or auto-off).
+    if let Some(b) = player.borrow().as_ref() {
+        video_pref::maybe_unpause_after_smooth_reload(&b.mpv);
     }
     gl.queue_render();
 }
