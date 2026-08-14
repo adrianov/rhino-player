@@ -79,20 +79,15 @@ impl OpticalDisc {
     }
 
     fn dvd_root(path: &Path) -> Option<PathBuf> {
-        let candidates: Vec<PathBuf> = if path.is_file() {
-            path.parent().map(|p| vec![p.to_path_buf()])?
-        } else {
-            vec![path.to_path_buf()]
-        };
-        for root in candidates {
-            if VideoTsDir::at(&root).is_some() {
-                return root.parent().map(|p| p.to_path_buf());
-            }
-            if VideoTsDir::under_disc(&root).is_some() {
-                return Some(root);
-            }
+        if path.is_file() {
+            // Inside VIDEO_TS only — a neighbouring transport folder must not capture other videos.
+            let vts = VideoTsDir::at(path.parent()?)?;
+            return vts.path().parent().map(Path::to_path_buf);
         }
-        None
+        if let Some(vts) = VideoTsDir::at(path) {
+            return vts.path().parent().map(Path::to_path_buf);
+        }
+        VideoTsDir::under_disc(path).map(|_| path.to_path_buf())
     }
 }
 

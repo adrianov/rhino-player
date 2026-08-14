@@ -56,6 +56,12 @@ Feature: Open files and CLI integration
     Then playback starts from the first title chapter in that tree
     And further chapters in the same folder are reachable via sibling navigation
 
+  Scenario: Video file beside a disc index loads as that file
+    Given a directory contains both a local video file and a disc index
+    When the user opens the video file
+    Then that file loads
+    And the disc does not load in its place
+
   Scenario: Command-line startup loads first argv path
     Given the user launches the app with one or more argv paths
     When the first window paints with no conflicting session restore
@@ -100,7 +106,7 @@ Feature: Open files and CLI integration
 
 ## Notes
 - Open failures (empty/hollow files, demux errors, missing paths) surface a continue-grid notice toast (`src/media_open_fail.rs`, `NoticeToast`) and return to browse when playback was entered. Zero-filled torrent preallocation is detected before `loadfile`.
-- Shared suffixes: `src/video_ext/` ([SUFFIX], reused by **Open Video** and sibling scan). **`dctmp`**: in-progress Direct Connect download (often `name.mkv.<id>.dctmp`) — not a hollow zero-filled stub. Disc trees: `OpticalDisc` + `VideoTsDir` (**BDMV** → disc root; **VIDEO_TS** → `dvd_first_playable_vob`; many engines lack `dvd://`). macOS open panel: `macos_open_video.rs`; Finder: `Info.plist.in` (incl. **`.dctmp`**). Linux: desktop / AppStream; **`.dctmp`** → `application/x-dcpp-incomplete` (`data/mime/packages/`, installed by user/system/deb scripts).
+- Shared suffixes: `src/video_ext/` ([SUFFIX], reused by **Open Video** and sibling scan). **`dctmp`**: in-progress Direct Connect download (often `name.mkv.<id>.dctmp`) — not a hollow zero-filled stub. Disc trees: `OpticalDisc` + `VideoTsDir` (**BDMV** → disc root; **VIDEO_TS** → `dvd_first_playable_vob`; many engines lack `dvd://`). Files inside `VIDEO_TS/` belong to that DVD; a neighbouring `VIDEO_TS` does not divert `.mkv`/`.mp4` opens (`OpticalDisc::dvd_root`). macOS open panel: `macos_open_video.rs`; Finder: `Info.plist.in` (incl. **`.dctmp`**). Linux: desktop / AppStream; **`.dctmp`** → `application/x-dcpp-incomplete` (`data/mime/packages/`, installed by user/system/deb scripts).
 - External open while a window is up: `connect_open` in `src/app/base/preload_continue_and_run.rs` queues `on_open` on a one-shot GTK idle (never synchronous `try_load` in the signal — macOS re-entrancy / `RefCell` abort). `load_file_into_player` uses `try_borrow_mut` like transport drain.
 - `--new-window` and `HANDLES_OPEN` (or the Rust equivalent) are planned but not shipped.
 - Drag-and-drop is owned by [11-drag-and-drop](11-drag-and-drop.md); URL input by [12-url-and-streams](12-url-and-streams.md).

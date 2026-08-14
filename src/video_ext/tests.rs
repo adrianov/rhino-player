@@ -72,6 +72,30 @@ fn fritt_dvd9_opens_main_vts01() {
 }
 
 #[test]
+fn ordinary_file_beside_video_ts_is_not_dvd() {
+    let base = std::env::temp_dir().join(format!("rhino-dvd-sib-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    let dump = base.join("Torrents");
+    let vts = dump.join("VIDEO_TS");
+    fs::create_dir_all(&vts).expect("mkdir");
+    fs::write(vts.join("VIDEO_TS.IFO"), b"DVDVIDEO").expect("ifo");
+    fs::write(vts.join("VTS_01_1.VOB"), vec![0u8; 4096]).expect("vob");
+    let mkv = dump.join("clip.mkv");
+    fs::write(&mkv, b"x").expect("mkv");
+    assert_eq!(dvd_disc_root(&mkv), None);
+    assert_eq!(resolve_open_media_path(&mkv), mkv);
+    assert!(!is_dvd_disc_path(&mkv));
+    assert!(!is_optical_disc_path(&mkv));
+    assert_eq!(dvd_disc_root(&dump).as_deref(), Some(dump.as_path()));
+    assert_eq!(dvd_disc_root(&vts).as_deref(), Some(dump.as_path()));
+    assert_eq!(
+        dvd_disc_root(&vts.join("VTS_01_1.VOB")).as_deref(),
+        Some(dump.as_path())
+    );
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
 fn dvd_resolve_opens_main_title_first_chapter() {
     let base = std::env::temp_dir().join(format!("rhino-dvd-vob-{}", std::process::id()));
     let _ = fs::remove_dir_all(&base);
