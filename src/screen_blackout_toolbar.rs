@@ -61,6 +61,8 @@ pub fn build_blackout_header(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     recent: &gtk::Box,
 ) -> (gtk::Button, Rc<BlackoutSync>) {
+    #[cfg(not(target_os = "macos"))]
+    let _ = player;
     let enabled = crate::db::load_black_out_screens();
     let blackout = Rc::new(RefCell::new(ScreenBlackout::new(enabled)));
     let BlackoutToolbar { btn, readout } = build_blackout_toolbar(enabled);
@@ -69,6 +71,7 @@ pub fn build_blackout_header(
     let sync = Rc::new(BlackoutSync {
         blackout: Rc::clone(&blackout),
         win: win.clone(),
+        #[cfg(target_os = "macos")]
         player: Rc::clone(player),
         recent: recent.clone(),
         btn: btn.clone(),

@@ -50,6 +50,7 @@ fn refresh_for_hold() {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn tech_hold_active() -> bool {
     TECH_HOLD.with(|d| d.get() > 0)
 }
@@ -58,6 +59,7 @@ fn tech_hold_active() -> bool {
 pub struct BlackoutSync {
     blackout: Rc<RefCell<ScreenBlackout>>,
     win: adw::ApplicationWindow,
+    #[cfg(target_os = "macos")]
     player: Rc<RefCell<Option<MpvBundle>>>,
     recent: gtk::Box,
     btn: gtk::Button,
