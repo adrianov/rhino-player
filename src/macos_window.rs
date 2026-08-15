@@ -13,7 +13,7 @@ use glib::object::IsA;
 use gtk::prelude::{GtkWindowExt, NativeExt, WidgetExt};
 use objc2::msg_send;
 use objc2::rc::Retained;
-use objc2_app_kit::{NSCursor, NSView, NSWindow, NSWindowButton, NSWindowStyleMask};
+use objc2_app_kit::{NSView, NSWindow, NSWindowButton, NSWindowStyleMask};
 use std::cell::{Cell, RefCell};
 
 /// Resolve the underlying [`NSWindow`] for a realized GTK widget on macOS.

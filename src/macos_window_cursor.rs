@@ -2,7 +2,11 @@
 ///
 /// Still correct when the window is **not key** — GDK [`DeviceExt::surface_at_position`] often omits our
 /// surface in that case. Gtk uses a top-left origin; NSWindow base uses bottom-left, so **Y is flipped**.
+/// Returns [`None`] when another window is frontmost at the pointer (geometry inside our frame is not enough).
 pub fn mouse_point_for_gtk_pick(gtk_win: &adw::ApplicationWindow) -> Option<(f64, f64)> {
+    if !window_frontmost_at_pointer(gtk_win) {
+        return None;
+    }
     let nswin = nswindow_for_widget(gtk_win.upcast_ref::<gtk::Widget>())?;
     let p = nswin.mouseLocationOutsideOfEventStream();
     let gw = gtk_win.width() as f64;
@@ -18,31 +22,95 @@ pub fn mouse_point_for_gtk_pick(gtk_win: &adw::ApplicationWindow) -> Option<(f64
     Some((gtk_x, gtk_y))
 }
 
-thread_local! {
-    /// Tracks whether we have called [`NSCursor::hide`] so calls stay balanced with
-    /// [`NSCursor::unhide`]. `NSCursor` maintains a **global** hide count — unbalanced
-    /// calls leave every other app's cursor invisible.
-    static CURSOR_HIDDEN: Cell<bool> = const { Cell::new(false) };
+pub(crate) fn window_frontmost_at_pointer(gtk_win: &adw::ApplicationWindow) -> bool {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSEvent;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return false;
+    };
+    let Some(nswin) = nswindow_for_widget(gtk_win.upcast_ref::<gtk::Widget>()) else {
+        return false;
+    };
+    let loc = NSEvent::mouseLocation();
+    let front = NSWindow::windowNumberAtPoint_belowWindowWithWindowNumber(loc, 0, mtm);
+    front == nswin.windowNumber()
 }
 
-/// Hide / show the **system** cursor via [`NSCursor::hide`] / [`NSCursor::unhide`].
+thread_local! {
+    /// Paired hide/show so the per-display CoreGraphics hide count stays balanced.
+    /// [`NSCursor::hide`] is ignored when this app is inactive.
+    static CURSOR_HIDDEN: Cell<bool> = const { Cell::new(false) };
+    /// Display id passed to [`CGDisplayHideCursor`]; show must use the same id.
+    static HIDDEN_DISPLAY: Cell<Option<u32>> = const { Cell::new(None) };
+}
+
+#[repr(C)]
+struct CgPoint {
+    x: f64,
+    y: f64,
+}
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGMainDisplayID() -> u32;
+    fn CGDisplayHideCursor(display: u32) -> i32;
+    fn CGDisplayShowCursor(display: u32) -> i32;
+    fn CGGetDisplaysWithPoint(
+        point: CgPoint,
+        max_displays: u32,
+        displays: *mut u32,
+        matching_display_count: *mut u32,
+    ) -> i32;
+}
+
+fn display_at_pointer() -> u32 {
+    use objc2_app_kit::NSEvent;
+
+    let loc = NSEvent::mouseLocation();
+    let mut id = 0u32;
+    let mut n = 0u32;
+    let err = unsafe {
+        CGGetDisplaysWithPoint(CgPoint { x: loc.x, y: loc.y }, 1, &mut id, &mut n)
+    };
+    if err == 0 && n > 0 {
+        return id;
+    }
+    eprintln!("[rhino] cursor: no display at pointer err={err} n={n}, using main");
+    unsafe { CGMainDisplayID() }
+}
+
+/// Hide / show the **system** cursor via CoreGraphics display cursor hide.
 ///
-/// Use this on macOS when GTK cursor rects are not honored — e.g. the window is **not** the key
-/// window ([`gtk::Widget::set_cursor_from_name`] goes through AppKit paths that may only apply to
-/// the key window), or when a **transparent** [`gtk::GLArea`] sits over a native video layer so the
-/// pointer is still composited as the arrow. `NSCursor` hide/unhide work regardless, at the cost
-/// of being process-wide — the matching `unhide` call **must** run before the pointer leaves our
-/// window (otherwise other windows inherit the hidden cursor).
+/// GTK `"none"` and [`NSCursor::hide`] are ignored when the window is not key or the app is
+/// inactive, and a transparent [`gtk::GLArea`] over the native video layer often keeps the arrow
+/// visible even while focused. Hide targets the display under the pointer; show uses that same
+/// display id (the hide count is per-display).
 pub fn set_system_cursor_hidden(hidden: bool) {
     CURSOR_HIDDEN.with(|flag| {
         if flag.get() == hidden {
             return;
         }
-        flag.set(hidden);
-        if hidden {
-            NSCursor::hide();
+        let display = if hidden {
+            display_at_pointer()
         } else {
-            NSCursor::unhide();
+            HIDDEN_DISPLAY.get().unwrap_or_else(display_at_pointer)
+        };
+        let err = unsafe {
+            if hidden {
+                CGDisplayHideCursor(display)
+            } else {
+                CGDisplayShowCursor(display)
+            }
+        };
+        if err != 0 {
+            eprintln!(
+                "[rhino] cursor: CoreGraphics {} display={display} failed err={err}",
+                if hidden { "hide" } else { "show" }
+            );
+            return;
         }
+        flag.set(hidden);
+        HIDDEN_DISPLAY.set(hidden.then_some(display));
     });
 }

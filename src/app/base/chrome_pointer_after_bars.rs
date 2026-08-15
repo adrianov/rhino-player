@@ -7,9 +7,9 @@ fn show_chrome_pointer(win: &adw::ApplicationWindow, gl: &gtk::GLArea) {
 
 /// Hide the pointer after idle motion on the video [`GLArea`] (theater-style).
 ///
-/// **Windows:** GTK cursor name `"none"` is enough. **macOS:** the native video layer often sits
-/// under a transparent [`GLArea`], so AppKit may ignore GTK cursor rects; use
-/// [`crate::macos_window::set_system_cursor_hidden`] the same way as after chrome auto-hide.
+/// **Linux:** GTK cursor name `"none"` is enough. **macOS:** the native video layer often sits
+/// under a transparent [`GLArea`], and AppKit ignores GTK cursor rects / [`NSCursor::hide`] when
+/// the app is inactive; use [`crate::macos_window::set_system_cursor_hidden`] (CoreGraphics).
 ///
 /// Returns whether the cursor was hidden (false when there is no real media to treat as theater).
 fn apply_theater_cursor_hide(
@@ -37,6 +37,20 @@ fn pointer_in_window_client(win: &adw::ApplicationWindow, x: f64, y: f64) -> boo
         && y >= 0.0
         && x <= w
         && y <= h
+}
+
+fn pointer_over_video_gl(win: &adw::ApplicationWindow, gl: &gtk::GLArea) -> bool {
+    use glib::prelude::Cast;
+
+    let Some((x, y)) = pointer_pick_xy_for_win(win) else {
+        return false;
+    };
+    if !pointer_in_window_client(win, x, y) {
+        return false;
+    }
+    let gl_w: gtk::Widget = gl.clone().upcast();
+    win.pick(x, y, gtk::PickFlags::DEFAULT)
+        .is_some_and(|p| p == gl_w)
 }
 
 /// True when mpv has real media (not the idle / welcome state). Used before theater cursor hide.
@@ -78,6 +92,9 @@ fn pointer_pick_xy_for_win(win: &adw::ApplicationWindow) -> Option<(f64, f64)> {
 
     #[cfg(target_os = "macos")]
     {
+        if !crate::macos_window::window_frontmost_at_pointer(win) {
+            return None;
+        }
         if let Some(xy) = gdk_xy {
             return Some(xy);
         }
@@ -87,39 +104,21 @@ fn pointer_pick_xy_for_win(win: &adw::ApplicationWindow) -> Option<(f64, f64)> {
     gdk_xy
 }
 
-/// After chrome hides: hide pointer only with **real** media, pointer **strictly inside** the window,
-/// and [`gtk::Widget::pick`] over the [`GLArea`]. macOS uses [`NSCursor::hide`] only in that case;
-/// otherwise we ensure any prior system hide is cleared.
+/// After chrome hides: hide pointer only with **real** media and [`gtk::Widget::pick`] over the
+/// [`GLArea`]. Otherwise clear any prior macOS system hide — do not flash it if we are about to hide.
 fn hide_cursor_after_bars_hide(
     win: &adw::ApplicationWindow,
     gl: &gtk::GLArea,
     recent: &gtk::Box,
     player: &Rc<RefCell<Option<MpvBundle>>>,
 ) {
-    use glib::prelude::Cast;
-
-    #[cfg(target_os = "macos")]
-    crate::macos_window::set_system_cursor_hidden(false);
-
-    if recent.is_visible() || !chrome_should_hide_cursor_for_media(player) {
+    if recent.is_visible()
+        || !chrome_should_hide_cursor_for_media(player)
+        || !pointer_over_video_gl(win, gl)
+    {
+        #[cfg(target_os = "macos")]
+        crate::macos_window::set_system_cursor_hidden(false);
         return;
     }
-
-    let Some((pick_x, pick_y)) = pointer_pick_xy_for_win(win) else {
-        return;
-    };
-
-    if !pointer_in_window_client(win, pick_x, pick_y) {
-        return;
-    }
-
-    let gl_w: gtk::Widget = gl.clone().upcast();
-    let over_gl = win
-        .pick(pick_x, pick_y, gtk::PickFlags::DEFAULT)
-        .is_some_and(|p| p == gl_w);
-    if !over_gl {
-        return;
-    }
-
     apply_theater_cursor_hide(win, gl, player);
 }
