@@ -35,7 +35,7 @@ mpris-server = "0.10"
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
 objc2 = { version = "0.6.4", features = ["std"] }
-objc2-app-kit = { version = "0.3.2", features = [
+            objc2-app-kit = { version = "0.3.2", features = [
     "NSApplication",
     "NSEvent",
     "NSScreen",
@@ -44,6 +44,7 @@ objc2-app-kit = { version = "0.3.2", features = [
     "NSResponder",
     "NSColor",
     "NSCursor",
+    "NSImage",
     "NSDragging",
     "NSPasteboard",
     "NSOpenPanel",

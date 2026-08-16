@@ -42,10 +42,10 @@ unsafe extern "C" fn blackout_appkit_dispatch(raw: *mut std::ffi::c_void) {
         AppkitOp::Clear(windows) => order_out_all(windows),
         AppkitOp::Rebuild { old, video, dest } => {
             order_out_all(old);
+            let leftover = std::mem::take(&mut dest.borrow_mut().windows);
+            order_out_all(leftover);
             let built = build_cover_windows(&video);
             let mut g = dest.borrow_mut();
-            // Drop any windows a prior in-flight rebuild already stored.
-            order_out_all(std::mem::take(&mut g.windows));
             g.cover_pending = false;
             if g.video_screen_ptr.is_none() {
                 // A later clear won — discard this rebuild.
@@ -91,8 +91,8 @@ fn build_cover_windows(
         };
         black.setBackgroundColor(Some(&NSColor::blackColor()));
         black.setLevel(level);
-        black.setIgnoresMouseEvents(true);
         black.orderFrontRegardless();
+        crate::macos_window::attach_blank_cursor_content(&black);
         slots.push(black);
     }
     slots

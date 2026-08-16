@@ -37,85 +37,112 @@ pub(crate) fn window_frontmost_at_pointer(gtk_win: &adw::ApplicationWindow) -> b
     front == nswin.windowNumber()
 }
 
+fn pointer_in_window_frame(gtk_win: &adw::ApplicationWindow) -> bool {
+    use objc2_app_kit::NSEvent;
+
+    let Some(nswin) = nswindow_for_widget(gtk_win.upcast_ref::<gtk::Widget>()) else {
+        return false;
+    };
+    let loc = NSEvent::mouseLocation();
+    let f = nswin.frame();
+    loc.x >= f.origin.x
+        && loc.y >= f.origin.y
+        && loc.x <= f.origin.x + f.size.width
+        && loc.y <= f.origin.y + f.size.height
+}
+
 thread_local! {
-    /// Paired hide/show so the per-display CoreGraphics hide count stays balanced.
-    static CURSOR_HIDDEN: Cell<bool> = const { Cell::new(false) };
-    /// Display id passed to [`CGDisplayHideCursor`]; show must use the same id.
-    static HIDDEN_DISPLAY: Cell<Option<u32>> = const { Cell::new(None) };
+    static THEATER_HIDDEN: Cell<bool> = const { Cell::new(false) };
 }
 
-#[repr(C)]
-struct CgPoint {
-    x: f64,
-    y: f64,
-}
-
+// Display id is ignored by CoreGraphics; hide/show is process-wide and must stay paired.
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGDisplayHideCursor(display: u32) -> i32;
     fn CGDisplayShowCursor(display: u32) -> i32;
-    fn CGGetDisplaysWithPoint(
-        point: CgPoint,
-        max_displays: u32,
-        displays: *mut u32,
-        matching_display_count: *mut u32,
-    ) -> i32;
 }
 
-fn display_at_pointer() -> Option<u32> {
-    use objc2_app_kit::NSEvent;
-    let loc = NSEvent::mouseLocation();
-    let mut id = 0u32;
-    let mut n = 0u32;
-    let err = unsafe {
-        CGGetDisplaysWithPoint(CgPoint { x: loc.x, y: loc.y }, 1, &mut id, &mut n)
-    };
-    (err == 0 && n > 0).then_some(id)
-}
-
-fn apply_cg_cursor(hidden: bool, display: u32) -> bool {
-    if CURSOR_HIDDEN.get() == hidden {
-        return hidden;
-    }
+fn cg_set(hidden: bool) {
     let err = unsafe {
         if hidden {
-            CGDisplayHideCursor(display)
+            CGDisplayHideCursor(0)
         } else {
-            CGDisplayShowCursor(display)
+            CGDisplayShowCursor(0)
         }
     };
     if err != 0 {
         eprintln!(
-            "[rhino] cursor: CoreGraphics {} display={display} failed err={err}",
+            "[rhino] cursor: CoreGraphics {} failed err={err}",
             if hidden { "hide" } else { "show" }
         );
-        return CURSOR_HIDDEN.get();
     }
-    CURSOR_HIDDEN.set(hidden);
-    HIDDEN_DISPLAY.set(hidden.then_some(display));
-    hidden
 }
 
-/// Hide the system cursor on the display where `win` is under the pointer.
-///
-/// No-op (and shows if we had hidden) when the pointer is on another screen. Returns whether
-/// the cursor is hidden.
+/// Hide while the pointer is inside the viewer. Does not show on skip (leave paths show).
 pub fn hide_system_cursor(win: &adw::ApplicationWindow) -> bool {
-    if !window_frontmost_at_pointer(win) {
-        show_system_cursor();
+    if !pointer_in_window_frame(win) {
         return false;
     }
-    let Some(display) = display_at_pointer() else {
-        show_system_cursor();
-        return false;
-    };
-    apply_cg_cursor(true, display)
+    if !THEATER_HIDDEN.get() {
+        cg_set(true);
+        THEATER_HIDDEN.set(true);
+    }
+    true
 }
 
-/// Show the system cursor on the display that was hidden (if any).
 pub fn show_system_cursor() {
-    let Some(display) = HIDDEN_DISPLAY.get() else {
+    if THEATER_HIDDEN.replace(false) {
+        cg_set(false);
+    }
+}
+
+struct CoverIvars;
+
+use objc2::{define_class, AllocAnyThread, MainThreadOnly};
+use objc2_app_kit::{NSAutoresizingMaskOptions, NSCursor, NSImage};
+use objc2_foundation::{NSObjectProtocol, NSRect, NSSize};
+
+define_class!(
+    #[unsafe(super(NSView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "RhinoBlackoutView"]
+    #[ivars = CoverIvars]
+    struct RhinoBlackoutView;
+
+    unsafe impl NSObjectProtocol for RhinoBlackoutView {}
+
+    impl RhinoBlackoutView {
+        #[unsafe(method(resetCursorRects))]
+        fn reset_cursor_rects(&self) {
+            self.addCursorRect_cursor(self.bounds(), &blank_ns_cursor());
+        }
+    }
+);
+
+fn blank_ns_cursor() -> Retained<NSCursor> {
+    let img = NSImage::initWithSize(NSImage::alloc(), NSSize::new(1.0, 1.0));
+    NSCursor::initWithImage_hotSpot(NSCursor::alloc(), &img, NSPoint { x: 0.0, y: 0.0 })
+}
+
+/// Cover windows ignore-mouse would show the desktop pointer; this view owns a blank cursor instead.
+pub fn attach_blank_cursor_content(win: &NSWindow) {
+    use objc2::MainThreadMarker;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        eprintln!("[rhino] cursor: blank cover view needs the main thread");
         return;
     };
-    let _ = apply_cg_cursor(false, display);
+    let this = RhinoBlackoutView::alloc(mtm).set_ivars(CoverIvars);
+    let view: Retained<RhinoBlackoutView> = unsafe {
+        msg_send![super(this), initWithFrame: NSRect {
+            origin: NSPoint { x: 0.0, y: 0.0 },
+            size: win.frame().size,
+        }]
+    };
+    view.setAutoresizingMask(
+        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+    );
+    let view = view.into_super();
+    win.setContentView(Some(&view));
+    win.invalidateCursorRectsForView(&view);
 }

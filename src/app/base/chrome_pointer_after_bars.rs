@@ -10,7 +10,7 @@ fn show_chrome_pointer(win: &adw::ApplicationWindow, gl: &gtk::GLArea) {
 /// **Linux:** GTK cursor name `"none"` is enough. **macOS:** the native video layer often sits
 /// under a transparent [`GLArea`], and AppKit ignores GTK cursor rects / [`NSCursor::hide`] when
 /// the app is inactive; [`crate::macos_window::hide_system_cursor`] hides via CoreGraphics only
-/// when the pointer is on the viewer's display.
+/// when the pointer is inside the viewer window.
 ///
 /// Returns whether the cursor was hidden (false when there is no real media to treat as theater).
 fn apply_theater_cursor_hide(
@@ -21,13 +21,11 @@ fn apply_theater_cursor_hide(
     if !chrome_should_hide_cursor_for_media(player) {
         return false;
     }
-    #[cfg(target_os = "macos")]
-    if !crate::macos_window::hide_system_cursor(win) {
-        return false;
-    }
     gl.add_css_class("rp-cursor-hidden");
     win.set_cursor_from_name(Some("none"));
     gl.set_cursor_from_name(Some("none"));
+    #[cfg(target_os = "macos")]
+    let _ = crate::macos_window::hide_system_cursor(win);
     true
 }
 
@@ -95,9 +93,6 @@ fn pointer_pick_xy_for_win(win: &adw::ApplicationWindow) -> Option<(f64, f64)> {
 
     #[cfg(target_os = "macos")]
     {
-        if !crate::macos_window::window_frontmost_at_pointer(win) {
-            return None;
-        }
         if let Some(xy) = gdk_xy {
             return Some(xy);
         }
@@ -107,18 +102,14 @@ fn pointer_pick_xy_for_win(win: &adw::ApplicationWindow) -> Option<(f64, f64)> {
     gdk_xy
 }
 
-/// After chrome hides: hide pointer only with **real** media and [`gtk::Widget::pick`] over the
-/// [`GLArea`]. Otherwise clear any prior macOS system hide — do not flash it if we are about to hide.
+/// After chrome hides: hide pointer with **real** media. Skip (and show) only when browsing or idle.
 fn hide_cursor_after_bars_hide(
     win: &adw::ApplicationWindow,
     gl: &gtk::GLArea,
     recent: &gtk::Box,
     player: &Rc<RefCell<Option<MpvBundle>>>,
 ) {
-    if recent.is_visible()
-        || !chrome_should_hide_cursor_for_media(player)
-        || !pointer_over_video_gl(win, gl)
-    {
+    if recent.is_visible() || !chrome_should_hide_cursor_for_media(player) {
         #[cfg(target_os = "macos")]
         crate::macos_window::show_system_cursor();
         return;
