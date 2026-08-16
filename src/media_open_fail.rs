@@ -9,8 +9,7 @@ const HOLLOW_PREFIX_BYTES: usize = 64 * 1024;
 /// User-visible lines shown in the open-failure notice toast.
 pub mod msg {
     /// Zero-byte or all-zero preallocated download with no container bytes.
-    pub const EMPTY_OR_INCOMPLETE: &str =
-        "Nothing to play — this file looks empty or incomplete.";
+    pub const EMPTY_OR_INCOMPLETE: &str = "Nothing to play — this file looks empty or incomplete.";
     /// Demuxer rejected the file (corrupt, truncated, wrong type, etc.).
     pub const UNREADABLE_MEDIA: &str =
         "Can't play this file — Rhino couldn't read any media from it.";
@@ -29,7 +28,7 @@ pub fn preflight_user_message(path: &Path) -> Option<&'static str> {
         return Some(msg::MISSING);
     }
     if path.is_dir() {
-        return None;
+        return Some(msg::UNREADABLE_MEDIA);
     }
     let meta = std::fs::metadata(path).ok()?;
     if !meta.is_file() {
@@ -113,11 +112,8 @@ mod tests {
     use std::io::Write;
 
     fn scratch(name: &str) -> std::path::PathBuf {
-        let base = std::env::temp_dir().join(format!(
-            "rhino-open-fail-{}-{}",
-            name,
-            std::process::id()
-        ));
+        let base =
+            std::env::temp_dir().join(format!("rhino-open-fail-{}-{}", name, std::process::id()));
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(&base).expect("mkdir");
         base
@@ -165,6 +161,8 @@ mod tests {
         assert!(should_drop_from_continue(msg::UNREADABLE_MEDIA));
         assert!(should_drop_from_continue(msg::MISSING));
         assert!(!should_drop_from_continue(msg::GENERIC));
-        assert!(!should_drop_from_continue("Player busy (transport or load in progress)."));
+        assert!(!should_drop_from_continue(
+            "Player busy (transport or load in progress)."
+        ));
     }
 }
