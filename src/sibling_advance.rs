@@ -7,26 +7,10 @@
 //! [ICU]: https://github.com/unicode-org/icu4x
 
 use crate::video_ext;
+use crate::video_ext::list_videos_in_dir;
 use lexical_sort::{natural_lexical_cmp, PathSort};
 use std::fs;
 use std::path::{Path, PathBuf};
-
-/// Sorted video **files** directly under `dir` (no canonicalize — works on exFAT / network volumes).
-fn list_videos_in_dir(dir: &Path) -> Option<Vec<PathBuf>> {
-    let mut v: Vec<PathBuf> = fs::read_dir(dir)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| video_ext::is_video_path(p))
-        .collect();
-    v.sort_by(|a, b| {
-        natural_lexical_cmp(
-            a.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-            b.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-        )
-    });
-    Some(v)
-}
 
 fn index_in_list(list: &[PathBuf], current: &Path) -> Option<usize> {
     list.iter()

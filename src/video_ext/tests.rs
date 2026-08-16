@@ -109,10 +109,7 @@ fn dvd_resolve_opens_main_title_first_chapter() {
     fs::write(vts.join("VTS_01_2.VOB"), vec![0u8; 2048]).expect("write");
     fs::write(vts.join("VTS_02_1.VOB"), vec![0u8; 50_000]).expect("write");
     fs::write(vts.join("VTS_02_2.VOB"), vec![0u8; 50_000]).expect("write");
-    assert_eq!(
-        resolve_open_media_path(&disc),
-        vts.join("VTS_02_1.VOB")
-    );
+    assert_eq!(resolve_open_media_path(&disc), vts.join("VTS_02_1.VOB"));
     assert_eq!(
         dvd_first_playable_vob(&disc).as_deref(),
         Some(vts.join("VTS_02_1.VOB").as_path())
@@ -154,6 +151,24 @@ fn dvd_vob_path_and_broadcast_fps() {
     assert_eq!(dvd_vob_broadcast_fps(Some((720, 576))), Some(25.0));
     assert!((dvd_vob_broadcast_fps(Some((720, 480))).unwrap() - 30000.0 / 1001.0).abs() < 1e-6);
     assert!(dvd_vob_broadcast_fps(Some((1280, 720))).is_none());
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
+fn ordinary_folder_opens_first_video_without_resume() {
+    let base = std::env::temp_dir().join(format!("rhino-folder-open-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    fs::create_dir_all(&base).expect("mkdir");
+    fs::write(base.join("ep2.mkv"), b"x").expect("write");
+    fs::write(base.join("ep10.mkv"), b"x").expect("write");
+    fs::write(base.join("ep1.mkv"), b"x").expect("write");
+    assert!(is_openable_media_path(&base));
+    assert_eq!(
+        resolve_open_media_path(&base)
+            .file_name()
+            .and_then(|n| n.to_str()),
+        Some("ep1.mkv")
+    );
     let _ = fs::remove_dir_all(&base);
 }
 

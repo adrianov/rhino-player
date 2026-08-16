@@ -4,8 +4,12 @@
 use std::path::{Path, PathBuf};
 
 mod dvd_pick;
+mod folder_scan;
 mod optical_disc;
 mod video_ts;
+
+pub(crate) use folder_scan::list_videos_in_dir;
+use folder_scan::{dir_has_videos, folder_open_entry};
 
 pub use optical_disc::{
     bluray_disc_root, dvd_disc_root, dvd_first_playable_vob, dvd_main_chapter_vob,
@@ -45,7 +49,7 @@ pub fn is_video_path(p: &Path) -> bool {
 
 /// Local path acceptable for **Open**, CLI boot, and external `open` handlers.
 pub fn is_openable_media_path(path: &Path) -> bool {
-    is_video_path(path) || is_optical_disc_path(path)
+    is_video_path(path) || is_optical_disc_path(path) || dir_has_videos(path)
 }
 
 /// Same local media path (canonical when possible; case-insensitive fallback for exFAT / `Video_ts`).
@@ -75,12 +79,17 @@ fn path_components_eq_ignore_ascii(a: &Path, b: &Path) -> bool {
 }
 
 /// Normalize paths before load: Blu-ray → disc root; DVD **folder** → first chapter `.vob`;
+/// an ordinary directory → last in-progress file (natural sort) or the first video;
 /// an existing `.vob` file is kept (sibling advance must not rewind to `VTS_01_1`).
 pub fn resolve_open_media_path(path: &Path) -> PathBuf {
     match OpticalDisc::detect(path) {
         Some(disc @ OpticalDisc::BluRay { .. }) => disc.root().to_path_buf(),
         Some(dvd @ OpticalDisc::Dvd { .. }) if !video_ts::is_vob_file(path) => dvd.open_target(),
         Some(OpticalDisc::Dvd { .. }) => path.to_path_buf(),
+        None if path.is_dir() => folder_open_entry(path).unwrap_or_else(|| {
+            eprintln!("[rhino] open: no playable files in {}", path.display());
+            path.to_path_buf()
+        }),
         None => path.to_path_buf(),
     }
 }
