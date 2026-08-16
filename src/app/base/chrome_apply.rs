@@ -21,6 +21,8 @@ fn apply_chrome<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>) {
     c.root.set_extend_content_to_top_edge(true);
     c.root.set_extend_content_to_bottom_edge(true);
     let show = c.recent.is_visible() || c.bar_show.get();
+    #[cfg(target_os = "macos")]
+    let show = show && !crate::macos_fs_exit::exit_armed();
     let reveal_changed = set_toolbar_reveal(c.root, show);
     sync_header_window_controls(c.header, c.hdr_csd_baseline, show, c.root);
     log_chrome_layout(&c, show);

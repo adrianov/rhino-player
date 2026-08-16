@@ -3,8 +3,9 @@
 //! Resolves the underlying NSWindow via `gdk4_macos::MacosSurface::native()` (GTK 4.8+)
 //! and exposes helpers used by the GTK shell: hide / show traffic lights and layer invalidation.
 //!
-//! Fullscreen **exit** (`chrome_macos_unfullscreen_defer`): arm guard, settle, libdispatch
-//! hop, then [`toggleFullScreen:`] — not [`GtkWindowExt::set_fullscreened`](false). Toolbar
+//! Fullscreen **exit** (`chrome_macos_unfullscreen_defer`): arm guard, hide bars, settle,
+//! libdispatch hop, flatten titlebar ([`prep_native_fullscreen_exit`]), then
+//! [`toggleFullScreen:`] — not [`GtkWindowExt::set_fullscreened`](false). Toolbar
 //! reveal waits for `fullscreened_notify` (never while the native fullscreen mask is set).
 
 use gdk4_macos::prelude::Cast;

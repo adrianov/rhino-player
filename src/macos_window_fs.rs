@@ -54,6 +54,47 @@ pub(crate) fn native_toggle_fullscreen_enter(win: &adw::ApplicationWindow) -> bo
     true
 }
 
+/// Flatten AppKit titlebar state before native fullscreen **exit**.
+///
+/// `_NSExitFullScreenTransitionController prepareToExitFullScreenMode` calls
+/// `setCustomTitlebarHeight:`. With CSD chrome / traffic-light zoom-cell tracking still
+/// live, that recurses `_updateTitlebarContainerViewFrameIfNecessary` ↔
+/// `_syncToolbarPosition` until stack overflow (macOS 26.x). Hide lights, drop the
+/// CSD `NSToolbar`, and zero titlebar height **before** `toggleFullScreen:`.
+pub(crate) fn prep_native_fullscreen_exit(nswin: &NSWindow) {
+    use objc2::runtime::AnyObject;
+    use objc2::runtime::NSObjectProtocol;
+
+    for kind in [
+        NSWindowButton::CloseButton,
+        NSWindowButton::MiniaturizeButton,
+        NSWindowButton::ZoomButton,
+    ] {
+        if let Some(btn) = nswin.standardWindowButton(kind) {
+            btn.setHidden(true);
+        }
+    }
+    unsafe {
+        let none: Option<&AnyObject> = None;
+        let _: () = msg_send![nswin, setToolbar: none];
+    }
+    if nswin.respondsToSelector(objc2::sel!(setTitlebarHeight:)) {
+        unsafe {
+            let _: () = msg_send![nswin, setTitlebarHeight: 0.0f64];
+        }
+    }
+    if let Some(cv) = nswin.contentView() {
+        if let Some(frame) = unsafe { cv.superview() } {
+            if frame.respondsToSelector(objc2::sel!(setCustomTitlebarHeight:)) {
+                unsafe {
+                    let _: () = msg_send![&*frame, setCustomTitlebarHeight: 0.0f64];
+                }
+            }
+        }
+    }
+    crate::macos_fs_debug::log("prep native fullscreen exit (titlebar flattened)");
+}
+
 /// Hide or show the macOS traffic-light buttons on the NSWindow that hosts `widget`.
 ///
 /// Uses [`NSWindow::standardWindowButton`] + `setHidden:`. We deliberately do **not**
@@ -62,8 +103,8 @@ pub(crate) fn native_toggle_fullscreen_enter(win: &adw::ApplicationWindow) -> bo
 /// fight breaks the very state we are trying to manage. Driving `setHidden:` directly is
 /// reversible and survives GTK layout passes.
 pub fn set_traffic_lights_visible<W: IsA<gtk::Widget>>(widget: &W, visible: bool) {
-    if crate::macos_fs_exit::exit_armed() && !visible {
-        crate::macos_fs_debug::log("skip traffic lights hide (exit armed)");
+    if crate::macos_fs_exit::exit_armed() {
+        crate::macos_fs_debug::log("skip traffic lights (exit armed)");
         return;
     }
     let Some(win) = nswindow_for_widget(widget) else {

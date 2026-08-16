@@ -1,9 +1,6 @@
-// macOS programmatic fullscreen exit: arm guard, settle, hop to libdispatch, then toggleFullScreen:.
-// Do not reveal ToolbarView bars while the native fullscreen mask is set (titlebar layout recursion).
+// macOS programmatic fullscreen exit: arm guard, hide bars, flatten titlebar, hop to libdispatch,
+// then toggleFullScreen:. Do not reveal ToolbarView bars while armed (titlebar layout recursion).
 // Not set_fullscreened(false). Coalesced via macos_fs_exit; clear_exit when windowed (leave restore).
-//
-// toggleFullScreen: must not run inside a GLib idle/timeout trampoline — that nests GDK layout into
-// _NSExitFullScreenTransitionController and can stack-overflow on macOS 26.x.
 
 #[cfg(target_os = "macos")]
 use glib::prelude::ObjectType;
@@ -137,10 +134,26 @@ unsafe extern "C" fn macos_exit_toggle_dispatch(raw: *mut c_void) {
         crate::macos_fs_exit::clear_exit();
         return;
     };
+    crate::macos_window::prep_native_fullscreen_exit(&nswin);
     crate::macos_fs_debug::log("toggleFullScreen (dispatch)");
     unsafe {
         let _: () = objc2::msg_send![&*nswin, toggleFullScreen: &*nswin];
     }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_hide_bars_for_exit(win: &adw::ApplicationWindow) {
+    use gtk::prelude::Cast;
+
+    let Some(ovl) = win.content().and_then(|c| c.downcast::<gtk::Overlay>().ok()) else {
+        eprintln!("[rhino] macos-fs: exit hide bars: no overlay content");
+        return;
+    };
+    let Some(root) = ovl.child().and_then(|c| c.downcast::<adw::ToolbarView>().ok()) else {
+        eprintln!("[rhino] macos-fs: exit hide bars: no ToolbarView");
+        return;
+    };
+    let _ = set_toolbar_reveal(&root, false);
 }
 
 #[cfg(target_os = "macos")]
@@ -155,6 +168,10 @@ pub(super) fn macos_schedule_unfullscreen(win: adw::ApplicationWindow) {
         return;
     };
     macos_traffic_cancel_poll();
+    macos_hide_bars_for_exit(&win);
+    if let Some(nswin) = crate::macos_window::nswindow_for_widget(&win) {
+        crate::macos_window::prep_native_fullscreen_exit(&nswin);
+    }
     crate::macos_fs_debug::log_win_state("schedule_unfullscreen", &win);
     let win2 = win.clone();
     // Settle past the click/gesture layout burst before hopping to libdispatch.
