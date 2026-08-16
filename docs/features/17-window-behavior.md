@@ -17,7 +17,7 @@ mpv_props: [pause, path, dwidth, dheight, fullscreen]
 - On a multi-display setup, dim every display except the one showing the viewer.
 
 ## Description
-The shell uses `adw::ToolbarView` with content extending to top and bottom edges, so chrome overlays the GLArea instead of shrinking it. A `GtkWindowHandle` wraps the main content for primary-drag window move (more reliable than manual GestureDrag on GL/Wayland). Fullscreen and maximize are wired to GTK / Wayland conventions; `gtk::Application::inhibit` with IDLE+SUSPEND prevents dim and sleep while a real file plays and the recent grid is hidden. The pointer hides on the video after 3 seconds without movement, even when the viewer is in the background and the pointer remains on the video. On opening a new file, the window is presented so it can take focus when another app was foreground; the window resizes to match landscape aspect (target width 960 px, max height 900 px); portrait, square, or unknown sizes leave the window alone. While fullscreen, the header can show **local time** beside the playback menus so the system clock stays glanceable when chrome is visible. When at least two displays are connected, the header may offer a toggle that blacks out every display except the one hosting the viewer; the choice persists across sessions.
+The shell uses `adw::ToolbarView` with content extending to top and bottom edges, so chrome overlays the GLArea instead of shrinking it. A `GtkWindowHandle` wraps the main content for primary-drag window move (more reliable than manual GestureDrag on GL/Wayland). Fullscreen and maximize are wired to GTK / Wayland conventions; `gtk::Application::inhibit` with IDLE+SUSPEND prevents dim and sleep while a real file plays and the recent grid is hidden. The pointer hides on the video after 3 seconds of stillness, even if the viewer is in the background, as long as the pointer stays on the video. On opening a new file, the window is presented so it can take focus when another app was foreground; the window resizes to match landscape aspect (target width 960 px, max height 900 px); portrait, square, or unknown sizes leave the window alone. While fullscreen, the header can show **local time** beside the playback menus so the system clock stays glanceable when chrome is visible. When at least two displays are connected, the header may offer a toggle that blacks out every display except the one hosting the viewer; the choice persists across sessions.
 
 After the user finishes a manual resize, the window may snap by a few pixels when its outer aspect is already close to the playing video’s display aspect. **One-click switching between header menu popovers** did not validate in manual testing in the current pass and remains not shipped.
 
@@ -120,20 +120,26 @@ Feature: Window, fullscreen, and presentation
   Scenario: Pointer hides on the video after 3s
     Given the pointer is on the video surface
     When 3 seconds pass without movement on that area
-    Then the pointer is hidden over the video
+    Then the pointer is hidden on the video
 
-  Scenario: Pointer hides on video while the window is inactive
+  Scenario: Pointer hides on an inactive viewer's video
     Given a media title is playing and the continue grid is hidden
     And the pointer is over the video surface
     And the viewer window is not the active window
-    When the pointer stays still
-    Then the pointer is hidden over the video
+    When the pointer does not move
+    Then the pointer is hidden on the video
 
-  Scenario: Pointer reappears after leaving an inactive viewer
+  Scenario: Pointer returns after leaving an inactive viewer
     Given the viewer window is not the active window
-    And the pointer is hidden over the video
+    And the pointer is hidden on the video
     When the pointer leaves the viewer window
-    Then the pointer is shown again
+    Then the pointer is visible again
+
+  Scenario: Pointer stays visible on another display
+    Given a media title is playing
+    And the pointer is on a different display from the viewer
+    When the pointer is idle
+    Then the pointer remains visible
 
   Scenario: Post-resize aspect snap when already close
     Given a media title is playing with a known display aspect
@@ -223,7 +229,7 @@ Feature: Window, fullscreen, and presentation
 - Fullscreen-only header clock: `GtkLabel` packed on `HeaderBar` before speed / sound / subtitle / main menu; reads **`org.gnome.desktop.interface`** (`clock-format` **12h** / **24h**, `clock-show-seconds`) when that schema exists so the string matches the desktop shell clock (no forced `%X` / seconds / AM–PM). Fallback **`%H:%M`** when settings are unavailable; visible updates use `glib::timeout_add_seconds_local(1, …)` while fullscreen because no toolkit signal fires per wall-clock second.
 - Inhibit implementation polls every ~500 ms to sync with pause / load / grid state; uninhibit always runs before quit.
 - Autohide default 2–3 s; open menus keep chrome visible. When bars become visible again, `apply_chrome` runs `transport_nudge_tick` so the seek thumb and elapsed time match live playback (thumb updates stay off while bars are hidden, which avoids flicker).
-- **Pointer hide while inactive:** GTK does not send motion events to a non-key window, and AppKit ignores [`NSCursor::hide`] and GTK cursor rects while another app is active. macOS theater hide uses CoreGraphics **`CGDisplayHideCursor`** / **`CGDisplayShowCursor`** (`macos_window_cursor.rs`, paired hide count) only while this window is frontmost at the pointer (`NSWindow::windowNumberAtPoint`). While inactive, pointer motion comes from an **`NSEvent` global mouse-moved monitor** (`motion_macos_unfocused.rs`), not a poll; resigning key with the pointer already on the video hides at once. Covering the viewer or switching Space posts **`NSWindowDidChangeOcclusionStateNotification`** so a stationary pointer is shown again if this window is no longer frontmost. The pointer must be shown again before it leaves the window (hide/show use the CoreGraphics display under the pointer, same id for the pair). Linux: the compositor already delivers pointer events to the surface under the cursor.
+- **Pointer hide while inactive:** GTK does not send motion events to a non-key window, and AppKit ignores [`NSCursor::hide`] and GTK cursor rects while another app is active. macOS theater hide uses CoreGraphics **`CGDisplayHideCursor`** / **`CGDisplayShowCursor`** (`macos_window_cursor.rs`, paired hide count) only while this window is frontmost at the pointer (`NSWindow::windowNumberAtPoint`). While inactive, pointer motion comes from an **`NSEvent` global mouse-moved monitor** (`motion_macos_unfocused.rs`), not a poll; resigning key with the pointer already on the video hides at once. Covering the viewer or switching Space posts **`NSWindowDidChangeOcclusionStateNotification`** so a stationary pointer is shown again if this window is no longer frontmost. Hide only on the display that currently has both the pointer and the viewer; other displays keep a visible pointer. Show uses that same display id. Linux: the compositor already delivers pointer events to the surface under the cursor.
 - Fit-on-open: `chrome_window_video_fit.rs` + `chrome_shell_layout.rs` — landscape fit + **`schedule_shell_layout_after_gtk_resize`**. macOS bottom chrome: **`macos_bottom_bar.rs`** — [`gtk::Box`] with `.rpb-header` plus **widget-level** CSS provider (display CSS alone is insufficient on gdk-macos); **`nudge_gdk_compositing_width`** after shell sync mimics manual edge-drag repaint; **`schedule_macos_shell_refresh_after_vf`** after VapourSynth `vf add`. **`RHINO_SHELL_DEBUG=1`**: watch **`bottom_h`**, **`shell=…x…`**, **`gdk width nudge`** lines.
 - ToolbarView extends to top and bottom edges so the GLArea fills the available area and chrome overlays the video. Client-side decorations: baseline for `shows-start-title-buttons` / `shows-end-title-buttons` is sampled after map (idle) while chrome first shows—not after a hide—or `apply_chrome` would capture `(false,false)` and restore would leave traffic lights off; invalid pairs are ignored in favor of a short `(true,true)` fallback until GTK reports a decorated side.
 - **Fit-on-open:** `chrome_window_video_fit.rs` — landscape **960×540-class** fit only when the window is still the default size or **smaller** than that target (grow-only). Otherwise keeps size; optional aspect nudge via `snap_size_after_user_resize`.
