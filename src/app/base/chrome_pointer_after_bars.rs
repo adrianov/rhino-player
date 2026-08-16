@@ -1,6 +1,6 @@
 fn show_chrome_pointer(win: &adw::ApplicationWindow, gl: &gtk::GLArea) {
     #[cfg(target_os = "macos")]
-    crate::macos_window::set_system_cursor_hidden(false);
+    crate::macos_window::show_system_cursor();
     win.set_cursor_from_name(None);
     show_pointer(gl);
 }
@@ -9,7 +9,8 @@ fn show_chrome_pointer(win: &adw::ApplicationWindow, gl: &gtk::GLArea) {
 ///
 /// **Linux:** GTK cursor name `"none"` is enough. **macOS:** the native video layer often sits
 /// under a transparent [`GLArea`], and AppKit ignores GTK cursor rects / [`NSCursor::hide`] when
-/// the app is inactive; use [`crate::macos_window::set_system_cursor_hidden`] (CoreGraphics).
+/// the app is inactive; [`crate::macos_window::hide_system_cursor`] hides via CoreGraphics only
+/// when the pointer is on the viewer's display.
 ///
 /// Returns whether the cursor was hidden (false when there is no real media to treat as theater).
 fn apply_theater_cursor_hide(
@@ -20,11 +21,13 @@ fn apply_theater_cursor_hide(
     if !chrome_should_hide_cursor_for_media(player) {
         return false;
     }
+    #[cfg(target_os = "macos")]
+    if !crate::macos_window::hide_system_cursor(win) {
+        return false;
+    }
     gl.add_css_class("rp-cursor-hidden");
     win.set_cursor_from_name(Some("none"));
     gl.set_cursor_from_name(Some("none"));
-    #[cfg(target_os = "macos")]
-    crate::macos_window::set_system_cursor_hidden(true);
     true
 }
 
@@ -117,7 +120,7 @@ fn hide_cursor_after_bars_hide(
         || !pointer_over_video_gl(win, gl)
     {
         #[cfg(target_os = "macos")]
-        crate::macos_window::set_system_cursor_hidden(false);
+        crate::macos_window::show_system_cursor();
         return;
     }
     apply_theater_cursor_hide(win, gl, player);

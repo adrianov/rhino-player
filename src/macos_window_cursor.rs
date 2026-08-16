@@ -39,7 +39,6 @@ pub(crate) fn window_frontmost_at_pointer(gtk_win: &adw::ApplicationWindow) -> b
 
 thread_local! {
     /// Paired hide/show so the per-display CoreGraphics hide count stays balanced.
-    /// [`NSCursor::hide`] is ignored when this app is inactive.
     static CURSOR_HIDDEN: Cell<bool> = const { Cell::new(false) };
     /// Display id passed to [`CGDisplayHideCursor`]; show must use the same id.
     static HIDDEN_DISPLAY: Cell<Option<u32>> = const { Cell::new(None) };
@@ -53,7 +52,6 @@ struct CgPoint {
 
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
-    fn CGMainDisplayID() -> u32;
     fn CGDisplayHideCursor(display: u32) -> i32;
     fn CGDisplayShowCursor(display: u32) -> i32;
     fn CGGetDisplaysWithPoint(
@@ -64,53 +62,60 @@ extern "C" {
     ) -> i32;
 }
 
-fn display_at_pointer() -> u32 {
+fn display_at_pointer() -> Option<u32> {
     use objc2_app_kit::NSEvent;
-
     let loc = NSEvent::mouseLocation();
     let mut id = 0u32;
     let mut n = 0u32;
     let err = unsafe {
         CGGetDisplaysWithPoint(CgPoint { x: loc.x, y: loc.y }, 1, &mut id, &mut n)
     };
-    if err == 0 && n > 0 {
-        return id;
-    }
-    eprintln!("[rhino] cursor: no display at pointer err={err} n={n}, using main");
-    unsafe { CGMainDisplayID() }
+    (err == 0 && n > 0).then_some(id)
 }
 
-/// Hide / show the **system** cursor via CoreGraphics display cursor hide.
-///
-/// GTK `"none"` and [`NSCursor::hide`] are ignored when the window is not key or the app is
-/// inactive, and a transparent [`gtk::GLArea`] over the native video layer often keeps the arrow
-/// visible even while focused. Hide targets the display under the pointer; show uses that same
-/// display id (the hide count is per-display).
-pub fn set_system_cursor_hidden(hidden: bool) {
-    CURSOR_HIDDEN.with(|flag| {
-        if flag.get() == hidden {
-            return;
-        }
-        let display = if hidden {
-            display_at_pointer()
+fn apply_cg_cursor(hidden: bool, display: u32) -> bool {
+    if CURSOR_HIDDEN.get() == hidden {
+        return hidden;
+    }
+    let err = unsafe {
+        if hidden {
+            CGDisplayHideCursor(display)
         } else {
-            HIDDEN_DISPLAY.get().unwrap_or_else(display_at_pointer)
-        };
-        let err = unsafe {
-            if hidden {
-                CGDisplayHideCursor(display)
-            } else {
-                CGDisplayShowCursor(display)
-            }
-        };
-        if err != 0 {
-            eprintln!(
-                "[rhino] cursor: CoreGraphics {} display={display} failed err={err}",
-                if hidden { "hide" } else { "show" }
-            );
-            return;
+            CGDisplayShowCursor(display)
         }
-        flag.set(hidden);
-        HIDDEN_DISPLAY.set(hidden.then_some(display));
-    });
+    };
+    if err != 0 {
+        eprintln!(
+            "[rhino] cursor: CoreGraphics {} display={display} failed err={err}",
+            if hidden { "hide" } else { "show" }
+        );
+        return CURSOR_HIDDEN.get();
+    }
+    CURSOR_HIDDEN.set(hidden);
+    HIDDEN_DISPLAY.set(hidden.then_some(display));
+    hidden
+}
+
+/// Hide the system cursor on the display where `win` is under the pointer.
+///
+/// No-op (and shows if we had hidden) when the pointer is on another screen. Returns whether
+/// the cursor is hidden.
+pub fn hide_system_cursor(win: &adw::ApplicationWindow) -> bool {
+    if !window_frontmost_at_pointer(win) {
+        show_system_cursor();
+        return false;
+    }
+    let Some(display) = display_at_pointer() else {
+        show_system_cursor();
+        return false;
+    };
+    apply_cg_cursor(true, display)
+}
+
+/// Show the system cursor on the display that was hidden (if any).
+pub fn show_system_cursor() {
+    let Some(display) = HIDDEN_DISPLAY.get() else {
+        return;
+    };
+    let _ = apply_cg_cursor(false, display);
 }

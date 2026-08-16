@@ -90,7 +90,7 @@ fn schedule_quit_persist(
     let _ = glib::idle_add_local(move || {
         idle_inhibit::clear(&a, &ic);
         #[cfg(target_os = "macos")]
-        crate::macos_window::set_system_cursor_hidden(false);
+        crate::macos_window::show_system_cursor();
         if let Some(b) = p.borrow().as_ref() {
             save_mpv_state(&b.mpv, &sp);
             b.commit_quit();
