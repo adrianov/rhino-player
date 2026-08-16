@@ -3,7 +3,7 @@
 ---
 status: wip
 priority: p1
-layers: [ui, os-integration, playback]
+layers: [ui, os-integration, playback, persistence]
 related: [07, 11, 12, 21]
 ---
 
@@ -14,12 +14,12 @@ related: [07, 11, 12, 21]
 ## Description
 File dialogs open or add media; folders follow the same sibling-folder rules as in-product navigation (see [07-sibling-folder-queue](07-sibling-folder-queue.md)); URL dialogs handle network sources. `GApplication`’s `open` receives external file lists and forwards them to the active window or a new one per preference. A `--new-window` flag exists for secondary instances when supported. On launch, the first `argv` path (if any) loads instead of showing the recent grid.
 
-Today the **Open Video** dialog, CLI startup path, and [drag-and-drop](11-drag-and-drop.md) are wired; single-instance policy, full folder-open behaviour, and `HANDLES_OPEN` for remote activation are not.
+Opening a folder of videos starts at the last file in sorted order that still has a stored position, or at the first playable file if no file has one. Disc folders keep their own resume-aware entry. Today the **Open Video** dialog, CLI startup path, and [drag-and-drop](11-drag-and-drop.md) are wired; single-instance policy and `HANDLES_OPEN` for remote activation are not.
 
 ## Behavior
 
 ```gherkin
-@status:wip @priority:p1 @layer:platform @area:open
+@status:wip @priority:p1 @layer:os-integration @area:open
 Feature: Open files and CLI integration
 
   Scenario: Open Video dialog lists video extensions only
@@ -78,10 +78,21 @@ Feature: Open files and CLI integration
     Then the new file loads without crashing
     And the window comes to the foreground
 
+  Scenario: Folder argv resumes last unfinished file
+    Given the user passes a directory on the command line
+    And that folder contains playable files and is not a disc
+    And the persistent store holds a playback position for one or more of those files
+    When the app resolves a playable file inside it
+    Then the last of those files in sorted order loads via the standard load path
+    And playback position is at or near that stored position
+    And subsequent siblings follow the sibling-folder queue rules
+
   Scenario: Folder argv loads first playable file
     Given the user passes a directory on the command line
+    And that folder contains playable files and is not a disc
+    And none of those files have a stored position
     When the app resolves a playable file inside it
-    Then that file loads via the standard load path
+    Then the first playable file in sorted order loads via the standard load path
     And subsequent siblings follow the sibling-folder queue rules
 
   Scenario: Invalid CLI path falls back to the recent grid
@@ -106,7 +117,7 @@ Feature: Open files and CLI integration
 
 ## Notes
 - Open failures (empty/hollow files, demux errors, missing paths) surface a continue-grid notice toast (`src/media_open_fail.rs`, `NoticeToast`) and return to browse when playback was entered. Zero-filled torrent preallocation is detected before `loadfile`.
-- Shared suffixes: `src/video_ext/` ([SUFFIX], reused by **Open Video** and sibling scan). **`dctmp`**: in-progress Direct Connect download (often `name.mkv.<id>.dctmp`) — not a hollow zero-filled stub. Disc trees: `OpticalDisc` + `VideoTsDir` (**BDMV** → disc root; **VIDEO_TS** → `dvd_first_playable_vob`; many engines lack `dvd://`). Files inside `VIDEO_TS/` belong to that DVD; a neighbouring `VIDEO_TS` does not divert `.mkv`/`.mp4` opens (`OpticalDisc::dvd_root`). macOS open panel: `macos_open_video.rs`; Finder: `Info.plist.in` (incl. **`.dctmp`**). Linux: desktop / AppStream; **`.dctmp`** → `application/x-dcpp-incomplete` (`data/mime/packages/`, installed by user/system/deb scripts).
+- Shared suffixes: `src/video_ext/` ([SUFFIX], reused by **Open Video** and sibling scan). **`dctmp`**: in-progress Direct Connect download (often `name.mkv.<id>.dctmp`) — not a hollow zero-filled stub. Disc trees: `OpticalDisc` + `VideoTsDir` (**BDMV** → disc root; **VIDEO_TS** → `dvd_first_playable_vob`; many engines lack `dvd://`). Files inside `VIDEO_TS/` belong to that DVD; a neighbouring `VIDEO_TS` does not divert `.mkv`/`.mp4` opens (`OpticalDisc::dvd_root`). Non-disc folders (CLI, `open`, drop, folder pick): `folder_open_entry` uses the same non-recursive natural listing as sibling advance (`list_videos_in_dir`) and selects the last file with `db::resume_pos`, or the first file. Disc folders stay on `OpticalDisc::open_target`. macOS open panel: `macos_open_video.rs`; Finder: `Info.plist.in` (incl. **`.dctmp`**). Linux: desktop / AppStream; **`.dctmp`** → `application/x-dcpp-incomplete` (`data/mime/packages/`, installed by user/system/deb scripts).
 - External open while a window is up: `connect_open` in `src/app/base/preload_continue_and_run.rs` queues `on_open` on a one-shot GTK idle (never synchronous `try_load` in the signal — macOS re-entrancy / `RefCell` abort). `load_file_into_player` uses `try_borrow_mut` like transport drain.
 - `--new-window` and `HANDLES_OPEN` (or the Rust equivalent) are planned but not shipped.
 - Drag-and-drop is owned by [11-drag-and-drop](11-drag-and-drop.md); URL input by [12-url-and-streams](12-url-and-streams.md).
