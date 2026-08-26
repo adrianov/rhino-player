@@ -42,7 +42,14 @@ fn order_out_all(windows: Vec<objc2::rc::Retained<objc2_app_kit::NSWindow>>) {
 unsafe extern "C" fn blackout_appkit_dispatch(raw: *mut std::ffi::c_void) {
     let op = unsafe { *Box::from_raw(raw.cast::<AppkitOp>()) };
     match op {
-        AppkitOp::Clear(windows) => order_out_all(windows),
+        // Ordering out the covers does not make AppKit re-evaluate the
+        // cursor until the pointer moves again; covers own a blank cursor
+        // rect, so without this nudge the pointer stays invisible on the
+        // just-uncovered display (user pause leaves the mouse parked).
+        AppkitOp::Clear(windows) => {
+            order_out_all(windows);
+            crate::macos_window::show_system_cursor();
+        }
         AppkitOp::Rebuild { old, video, dest } => {
             order_out_all(old);
             let leftover = std::mem::take(&mut dest.borrow_mut().windows);

@@ -30,9 +30,10 @@ fn make_cover_window(
     };
     use objc2_foundation::NSRect;
 
-    let mut frame: NSRect = screen.frame();
-    frame.origin.x = 0.0;
-    frame.origin.y = 0.0;
+    // `initWithContentRect` takes GLOBAL coordinates: keep each screen's
+    // own origin (secondary displays are not anchored at 0,0) or covers
+    // land on the wrong display.
+    let frame: NSRect = screen.frame();
     let black = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer_screen(
             mtm.alloc::<NSWindow>(),
