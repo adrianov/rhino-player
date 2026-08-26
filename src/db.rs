@@ -7,6 +7,7 @@ include!("db/history_and_media_playback.rs");
 include!("db/rekey_continue_path.rs");
 include!("db/media_me_budget.rs");
 include!("db/media_source_fps.rs");
+include!("db/media_fill_screen.rs");
 #[cfg(test)]
 mod media_me_budget_tests;
 #[cfg(test)]

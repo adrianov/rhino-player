@@ -84,6 +84,7 @@ fn open_conn() -> Option<Connection> {
 fn run_column_migrations(conn: &Connection) {
     migrate_media_decode_columns(conn);
     migrate_media_source_fps_column(conn);
+    migrate_media_fill_screen_column(conn);
     migrate_media_thumb_load_path(conn);
     migrate_media_thumb_webp_column(conn);
     migrate_media_sub_track_columns(conn);
@@ -107,6 +108,14 @@ fn migrate_media_decode_columns(conn: &Connection) {
     );
     let _ = conn.execute(
         "ALTER TABLE media ADD COLUMN smooth_me_budget_updated_at INTEGER",
+        rusqlite::params![],
+    );
+}
+
+/// Per-file Fill Screen choice (`None` = never toggled; fitted default applies).
+fn migrate_media_fill_screen_column(conn: &Connection) {
+    let _ = conn.execute(
+        "ALTER TABLE media ADD COLUMN fill_screen INTEGER",
         rusqlite::params![],
     );
 }

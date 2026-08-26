@@ -2,8 +2,9 @@
 //!
 //! The button appears in the header only in fullscreen when the video aspect ratio
 //! differs from the screen. `preferred` tracks the user's intent and is restored each
-//! time fullscreen is re-entered. Panscan is reset when the button hides (fullscreen exit
-//! or media change), but `preferred` is only cleared when new media loads.
+//! time fullscreen is re-entered, and re-read from the per-video `media.fill_screen`
+//! choice whenever new media opens. Panscan is reset when the button hides (fullscreen
+//! exit or media change), but `preferred` only changes on a user toggle or a media open.
 
 use gtk::prelude::*;
 use std::cell::Cell;
@@ -93,7 +94,26 @@ fn connect_fill_clicked(btn: &gtk::Button, sync: &Rc<FillSync>) {
             if on { "on" } else { "off" }
         ));
         sc.apply_panscan(on);
+        if let Some(path) = current_local_media_path(&sc.player) {
+            crate::db::media_save_fill_screen(&path, on);
+        }
     });
+}
+
+/// Local path of the media currently open in mpv (`None` for streams / no media).
+fn current_local_media_path(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+) -> Option<std::path::PathBuf> {
+    let g = player.borrow();
+    let b = g.as_ref()?;
+    crate::media_probe::local_file_from_mpv(&b.mpv)
+}
+
+/// Per-video remembered choice for the currently open media (fitted default when unset).
+fn stored_fill_preference(player: &Rc<RefCell<Option<MpvBundle>>>) -> bool {
+    current_local_media_path(player)
+        .and_then(|p| crate::db::media_fill_screen(&p))
+        .unwrap_or(false)
 }
 
 fn connect_fill_resync_on_fullscreen(win: &adw::ApplicationWindow, sync: &Rc<FillSync>) {

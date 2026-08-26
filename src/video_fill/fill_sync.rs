@@ -22,9 +22,10 @@ impl FillSync {
         }
     }
 
-    /// Clear preference on new media so fill doesn't carry over across unrelated videos.
+    /// New media opened: panscan resets for the runtime view, then `preferred` re-arms from the
+    /// per-video `media.fill_screen` choice so the next fullscreen sync applies it automatically.
     pub(super) fn reset_preferred(&self) {
-        self.preferred.set(false);
+        self.preferred.set(super::stored_fill_preference(&self.player));
         if self.active.get() {
             self.reset_panscan();
         }
