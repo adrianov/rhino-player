@@ -55,12 +55,6 @@ Feature: Fill Screen
     Then the fitted view is restored
     And the button is no longer visible
 
-  Scenario: Fill resets on fullscreen exit
-    Given the Fill Screen button is in the active state
-    When the user exits fullscreen
-    Then the fitted view is restored
-    And the button is no longer visible
-
   Scenario: Fill resets on new media
     Given the Fill Screen button is in the active state
     When a new video starts playing
