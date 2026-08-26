@@ -7,6 +7,7 @@ struct KeyDispatch {
     win_key: adw::ApplicationWindow,
     recent_esc: gtk::Box,
     browse_back: Rc<dyn Fn(bool)>,
+    app: adw::Application,
     fs: FullscreenKeyRefs,
     play_key: PlayToggleCtx,
     seek_keys: SeekArrowKeys,
@@ -21,6 +22,7 @@ impl KeyDispatch {
         let recent_esc = ctx.shell.recent.clone();
         Self {
             browse_back: ctx.on_browse_back.clone(),
+            app: ctx.app.clone(),
             fs: FullscreenKeyRefs::new(ctx),
             seek_keys: SeekArrowKeys::new(ctx),
             nav: NavHandleSnapshot::new(ctx),
@@ -61,6 +63,18 @@ impl KeyDispatch {
         if root_focus_wants_raw_keys(&self.win_key) {
             return glib::Propagation::Proceed;
         }
+        self.dispatch_shortcuts(key, m, &nav)
+    }
+
+    fn dispatch_shortcuts(
+        &self,
+        key: gtk::gdk::Key,
+        m: gtk::gdk::ModifierType,
+        nav: &SiblingNavTryRefs,
+    ) -> glib::Propagation {
+        if let Some(r) = quit_key(key, m, &self.app) {
+            return r;
+        }
         if let Some(r) = copy_playing_path_key(key, m, &self.p) {
             return r;
         }
@@ -83,7 +97,7 @@ impl KeyDispatch {
         if let Some(r) = volume_nudge_key(key, &self.p) {
             return r;
         }
-        if let Some(r) = ctrl_arrow_sibling_key(key, m, &nav) {
+        if let Some(r) = ctrl_arrow_sibling_key(key, m, nav) {
             return r;
         }
         if let Some(r) = self.horizontal_seek_outcome(key) {
