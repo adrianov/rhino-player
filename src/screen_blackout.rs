@@ -10,39 +10,13 @@ const TOOLTIP: &str = "Black out other displays while playing";
 const ICON: &str = "video-display-symbolic";
 
 thread_local! {
-    /// Depth of engine-held pauses (smooth `vf` swap, seek burst, chapter scrub) — not user pause.
-    static TECH_HOLD: Cell<u32> = const { Cell::new(0) };
-    /// Handle for refreshes that start outside the transport, e.g. the hold below.
+    /// Handle for refreshes that start outside the transport (tech-hold edges, toolbar).
     static ACTIVE_SYNC: RefCell<Option<Rc<BlackoutSync>>> = const { RefCell::new(None) };
 }
 
-/// Keep blackout up across an engine-held pause. Entering and leaving the hold changes what
-/// [tech_hold_active] reports, so both edges refresh — a paused engine hold and a user pause look
-/// the same to the transport, and no pause event follows a hold that ends while playback stays paused.
-pub fn begin_tech_hold() {
-    let entered = TECH_HOLD.with(|d| {
-        let next = d.get().saturating_add(1);
-        d.set(next);
-        next == 1
-    });
-    if entered {
-        refresh_for_hold();
-    }
-}
+include!("screen_blackout_tech_hold.rs");
 
-/// Pair with [begin_tech_hold] when that hold ends.
-pub fn end_tech_hold() {
-    let left = TECH_HOLD.with(|d| {
-        let next = d.get().saturating_sub(1);
-        d.set(next);
-        next == 0
-    });
-    if left {
-        refresh_for_hold();
-    }
-}
-
-/// No-op until the header control is built.
+/// No-op until the header control is built (called from the tech-hold unit).
 fn refresh_for_hold() {
     let sync = ACTIVE_SYNC.with(|s| s.borrow().clone());
     if let Some(sync) = sync {
@@ -50,9 +24,45 @@ fn refresh_for_hold() {
     }
 }
 
+thread_local! {
+    /// Last cover decision logged; the `[rhino] blackout:` line prints on changes only.
+    static LAST_COVER_LOG: Cell<i8> = const { Cell::new(-1) };
+}
+
+/// mpv snapshot shared by the session gate and the decision log: has a real open path, is paused.
 #[cfg(target_os = "macos")]
-fn tech_hold_active() -> bool {
-    TECH_HOLD.with(|d| d.get() > 0)
+fn mpv_media_state(player: &Rc<RefCell<Option<MpvBundle>>>) -> (bool, bool) {
+    player.borrow().as_ref().map_or((false, true), |b| {
+        (
+            b.mpv.get_property::<String>("path").ok().is_some_and(|s| {
+                let t = s.trim();
+                !t.is_empty() && t != "null" && t != "undefined"
+            }),
+            b.mpv.get_property::<bool>("pause").unwrap_or(true),
+        )
+    })
+}
+
+/// Always-on decision log for the multi-monitor covers (report-blackout-stuck triage).
+#[cfg(target_os = "macos")]
+fn log_cover_decision(
+    apply: bool,
+    enabled: bool,
+    focused: bool,
+    screens: usize,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+) {
+    if LAST_COVER_LOG.with(Cell::get) == apply as i8 {
+        return;
+    }
+    LAST_COVER_LOG.with(|c| c.set(apply as i8));
+    let (path, paused) = mpv_media_state(player);
+    let (depth, live, age) = tech_hold_diag();
+    eprintln!(
+        "[rhino] blackout: {} enabled={} focused={} screens={} path={} paused={} hold depth={} live={} age={age:?}",
+        if apply { "covers ON;" } else { "covers OFF;" },
+        enabled, focused, screens, path, paused, depth, live,
+    );
 }
 
 /// Shared handle for toolbar wiring and transport-driven refresh.
@@ -91,12 +101,7 @@ impl BlackoutSync {
         sync_btn_visible(&self.btn);
         let recent_visible = self.recent.is_visible();
         #[cfg(target_os = "macos")]
-        sync_macos(
-            &self.blackout,
-            &self.win,
-            &self.player,
-            recent_visible,
-        );
+        sync_macos(&self.blackout, &self.win, &self.player, recent_visible);
         #[cfg(not(target_os = "macos"))]
         let _ = recent_visible;
     }

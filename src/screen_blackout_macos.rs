@@ -54,19 +54,8 @@ fn playback_session_active(player: &Rc<RefCell<Option<MpvBundle>>>, recent_visib
     if recent_visible {
         return false;
     }
-    let g = player.borrow();
-    let Some(b) = g.as_ref() else {
-        return false;
-    };
-    let has_path = b.mpv.get_property::<String>("path").ok().is_some_and(|s| {
-        let t = s.trim();
-        !t.is_empty() && t != "null" && t != "undefined"
-    });
-    if !has_path {
-        return false;
-    }
-    let paused = b.mpv.get_property::<bool>("pause").unwrap_or(true);
-    !paused || tech_hold_active()
+    let (has_path, paused) = mpv_media_state(player);
+    has_path && (!paused || tech_hold_active())
 }
 
 fn should_apply(
@@ -75,10 +64,11 @@ fn should_apply(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     recent_visible: bool,
 ) -> bool {
-    bo.enabled
-        && win.is_active()
-        && multi_screen()
-        && playback_session_active(player, recent_visible)
+    let screens = screen_count_macos();
+    let apply =
+        bo.enabled && win.is_active() && screens >= 2 && playback_session_active(player, recent_visible);
+    log_cover_decision(apply, bo.enabled, win.is_active(), screens, player);
+    apply
 }
 
 fn screen_count_macos() -> usize {
