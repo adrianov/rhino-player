@@ -84,6 +84,7 @@ fn macos_leave_fs_restore_tick(ctx: Rc<LeaveFsRestoreCtx>) {
 
 /// Polls exhausted or window windowed again: clear the exit latch, restore pause + geometry,
 /// then re-apply chrome one idle later.
+#[cfg(target_os = "macos")]
 fn macos_leave_fs_restore_now(ctx: Rc<LeaveFsRestoreCtx>) {
     crate::macos_fs_exit::clear_exit();
     fs_on_exit_pause(&ctx.play, ctx.pause.as_ref());

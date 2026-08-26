@@ -33,6 +33,7 @@ fn wire_simple_action(
     connect(
         player,
         Box::new(move |_| {
+            let f = f.clone();
             run_on_main(move || f());
         }),
     );
@@ -41,6 +42,7 @@ fn wire_simple_action(
 fn connect_window_actions(player: &Player, args: &MprisStartArgs) {
     let win = args.win.clone();
     player.connect_raise(move |_| {
+        let win = win.clone();
         run_on_main(move || {
             win.present();
         });
@@ -48,6 +50,7 @@ fn connect_window_actions(player: &Player, args: &MprisStartArgs) {
 
     let app = args.app.clone();
     player.connect_quit(move |_| {
+        let app = app.clone();
         run_on_main(move || {
             app.quit();
         });
@@ -106,7 +109,7 @@ fn connect_relative_seek(
     let seek_abs = args.seek_abs.0.clone();
     player.connect_seek(move |_, off| {
         let delta = off.as_micros() as f64 / 1_000_000.0;
-        dispatch_position_seek(&mpv_cell, &tx, &seek_abs, |pos| pos + delta);
+        dispatch_position_seek(&mpv_cell, &tx, &seek_abs, move |pos| pos + delta);
     });
 }
 
@@ -120,6 +123,6 @@ fn connect_absolute_position(
     let seek_abs = args.seek_abs.0.clone();
     player.connect_set_position(move |_, _tid, position| {
         let sec = position.as_micros() as f64 / 1_000_000.0;
-        dispatch_position_seek(&mpv_cell, &tx, &seek_abs, |_| sec);
+        dispatch_position_seek(&mpv_cell, &tx, &seek_abs, move |_| sec);
     });
 }

@@ -77,6 +77,7 @@ fn dylib_alias_dir() -> PathBuf {
         })
 }
 
+#[cfg(target_os = "macos")]
 fn ensure_mpv_vsscript_alias(vs_lib: &Path) -> Option<PathBuf> {
     let vsscript = mpv_vsscript_target(vs_lib)?;
     if vs_lib.join(MPV_VSSCRIPT_DYLIB).is_file() {
