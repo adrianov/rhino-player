@@ -9,16 +9,17 @@ struct EglState {
     get: gl_platform::GlGetProcAddressFn,
 }
 
+fn egl_try(get: gl_platform::GlGetProcAddressFn, n: &str) -> Option<*mut std::os::raw::c_void> {
+    std::ffi::CString::new(n).ok().and_then(|c| {
+        let p = unsafe { (get)(c.as_ptr()) };
+        (!p.is_null()).then_some(p)
+    })
+}
+
 fn egl_proc(s: &EglState, name: &str) -> *mut std::os::raw::c_void {
-    let try_name = |n: &str| {
-        std::ffi::CString::new(n).ok().and_then(|c| {
-            let p = unsafe { (s.get)(c.as_ptr()) };
-            if p.is_null() { None } else { Some(p) }
-        })
-    };
-    try_name(name)
-        .or_else(|| try_name(&format!("{name}_OES")))
-        .or_else(|| try_name(&format!("{name}_ARB")))
-        .or_else(|| try_name(&format!("{name}_EXT")))
+    egl_try(s.get, name)
+        .or_else(|| egl_try(s.get, &format!("{name}_OES")))
+        .or_else(|| egl_try(s.get, &format!("{name}_ARB")))
+        .or_else(|| egl_try(s.get, &format!("{name}_EXT")))
         .unwrap_or(std::ptr::null_mut())
 }

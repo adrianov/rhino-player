@@ -1,3 +1,17 @@
+/// Shared `Option` → log-text helpers for `[rhino] video:` property readouts (`?` when missing).
+pub(crate) fn fmt_opt_str(o: Option<String>, missing: &str) -> String {
+    o.unwrap_or_else(|| missing.to_string())
+}
+
+pub(crate) fn fmt_bool_opt(x: Option<bool>) -> String {
+    x.map(|b| b.to_string()).unwrap_or_else(|| "?".into())
+}
+
+pub(crate) fn fmt_secs_opt(x: Option<f64>, precision: usize) -> String {
+    x.map(|v| format!("{v:.precision$}"))
+        .unwrap_or_else(|| "?".into())
+}
+
 /// Always-on (throttled) A/V offset readout while the smooth **`vf`** is active, so lip-sync drift
 /// is visible on plain `cargo run` without env flags. mpv **`avsync`** is audio-minus-video seconds.
 pub(crate) fn log_smooth_avsync(mpv: &libmpv2::Mpv) {
@@ -7,28 +21,53 @@ pub(crate) fn log_smooth_avsync(mpv: &libmpv2::Mpv) {
     if !vf_chain_has_vapoursynth(mpv) || mpv.get_property::<bool>("pause").unwrap_or(true) {
         return;
     }
-    {
-        let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
-        if last.is_some_and(|t| t.elapsed() < Duration::from_secs(2)) {
-            return;
-        }
-        *last = Some(Instant::now());
+    if avsync_log_throttled(&LAST, Duration::from_secs(2)) {
+        return;
     }
-    let avsync = mpv.get_property::<f64>("avsync").ok();
-    let pos = mpv.get_property::<f64>("time-pos").ok();
-    let vf_fps = mpv.get_property::<f64>("estimated-vf-fps").ok();
-    let display_fps = mpv.get_property::<f64>("display-fps").ok();
-    let tag = match avsync {
-        Some(a) if a.abs() > 0.08 => "DRIFT",
-        _ => "ok",
-    };
+    let (avsync, pos, vf_fps, display_fps) = read_avsync_snapshot(mpv);
+    let tag = avsync_drift_tag(avsync);
     eprintln!(
         "[rhino] video: avsync {tag} a-v={} time-pos={} vf-fps={} display-fps={}",
-        avsync.map(|a| format!("{a:+.3}s")).unwrap_or_else(|| "?".into()),
-        pos.map(|p| format!("{p:.2}")).unwrap_or_else(|| "?".into()),
-        vf_fps.map(|f| format!("{f:.2}")).unwrap_or_else(|| "?".into()),
-        display_fps.map(|f| format!("{f:.2}")).unwrap_or_else(|| "?".into()),
+        avsync
+            .map(|a| format!("{a:+.3}s"))
+            .unwrap_or_else(|| "?".into()),
+        fmt_secs_opt(pos, 2),
+        fmt_secs_opt(vf_fps, 2),
+        fmt_secs_opt(display_fps, 2),
     );
+}
+
+/// mpv A/V readout: offset, playhead, filter-output fps, display fps.
+fn read_avsync_snapshot(
+    mpv: &libmpv2::Mpv,
+) -> (Option<f64>, Option<f64>, Option<f64>, Option<f64>) {
+    (
+        mpv.get_property::<f64>("avsync").ok(),
+        mpv.get_property::<f64>("time-pos").ok(),
+        mpv.get_property::<f64>("estimated-vf-fps").ok(),
+        mpv.get_property::<f64>("display-fps").ok(),
+    )
+}
+
+/// Records `now` and returns `true` when the last emit is younger than [min_interval].
+fn avsync_log_throttled(
+    last: &std::sync::Mutex<Option<std::time::Instant>>,
+    min_interval: std::time::Duration,
+) -> bool {
+    let mut last = last.lock().unwrap_or_else(|e| e.into_inner());
+    if last.is_some_and(|t| t.elapsed() < min_interval) {
+        return true;
+    }
+    *last = Some(std::time::Instant::now());
+    false
+}
+
+/// `DRIFT` when |a-v| exceeds ~80 ms (lip sync visibly off), else `ok`.
+fn avsync_drift_tag(avsync: Option<f64>) -> &'static str {
+    match avsync {
+        Some(a) if a.abs() > 0.08 => "DRIFT",
+        _ => "ok",
+    }
 }
 
 /// Pause across a **`vf`** swap when playback was running; paired with [schedule_vf_playhead_resync].

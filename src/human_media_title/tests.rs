@@ -80,10 +80,7 @@ fn keeps_release_year() {
         human_media_title("Some.Film.2013.1080p.BluRay.x264.mkv"),
         "Some Film 2013"
     );
-    assert_eq!(
-        human_media_title("Movie (2013).mkv"),
-        "Movie (2013)"
-    );
+    assert_eq!(human_media_title("Movie (2013).mkv"), "Movie (2013)");
 }
 
 #[test]

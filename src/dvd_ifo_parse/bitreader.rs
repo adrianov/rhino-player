@@ -34,6 +34,45 @@ impl<'a> BitReader<'a> {
         }
         u32::from(byte)
     }
+    fn consume_mid_byte_bits(&mut self, left: &mut u32, result: &mut u32) {
+        if *left <= (8 - self.bit_pos) as u32 {
+            self.finish_in_partial_byte(left, result);
+        } else {
+            self.restart_from_next_byte(left, result);
+        }
+    }
+
+    /// Remaining bits of a half-consumed byte complete the request.
+    fn finish_in_partial_byte(&mut self, left: &mut u32, result: &mut u32) {
+        let byte = self.take_partial(*left);
+        *result = (*result << *left) | byte;
+        *left = 0;
+    }
+
+    /// Consume the untouched high bits of the current byte and move on.
+    fn restart_from_next_byte(&mut self, left: &mut u32, result: &mut u32) {
+        let byte = self.byte >> self.bit_pos;
+        *result = u32::from(byte);
+        *left -= (8 - self.bit_pos) as u32;
+        self.advance_byte();
+    }
+
+    fn consume_aligned_bits(&mut self, left: &mut u32, result: &mut u32) {
+        self.take_whole_bytes(left, result);
+        if *left > 0 {
+            let byte = self.take_partial(*left);
+            *result = (*result << *left) | byte;
+            *left = 0;
+        }
+    }
+
+    fn take_whole_bytes(&mut self, left: &mut u32, result: &mut u32) {
+        while *left >= 8 {
+            *result = (*result << 8) | u32::from(self.byte);
+            *left -= 8;
+            self.advance_byte();
+        }
+    }
 
     pub(super) fn getbits(&mut self, n: u32) -> Option<u32> {
         if n == 0 || n > 32 {
@@ -43,27 +82,9 @@ impl<'a> BitReader<'a> {
         let mut result = 0u32;
         while left > 0 {
             if self.bit_pos > 0 {
-                if left > (8 - self.bit_pos) as u32 {
-                    let byte = self.byte >> self.bit_pos;
-                    result = u32::from(byte);
-                    left -= (8 - self.bit_pos) as u32;
-                    self.advance_byte();
-                } else {
-                    let byte = self.take_partial(left);
-                    result = (result << left) | byte;
-                    left = 0;
-                }
-                continue;
-            }
-            while left >= 8 {
-                result = (result << 8) | self.byte as u32;
-                left -= 8;
-                self.advance_byte();
-            }
-            if left > 0 {
-                let byte = self.take_partial(left);
-                result = (result << left) | byte;
-                left = 0;
+                self.consume_mid_byte_bits(&mut left, &mut result);
+            } else {
+                self.consume_aligned_bits(&mut left, &mut result);
             }
         }
         Some(result)
@@ -72,16 +93,28 @@ impl<'a> BitReader<'a> {
 
 pub(super) fn read_audio_attr(raw: &[u8]) -> Option<(u8, u8, u16, u8)> {
     let mut bits = BitReader::new(raw)?;
+    let (format, lang_type) = read_audio_format(&mut bits)?;
+    skip_audio_attr_tail(&mut bits)?;
+    let channels = bits.getbits(3)? as u8;
+    let lang_code = bits.getbits(16)? as u16;
+    Some((format, lang_type, lang_code, channels))
+}
+
+/// Coding mode, multichannel flag, language type and application mode fields.
+fn read_audio_format(bits: &mut BitReader<'_>) -> Option<(u8, u8)> {
     let format = bits.getbits(3)? as u8;
     let _multichannel = bits.getbits(1)?;
     let lang_type = bits.getbits(2)? as u8;
     let _app_mode = bits.getbits(2)?;
+    Some((format, lang_type))
+}
+
+/// Quantization, sample-rate and reserved bits between the format head and channel count.
+fn skip_audio_attr_tail(bits: &mut BitReader<'_>) -> Option<()> {
     let _quant = bits.getbits(2)?;
     let _sample = bits.getbits(2)?;
     let _unknown1 = bits.getbits(1)?;
-    let channels = bits.getbits(3)? as u8;
-    let lang_code = bits.getbits(16)? as u16;
-    Some((format, lang_type, lang_code, channels))
+    Some(())
 }
 
 pub(super) fn read_subp_attr(raw: &[u8]) -> Option<(u8, u16)> {

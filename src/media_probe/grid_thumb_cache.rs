@@ -29,39 +29,55 @@ struct GridThumbTarget {
     cache_time: f64,
 }
 
+/// Continue state for an entity db key: cache key time, duration, and the duration map
+/// reused by unified-timeline still mapping.
+fn entity_continue_state(db_key: &Path) -> (f64, f64, std::collections::HashMap<String, f64>) {
+    let durs = db::load_duration_map();
+    let tpos = db::load_time_pos_map();
+    let (resume, duration) = crate::playback_entity::card_resume_duration(db_key, &durs, &tpos);
+    let cache_time = grid_thumb_cache_time(resume, duration);
+    (cache_time, duration, durs)
+}
+
+/// Unified-timeline branch of [grid_thumb_target]: map the chapter probe to a still frame.
+fn grid_thumb_target_unified(
+    pe: &crate::playback_entity::PlaybackEntity,
+    open_hint: &Path,
+    cache_time: f64,
+    durs: &std::collections::HashMap<String, f64>,
+) -> Option<GridThumbTarget> {
+    let probe = crate::dvd_entity::timeline_chapter_probe(open_hint)
+        .unwrap_or_else(|| open_hint.to_path_buf());
+    let still = pe.still_at_global(&probe, cache_time, durs, None, None)?;
+    let load = std::fs::canonicalize(&still.load).ok()?;
+    let seek_sec = if still.local_sec < 0.5 && still.chapter_dur > GRID_FALLBACK_SEC {
+        GRID_FALLBACK_SEC
+    } else {
+        still.local_sec
+    };
+    crate::dvd_vob_log::dvd_seek_log(format!(
+        "grid_thumb global={cache_time:.2} -> {} local={seek_sec:.2} ch_dur={:.2}",
+        load.display(),
+        still.chapter_dur
+    ));
+    Some(GridThumbTarget {
+        load,
+        seek_sec,
+        chapter_dur: still.chapter_dur,
+        cache_time,
+    })
+}
+
 /// Map entity resume to the chapter file + local seek used for continue-grid thumbs.
 fn grid_thumb_target(entity: &Path) -> Option<GridThumbTarget> {
     if !entity.exists() {
         return None;
     }
     let pe = crate::playback_entity::PlaybackEntity::resolve(entity);
-    let db_key = pe.db_path();
-    let durs = db::load_duration_map();
-    let tpos = db::load_time_pos_map();
-    let (resume, duration) = crate::playback_entity::card_resume_duration(&db_key, &durs, &tpos);
-    let cache_time = grid_thumb_cache_time(resume, duration);
+    let (cache_time, duration, durs) = entity_continue_state(&pe.db_path());
     let open_hint = crate::video_ext::resolve_open_media_path(entity);
     if pe.has_unified_timeline() {
-        let probe = crate::dvd_entity::timeline_chapter_probe(&open_hint)
-            .unwrap_or_else(|| open_hint.clone());
-        let still = pe.still_at_global(&probe, cache_time, &durs, None, None)?;
-        let load = std::fs::canonicalize(&still.load).ok()?;
-        let seek_sec = if still.local_sec < 0.5 && still.chapter_dur > GRID_FALLBACK_SEC {
-            GRID_FALLBACK_SEC
-        } else {
-            still.local_sec
-        };
-        crate::dvd_vob_log::dvd_seek_log(format!(
-            "grid_thumb global={cache_time:.2} -> {} local={seek_sec:.2} ch_dur={:.2}",
-            load.display(),
-            still.chapter_dur
-        ));
-        return Some(GridThumbTarget {
-            load,
-            seek_sec,
-            chapter_dur: still.chapter_dur,
-            cache_time,
-        });
+        return grid_thumb_target_unified(&pe, &open_hint, cache_time, &durs);
     }
     let load = std::fs::canonicalize(open_hint).ok()?;
     Some(GridThumbTarget {

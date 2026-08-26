@@ -8,9 +8,27 @@ fn prep_smooth_60_for_vf(
     bundle: Option<&crate::mpv_embed::MpvBundle>,
     cadence_hz: Option<f64>,
 ) -> bool {
-    if !v.smooth_60 || !mpv_has_open_media(mpv) || !smooth_wants_vapoursynth_vf(mpv, bundle, speed_hint) {
+    if !v.smooth_60
+        || !mpv_has_open_media(mpv)
+        || !smooth_wants_vapoursynth_vf(mpv, bundle, speed_hint)
+    {
         return false;
     }
+    publish_smooth_envs_before_add(mpv, v, bundle, speed_hint, cadence_hz);
+    if !publish_vpy_env_and_resolve_mvtools(v) {
+        return true;
+    }
+    false
+}
+
+/// hwdec copy, playback-speed env, ME cap env (bundled only), and source-fps env.
+fn publish_smooth_envs_before_add(
+    mpv: &Mpv,
+    v: &mut VideoPrefs,
+    bundle: Option<&crate::mpv_embed::MpvBundle>,
+    speed_hint: Option<f64>,
+    cadence_hz: Option<f64>,
+) {
     ensure_hwdec_vf_copy(mpv);
     match speed_hint {
         Some(s) => set_playback_speed_env(s),
@@ -22,20 +40,25 @@ fn prep_smooth_60_for_vf(
         publish_smooth_me_budget_env(cap_px);
     }
     apply_source_fps_env(fps_opt);
+}
+
+/// Bump the `.vpy` log epoch, resolve MVTools, and confirm a script path exists.
+/// Returns `false` when Smooth was turned off in prefs (mvtools missing or no `.vpy`).
+fn publish_vpy_env_and_resolve_mvtools(v: &mut VideoPrefs) -> bool {
     let epoch = VPY_LOG_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     std::env::set_var(RHINO_VPY_LOG_EPOCH_VAR, format!("{epoch}"));
     if !apply_mvtools_env(v) {
         turn_off_smooth_60_in_prefs(v);
-        return true;
+        return false;
     }
     if resolve_vs_script_path(v).is_none() {
         eprintln!(
             "[rhino] video: VapourSynth: no .vpy (install mvtools + data/vs bundle; see `data/vs/README.md`)."
         );
         turn_off_smooth_60_in_prefs(v);
-        return true;
+        return false;
     }
-    false
+    true
 }
 
 /// True when [add_smooth_60] should not even try **`vf add`** right now (no media, mid-load, busy, present).
@@ -54,7 +77,9 @@ fn add_smooth_60_blocked(
     // MPV_ERROR_COMMAND and the retry storm can leave the vapoursynth wrapper unusable for the
     // rest of the process. The debounced transport resync self-retries until resume completes.
     if bundle.is_some_and(|b| b.resume_seek_pending()) {
-        eprintln!("[rhino] video: VapourSynth deferred (resume seek pending — attach after it settles)");
+        eprintln!(
+            "[rhino] video: VapourSynth deferred (resume seek pending — attach after it settles)"
+        );
         return true;
     }
     !smooth_wants_vapoursynth_vf(mpv, bundle, speed_hint)
@@ -116,8 +141,19 @@ fn add_smooth_60(
     let Some(p) = resolve_vs_script_path(v) else {
         return true;
     };
+    attach_smooth_vf_script(mpv, v, bundle, &p)
+}
+
+/// Escape + `vf add` the resolved script, then record the applied ME budget and present opts.
+/// Returns `true` if Smooth was disabled in prefs (add failed beyond recovery).
+fn attach_smooth_vf_script(
+    mpv: &Mpv,
+    v: &mut VideoPrefs,
+    bundle: Option<&crate::mpv_embed::MpvBundle>,
+    p: &str,
+) -> bool {
     eprintln!("[rhino] video: VapourSynth script = {p}");
-    let p_esc = mpv_escape_path(&p);
+    let p_esc = mpv_escape_path(p);
     let me_cap = effective_smooth_me_budget_px(mpv, v, bundle);
     if !smooth_vapoursynth_vf_try_attach(mpv, &p_esc, bundle) {
         if vf_chain_has_vapoursynth(mpv) {

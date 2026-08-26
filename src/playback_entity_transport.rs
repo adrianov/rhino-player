@@ -30,13 +30,8 @@ impl PlaybackEntity {
 
     /// Title-wide duration from a cached bar (None for single-file entities or stale bar).
     #[must_use]
-    pub fn transport_duration_from_bar(
-        &self,
-        chapter: &Path,
-        bar: &DvdBarState,
-    ) -> Option<f64> {
-        self.dvd_bar_active(chapter, bar)
-            .then_some(bar.total_sec())
+    pub fn transport_duration_from_bar(&self, chapter: &Path, bar: &DvdBarState) -> Option<f64> {
+        self.dvd_bar_active(chapter, bar).then_some(bar.total_sec())
     }
 
     /// Seek-bar `(duration, position)` for this entity (unified timeline when a bar matches).
@@ -75,16 +70,10 @@ impl PlaybackEntity {
     }
 }
 
-#[cfg(test)]
-mod transport_tests {
-    include!("playback_entity_transport_tests.rs");
-}
-
 /// Open chapter path when mpv/shell resolves to a **title entity** (multi-chapter DVD timeline).
 #[must_use]
-pub fn unified_timeline_chapter(
-    mpv: &Mpv,
-    shell: Option<&Path>,
-) -> Option<PathBuf> {
-    open_playback(mpv, shell).and_then(|(ent, chapter)| ent.has_unified_timeline().then_some(chapter))
+pub fn unified_timeline_chapter(mpv: &Mpv, shell: Option<&Path>) -> Option<PathBuf> {
+    open_playback(mpv, shell)
+        .and_then(|(ent, chapter)| ent.has_unified_timeline().then_some(chapter))
 }
+

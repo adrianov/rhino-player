@@ -45,7 +45,10 @@ fn paths_from_x_special(raw: &str) -> Vec<PathBuf> {
         None => Vec::new(),
         Some(h) => match h.trim() {
             "copy" | "cut" | "link" => ln.flat_map(paths_from_uri_line).collect(),
-            _ => std::iter::once(h).chain(ln).flat_map(paths_from_uri_line).collect(),
+            _ => std::iter::once(h)
+                .chain(ln)
+                .flat_map(paths_from_uri_line)
+                .collect(),
         },
     }
 }
@@ -79,60 +82,84 @@ fn paths_from_gvalue(typ: glib::types::Type, val: &glib::Value) -> Vec<PathBuf> 
     use glib::types::StaticType;
 
     let fl = gtk::gdk::FileList::static_type();
-    let gf = gio::File::static_type();
-    let gs = glib::types::Type::STRING;
-
     if !typ.is_valid() || typ == glib::types::Type::INVALID {
         return Vec::new();
     }
-
     if typ == fl || val.is::<gtk::gdk::FileList>() {
-        let Ok(list) = val.get_owned::<gtk::gdk::FileList>() else {
-            return Vec::new();
-        };
-        local_paths_from_gfiles(&list.files())
-    } else if typ == gf || val.is::<gio::File>() {
-        let Ok(f) = val.get_owned::<gio::File>() else {
-            return Vec::new();
-        };
-        f.path().into_iter().collect()
-    } else if typ == gs || val.is::<String>() || val.is::<glib::GString>() {
-        uri_paths_from_utf8_value(val)
-    } else if let Ok(var) = val.get_owned::<glib::Variant>() {
-        paths_from_uri_list_text(var.to_string().trim())
-    } else {
-        Vec::new()
+        return paths_from_gvalue_file_list(val);
     }
+    paths_from_gvalue_typed(typ, val)
+}
+
+/// Remaining typed branches after the file-list check: `GFile`, URI text, or variant fallback.
+fn paths_from_gvalue_typed(typ: glib::types::Type, val: &glib::Value) -> Vec<PathBuf> {
+    use glib::types::StaticType;
+
+    if typ == gio::File::static_type() || val.is::<gio::File>() {
+        return paths_from_gvalue_gfile(val);
+    }
+    if typ == glib::types::Type::STRING || val.is::<String>() || val.is::<glib::GString>() {
+        return uri_paths_from_utf8_value(val);
+    }
+    match val.get_owned::<glib::Variant>() {
+        Ok(var) => paths_from_uri_list_text(var.to_string().trim()),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn paths_from_gvalue_file_list(val: &glib::Value) -> Vec<PathBuf> {
+    match val.get_owned::<gtk::gdk::FileList>() {
+        Ok(list) => local_paths_from_gfiles(&list.files()),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn paths_from_gvalue_gfile(val: &glib::Value) -> Vec<PathBuf> {
+    val.get_owned::<gio::File>()
+        .ok()
+        .and_then(|f| f.path())
+        .into_iter()
+        .collect()
 }
 
 /// Every MIME advertised by `GdkDrop`: known-good types first (see `DROP_READ_MIME_PREF`), rest in
 /// offer order (`read_async` tries in sequence).
 fn mime_types_ordered_for_drop_read(dk: &gtk::gdk::Drop) -> Vec<String> {
-    let mime_offer = dk.formats().mime_types();
-    let offered: Vec<&str> = mime_offer.iter().map(|m| m.as_str()).collect();
+    let mimes = dk.formats().mime_types();
+    let raws: Vec<&str> = mimes.iter().map(|m| m.as_str()).collect();
+
+    let mut ordered = preferred_drop_mimes(&raws);
+    ordered.extend(text_drop_mimes(&raws));
+    ordered.extend(raws.iter().copied());
+    dedup_preserving_order(ordered.into_iter())
+}
+
+/// Known-good MIME types (see `DROP_READ_MIME_PREF`) that the drop actually offers.
+fn preferred_drop_mimes<'a>(raws: &'a [&'a str]) -> Vec<&'a str> {
+    DROP_READ_MIME_PREF
+        .iter()
+        .copied()
+        .filter(|cand| raws.contains(cand))
+        .collect()
+}
+
+/// Offered MIME types usable as URI/plain text payloads.
+fn text_drop_mimes<'a>(raws: &'a [&'a str]) -> Vec<&'a str> {
+    raws.iter()
+        .copied()
+        .filter(|raw| mime_base(raw).to_ascii_lowercase().starts_with("text/"))
+        .collect()
+}
+
+fn dedup_preserving_order<'a>(cands: impl Iterator<Item = &'a str>) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen = HashSet::<String>::new();
-
-    fn push_seen(out: &mut Vec<String>, seen: &mut HashSet<String>, s: impl Into<String>) {
-        let s = s.into();
-        if seen.insert(s.clone()) {
-            out.push(s);
+    for s in cands {
+        if seen.contains(s) {
+            continue;
         }
-    }
-
-    for cand in DROP_READ_MIME_PREF {
-        if offered.contains(cand) {
-            push_seen(&mut out, &mut seen, *cand);
-        }
-    }
-    for gs in dk.formats().mime_types() {
-        let raw = gs.as_str();
-        if mime_base(raw).to_ascii_lowercase().starts_with("text/") {
-            push_seen(&mut out, &mut seen, raw.to_string());
-        }
-    }
-    for gs in dk.formats().mime_types() {
-        push_seen(&mut out, &mut seen, gs.as_str().to_owned());
+        seen.insert(s.to_owned());
+        out.push(s.to_owned());
     }
     out
 }

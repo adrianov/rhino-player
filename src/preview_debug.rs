@@ -31,19 +31,25 @@ pub(crate) fn warn(msg: impl std::fmt::Display) {
 
 pub(crate) fn mpv_line(mpv: &Mpv) -> String {
     let path = mpv.get_property::<String>("path").unwrap_or_default();
-    let vo = mpv
-        .get_property::<bool>("vo-configured")
-        .map(|b| b.to_string())
-        .unwrap_or_else(|_| "?".into());
-    let dur = mpv
-        .get_property::<f64>("duration")
-        .ok()
-        .filter(|d| d.is_finite())
-        .map(|d| format!("{d:.2}"))
-        .unwrap_or_else(|| "?".into());
+    let vo = fmt_mpv_bool(mpv, "vo-configured");
+    let dur = fmt_mpv_duration(mpv);
     let dw = mpv.get_property::<i64>("dwidth").unwrap_or(0);
     let dh = mpv.get_property::<i64>("dheight").unwrap_or(0);
     format!("path={path} vo={vo} dur={dur} {dw}x{dh}")
+}
+
+fn fmt_mpv_bool(mpv: &Mpv, prop: &str) -> String {
+    mpv.get_property::<bool>(prop)
+        .map(|b| b.to_string())
+        .unwrap_or_else(|_| "?".into())
+}
+
+fn fmt_mpv_duration(mpv: &Mpv) -> String {
+    mpv.get_property::<f64>("duration")
+        .ok()
+        .filter(|d| d.is_finite())
+        .map(|d| format!("{d:.2}"))
+        .unwrap_or_else(|| "?".into())
 }
 
 /// True when the open target changed (not the same file or same playback entity).

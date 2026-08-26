@@ -102,8 +102,7 @@ mod tests {
 
     #[test]
     fn seed_row_secondary_picks_best_of_two_fields() {
-        let seed = "eng";
-        let s = seed_row_score(seed, "some title – extra", "eng");
+        let s = seed_row_score("eng", "some title – extra", "eng");
         assert!(s.word_intersection >= 1);
     }
 

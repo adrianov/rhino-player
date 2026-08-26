@@ -1,20 +1,18 @@
-fn preload_continue_path(
+/// Early-exit checks for a hover/startup warm load. Returns the terminal outcome when `path`
+/// cannot start a warm load (DVD chapter, missing file, already open); `None` to continue.
+fn warm_preload_early_outcome(
     path: &Path,
     player: &Rc<RefCell<Option<MpvBundle>>>,
-    video_pref: &Rc<RefCell<db::VideoPrefs>>,
     recent: &impl IsA<gtk::Widget>,
-    gl: &gtk::GLArea,
-    last_path: &Rc<RefCell<Option<PathBuf>>>,
-) -> PreloadOutcome {
-    let t0 = std::time::Instant::now();
-    let path = crate::video_ext::resolve_open_media_path(path);
-    if crate::video_ext::is_dvd_vob_path(&path) {
+    t0: std::time::Instant,
+) -> Option<PreloadOutcome> {
+    if crate::video_ext::is_dvd_vob_path(path) {
         eprintln!(
             "[rhino] warm_preload: skip dvd chapter {} ms={}",
             path.display(),
             t0.elapsed().as_millis()
         );
-        return PreloadOutcome::Failed;
+        return Some(PreloadOutcome::Failed);
     }
     if !recent.is_visible() || !path.is_file() || player.borrow().is_none() {
         eprintln!(
@@ -25,28 +23,30 @@ fn preload_continue_path(
             path.is_file(),
             player.borrow().is_some()
         );
-        return PreloadOutcome::Failed;
+        return Some(PreloadOutcome::Failed);
     }
     eprintln!(
         "[rhino] warm_preload: begin {} exists={}",
         path.display(),
         path.exists()
     );
-    if mpv_has_open_target(&path, player) {
+    if mpv_has_open_target(path, player) {
         eprintln!(
             "[rhino] warm_preload: ready (already open) {} ms={}",
             path.display(),
             t0.elapsed().as_millis()
         );
-        return PreloadOutcome::Ready;
+        return Some(PreloadOutcome::Ready);
     }
-    if let Some(b) = player.borrow().as_ref() {
-        let _ = b.mpv.set_property("pause", true);
-    }
-    let canon = std::fs::canonicalize(&path).ok();
-    *last_path.borrow_mut() = canon;
-    transport_sync_warm_browse(&path);
-    let o = LoadOpts {
+    None
+}
+
+/// Load options for a background warm preload: no history record, no autoplay, no callbacks.
+fn warm_load_opts(
+    video_pref: &Rc<RefCell<db::VideoPrefs>>,
+    last_path: &Rc<RefCell<Option<PathBuf>>>,
+) -> LoadOpts {
+    LoadOpts {
         video_pref: Rc::clone(video_pref),
         record: false,
         play_on_start: false,
@@ -59,33 +59,69 @@ fn preload_continue_path(
         playback_focus: None,
         warm_preload: true,
         on_open_fail: None,
-    };
-    let warm_hit = match load_file_into_player(&path, player, recent, &o) {
+    }
+}
+
+/// Pause playback, remember the canonical path, and start the async warm `loadfile`.
+fn dispatch_warm_load(
+    path: &Path,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    video_pref: &Rc<RefCell<db::VideoPrefs>>,
+    recent: &impl IsA<gtk::Widget>,
+    gl: &gtk::GLArea,
+    last_path: &Rc<RefCell<Option<PathBuf>>>,
+    t0: std::time::Instant,
+) -> PreloadOutcome {
+    if let Some(b) = player.borrow().as_ref() {
+        let _ = b.mpv.set_property("pause", true);
+    }
+    let canon = std::fs::canonicalize(path).ok();
+    *last_path.borrow_mut() = canon;
+    transport_sync_warm_browse(path);
+    let o = warm_load_opts(video_pref, last_path);
+    match load_file_into_player(path, player, recent, &o) {
         Err(e) => {
             eprintln!(
                 "[rhino] warm_preload: failed {} ms={} err={e}",
                 path.display(),
                 t0.elapsed().as_millis()
             );
-            return PreloadOutcome::Failed;
+            PreloadOutcome::Failed
         }
-        Ok(hit) => hit,
-    };
-    if warm_hit {
-        eprintln!(
-            "[rhino] warm_preload: warm hit {} ms={}",
-            path.display(),
-            t0.elapsed().as_millis()
-        );
-        return PreloadOutcome::Ready;
+        Ok(true) => {
+            eprintln!(
+                "[rhino] warm_preload: warm hit {} ms={}",
+                path.display(),
+                t0.elapsed().as_millis()
+            );
+            PreloadOutcome::Ready
+        }
+        Ok(false) => {
+            warm_preload_hold_browse_pause(player, gl);
+            eprintln!(
+                "[rhino] warm_preload: deferred {} ms={}",
+                path.display(),
+                t0.elapsed().as_millis()
+            );
+            PreloadOutcome::Deferred
+        }
     }
-    warm_preload_hold_browse_pause(player, gl);
-    eprintln!(
-        "[rhino] warm_preload: deferred {} ms={}",
-        path.display(),
-        t0.elapsed().as_millis()
-    );
-    PreloadOutcome::Deferred
+}
+
+fn preload_continue_path(
+    path: &Path,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    video_pref: &Rc<RefCell<db::VideoPrefs>>,
+    recent: &impl IsA<gtk::Widget>,
+    gl: &gtk::GLArea,
+    last_path: &Rc<RefCell<Option<PathBuf>>>,
+) -> PreloadOutcome {
+    let t0 = std::time::Instant::now();
+    let path = crate::video_ext::resolve_open_media_path(path);
+    if let Some(outcome) = warm_preload_early_outcome(&path, player, recent, t0) {
+        return outcome;
+    }
+    dispatch_warm_load(&path, player, video_pref, recent, gl, last_path, t0)
 }
 
 fn preload_first_continue(ctx: &Rc<WarmPreloadCtx>) -> bool {
@@ -104,47 +140,15 @@ fn preload_first_continue(ctx: &Rc<WarmPreloadCtx>) -> bool {
         ctx.gate.queue(path);
         return false;
     }
-    match preload_continue_path(
+    let outcome = preload_continue_path(
         &path,
         &ctx.player,
         &ctx.video_pref,
         &ctx.recent,
         &ctx.gl,
         &ctx.last_path,
-    ) {
-        PreloadOutcome::Deferred => {
-            let gen = ctx
-                .player
-                .borrow()
-                .as_ref()
-                .map(crate::mpv_embed::MpvBundle::warm_file_gen)
-                .unwrap_or(0);
-            ctx.gate.set_inflight_gen(gen);
-            ctx.gate
-                .arm_watchdog(Rc::clone(&ctx.player), gen);
-            schedule_preload_pause(Rc::clone(&ctx.player), ctx.gl.clone());
-            true
-        }
-        PreloadOutcome::Ready => {
-            let player = Rc::clone(&ctx.player);
-            let gl = ctx.gl.clone();
-            let run = Rc::clone(ctx);
-            let gate = Rc::clone(&run.gate);
-            let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
-                finish_warm_preload_ready_now(&player, &gl);
-                let run = Rc::clone(&run);
-                gate.complete(move |p| WarmPreloadCtx::run_path(&run, p));
-                glib::ControlFlow::Break
-            });
-            false
-        }
-        PreloadOutcome::Failed => {
-            let run = Rc::clone(ctx);
-            let gate = Rc::clone(&ctx.gate);
-            gate.complete(move |p| WarmPreloadCtx::run_path(&run, p));
-            false
-        }
-    }
+    );
+    settle_preload_outcome(ctx, outcome)
 }
 
 /// Warm-preload the first continue entry after transport observers are installed.

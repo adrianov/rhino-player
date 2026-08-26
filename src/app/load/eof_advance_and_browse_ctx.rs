@@ -1,127 +1,3 @@
-
-/// Advance to the next sibling only on mpv **natural** end: `eof-reached` or `EndFile` with EOF reason.
-/// `sibling_eof_done` allows one `try_load` per logical end; cleared when `eof-reached` becomes false.
-#[allow(clippy::too_many_arguments)]
-fn maybe_advance_sibling_on_eof(
-    player: &Rc<RefCell<Option<MpvBundle>>>,
-    win: &adw::ApplicationWindow,
-    gl: &gtk::GLArea,
-    recent: &gtk::Box,
-    last_path: &Rc<RefCell<Option<PathBuf>>>,
-    seof: &SiblingEofState,
-    exit_after_current: &Rc<Cell<bool>>,
-    app: &adw::Application,
-    sub_pref: &Rc<RefCell<db::SubPrefs>>,
-    video_pref: &Rc<RefCell<db::VideoPrefs>>,
-    idle_inhib: &Rc<RefCell<Option<crate::idle_inhibit::Held>>>,
-    teardown_after_draw: &Rc<Cell<bool>>,
-    on_start: &Rc<dyn Fn()>,
-    win_aspect: Rc<WinAspectCell>,
-    on_loaded: Option<Rc<dyn Fn()>>,
-    hdr_title_mirror: Option<Rc<gtk::Label>>,
-    playback_focus: Rc<Cell<bool>>,
-    on_open_fail: &Rc<dyn Fn(String)>,
-) {
-    let g = match player.try_borrow() {
-        Ok(b) => b,
-        Err(_) => return,
-    };
-    let Some(pl) = g.as_ref() else {
-        return;
-    };
-    // Continue grid / warm hover: paused preload only — no sibling auto-advance (would call try_load with play).
-    if crate::app::browse_overlay_active(recent) {
-        return;
-    }
-    if seof.done.get() {
-        return;
-    }
-    if exit_after_current.get() {
-        seof.done.set(true);
-        drop(g);
-        eprintln!("[rhino] quit: exit after current video");
-        schedule_quit_persist(app, win, gl, player, sub_pref, idle_inhib, teardown_after_draw);
-        return;
-    }
-    let finished = local_file_from_mpv(&pl.mpv).or_else(|| last_path.borrow().clone());
-    let Some(finished) = finished else {
-        seof.done.set(true);
-        return;
-    };
-    if seof.incomplete_hold.hold_instead_of_advance(&pl.mpv, &finished) {
-        return;
-    }
-    let next = sibling_advance::next_after_eof(&finished);
-    let no_sibling = next.is_none();
-    drop(g);
-    seof.done.set(true);
-    if let Some(np) = next {
-        if crate::video_ext::paths_same_file(&np, &finished) {
-            return;
-        }
-        let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
-            video_pref: Rc::clone(video_pref),
-            last_path: Rc::clone(last_path),
-            on_start: Some(Rc::clone(on_start)),
-            win_aspect: Rc::clone(&win_aspect),
-            on_loaded: on_loaded.as_ref().map(Rc::clone),
-            play_on_start: true,
-            reset_speed_to_normal: true,
-            hdr_title_mirror,
-        });
-        o.playback_focus = Some(Rc::clone(&playback_focus));
-        o.on_open_fail = Some(Rc::clone(on_open_fail));
-        if let Err(e) = try_load(&np, player, win, gl, recent, &o) {
-            eprintln!("[rhino] sibling advance: {e}");
-            seof.done.set(false);
-        }
-    } else if no_sibling {
-        // [try_load] only runs on a path change; with no follow-up file, EOF still left the
-        // title in the continue list and DB — drop both here.
-        remove_continue_entry(&finished);
-    }
-}
-
-/// Bottom-bar **Previous** / **Next** tooltips: humanized **base name** of the target in folder/sibling
-/// order; [can] is from [SiblingEofState::nav_sensitivity].
-fn sibling_bar_tooltip(is_prev: bool, can: bool, cur: Option<&Path>) -> String {
-    if !can {
-        return if is_prev {
-            "No previous file in folder order".to_string()
-        } else {
-            "No next file in folder order".to_string()
-        };
-    }
-    let Some(c) = cur else {
-        return if is_prev {
-            "Open previous in folder order".to_string()
-        } else {
-            "Open next in folder order".to_string()
-        };
-    };
-    let t = if is_prev {
-        sibling_advance::prev_before_current(c)
-    } else {
-        sibling_advance::next_after_eof(c)
-    };
-    let Some(t) = t else {
-        // Rare if [can] and [cur] match [nav_sensitivity]; keep a neutral line if paths diverge.
-        return if is_prev {
-            "Previous in folder order".to_string()
-        } else {
-            "Next in folder order".to_string()
-        };
-    };
-    // Lossy UTF-8 from `OsStr`; humanized like window title / continue cards.
-    let label_path = crate::video_ext::dvd_disc_root(&t).unwrap_or_else(|| t.to_path_buf());
-    let raw = label_path
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| label_path.to_string_lossy().into_owned());
-    crate::human_media_title::human_media_title(&raw)
-}
-
 fn nudge_mpv_volume(mpv: &Mpv, delta: f64) {
     let max = mpv
         .get_property::<f64>("volume-max")
@@ -150,11 +26,22 @@ fn reflow_continue_cards(
         .take(crate::recent_view::CONTINUE_DISPLAY_MAX)
         .collect();
     recent.set_visible(true);
-    let v: Vec<CardData> = card_data_list(&r);
-    let warm = rbf
-        .borrow()
-        .as_ref()
-        .and_then(|c| c.warm_hover().cloned());
+    repaint_continue_row(row, rbf, &r, &on_open, &on_remove, &on_trash, &chrome_cache);
+}
+
+/// Repaint a continue row from card data and wire its thumbnail backfill (idle body of
+/// [schedule_continue_grid_refill], direct body of [reflow_continue_cards]).
+fn repaint_continue_row(
+    row: &gtk::Box,
+    rbf: &Rc<RefCell<Option<Rc<RecentContext>>>>,
+    paths: &[PathBuf],
+    on_open: &RcPathFn,
+    on_remove: &RcPathFn,
+    on_trash: &RcPathFn,
+    chrome_cache: &crate::media_probe::ContinueGridCache,
+) {
+    let v: Vec<CardData> = card_data_list(paths);
+    let warm = rbf.borrow().as_ref().and_then(|c| c.warm_hover().cloned());
     recent_view::fill_row(
         row,
         v,
@@ -162,19 +49,34 @@ fn reflow_continue_cards(
         on_remove.clone(),
         on_trash.clone(),
         warm.as_ref(),
-        Some(&chrome_cache),
+        Some(chrome_cache),
     );
+    backfill_continue_row(rbf, row, paths, on_open, on_remove, on_trash, chrome_cache);
+}
+
+/// Wire thumbnail backfill for a freshly painted continue row.
+fn backfill_continue_row(
+    rbf: &Rc<RefCell<Option<Rc<RecentContext>>>>,
+    row: &gtk::Box,
+    paths: &[PathBuf],
+    on_open: &RcPathFn,
+    on_remove: &RcPathFn,
+    on_trash: &RcPathFn,
+    chrome_cache: &crate::media_probe::ContinueGridCache,
+) {
     let warm_ctx = rbf.borrow().as_ref().and_then(|c| c.warm_hover().cloned());
     let n = recent_view::ensure_recent_backfill(
         rbf,
         row,
-        on_open,
-        on_remove,
-        on_trash,
-        warm_ctx,
-        Rc::clone(&chrome_cache),
+        recent_view::ContinueStripHooks {
+            on_open: on_open.clone(),
+            on_remove: on_remove.clone(),
+            on_trash: on_trash.clone(),
+            warm_hover: warm_ctx,
+            chrome_cache: Rc::clone(chrome_cache),
+        },
     );
-    recent_view::schedule_thumb_backfill(n, r);
+    recent_view::schedule_thumb_backfill(n, paths.to_vec());
 }
 
 fn cancel_undo_timer(src: &RefCell<Option<glib::source::SourceId>>) {
@@ -195,6 +97,12 @@ fn sync_undo_bar(
         btn.set_tooltip_text(None);
         return;
     }
+    set_undo_tooltip(btn, n);
+    set_undo_top_label(label, stack);
+}
+
+/// Undo button tooltip: single-step hint, or a step counter while several entries remain.
+fn set_undo_tooltip(btn: &gtk::Button, n: usize) {
     match n {
         1 => btn.set_tooltip_text(Some(
             "Restore to the list (and from Trash if that was the last action)",
@@ -204,6 +112,10 @@ fn sync_undo_bar(
             btn.set_tooltip_text(Some(s.as_str()));
         }
     }
+}
+
+/// Label line naming the file the next **Undo** will restore and how it left the list.
+fn set_undo_top_label(label: &gtk::Label, stack: &RefCell<Vec<ContinueBarUndo>>) {
     if let Some(p) = stack.borrow().last() {
         let (name, tail) = match p {
             ContinueBarUndo::ListRemove(u) => (
@@ -240,6 +152,8 @@ fn rearm_undo_dismiss(
     }));
 }
 
+include!("eof_advance_nav.rs");
+
 /// Shared handles for leaving playback and repainting the recent grid (Escape path).
 struct BackToBrowseCtx {
     /// Bottom-bar close (`app.close-video`); tooltip + enable state via [sync_close_video_action].
@@ -275,4 +189,3 @@ struct BackToBrowseCtx {
     browse_has_strip: bool,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
 }
-

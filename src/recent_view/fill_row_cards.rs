@@ -10,6 +10,16 @@ fn open_video_pick_card() -> gtk::Overlay {
         "Choose a video file — same action as Open Video from the menu",
     ));
 
+    let btn = open_pick_button();
+    card.set_child(Some(&btn));
+
+    card.set_cursor_from_name(Some("pointer"));
+    btn.set_cursor_from_name(Some("pointer"));
+    card
+}
+
+/// Flat button holding the plus icon and "Open Video…" caption.
+fn open_pick_button() -> gtk::Button {
     let btn = gtk::Button::builder()
         .action_name("app.open")
         .vexpand(false)
@@ -17,7 +27,12 @@ fn open_video_pick_card() -> gtk::Overlay {
         .css_classes(["flat"])
         .build();
     btn.set_can_shrink(true);
+    btn.set_child(Some(&open_pick_content()));
+    btn
+}
 
+/// Centered column with the plus glyph above the caption.
+fn open_pick_content() -> gtk::Box {
     let col = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(10)
@@ -29,14 +44,22 @@ fn open_video_pick_card() -> gtk::Overlay {
         .margin_start(12)
         .margin_end(12)
         .build();
+    col.append(&open_pick_plus_icon());
+    col.append(&open_pick_caption());
+    col
+}
 
+fn open_pick_plus_icon() -> gtk::Image {
     let im = gtk::Image::from_icon_name("list-add-symbolic");
     im.set_pixel_size(44);
     im.set_icon_size(gtk::IconSize::Large);
     im.set_valign(gtk::Align::Center);
     im.set_halign(gtk::Align::Center);
     im.add_css_class("rp-recent-open-pick-plus");
+    im
+}
 
+fn open_pick_caption() -> gtk::Label {
     let lab = gtk::Label::builder()
         .label("Open Video…")
         .single_line_mode(true)
@@ -44,15 +67,41 @@ fn open_video_pick_card() -> gtk::Overlay {
         .justify(gtk::Justification::Center)
         .build();
     lab.add_css_class("rp-recent-open-pick-label");
+    lab
+}
 
-    col.append(&im);
-    col.append(&lab);
-    btn.set_child(Some(&col));
-    card.set_child(Some(&btn));
+/// Keeps card widths in sync while the strip (or its parent) is resized, plus one idle pass
+/// after the first [Allocation].
+fn wire_card_size_sync(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
+    wire_width_notify(row, cards);
+    schedule_first_size_sync(row, cards);
+}
 
-    card.set_cursor_from_name(Some("pointer"));
-    btn.set_cursor_from_name(Some("pointer"));
-    card
+fn wire_width_notify(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
+    let hrow = row.clone();
+    if let Some(parent) = hrow.parent() {
+        let h = hrow.clone();
+        let c = Rc::clone(cards);
+        parent.connect_notify_local(Some("width"), move |_, _| {
+            sync_card_sizes(&h, &c.borrow());
+        });
+    } else {
+        let c = Rc::clone(cards);
+        row.connect_notify_local(Some("width"), move |r, _| {
+            sync_card_sizes(r, &c.borrow());
+        });
+    }
+}
+
+// After the first [Allocation], parent width is reliable; [idle] runs after a layout pass in
+// case [notify] did not run when width crossed 0 → >0.
+fn schedule_first_size_sync(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
+    let hrow = row.clone();
+    let c3 = Rc::clone(cards);
+    let _ = glib::idle_add_local(move || {
+        sync_card_sizes(&hrow, &c3.borrow());
+        glib::ControlFlow::Break
+    });
 }
 
 /// Replace all children with cards. [on_remove] is **Remove from list**; [on_trash] is **Move to Trash**.
@@ -71,14 +120,7 @@ pub fn fill_row(
     clear(row);
     let cards = Rc::new(RefCell::new(Vec::<gtk::Overlay>::new()));
 
-    let pick = open_video_pick_card();
-    let wrap_pick = adw::Clamp::new();
-    wrap_pick.set_maximum_size(CARD_MAX_W);
-    wrap_pick.set_child(Some(&pick));
-    let (dw, dh) = default_card_dims();
-    apply_card_dims(&pick, dw, dh);
-    cards.borrow_mut().push(pick.clone());
-    row.append(&wrap_pick);
+    append_open_pick_tile(row, &cards);
 
     let handlers = HistoryCardHandlers {
         on_open,
@@ -90,26 +132,17 @@ pub fn fill_row(
         append_history_card(row, &cards, d, &handlers);
     }
     sync_card_sizes(row, &cards.borrow());
-    let cards2 = Rc::clone(&cards);
-    let hrow = row.clone();
-    if let Some(parent) = hrow.parent() {
-        let h = hrow.clone();
-        let c = Rc::clone(&cards2);
-        parent.connect_notify_local(Some("width"), move |_, _| {
-            sync_card_sizes(&h, &c.borrow());
-        });
-    } else {
-        let c = Rc::clone(&cards2);
-        row.connect_notify_local(Some("width"), move |r, _| {
-            sync_card_sizes(r, &c.borrow());
-        });
-    }
-    // After the first [Allocation], parent width is reliable; [idle] runs after a layout pass in
-    // case [notify] did not run when width crossed 0 → >0.
-    let hrow = row.clone();
-    let c3 = Rc::clone(&cards2);
-    let _ = glib::idle_add_local(move || {
-        sync_card_sizes(&hrow, &c3.borrow());
-        glib::ControlFlow::Break
-    });
+    wire_card_size_sync(row, &cards);
+}
+
+/// The leading "Open Video…" tile, pre-wrapped and registered like a history card.
+fn append_open_pick_tile(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
+    let pick = open_video_pick_card();
+    let wrap_pick = adw::Clamp::new();
+    wrap_pick.set_maximum_size(CARD_MAX_W);
+    wrap_pick.set_child(Some(&pick));
+    let (dw, dh) = default_card_dims();
+    apply_card_dims(&pick, dw, dh);
+    cards.borrow_mut().push(pick.clone());
+    row.append(&wrap_pick);
 }

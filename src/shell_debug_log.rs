@@ -58,17 +58,33 @@ fn ns_client_size(_win: &adw::ApplicationWindow) -> Option<(i32, i32)> {
     None
 }
 
+fn push_widget_line(
+    msg: &mut String,
+    name: &str,
+    w: &impl IsA<gtk::Widget>,
+    root: &impl IsA<gtk::Widget>,
+) {
+    msg.push_str(" | ");
+    msg.push_str(&widget_line(name, w, root));
+}
+
+/// Widget handles logged by [`log_toolbar_layout`].
+pub(crate) struct ToolbarLayoutRefs<'a> {
+    pub(crate) win: &'a adw::ApplicationWindow,
+    pub(crate) root: &'a adw::ToolbarView,
+    pub(crate) header: &'a adw::HeaderBar,
+    pub(crate) bottom: &'a gtk::Box,
+    pub(crate) gl: &'a gtk::GLArea,
+    #[cfg(target_os = "macos")]
+    pub(crate) bottom_shell: &'a gtk::Box,
+}
+
 pub(crate) fn log_toolbar_layout(
     tag: &str,
-    win: &adw::ApplicationWindow,
-    root: &adw::ToolbarView,
-    header: &adw::HeaderBar,
-    bottom: &gtk::Box,
-    gl: &gtk::GLArea,
+    w: &ToolbarLayoutRefs<'_>,
     recent_vis: bool,
     bar_show: bool,
     show: bool,
-    #[cfg(target_os = "macos")] bottom_shell: &gtk::Box,
 ) {
     if !enabled() {
         return;
@@ -76,37 +92,34 @@ pub(crate) fn log_toolbar_layout(
     let mut msg = format!(
         "{tag} show={show} bar_show={bar_show} recent={recent_vis} \
          reveal_top={} reveal_bottom={} top_h={} bottom_h={}",
-        root.reveals_top_bars(),
-        root.reveals_bottom_bars(),
-        root.top_bar_height(),
-        root.bottom_bar_height(),
+        w.root.reveals_top_bars(),
+        w.root.reveals_bottom_bars(),
+        w.root.top_bar_height(),
+        w.root.bottom_bar_height(),
     );
-    msg.push_str(" | ");
-    msg.push_str(&widget_line("win", win, win));
-    msg.push_str(" | ");
-    msg.push_str(&widget_line("root", root, win));
-    msg.push_str(" | ");
-    msg.push_str(&widget_line("hdr", header, win));
-    msg.push_str(" | ");
-    msg.push_str(&widget_line("gl", gl, win));
-    msg.push_str(" | ");
-    msg.push_str(&widget_line("bottom", bottom, win));
+    push_widget_line(&mut msg, "win", w.win, w.win);
+    push_widget_line(&mut msg, "root", w.root, w.win);
+    push_widget_line(&mut msg, "hdr", w.header, w.win);
+    push_widget_line(&mut msg, "gl", w.gl, w.win);
+    push_widget_line(&mut msg, "bottom", w.bottom, w.win);
     #[cfg(target_os = "macos")]
-    {
-        msg.push_str(" | ");
-        msg.push_str(&widget_line("shell", bottom_shell, win));
-    }
-    if let Some((nw, nh)) = ns_client_size(win) {
+    push_widget_line(&mut msg, "shell", w.bottom_shell, w.win);
+    if let Some((nw, nh)) = ns_client_size(w.win) {
         msg.push_str(&format!(
             " | ns={nw}x{nh} gtkΔ={}x{}",
-            win.width() - nw,
-            win.height() - nh
+            w.win.width() - nw,
+            w.win.height() - nh
         ));
     }
     log(msg);
 }
 
-pub(crate) fn log_fit(target_w: i32, target_h: i32, win: &adw::ApplicationWindow, video: (i64, i64)) {
+pub(crate) fn log_fit(
+    target_w: i32,
+    target_h: i32,
+    win: &adw::ApplicationWindow,
+    video: (i64, i64),
+) {
     if !enabled() {
         return;
     }
@@ -120,7 +133,13 @@ pub(crate) fn log_fit(target_w: i32, target_h: i32, win: &adw::ApplicationWindow
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn log_resize_pass(attempt: u8, target_w: i32, target_h: i32, win: &adw::ApplicationWindow, forced: bool) {
+pub(crate) fn log_resize_pass(
+    attempt: u8,
+    target_w: i32,
+    target_h: i32,
+    win: &adw::ApplicationWindow,
+    forced: bool,
+) {
     if !enabled() {
         return;
     }

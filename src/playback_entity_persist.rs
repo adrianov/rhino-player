@@ -36,12 +36,71 @@ pub fn persist_playback(
     }
 }
 
-/// Snapshot mpv transport into the entity row (unified timeline for multi-part DVDs).
-pub fn persist_from_mpv(
+/// mpv `(duration, time-pos)` snapshot, each filtered to a sane value.
+fn mpv_dur_pos(mpv: &Mpv) -> (Option<f64>, Option<f64>) {
+    let dur = mpv
+        .get_property::<f64>("duration")
+        .ok()
+        .filter(|d| d.is_finite() && *d > 0.0);
+    let pos = mpv
+        .get_property::<f64>("time-pos")
+        .ok()
+        .filter(|p| p.is_finite() && *p >= 0.0);
+    (dur, pos)
+}
+
+/// Unified-timeline transport-bar seconds → entity row (no-op without a usable bar).
+fn save_unified_bar(ent: &PlaybackEntity, transport_bar: Option<(f64, f64)>) {
+    if let Some((total, global)) = transport_bar.filter(|_| ent.has_unified_timeline()) {
+        if total.is_finite() && total > 0.0 && global.is_finite() {
+            ent.save_global_resume(total, global);
+        }
+    }
+}
+
+/// Plain single-file persistence: full playback snapshot, or duration-only without a position.
+fn persist_plain(mpv: &Mpv, ent: &PlaybackEntity, playing: &Path, map: &HashMap<String, f64>) {
+    if ent.has_unified_timeline() {
+        return;
+    }
+    let (dur, pos) = mpv_dur_pos(mpv);
+    match (dur, pos) {
+        (Some(dur), Some(pos)) => persist_playback(playing, pos, dur, map),
+        (Some(dur), None) => {
+            let (total, _) = ent.playback_snapshot(playing, 0.0, dur, map);
+            if total.is_finite() && total > 0.0 {
+                crate::db::set_duration(&ent.db_path(), total);
+                ent.purge_extra_db_rows();
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Natural end on a unified timeline drops the stored resume once playback is near the title tail.
+fn clear_unified_at_tail(
     mpv: &Mpv,
-    shell: Option<&Path>,
+    ent: &PlaybackEntity,
+    playing: &Path,
     transport_bar: Option<(f64, f64)>,
+    map: &HashMap<String, f64>,
+    at_tail: bool,
 ) {
+    if !ent.has_unified_timeline() || !at_tail {
+        return;
+    }
+    let (dur, pos) = mpv_dur_pos(mpv);
+    if let (Some(dur), Some(pos)) = (dur, pos) {
+        let (total, global) =
+            transport_bar.unwrap_or_else(|| ent.playback_snapshot(playing, pos, dur, map));
+        if total > 5.0 && global >= total - NEAR_END_SEC {
+            clear_entity_resume(playing);
+        }
+    }
+}
+
+/// Snapshot mpv transport into the entity row (unified timeline for multi-part DVDs).
+pub fn persist_from_mpv(mpv: &Mpv, shell: Option<&Path>, transport_bar: Option<(f64, f64)>) {
     let Some(playing) = media_probe::shell_media_path(mpv, shell) else {
         return;
     };
@@ -52,47 +111,7 @@ pub fn persist_from_mpv(
         return;
     }
     let map = crate::db::load_duration_map();
-    if let Some((total, global)) = transport_bar.filter(|_| ent.has_unified_timeline()) {
-        if total.is_finite() && total > 0.0 && global.is_finite() {
-            ent.save_global_resume(total, global);
-        }
-    } else if !ent.has_unified_timeline() {
-        let dur = mpv
-            .get_property::<f64>("duration")
-            .ok()
-            .filter(|d| d.is_finite() && *d > 0.0);
-        let pos = mpv
-            .get_property::<f64>("time-pos")
-            .ok()
-            .filter(|p| p.is_finite() && *p >= 0.0);
-        match (dur, pos) {
-            (Some(dur), Some(pos)) => persist_playback(&playing, pos, dur, &map),
-            (Some(dur), None) => {
-                let (total, _) = ent.playback_snapshot(&playing, 0.0, dur, &map);
-                if total.is_finite() && total > 0.0 {
-                    crate::db::set_duration(&ent.db_path(), total);
-                    ent.purge_extra_db_rows();
-                }
-            }
-            _ => {}
-        }
-    }
-    if at_tail && ent.has_unified_timeline() {
-        let dur = mpv
-            .get_property::<f64>("duration")
-            .ok()
-            .filter(|d| d.is_finite() && *d > 0.0);
-        let pos = mpv
-            .get_property::<f64>("time-pos")
-            .ok()
-            .filter(|p| p.is_finite() && *p >= 0.0);
-        if let (Some(dur), Some(pos)) = (dur, pos) {
-            let (total, global) = transport_bar
-                .filter(|_| ent.has_unified_timeline())
-                .unwrap_or_else(|| ent.playback_snapshot(&playing, pos, dur, &map));
-            if total > 5.0 && global >= total - NEAR_END_SEC {
-                clear_entity_resume(&playing);
-            }
-        }
-    }
+    save_unified_bar(&ent, transport_bar);
+    persist_plain(mpv, &ent, &playing, &map);
+    clear_unified_at_tail(mpv, &ent, &playing, transport_bar, &map, at_tail);
 }

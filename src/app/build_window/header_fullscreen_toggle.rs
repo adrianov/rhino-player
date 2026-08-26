@@ -49,21 +49,48 @@ fn wire_header_fullscreen_toggle(
         recent.clone(),
     );
     hdr_dbl.connect_pressed(move |_, n_press, _, _| {
-        if n_press != 2 {
-            return;
-        }
-        if rec_hdr.is_visible() && !win_hdr.is_fullscreen() {
-            if win_hdr.is_maximized() {
-                let prev = lu_hdr.borrow();
-                win_hdr.unmaximize();
-                win_hdr.set_default_size(prev.0, prev.1);
-            } else {
-                *lu_hdr.borrow_mut() = win_normal_size(&win_hdr);
-                win_hdr.maximize();
-            }
-            return;
-        }
-        toggle_fullscreen(&win_hdr, &fr_hdr, &lu_hdr, &skip_hdr, fb_hdr.as_ref());
+        dbl_press_enter_or_exit_fullscreen(
+            &win_hdr,
+            &fr_hdr,
+            &lu_hdr,
+            &skip_hdr,
+            fb_hdr.as_ref(),
+            &rec_hdr,
+            n_press,
+        );
     });
     header.add_controller(hdr_dbl);
+}
+
+/// One double-press: while the browse strip is visible and not fullscreen, restore/maximize
+/// instead of entering fullscreen; otherwise toggle fullscreen as usual.
+fn dbl_press_enter_or_exit_fullscreen(
+    win: &adw::ApplicationWindow,
+    fr: &Rc<RefCell<Option<(i32, i32)>>>,
+    lu: &Rc<RefCell<(i32, i32)>>,
+    skip: &Rc<Cell<bool>>,
+    fb: &Cell<bool>,
+    rec: &gtk::Box,
+    n_press: i32,
+) {
+    if n_press != 2 {
+        return;
+    }
+    if rec.is_visible() && !win.is_fullscreen() {
+        restore_or_maximize(win, lu);
+        return;
+    }
+    toggle_fullscreen(win, fr, lu, skip, fb);
+}
+
+/// Maximize/restore dance for the header double-click when the browse strip is visible.
+fn restore_or_maximize(win: &adw::ApplicationWindow, lu: &Rc<RefCell<(i32, i32)>>) {
+    if win.is_maximized() {
+        let prev = lu.borrow();
+        win.unmaximize();
+        win.set_default_size(prev.0, prev.1);
+    } else {
+        *lu.borrow_mut() = win_normal_size(win);
+        win.maximize();
+    }
 }

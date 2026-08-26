@@ -1,9 +1,41 @@
 fn preview_owner_db(player: &Rc<RefCell<Option<MpvBundle>>>) -> Option<PathBuf> {
     let g = player.borrow();
     let b = g.as_ref()?;
-    let shell = b.me_budget_shell_path.borrow().clone();
-    crate::playback_entity::open_playback(&b.mpv, shell.as_deref())
+    crate::playback_entity::open_playback(&b.mpv, budget_shell_path(b).as_deref())
         .map(|(ent, _)| ent.db_path())
+}
+
+/// True while a load for exactly this target is already pumping.
+fn preview_load_in_flight(st: &SeekPreviewState, load_s: &str) -> bool {
+    st.pump.borrow().is_some() && st.loaded_target.borrow().as_deref() == Some(load_s)
+}
+
+/// (needs reload, aux VO ready, playback entity changed since the cached clip).
+fn preview_load_state(
+    st: &SeekPreviewState,
+    pr: &MpvPreviewGl,
+    owner_db: &Option<PathBuf>,
+    load_s: &str,
+) -> (bool, bool, bool) {
+    let entity_changed = owner_db.as_ref() != st.preview_owner_db.borrow().as_ref();
+    let vo_ready = pr.mpv.get_property::<bool>("vo-configured") == Ok(true);
+    let need_load =
+        entity_changed || st.loaded_target.borrow().as_deref() != Some(load_s) || !vo_ready;
+    (need_load, vo_ready, entity_changed)
+}
+
+fn log_do_seek(
+    load_s: &str,
+    t: f64,
+    content_dur: f64,
+    need_load: bool,
+    entity_changed: bool,
+    vo_ready: bool,
+    optical: bool,
+) {
+    crate::preview_debug::info(format!(
+        "do_seek load={load_s} t={t:.2} dur={content_dur:.2} need_load={need_load} entity_chg={entity_changed} vo_ready={vo_ready} optical={optical}"
+    ));
 }
 
 fn do_preview_seek(
@@ -24,85 +56,34 @@ fn do_preview_seek(
         crate::preview_debug::warn("do_seek: empty load target");
         return;
     }
-    let cache = preview_cache_path(load_s);
-    let entity_changed = owner_db.as_ref() != st.preview_owner_db.borrow().as_ref();
-    let vo_ready = pr.mpv.get_property::<bool>("vo-configured") == Ok(true);
-    let need_load = entity_changed
-        || st.loaded_target.borrow().as_deref() != Some(load_s)
-        || !vo_ready;
     let optical = preview_media_is_optical(load_s);
-    crate::preview_debug::info(format!(
-        "do_seek load={load_s} t={t:.2} dur={content_dur:.2} need_load={need_load} entity_chg={entity_changed} vo_ready={vo_ready} optical={optical}"
-    ));
-
+    let (need_load, vo_ready, entity_changed) = preview_load_state(st, pr, &owner_db, load_s);
+    log_do_seek(
+        load_s,
+        t,
+        content_dur,
+        need_load,
+        entity_changed,
+        vo_ready,
+        optical,
+    );
+    drop(g);
     if need_load {
-        let load_in_flight = st.pump.borrow().is_some()
-            && st.loaded_target.borrow().as_deref() == Some(load_s);
-        if load_in_flight {
-            crate::preview_debug::info(format!(
-                "do_seek load in flight, pump only seek={t:.2} ({load_s})"
-            ));
-            drop(g);
-            start_preview_frame_pump(
-                &st.gl,
-                &st.preview,
-                &st.pump,
-                &st.serial,
-                run_id,
+        reload_finish(st, owner_db, load_s, content_dur, t, optical, run_id);
+    } else {
+        warm_finish(
+            st,
+            SeekTarget {
                 load_s,
                 content_dur,
                 t,
                 optical,
-            );
-            return;
-        }
-        pr.clear_framebuffer(&st.gl);
-        prepare_preview_player(&pr.mpv, load_s);
-        if let Err(e) = pr.mpv.command("loadfile", &[load_s, "replace"]) {
-            crate::preview_debug::warn(format!("loadfile failed: {e:?} ({load_s})"));
-            return;
-        }
-        crate::preview_debug::info(format!(
-            "loadfile ok ({})",
-            crate::preview_debug::mpv_line(&pr.mpv)
-        ));
-        *st.loaded_path.borrow_mut() = Some(cache);
-        *st.loaded_target.borrow_mut() = Some(load_s.to_string());
-        *st.preview_owner_db.borrow_mut() = owner_db;
-        drop(g);
-        start_preview_frame_pump(
-            &st.gl,
-            &st.preview,
-            &st.pump,
-            &st.serial,
+            },
+            instant,
+            vo_ready,
             run_id,
-            load_s,
-            content_dur,
-            t,
-            optical,
-        );
-    } else {
-        set_preview_tracks(&pr.mpv);
-        let t = cap_preview_seek_time(t, content_dur);
-        if instant && vo_ready && preview_run_seek(&pr.mpv, load_s, t, optical) {
-            crate::preview_debug::info(format!(
-                "do_seek warm instant seek={t:.2} ({})",
-                crate::preview_debug::mpv_line(&pr.mpv)
-            ));
-            st.gl.queue_render();
-            return;
-        }
-        drop(g);
-        start_preview_frame_pump(
-            &st.gl,
-            &st.preview,
-            &st.pump,
-            &st.serial,
-            run_id,
-            load_s,
-            content_dur,
-            t,
-            optical,
         );
     }
 }
+
+include!("preview_do_seek/warm_reload.rs");

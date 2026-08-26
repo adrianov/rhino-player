@@ -26,19 +26,22 @@ fn vsscript_dir_under_libexec(lib_root: &Path) -> Option<PathBuf> {
     }
     let py_dirs = std::fs::read_dir(lib_root).ok()?;
     for py in py_dirs.flatten() {
-        if !py
-            .file_name()
-            .to_string_lossy()
-            .starts_with("python")
-        {
+        if !py.file_name().to_string_lossy().starts_with("python") {
             continue;
         }
-        let vs = py
-            .path()
-            .join("site-packages/vapoursynth");
-        if vs.join(VSSCRIPT_DYLIB).is_file() {
-            return std::fs::canonicalize(&vs).ok().or(Some(vs));
+        if let Some(dir) = vsscript_dylib_in_python_dir(&py.path()) {
+            return Some(dir);
         }
+    }
+    None
+}
+
+/// `…/site-packages/vapoursynth/` when it holds [`VSSCRIPT_DYLIB`].
+#[cfg(target_os = "macos")]
+fn vsscript_dylib_in_python_dir(py: &Path) -> Option<PathBuf> {
+    let vs = py.join("site-packages/vapoursynth");
+    if vs.join(VSSCRIPT_DYLIB).is_file() {
+        return std::fs::canonicalize(&vs).ok().or(Some(vs));
     }
     None
 }
@@ -74,30 +77,47 @@ fn dylib_alias_dir() -> PathBuf {
         })
 }
 
-#[cfg(target_os = "macos")]
 fn ensure_mpv_vsscript_alias(vs_lib: &Path) -> Option<PathBuf> {
-    let vsscript = vs_lib.join(VSSCRIPT_DYLIB);
-    if !vsscript.is_file() {
-        eprintln!("[rhino] video: VapourSynth missing {VSSCRIPT_DYLIB} under {}", vs_lib.display());
-        return None;
-    }
+    let vsscript = mpv_vsscript_target(vs_lib)?;
     if vs_lib.join(MPV_VSSCRIPT_DYLIB).is_file() {
         return None;
     }
     let alias_dir = dylib_alias_dir();
     std::fs::create_dir_all(&alias_dir).ok()?;
     let alias = alias_dir.join(MPV_VSSCRIPT_DYLIB);
-    if alias.is_symlink() || alias.is_file() {
-        let _ = std::fs::remove_file(&alias);
-    }
-    std::os::unix::fs::symlink(&vsscript, &alias).map_err(|e| {
-        eprintln!(
-            "[rhino] video: symlink {} -> {} failed: {e}",
-            alias.display(),
-            vsscript.display()
-        );
-    }).ok()?;
+    recreate_alias_symlink(&vsscript, &alias)?;
     Some(alias_dir)
+}
+
+/// The real `libvsscript.dylib` to alias from mpv's legacy name; logs when absent.
+#[cfg(target_os = "macos")]
+fn mpv_vsscript_target(vs_lib: &Path) -> Option<PathBuf> {
+    let vsscript = vs_lib.join(VSSCRIPT_DYLIB);
+    if !vsscript.is_file() {
+        eprintln!(
+            "[rhino] video: VapourSynth missing {VSSCRIPT_DYLIB} under {}",
+            vs_lib.display()
+        );
+        return None;
+    }
+    Some(vsscript)
+}
+
+/// Replace any stale alias, then link `vsscript`; logs and fails soft on error.
+#[cfg(target_os = "macos")]
+fn recreate_alias_symlink(vsscript: &Path, alias: &Path) -> Option<()> {
+    if alias.is_symlink() || alias.is_file() {
+        let _ = std::fs::remove_file(alias);
+    }
+    std::os::unix::fs::symlink(vsscript, alias)
+        .map_err(|e| {
+            eprintln!(
+                "[rhino] video: symlink {} -> {} failed: {e}",
+                alias.display(),
+                vsscript.display()
+            )
+        })
+        .ok()
 }
 
 /// Build **`DYLD_LIBRARY_PATH`** entries for VapourSynth + the mpv legacy script dylib name.
@@ -137,55 +157,12 @@ pub fn macos_reexec_for_vapoursynth_dyld_if_needed() {
         );
         return;
     };
-    let dyld = match std::env::var_os("DYLD_LIBRARY_PATH") {
-        Some(cur) if !cur.is_empty() => format!("{add}:{}", cur.to_string_lossy()),
-        _ => add,
-    };
-    let exe = match std::env::current_exe() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("[rhino] video: re-exec skipped (current_exe: {e})");
-            return;
-        }
-    };
-    let mut env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
-    env.retain(|(k, _)| k != "DYLD_LIBRARY_PATH");
-    env.push(("DYLD_LIBRARY_PATH".into(), OsString::from(dyld)));
-    env.push((DYLD_PRIMED_VAR.into(), "1".into()));
-
-    let arg_c: Vec<CString> = std::env::args_os()
-        .map(|a| cstring_lossy(a.as_os_str()))
-        .collect();
-    let mut arg_ptrs: Vec<*const libc::c_char> = arg_c.iter().map(|a| a.as_ptr()).collect();
-    arg_ptrs.push(std::ptr::null());
-
-    let env_c: Vec<CString> = env
-        .iter()
-        .map(|(k, v)| {
-            use std::os::unix::ffi::OsStrExt;
-            let mut pair = k.as_os_str().as_bytes().to_vec();
-            pair.push(b'=');
-            pair.extend_from_slice(v.as_os_str().as_bytes());
-            CString::new(pair).unwrap_or_else(|_| CString::new(b"RHINO_DYLD_PRIMED=1").unwrap())
-        })
-        .collect();
-    let mut env_ptrs: Vec<*const libc::c_char> = env_c.iter().map(|e| e.as_ptr()).collect();
-    env_ptrs.push(std::ptr::null());
-
-    eprintln!("[rhino] video: re-exec for VapourSynth (DYLD_LIBRARY_PATH at process start)");
-    unsafe {
-        libc::execve(
-            cstring_lossy(exe.as_os_str()).as_ptr(),
-            arg_ptrs.as_ptr(),
-            env_ptrs.as_ptr(),
-        );
-    }
-    eprintln!(
-        "[rhino] video: re-exec failed: {}",
-        std::io::Error::last_os_error()
-    );
-    std::process::exit(1);
+    let dyld = merged_dyld_value(&add);
+    let env = reexec_env(&dyld);
+    execve_reexec(env);
 }
+
+include!("paths_vapoursynth_macos_reexec.rs");
 
 #[cfg(all(test, target_os = "macos"))]
 mod macos_vapoursynth_lib_tests {

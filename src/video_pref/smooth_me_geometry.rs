@@ -17,40 +17,50 @@ pub(crate) fn bundled_me_vf_out_wh(
 ) -> Option<(u32, u32)> {
     let dw = decode_w.max(1);
     let dh = decode_h.max(1);
-
-    #[inline]
-    fn me_wh_aligned(width_px: i32, height_px: i32) -> (i32, i32) {
-        let b = ME_GEOMETRY_ALIGN_PX;
-        let wf = width_px - (width_px % b);
-        let hf = height_px - (height_px % b);
-        (wf.max(b), hf.max(b))
-    }
-
     let smooth_cap = smooth_max_area_px.max(crate::db::MIN_SMOOTH_MAX_AREA);
     let decode_px_u = (dw as u64).checked_mul(dh as u64)?;
 
     if decode_px_u <= smooth_cap {
-        let (aw, ah) = me_wh_aligned(dw, dh);
-        let (ow, oh) = if aw == dw && ah == dh {
-            (dw, dh)
-        } else {
-            (aw, ah)
-        };
-        Some((positive_dim_u32(ow)?, positive_dim_u32(oh)?))
+        me_wh_unscaled(dw, dh)
     } else {
-        let cap = smooth_cap.max(1) as f64;
-        let dp = decode_px_u.max(1) as f64;
-        let scale = (cap / dp).sqrt();
-        let mut me_w = ((f64::from(dw)) * scale).round() as i32;
-        let mut me_h = ((f64::from(dh)) * scale).round() as i32;
-        me_w = me_w.max(2);
-        me_h = me_h.max(2);
-        let (aw, ah) = me_wh_aligned(me_w, me_h);
-        Some((
-            positive_dim_u32(aw.max(2))?,
-            positive_dim_u32(ah.max(2))?,
-        ))
+        me_wh_scaled_to_cap(dw, dh, decode_px_u, smooth_cap)
     }
+}
+
+#[inline]
+fn me_wh_aligned(width_px: i32, height_px: i32) -> (i32, i32) {
+    let b = ME_GEOMETRY_ALIGN_PX;
+    let wf = width_px - (width_px % b);
+    let hf = height_px - (height_px % b);
+    (wf.max(b), hf.max(b))
+}
+
+/// Decode already fits the cap: keep it (aligned only when alignment changes dims).
+fn me_wh_unscaled(dw: i32, dh: i32) -> Option<(u32, u32)> {
+    let (aw, ah) = me_wh_aligned(dw, dh);
+    let (ow, oh) = if aw == dw && ah == dh {
+        (dw, dh)
+    } else {
+        (aw, ah)
+    };
+    Some((positive_dim_u32(ow)?, positive_dim_u32(oh)?))
+}
+
+/// Decode exceeds the cap: scale by `sqrt(cap / decode_px)`, round, floor at 2 px, align to 8.
+fn me_wh_scaled_to_cap(dw: i32, dh: i32, decode_px_u: u64, smooth_cap: u64) -> Option<(u32, u32)> {
+    let (me_w, me_h) = me_dims_scaled_to_cap(dw, dh, decode_px_u, smooth_cap);
+    let (aw, ah) = me_wh_aligned(me_w, me_h);
+    Some((positive_dim_u32(aw.max(2))?, positive_dim_u32(ah.max(2))?))
+}
+
+/// `sqrt(cap / decode_px)` scale factor, applied per axis with rounding and a 2 px floor.
+fn me_dims_scaled_to_cap(dw: i32, dh: i32, decode_px_u: u64, smooth_cap: u64) -> (i32, i32) {
+    let cap = smooth_cap.max(1) as f64;
+    let dp = decode_px_u.max(1) as f64;
+    let scale = (cap / dp).sqrt();
+    let me_w = ((f64::from(dw)) * scale).round() as i32;
+    let me_h = ((f64::from(dh)) * scale).round() as i32;
+    (me_w.max(2), me_h.max(2))
 }
 
 #[cfg(test)]

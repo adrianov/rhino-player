@@ -14,19 +14,10 @@ pub fn mpv_audio_label(
     if let Some(t) = title.map(str::trim).filter(|s| !s.is_empty()) {
         return prefix_title_lang(lang, t);
     }
-    let lang = lang.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("");
-    let format = codec.and_then(mpv_codec_format_label);
+    let lang = lang.map(str::trim).filter(|s| !s.is_empty());
+    let format = codec.and_then(mpv_codec_format_label).map(str::to_string);
     let ch = channel_label_from_mpv(demux_channel_count, demux_channels);
-    match (lang.is_empty(), format) {
-        (false, Some(fmt)) if !ch.is_empty() => format!("{lang} · {fmt} {ch}"),
-        (false, Some(fmt)) => format!("{lang} · {fmt}"),
-        (false, None) if !ch.is_empty() => format!("{lang} · {ch}"),
-        (false, None) => lang.to_string(),
-        (true, Some(fmt)) if !ch.is_empty() => format!("{fmt} {ch}"),
-        (true, Some(fmt)) => fmt.to_string(),
-        (true, None) if !ch.is_empty() => ch,
-        (true, None) => String::new(),
-    }
+    join_label(lang, format, ch)
 }
 
 /// Subtitle row label from mpv metadata (DVD IFO labels take precedence when present).
@@ -43,16 +34,27 @@ pub fn mpv_sub_label(
     if let Some(t) = title.map(str::trim).filter(|s| !s.is_empty()) {
         return prefix_title_lang(lang, t);
     }
-    let lang = lang.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("");
-    let kind = codec.and_then(sub_format_label);
-    let mut out = match (lang.is_empty(), kind) {
-        (false, Some(k)) => format!("{lang} · {k}"),
-        (false, None) => lang.to_string(),
-        (true, Some(k)) => k.to_string(),
-        (true, None) => String::new(),
-    };
+    let lang = lang.map(str::trim).filter(|s| !s.is_empty());
+    let kind = codec.and_then(sub_format_label).map(str::to_string);
+    let mut out = join_label(lang, kind, String::new());
     append_sub_tags(&mut out, forced, hearing_impaired, visual_impaired, default);
     out
+}
+
+/// Join `lang · fmt ch`: the language leads, format and channel layout share the tail slot;
+/// empty components are skipped entirely.
+fn join_label(lang: Option<&str>, fmt: Option<String>, ch: String) -> String {
+    let tail = match (fmt, ch.is_empty()) {
+        (Some(f), true) => f,
+        (Some(f), false) => format!("{f} {ch}"),
+        (None, _) => ch,
+    };
+    match (lang.filter(|l| !l.is_empty()), tail.is_empty()) {
+        (Some(l), false) => format!("{l} · {tail}"),
+        (Some(l), true) => l.to_string(),
+        (None, false) => tail,
+        (None, true) => String::new(),
+    }
 }
 
 fn append_sub_tags(
@@ -89,10 +91,7 @@ fn prefix_title_lang(lang: Option<&str>, title: &str) -> String {
 
 /// When several rows share the same label, suffix ` · 2`, ` · 3`, … (first row unchanged).
 pub fn disambiguate_labels(labels: &mut [String]) {
-    let mut totals: HashMap<String, usize> = HashMap::new();
-    for l in labels.iter() {
-        *totals.entry(l.clone()).or_default() += 1;
-    }
+    let totals = duplicate_totals(labels);
     let mut seen: HashMap<String, usize> = HashMap::new();
     for label in labels.iter_mut() {
         if totals.get(label).copied().unwrap_or(1) <= 1 {
@@ -107,20 +106,42 @@ pub fn disambiguate_labels(labels: &mut [String]) {
     }
 }
 
-fn mpv_codec_format_label(codec: &str) -> Option<&'static str> {
-    match codec.trim().to_ascii_lowercase().as_str() {
-        "ac3" | "ac-3" => Some("AC-3"),
-        "eac3" | "e-ac-3" => Some("E-AC-3"),
-        "dts" | "dca" => Some("DTS"),
-        "truehd" => Some("TrueHD"),
-        "flac" => Some("FLAC"),
-        "aac" | "aac_latm" => Some("AAC"),
-        "mp3" => Some("MP3"),
-        "opus" => Some("Opus"),
-        "vorbis" => Some("Vorbis"),
-        "lpcm" | "pcm_s16le" | "pcm_s24le" | "pcm_s32le" => Some("LPCM"),
-        _ => None,
+/// How many rows carry each label (labels occurring once need no suffix).
+fn duplicate_totals(labels: &[String]) -> HashMap<String, usize> {
+    let mut totals: HashMap<String, usize> = HashMap::new();
+    for l in labels.iter() {
+        *totals.entry(l.clone()).or_default() += 1;
     }
+    totals
+}
+
+/// mpv audio codec name → display token.
+const CODEC_FORMAT_LABELS: &[(&str, &str)] = &[
+    ("ac3", "AC-3"),
+    ("ac-3", "AC-3"),
+    ("eac3", "E-AC-3"),
+    ("e-ac-3", "E-AC-3"),
+    ("dts", "DTS"),
+    ("dca", "DTS"),
+    ("truehd", "TrueHD"),
+    ("flac", "FLAC"),
+    ("aac", "AAC"),
+    ("aac_latm", "AAC"),
+    ("mp3", "MP3"),
+    ("opus", "Opus"),
+    ("vorbis", "Vorbis"),
+    ("lpcm", "LPCM"),
+    ("pcm_s16le", "LPCM"),
+    ("pcm_s24le", "LPCM"),
+    ("pcm_s32le", "LPCM"),
+];
+
+fn mpv_codec_format_label(codec: &str) -> Option<&'static str> {
+    let name = codec.trim().to_ascii_lowercase();
+    CODEC_FORMAT_LABELS
+        .iter()
+        .find(|(raw, _)| *raw == name)
+        .map(|(_, label)| *label)
 }
 
 fn sub_format_label(codec: &str) -> Option<&'static str> {
@@ -200,11 +221,23 @@ mod tests {
     #[test]
     fn release_title_gets_language_prefix() {
         assert_eq!(
-            mpv_audio_label(Some("eng"), Some("DD 5.1 @ 384 Kbps"), Some("ac3"), Some(6), None),
+            mpv_audio_label(
+                Some("eng"),
+                Some("DD 5.1 @ 384 Kbps"),
+                Some("ac3"),
+                Some(6),
+                None
+            ),
             "eng · DD 5.1 @ 384 Kbps"
         );
         assert_eq!(
-            mpv_audio_label(Some("rus"), Some("DD 5.1 @ 384 Kbps, LostFilm"), Some("ac3"), Some(6), None),
+            mpv_audio_label(
+                Some("rus"),
+                Some("DD 5.1 @ 384 Kbps, LostFilm"),
+                Some("ac3"),
+                Some(6),
+                None
+            ),
             "rus · DD 5.1 @ 384 Kbps, LostFilm"
         );
     }
@@ -212,7 +245,13 @@ mod tests {
     #[test]
     fn title_already_naming_language_is_untouched() {
         assert_eq!(
-            mpv_audio_label(Some("eng"), Some("English Commentary"), Some("ac3"), Some(2), None),
+            mpv_audio_label(
+                Some("eng"),
+                Some("English Commentary"),
+                Some("ac3"),
+                Some(2),
+                None
+            ),
             "English Commentary"
         );
     }
@@ -233,9 +272,33 @@ mod tests {
     fn duplicate_sub_labels_numbered() {
         let mut labels = vec![
             "rus".into(),
-            mpv_sub_label(Some("eng"), None, Some("hdmv_pgs_subtitle"), false, false, false, false),
-            mpv_sub_label(Some("eng"), None, Some("hdmv_pgs_subtitle"), false, false, false, false),
-            mpv_sub_label(Some("eng"), None, Some("hdmv_pgs_subtitle"), false, false, false, false),
+            mpv_sub_label(
+                Some("eng"),
+                None,
+                Some("hdmv_pgs_subtitle"),
+                false,
+                false,
+                false,
+                false,
+            ),
+            mpv_sub_label(
+                Some("eng"),
+                None,
+                Some("hdmv_pgs_subtitle"),
+                false,
+                false,
+                false,
+                false,
+            ),
+            mpv_sub_label(
+                Some("eng"),
+                None,
+                Some("hdmv_pgs_subtitle"),
+                false,
+                false,
+                false,
+                false,
+            ),
         ];
         disambiguate_labels(&mut labels);
         assert_eq!(labels[0], "rus");

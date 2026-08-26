@@ -21,6 +21,20 @@ fn open_schema(c: &Connection) {
     .unwrap();
 }
 
+/// Single-column scalar for one path key.
+fn scalar<T>(c: &Connection, sql: &str, key: &str) -> T
+where
+    T: rusqlite::types::FromSql,
+{
+    c.query_row(sql, params![key], |r| r.get(0)).unwrap()
+}
+
+/// Row count of one table.
+fn count(c: &Connection, table: &str) -> i64 {
+    c.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+        .unwrap()
+}
+
 #[test]
 fn renames_when_target_free() {
     let c = Connection::open_in_memory().unwrap();
@@ -32,35 +46,40 @@ fn renames_when_target_free() {
     .unwrap();
     c.execute(
         "INSERT INTO media (path, duration_sec, time_pos_sec, thumb_load_path) VALUES (?, ?, ?, ?)",
-        params!["/dl/a.mkv.id.dctmp", 100.0_f64, 40.0_f64, "/dl/a.mkv.id.dctmp"],
+        params![
+            "/dl/a.mkv.id.dctmp",
+            100.0_f64,
+            40.0_f64,
+            "/dl/a.mkv.id.dctmp"
+        ],
     )
     .unwrap();
     assert!(rekey_history_conn(&c, "/dl/a.mkv.id.dctmp", "/dl/a.mkv").unwrap());
     rekey_media_conn(&c, "/dl/a.mkv.id.dctmp", "/dl/a.mkv").unwrap();
-    let opened: i64 = c
-        .query_row(
+    assert_eq!(
+        scalar::<i64>(
+            &c,
             "SELECT last_opened FROM history WHERE path = ?1",
-            params!["/dl/a.mkv"],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(opened, 10);
-    let tpos: f64 = c
-        .query_row(
+            "/dl/a.mkv"
+        ),
+        10
+    );
+    assert_eq!(
+        scalar::<f64>(
+            &c,
             "SELECT time_pos_sec FROM media WHERE path = ?1",
-            params!["/dl/a.mkv"],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(tpos, 40.0);
-    let thumb: String = c
-        .query_row(
+            "/dl/a.mkv"
+        ),
+        40.0
+    );
+    assert_eq!(
+        scalar::<String>(
+            &c,
             "SELECT thumb_load_path FROM media WHERE path = ?1",
-            params!["/dl/a.mkv"],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(thumb, "/dl/a.mkv");
+            "/dl/a.mkv"
+        ),
+        "/dl/a.mkv"
+    );
 }
 
 #[test]
@@ -79,26 +98,23 @@ fn conflict_keeps_target_history_and_source_media() {
     .unwrap();
     assert!(rekey_history_conn(&c, "/dl/a.mkv.id.dctmp", "/dl/a.mkv").unwrap());
     rekey_media_conn(&c, "/dl/a.mkv.id.dctmp", "/dl/a.mkv").unwrap();
-    let n: i64 = c
-        .query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(n, 1);
-    let opened: i64 = c
-        .query_row(
+    assert_eq!(count(&c, "history"), 1);
+    assert_eq!(
+        scalar::<i64>(
+            &c,
             "SELECT last_opened FROM history WHERE path = ?1",
-            params!["/dl/a.mkv"],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(opened, 50);
-    let tpos: f64 = c
-        .query_row(
+            "/dl/a.mkv"
+        ),
+        50
+    );
+    assert_eq!(
+        scalar::<f64>(
+            &c,
             "SELECT time_pos_sec FROM media WHERE path = ?1",
-            params!["/dl/a.mkv"],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(tpos, 40.0);
+            "/dl/a.mkv"
+        ),
+        40.0
+    );
 }
 
 #[test]

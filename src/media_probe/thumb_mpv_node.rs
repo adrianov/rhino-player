@@ -1,12 +1,18 @@
 // Raw `mpv_command_ret` + `mpv_node` map readers for `screenshot-raw` (no copies; caller frees the node).
 
-fn mpv_command_ret(m: &Mpv, args: &[&str]) -> Option<libmpv2_sys::mpv_node> {
+/// NUL-terminated arg pointers (plus trailing NULL); the CString owners must outlive the call.
+fn mpv_cstr_arg_ptrs(args: &[&str]) -> Option<(Vec<CString>, Vec<*const std::os::raw::c_char>)> {
     let mut cstr_args: Vec<CString> = Vec::with_capacity(args.len());
     for arg in args {
         cstr_args.push(CString::new(*arg).ok()?);
     }
     let mut ptrs: Vec<_> = cstr_args.iter().map(|c| c.as_ptr()).collect();
     ptrs.push(std::ptr::null());
+    Some((cstr_args, ptrs))
+}
+
+fn mpv_command_ret(m: &Mpv, args: &[&str]) -> Option<libmpv2_sys::mpv_node> {
+    let (_owners, mut ptrs) = mpv_cstr_arg_ptrs(args)?;
     let mut result = std::mem::MaybeUninit::<libmpv2_sys::mpv_node>::zeroed();
     let err = unsafe {
         libmpv2_sys::mpv_command_ret(m.ctx.as_ptr(), ptrs.as_mut_ptr(), result.as_mut_ptr())
@@ -58,6 +64,25 @@ unsafe fn map_byte_slice<'a>(map: &'a libmpv2_sys::mpv_node, want: &[u8]) -> Opt
     Some(std::slice::from_raw_parts(data.cast::<u8>(), size))
 }
 
+/// Index of the first map entry whose key equals `want`.
+unsafe fn map_entry_index(
+    keys: *mut *mut std::os::raw::c_char,
+    n: usize,
+    want: &[u8],
+) -> Option<usize> {
+    for i in 0..n {
+        let key_ptr = *keys.add(i);
+        if key_ptr.is_null() {
+            continue;
+        }
+        if CStr::from_ptr(key_ptr).to_bytes() != want {
+            continue;
+        }
+        return Some(i);
+    }
+    None
+}
+
 unsafe fn map_field<'a>(
     map: &'a libmpv2_sys::mpv_node,
     want: &[u8],
@@ -75,15 +100,5 @@ unsafe fn map_field<'a>(
     if keys.is_null() || vals.is_null() || n == 0 {
         return None;
     }
-    for i in 0..n {
-        let key_ptr = *keys.add(i);
-        if key_ptr.is_null() {
-            continue;
-        }
-        if CStr::from_ptr(key_ptr).to_bytes() != want {
-            continue;
-        }
-        return Some(&*vals.add(i));
-    }
-    None
+    map_entry_index(keys, n, want).map(|i| &*vals.add(i))
 }

@@ -4,7 +4,11 @@ const MENU_GAP_PX: i32 = 4;
 const PANEL_MIN_W: i32 = 180;
 const PANEL_MIN_H: i32 = 80;
 
-pub(super) fn prep_fs_menu_layout(root: &adw::ToolbarView, header: &adw::HeaderBar, shell: &gtk::Overlay) {
+pub(super) fn prep_fs_menu_layout(
+    root: &adw::ToolbarView,
+    header: &adw::HeaderBar,
+    shell: &gtk::Overlay,
+) {
     root.set_reveal_top_bars(true);
     header.queue_allocate();
     root.queue_allocate();
@@ -103,32 +107,61 @@ pub(super) fn hide_panel_widget(panel: &gtk::Frame) {
     panel.set_can_target(false);
 }
 
-pub(super) fn place_panel_clamped(panel: &gtk::Frame, btn: &gtk::MenuButton, shell: &gtk::Overlay) {
-    let Some((bx, by, btn_w, btn_h)) = btn_box_in_shell(btn, shell) else {
-        return;
-    };
-    let (shell_w, shell_h) = shell_size(shell);
+/// Largest height the panel may take below the pressed button.
+fn max_panel_height(menu_top: f64, shell_h: f64) -> i32 {
     let gap = f64::from(MENU_GAP_PX);
-    let menu_top = by + btn_h + gap;
-    let max_panel_h = ((shell_h - menu_top - gap).max(f64::from(PANEL_MIN_H))) as i32;
+    ((shell_h - menu_top - gap).max(f64::from(PANEL_MIN_H))) as i32
+}
+
+/// Cap scrolled children to fit, then measure the panel's natural size.
+fn fit_panel(panel: &gtk::Frame, max_h: i32) -> (i32, i32) {
     if let Some(child) = panel.child() {
-        cap_scrolled_heights(&child, max_panel_h.saturating_sub(24));
+        cap_scrolled_heights(&child, max_h.saturating_sub(24));
     }
-    let (panel_w, panel_h) = panel_natural_size(panel, max_panel_h);
-    let pw = f64::from(panel_w);
-    let ph = f64::from(panel_h);
+    panel_natural_size(panel, max_h)
+}
 
-    let mut x = bx + btn_w - pw;
-    let y = menu_top.clamp(0.0, (shell_h - ph - gap).max(0.0));
-    x = x.clamp(0.0, (shell_w - pw).max(0.0));
+/// Vertical margin under the button, clamped to the shell.
+fn clamped_top(menu_top: f64, ph: f64, shell_h: f64) -> f64 {
+    let gap = f64::from(MENU_GAP_PX);
+    menu_top.clamp(0.0, (shell_h - ph - gap).max(0.0))
+}
 
+/// Top-left margins placing the panel under the button box, clamped inside the shell.
+/// `btn_box` = (x, y, w, h) of the button; `panel_px` = (w, h); `shell_px` = (w, h).
+fn clamped_origin(
+    btn_box: (f64, f64, f64, f64),
+    panel_px: (i32, i32),
+    shell_px: (f64, f64),
+) -> (i32, i32) {
+    let gap = f64::from(MENU_GAP_PX);
+    let menu_top = btn_box.1 + btn_box.3 + gap;
+    let y = clamped_top(menu_top, f64::from(panel_px.1), shell_px.1);
+    let pw = f64::from(panel_px.0);
+    let x = (btn_box.0 + btn_box.2 - pw).clamp(0.0, (shell_px.0 - pw).max(0.0));
+    (x.round() as i32, y.round() as i32)
+}
+
+fn apply_panel_placement(panel: &gtk::Frame, w: i32, h: i32, x: i32, y: i32) {
     panel.set_halign(gtk::Align::Start);
     panel.set_valign(gtk::Align::Start);
     panel.set_hexpand(false);
     panel.set_vexpand(false);
-    panel.set_size_request(panel_w, panel_h);
-    panel.set_margin_start(x.round() as i32);
-    panel.set_margin_top(y.round() as i32);
+    panel.set_size_request(w, h);
+    panel.set_margin_start(x);
+    panel.set_margin_top(y);
     panel.set_margin_end(0);
     panel.set_margin_bottom(0);
+}
+
+pub(super) fn place_panel_clamped(panel: &gtk::Frame, btn: &gtk::MenuButton, shell: &gtk::Overlay) {
+    let Some(btn_box) = btn_box_in_shell(btn, shell) else {
+        return;
+    };
+    let shell_px = shell_size(shell);
+    let menu_top = btn_box.1 + btn_box.3 + f64::from(MENU_GAP_PX);
+    let max_h = max_panel_height(menu_top, shell_px.1);
+    let panel_px = fit_panel(panel, max_h);
+    let (x, y) = clamped_origin(btn_box, panel_px, shell_px);
+    apply_panel_placement(panel, panel_px.0, panel_px.1, x, y);
 }

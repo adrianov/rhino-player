@@ -22,22 +22,23 @@ pub struct GlDynLib {
 }
 
 impl GlDynLib {
+    #[cfg(target_os = "linux")]
+    fn open_linux() -> Result<Self, String> {
+        let _egl = unsafe { Library::new("libEGL.so.1") }.map_err(|e| e.to_string())?;
+        let _gl = unsafe { Library::new("libGL.so.1") }.map_err(|e| e.to_string())?;
+        let (get_proc, gl_get_integerv) = linux_gl_syms(&_egl, &_gl)?;
+        Ok(Self {
+            _egl,
+            _gl,
+            get_proc,
+            gl_get_integerv,
+        })
+    }
+
     pub fn load() -> Result<Self, String> {
         #[cfg(target_os = "linux")]
         {
-            let _egl = unsafe { Library::new("libEGL.so.1") }.map_err(|e| e.to_string())?;
-            let _gl = unsafe { Library::new("libGL.so.1") }.map_err(|e| e.to_string())?;
-            // Copy fn pointers out of [Symbol] before moving [Library] (Symbol borrows Library).
-            let get_proc =
-                *unsafe { _egl.get(b"eglGetProcAddress\0") }.map_err(|e| e.to_string())?;
-            let gl_get_integerv =
-                *unsafe { _gl.get(b"glGetIntegerv\0") }.map_err(|e| e.to_string())?;
-            Ok(Self {
-                _egl,
-                _gl,
-                get_proc,
-                gl_get_integerv,
-            })
+            Self::open_linux()
         }
         #[cfg(target_os = "macos")]
         {
@@ -48,6 +49,17 @@ impl GlDynLib {
             })
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_gl_syms(
+    egl: &Library,
+    gl: &Library,
+) -> Result<(GlGetProcAddressFn, GlGetIntegervFn), String> {
+    // Copy fn pointers out of [Symbol] before moving [Library] (Symbol borrows Library).
+    let get_proc = *unsafe { egl.get(b"eglGetProcAddress\0") }.map_err(|e| e.to_string())?;
+    let gl_get_integerv = *unsafe { gl.get(b"glGetIntegerv\0") }.map_err(|e| e.to_string())?;
+    Ok((get_proc, gl_get_integerv))
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
@@ -68,30 +80,33 @@ unsafe fn macos_gl_get_integerv() -> Result<GlGetIntegervFn, String> {
 }
 
 #[cfg(target_os = "macos")]
+unsafe fn try_dlsym(n: &str) -> Option<*mut c_void> {
+    CString::new(n).ok().and_then(|c| {
+        let p = libc::dlsym(libc::RTLD_DEFAULT, c.as_ptr().cast());
+        (!p.is_null()).then_some(p)
+    })
+}
+
+#[cfg(target_os = "macos")]
 unsafe extern "C" fn macos_gl_get_proc_address(name: *const c_char) -> *mut c_void {
     if name.is_null() {
         return ptr::null_mut();
     }
-    let base = match CStr::from_ptr(name).to_str() {
-        Ok(s) => s,
-        Err(_) => return ptr::null_mut(),
+    let Ok(base) = CStr::from_ptr(name).to_str() else {
+        return ptr::null_mut();
     };
-    let try_sym = |n: &str| {
-        CString::new(n).ok().and_then(|c| {
-            let p = libc::dlsym(libc::RTLD_DEFAULT, c.as_ptr().cast());
-            if p.is_null() {
-                None
-            } else {
-                Some(p)
-            }
-        })
-    };
-    try_sym(base)
-        .or_else(|| try_sym(&format!("_{base}")))
-        .or_else(|| try_sym(&format!("{base}_OES")))
-        .or_else(|| try_sym(&format!("{base}_ARB")))
-        .or_else(|| try_sym(&format!("{base}_EXT")))
-        .unwrap_or(ptr::null_mut())
+    if let Some(p) = try_dlsym(base) {
+        return p;
+    }
+    if let Some(p) = try_dlsym(&format!("_{base}")) {
+        return p;
+    }
+    for suffix in ["_OES", "_ARB", "_EXT"] {
+        if let Some(p) = try_dlsym(&format!("{base}{suffix}")) {
+            return p;
+        }
+    }
+    ptr::null_mut()
 }
 
 /// libmpv `ao` default for the host (Pulse on Linux, CoreAudio on macOS).

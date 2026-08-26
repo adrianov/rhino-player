@@ -68,10 +68,21 @@ fn normalize_hyphen_spaces(s: &mut String) {
 }
 
 fn cleanup_dot_edges(s: &mut String) {
+    repair_internal_dots(s);
+    trim_dotted_edges(s);
+}
+
+/// Repair dots stranded inside the title after token removal.
+fn repair_internal_dots(s: &mut String) {
     let p = patterns();
     *s = p.dot_space_dot.replace_all(s, ". ").into_owned();
     *s = p.space_dot_word.replace_all(s, " $1").into_owned();
     *s = p.trailing_space_dot.replace_all(s, "").into_owned();
+}
+
+/// Drop the leftover dot at the very end of the title.
+fn trim_dotted_edges(s: &mut String) {
+    let p = patterns();
     *s = p.space_dot_space.replace_all(s, " ").into_owned();
     *s = p.strip_end_dot_word.replace_all(s, "$1").into_owned();
 }

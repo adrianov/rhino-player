@@ -66,20 +66,26 @@ pub fn smooth_toolbar_fps_label(mpv: &libmpv2::Mpv) -> String {
     if vs {
         return "—".to_string();
     }
+    toolbar_fallback_fps_label(mpv, readout_speed(mpv))
+}
+
+/// mpv `speed` clamped to the UI range; anything odd reads as 1.0.
+fn readout_speed(mpv: &libmpv2::Mpv) -> f64 {
     let spd_raw = mpv.get_property::<f64>("speed").unwrap_or(1.0);
-    let spd = if spd_raw.is_finite() && (0.01..=8.0).contains(&spd_raw) {
+    if spd_raw.is_finite() && (0.01..=8.0).contains(&spd_raw) {
         spd_raw.max(FPS_READOUT_LO)
     } else {
         1.0
-    };
+    }
+}
+
+/// No usable estimate: container fps, then sticky per-file / env source cadence, each × speed.
+fn toolbar_fallback_fps_label(mpv: &libmpv2::Mpv, spd: f64) -> String {
     let nominal = mpv.get_property::<f64>("container-fps").unwrap_or(0.0);
     if fps_readout_ok(nominal) {
         return round_fps_label(nominal * spd);
     }
-    if let Some(src) = peek_sticky_local_source_fps(mpv) {
-        return round_fps_label(src * spd);
-    }
-    if let Some(src) = source_fps_from_env_var() {
+    if let Some(src) = peek_sticky_local_source_fps(mpv).or_else(source_fps_from_env_var) {
         return round_fps_label(src * spd);
     }
     "—".to_string()

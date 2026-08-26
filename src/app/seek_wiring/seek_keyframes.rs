@@ -26,11 +26,12 @@ fn schedule_smooth_vf_only_tail(slot: &Rc<RefCell<Option<glib::SourceId>>>, gl: 
     cancel_smooth_seek_debounce(slot);
     let deb = Rc::clone(slot);
     let gl2 = gl.clone();
-    let id = glib::timeout_add_local_once(Duration::from_millis(SEEK_BURST_TAIL_IDLE_MS), move || {
-        *deb.borrow_mut() = None;
-        request_smooth_60_transport_resync();
-        gl2.queue_render();
-    });
+    let id =
+        glib::timeout_add_local_once(Duration::from_millis(SEEK_BURST_TAIL_IDLE_MS), move || {
+            *deb.borrow_mut() = None;
+            request_smooth_60_transport_resync();
+            gl2.queue_render();
+        });
     *slot.borrow_mut() = Some(id);
 }
 
@@ -43,16 +44,17 @@ fn schedule_seek_burst_tail(
     cancel_smooth_seek_debounce(slot);
     let deb = Rc::clone(slot);
     let gl2 = gl.clone();
-    let id = glib::timeout_add_local_once(Duration::from_millis(SEEK_BURST_TAIL_IDLE_MS), move || {
-        *deb.borrow_mut() = None;
-        let trust_unpause = resume_after_seek_idle.replace(false);
-        if trust_unpause {
-            let _ = apply_mpv_pause(&play_toggle, false);
-            crate::screen_blackout::end_tech_hold();
-        }
-        request_smooth_60_transport_resync();
-        gl2.queue_render();
-    });
+    let id =
+        glib::timeout_add_local_once(Duration::from_millis(SEEK_BURST_TAIL_IDLE_MS), move || {
+            *deb.borrow_mut() = None;
+            let trust_unpause = resume_after_seek_idle.replace(false);
+            if trust_unpause {
+                let _ = apply_mpv_pause(&play_toggle, false);
+                crate::screen_blackout::end_tech_hold();
+            }
+            request_smooth_60_transport_resync();
+            gl2.queue_render();
+        });
     *slot.borrow_mut() = Some(id);
 }
 
@@ -82,9 +84,7 @@ fn seek_keyframes_after_command(
             p.gl.clone(),
             p.play_toggle.clone(),
         );
-    } else if matches!(kind, SeekKeyframeKind::ScaleOrExternal)
-        && !paused_before
-        && stripped_smooth
+    } else if matches!(kind, SeekKeyframeKind::ScaleOrExternal) && !paused_before && stripped_smooth
     {
         schedule_smooth_vf_only_tail(p.smooth_seek_debounce, p.gl.clone());
     }
@@ -142,39 +142,44 @@ fn main_player_seek_keyframes(p: &SeekKeyframeParams<'_>, kind: SeekKeyframeKind
     cancel_smooth_seek_debounce(p.smooth_seek_debounce);
     // Drop a pending post-seek Smooth rebuild so a rapid next seek cannot reattach mid-jump.
     cancel_smooth_60_transport_resync();
-    let paused_before;
-    {
-        let g = p.player.borrow();
-        let Some(b) = g.as_ref() else {
-            return;
-        };
-        paused_before = b.mpv.get_property::<bool>("pause").unwrap_or(true);
-    }
+    let paused_before = match read_paused_before(p) {
+        Some(paused) => paused,
+        None => return,
+    };
     if matches!(kind, SeekKeyframeKind::ArrowBurst) {
-        let was_playing = !paused_before;
-        p.resume_after_seek_idle
-            .set(p.resume_after_seek_idle.get() || was_playing);
-        if was_playing {
-            crate::screen_blackout::begin_tech_hold();
-            let _ = apply_mpv_pause(p.play_toggle, true);
-        }
+        latch_arrow_burst_pause(p, paused_before);
     }
     if try_dvd_global_seek(p, seconds, !paused_before) {
-        seek_keyframes_after_command(
-            p,
-            kind,
-            paused_before,
-            smooth_stripped_on_bundle(p.player),
-        );
+        seek_keyframes_after_command(p, kind, paused_before, smooth_stripped_on_bundle(p.player));
         return;
     }
     // A blocked seek still runs the tail below: it owns the arrow-burst unpause and the blackout
     // hold, so returning early here would leave playback paused and blackout stuck on.
-    let stripped = p
-        .player
+    let stripped = seek_local_fallback(p, seconds);
+    seek_keyframes_after_command(p, kind, paused_before, stripped);
+}
+
+fn read_paused_before(p: &SeekKeyframeParams<'_>) -> Option<bool> {
+    let g = p.player.borrow();
+    let b = g.as_ref()?;
+    Some(b.mpv.get_property::<bool>("pause").unwrap_or(true))
+}
+
+/// Arrow burst while playing: latch "should resume" for the whole burst and hold paused.
+fn latch_arrow_burst_pause(p: &SeekKeyframeParams<'_>, paused_before: bool) {
+    let was_playing = !paused_before;
+    p.resume_after_seek_idle
+        .set(p.resume_after_seek_idle.get() || was_playing);
+    if was_playing {
+        crate::screen_blackout::begin_tech_hold();
+        let _ = apply_mpv_pause(p.play_toggle, true);
+    }
+}
+
+fn seek_local_fallback(p: &SeekKeyframeParams<'_>, seconds: &str) -> bool {
+    p.player
         .borrow()
         .as_ref()
         .map(|b| seek_local_file(b, seconds))
-        .unwrap_or(false);
-    seek_keyframes_after_command(p, kind, paused_before, stripped);
+        .unwrap_or(false)
 }

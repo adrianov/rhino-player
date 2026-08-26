@@ -28,6 +28,31 @@ const MACOS_BOTTOM_CHROME_CSS: &str = include_str!("macos_bottom.css");
 const MACOS_NATIVE_LISTS_CSS: &str = include_str!("macos_native_lists.css");
 
 pub fn apply() {
+    let css = build_app_css();
+    let p = gtk::CssProvider::new();
+    p.load_from_string(&css);
+    if let Some(d) = gtk::gdk::Display::default() {
+        gtk::style_context_add_provider_for_display(
+            &d,
+            &p,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+        #[cfg(target_os = "macos")]
+        add_user_priority_chrome(&d);
+    }
+    // GTK's default title-bar double-click toggles maximize after our HeaderBar gesture runs,
+    // undoing `maximize()` before `fullscreen()` (first double-click looks maximized then snaps small).
+    // Enter / menu use `toggle_fullscreen` only; disabling GDK's built-in action keeps parity.
+    if let Some(settings) = gtk::Settings::default() {
+        settings.set_gtk_titlebar_double_click(Some("none"));
+        // GtkScale / GtkRange: primary click jumps the slider under the pointer (volume + seek).
+        settings.set_gtk_primary_button_warps_slider(true);
+    }
+}
+
+/// Concatenates the shell chrome, continue-grid, and (on macOS) transparent-content
+/// stylesheets plus the pointer-cursor rules into one provider payload.
+fn build_app_css() -> String {
     let shell = ShellChrome::stylesheet();
     let mut css = String::with_capacity(
         shell.len()
@@ -46,34 +71,17 @@ pub fn apply() {
         css.push_str(MACOS_TRANSPARENT_CONTENT_CSS);
     }
     cursor::append_cursor_css(&mut css);
-    let p = gtk::CssProvider::new();
-    p.load_from_string(&css);
-    if let Some(d) = gtk::gdk::Display::default() {
-        gtk::style_context_add_provider_for_display(
-            &d,
-            &p,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-        #[cfg(target_os = "macos")]
-        {
-            let mut user = MACOS_BOTTOM_CHROME_CSS.to_string();
-            user.push_str(include_str!("macos_header_compact.css"));
-            user.push_str(MACOS_NATIVE_LISTS_CSS);
-            let chrome = gtk::CssProvider::new();
-            chrome.load_from_string(&user);
-            gtk::style_context_add_provider_for_display(
-                &d,
-                &chrome,
-                gtk::STYLE_PROVIDER_PRIORITY_USER,
-            );
-        }
-    }
-    // GTK's default title-bar double-click toggles maximize after our HeaderBar gesture runs,
-    // undoing `maximize()` before `fullscreen()` (first double-click looks maximized then snaps small).
-    // Enter / menu use `toggle_fullscreen` only; disabling GDK's built-in action keeps parity.
-    if let Some(settings) = gtk::Settings::default() {
-        settings.set_gtk_titlebar_double_click(Some("none"));
-        // GtkScale / GtkRange: primary click jumps the slider under the pointer (volume + seek).
-        settings.set_gtk_primary_button_warps_slider(true);
-    }
+    css
+}
+
+/// Bottom transport chrome on gdk-macos (USER priority — wins over transparent window rules),
+/// compact header, and native lists.
+#[cfg(target_os = "macos")]
+fn add_user_priority_chrome(d: &gtk::gdk::Display) {
+    let mut user = MACOS_BOTTOM_CHROME_CSS.to_string();
+    user.push_str(include_str!("macos_header_compact.css"));
+    user.push_str(MACOS_NATIVE_LISTS_CSS);
+    let chrome = gtk::CssProvider::new();
+    chrome.load_from_string(&user);
+    gtk::style_context_add_provider_for_display(d, &chrome, gtk::STYLE_PROVIDER_PRIORITY_USER);
 }

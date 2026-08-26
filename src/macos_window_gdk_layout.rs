@@ -55,6 +55,11 @@ pub fn resize_window_frame(win: &adw::ApplicationWindow, width: i32, height: i32
             win.set_default_size(w, h);
         }
     }
+    schedule_post_resize_fixup(win, w, h);
+}
+
+/// Deferred second pass when the loop could not confirm the new size synchronously.
+fn schedule_post_resize_fixup(win: &adw::ApplicationWindow, w: i32, h: i32) {
     request_gdk_surface_layout(win);
     win.queue_allocate();
     invalidate_window_layers(win);
@@ -80,10 +85,38 @@ pub fn refresh_gdk_shell_compositing(
     bottom_shell: &gtk::Box,
     bottom: &gtk::Box,
 ) {
+    shell_compositing_sync_pass(
+        win,
+        gl,
+        header,
+        root,
+        bottom_shell,
+        bottom,
+        crate::macos_header_menu::defer_layer_invalidate(),
+    );
+    let win2 = win.clone();
+    let gl2 = gl.clone();
+    let header2 = header.clone();
+    let root2 = root.clone();
+    let shell2 = bottom_shell.clone();
+    let bottom2 = bottom.clone();
+    let _ = glib::idle_add_local_once(move || {
+        shell_compositing_idle_pass(&win2, &gl2, &header2, &root2, &shell2, &bottom2);
+    });
+}
+
+fn shell_compositing_sync_pass(
+    win: &adw::ApplicationWindow,
+    gl: &gtk::GLArea,
+    header: &adw::HeaderBar,
+    root: &adw::ToolbarView,
+    bottom_shell: &gtk::Box,
+    bottom: &gtk::Box,
+    skip_invalidate: bool,
+) {
     use gtk::gdk::prelude::SurfaceExt;
     use gtk::prelude::{NativeExt, WidgetExt};
 
-    let skip_invalidate = crate::macos_header_menu::defer_layer_invalidate();
     crate::macos_bottom_bar::repaint_opaque(bottom_shell, bottom);
     bottom_shell.queue_allocate();
     header.queue_draw();
@@ -100,23 +133,25 @@ pub fn refresh_gdk_shell_compositing(
         invalidate_window_layers(win);
     }
     sync_traffic_lights_vertical(header, header.height());
-    let win2 = win.clone();
-    let gl2 = gl.clone();
-    let header2 = header.clone();
-    let root2 = root.clone();
-    let shell2 = bottom_shell.clone();
-    let bottom2 = bottom.clone();
-    let _ = glib::idle_add_local_once(move || {
-        crate::macos_bottom_bar::repaint_opaque(&shell2, &bottom2);
-        header2.queue_draw();
-        root2.queue_draw();
-        gl2.queue_draw();
-        win2.queue_draw();
-        if !crate::macos_header_menu::defer_layer_invalidate() {
-            invalidate_window_layers(&win2);
-        }
-        sync_traffic_lights_vertical(&header2, header2.height());
-    });
+}
+
+fn shell_compositing_idle_pass(
+    win: &adw::ApplicationWindow,
+    gl: &gtk::GLArea,
+    header: &adw::HeaderBar,
+    root: &adw::ToolbarView,
+    bottom_shell: &gtk::Box,
+    bottom: &gtk::Box,
+) {
+    crate::macos_bottom_bar::repaint_opaque(bottom_shell, bottom);
+    header.queue_draw();
+    root.queue_draw();
+    gl.queue_draw();
+    win.queue_draw();
+    if !crate::macos_header_menu::defer_layer_invalidate() {
+        invalidate_window_layers(win);
+    }
+    sync_traffic_lights_vertical(header, header.height());
 }
 
 /// Brief ±1px width change — gdk-macos repaints bottom chrome after user edge-drag resize
@@ -136,12 +171,16 @@ pub fn nudge_gdk_compositing_width(win: &adw::ApplicationWindow) {
     force_nswindow_frame(win, w + 1, h);
     invalidate_window_layers(win);
     let win2 = win.clone();
-    let _ = glib::idle_add_local_once(move || {
-        force_nswindow_frame(&win2, w, h);
-        win2.set_default_size(w, h);
-        request_gdk_surface_layout(&win2);
-        invalidate_window_layers(&win2);
-        crate::app::refresh_registered_shell_compositing();
-        crate::shell_debug_log::log(format!("gdk width nudge restore {w}x{h}"));
-    });
+    let _ = glib::idle_add_local_once(move || restore_nudged_width(win2, w, h));
+}
+
+fn restore_nudged_width(win: adw::ApplicationWindow, w: i32, h: i32) {
+    use gtk::prelude::GtkWindowExt;
+
+    force_nswindow_frame(&win, w, h);
+    win.set_default_size(w, h);
+    request_gdk_surface_layout(&win);
+    invalidate_window_layers(&win);
+    crate::app::refresh_registered_shell_compositing();
+    crate::shell_debug_log::log(format!("gdk width nudge restore {w}x{h}"));
 }

@@ -23,12 +23,7 @@ impl DvdChainBarSync {
         hold_global: f64,
         ifo_local: f64,
     ) -> Self {
-        let anchor_playback = b
-            .mpv
-            .get_property::<f64>("playback-time")
-            .ok()
-            .filter(|t| t.is_finite() && *t >= 0.0)
-            .unwrap_or(0.0);
+        let anchor_playback = chain_playback_time(&b.mpv, 0.0);
         Self::from_targets(ifo_local, hold_global, anchor_playback)
     }
 
@@ -56,27 +51,42 @@ impl DvdBarState {
         if let Some(g) = self.chain_stretch_global(b, chapter, raw_local) {
             return g;
         }
-        let implausible = !self.tl.ifo_segment_local_plausible(chapter, raw_local);
-        if implausible {
-            if let Some(h) = b.dvd_hold_global.get() {
-                return h;
-            }
-            if let Some(sync) = b.dvd_chain_bar_sync.get() {
-                let playback = b
-                    .mpv
-                    .get_property::<f64>("playback-time")
-                    .ok()
-                    .filter(|t| t.is_finite() && *t >= 0.0)
-                    .unwrap_or(sync.anchor_playback);
-                let ifo = self.chain_ifo_local(b, chapter, raw_local);
-                return sync.global_from_ifo_local(ifo, playback, self.total_sec());
-            }
-            if let Some(ifo) = self.chain_ifo_local_opt(b, chapter, raw_local) {
-                return self.global_pos(chapter, ifo);
-            }
-            return self.global_pos(chapter, 0.0);
+        if !self.tl.ifo_segment_local_plausible(chapter, raw_local) {
+            return self.implausible_chain_pos(b, chapter, raw_local);
         }
         let computed = self.global_pos(chapter, raw_local);
+        self.held_vs_computed(b, chapter, raw_local, computed)
+    }
+
+    /// Fallbacks when the raw local position does not map onto the IFO segment.
+    fn implausible_chain_pos(
+        &self,
+        b: &crate::mpv_embed::MpvBundle,
+        chapter: &Path,
+        raw_local: f64,
+    ) -> f64 {
+        if let Some(h) = b.dvd_hold_global.get() {
+            return h;
+        }
+        if let Some(sync) = b.dvd_chain_bar_sync.get() {
+            let playback = chain_playback_time(&b.mpv, sync.anchor_playback);
+            let ifo = self.chain_ifo_local(b, chapter, raw_local);
+            return sync.global_from_ifo_local(ifo, playback, self.total_sec());
+        }
+        if let Some(ifo) = self.chain_ifo_local_opt(b, chapter, raw_local) {
+            return self.global_pos(chapter, ifo);
+        }
+        self.global_pos(chapter, 0.0)
+    }
+
+    /// Honor a held global position only while it matches live time; drop it otherwise.
+    fn held_vs_computed(
+        &self,
+        b: &crate::mpv_embed::MpvBundle,
+        chapter: &Path,
+        raw_local: f64,
+        computed: f64,
+    ) -> f64 {
         match b.dvd_hold_global.get() {
             Some(h) if b.chapter_cross_load_busy() => h,
             Some(h) if (h - computed).abs() <= crate::app::TICK_EOF_TAIL_SEC => h,
@@ -137,12 +147,7 @@ impl DvdBarState {
             return b.dvd_hold_global.get();
         }
         if let Some(sync) = b.dvd_chain_bar_sync.get() {
-            let playback = b
-                .mpv
-                .get_property::<f64>("playback-time")
-                .ok()
-                .filter(|t| t.is_finite() && *t >= 0.0)
-                .unwrap_or(sync.anchor_playback);
+            let playback = chain_playback_time(&b.mpv, sync.anchor_playback);
             return Some(sync.global_from_ifo_local(ifo, playback, self.total_sec()));
         }
         if let Some(h) = b.dvd_hold_global.get() {
@@ -150,4 +155,12 @@ impl DvdBarState {
         }
         Some(self.global_pos(chapter, ifo))
     }
+}
+
+/// Live `playback-time` clamped to a non-negative finite value, else `fallback`.
+fn chain_playback_time(mpv: &libmpv2::Mpv, fallback: f64) -> f64 {
+    mpv.get_property::<f64>("playback-time")
+        .ok()
+        .filter(|t| t.is_finite() && *t >= 0.0)
+        .unwrap_or(fallback)
 }

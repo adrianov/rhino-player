@@ -44,6 +44,39 @@ fn homebrew_vapoursynth_lib_if_installed() {
     assert!(!dyld.is_empty());
 }
 
+fn stale_cellar_key() -> String {
+    let vs = macos_vapoursynth_lib_dir().unwrap().join(VSSCRIPT_DYLIB);
+    let key = std::fs::canonicalize(&vs).unwrap_or(vs);
+    key.to_string_lossy().into_owned()
+}
+
+/// Two Cellar-pinned mappings for our key plus one unrelated entry to preserve.
+fn write_stale_cellar_toml(toml: &Path, key_s: &str) {
+    std::fs::create_dir_all(toml.parent().unwrap()).unwrap();
+    std::fs::write(
+        toml,
+        format!(
+            "# keep-me\n\
+             \"/other/libvsscript.dylib\" = [\"/other/exe\",\"/other/lib\"]\n\
+             {0} = [\"/bad/python\",\"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/Python\"]\n\
+             {0} = [\"/also/bad\",\"/opt/homebrew/Cellar/python@3.14/3.14.0/Frameworks/Python.framework/Versions/3.14/Python\"]\n",
+            toml_escape(key_s)
+        ),
+    )
+    .unwrap();
+}
+
+fn assert_repaired_entry(text: &str, key_s: &str) {
+    let (_k, exe, lib) = text
+        .lines()
+        .find_map(|line| parse_vs_toml_line(line).filter(|(k, _, _)| same_vsscript_key(k, key_s)))
+        .expect("toml entry for our key");
+    assert!(
+        macos_vs_python_mapping_ok(&exe, &lib),
+        "exe={exe} lib={lib}"
+    );
+}
+
 #[test]
 fn ensure_repairs_stale_cellar_python() {
     if macos_vapoursynth_lib_dir().is_none() {
@@ -52,21 +85,8 @@ fn ensure_repairs_stale_cellar_python() {
     let _lock = TOML_LOCK.lock().unwrap();
     let _xdg = TempXdg::enter();
     let toml = macos_vapoursynth_toml_path().unwrap();
-    let vs = macos_vapoursynth_lib_dir().unwrap().join(VSSCRIPT_DYLIB);
-    let key = std::fs::canonicalize(&vs).unwrap_or(vs);
-    let key_s = key.to_string_lossy();
-    std::fs::create_dir_all(toml.parent().unwrap()).unwrap();
-    std::fs::write(
-        &toml,
-        format!(
-            "# keep-me\n\
-             \"/other/libvsscript.dylib\" = [\"/other/exe\",\"/other/lib\"]\n\
-             {0} = [\"/bad/python\",\"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/Python\"]\n\
-             {0} = [\"/also/bad\",\"/opt/homebrew/Cellar/python@3.14/3.14.0/Frameworks/Python.framework/Versions/3.14/Python\"]\n",
-            toml_escape(&key_s)
-        ),
-    )
-    .unwrap();
+    let key_s = stale_cellar_key();
+    write_stale_cellar_toml(&toml, &key_s);
 
     macos_ensure_vapoursynth_python_config();
 
@@ -81,13 +101,14 @@ fn ensure_repairs_stale_cellar_python() {
         1,
         "duplicate keys collapsed"
     );
-    let (_k, exe, lib) = text
-        .lines()
-        .find_map(|line| {
-            parse_vs_toml_line(line).filter(|(k, _, _)| same_vsscript_key(k, &key_s))
-        })
-        .expect("toml entry for our key");
-    assert!(macos_vs_python_mapping_ok(&exe, &lib), "exe={exe} lib={lib}");
+    assert_repaired_entry(&text, &key_s);
+}
+
+fn toml_snapshot(toml: &Path) -> (String, std::time::SystemTime) {
+    (
+        std::fs::read_to_string(toml).unwrap(),
+        std::fs::metadata(toml).unwrap().modified().unwrap(),
+    )
 }
 
 #[test]
@@ -99,14 +120,16 @@ fn ensure_is_noop_when_opt_mapping_ok() {
     let _xdg = TempXdg::enter();
     let toml = macos_vapoursynth_toml_path().unwrap();
     macos_ensure_vapoursynth_python_config();
-    let before = std::fs::read_to_string(&toml).unwrap();
-    let mtime = std::fs::metadata(&toml).unwrap().modified().unwrap();
+    let (before_text, before_mtime) = toml_snapshot(&toml);
 
     std::thread::sleep(std::time::Duration::from_millis(20));
     macos_ensure_vapoursynth_python_config();
 
-    assert_eq!(before, std::fs::read_to_string(&toml).unwrap());
-    assert_eq!(std::fs::metadata(&toml).unwrap().modified().unwrap(), mtime);
+    assert_eq!(before_text, std::fs::read_to_string(&toml).unwrap());
+    assert_eq!(
+        std::fs::metadata(&toml).unwrap().modified().unwrap(),
+        before_mtime
+    );
 }
 
 #[test]
@@ -122,14 +145,13 @@ fn parse_vs_toml_line_smoke() {
 
 #[test]
 fn merge_vs_toml_mapping_preserves_other_lines() {
-    let existing = "\
+    let out = merge_vs_toml_mapping(
+        "\
 # comment\n\
 \"/a/libvsscript.dylib\" = [\"/a/exe\",\"/a/lib\"]\n\
 \"/b/libvsscript.dylib\" = [\"/bad\",\"/Cellar/python@3.14/x\"]\n\
 \"/b/libvsscript.dylib\" = [\"/dup\",\"/Cellar/python@3.14/y\"]\n\
-";
-    let out = merge_vs_toml_mapping(
-        existing,
+",
         "/b/libvsscript.dylib",
         "/opt/exe",
         "/opt/python@3.14/Python",
@@ -141,9 +163,7 @@ fn merge_vs_toml_mapping_preserves_other_lines() {
         1,
         "duplicates dropped"
     );
-    assert!(out.contains(
-        "\"/b/libvsscript.dylib\" = [\"/opt/exe\",\"/opt/python@3.14/Python\"]"
-    ));
+    assert!(out.contains("\"/b/libvsscript.dylib\" = [\"/opt/exe\",\"/opt/python@3.14/Python\"]"));
     assert!(!out.contains("/Cellar/python@"));
 
     let appended = merge_vs_toml_mapping("# only\n", "/new", "/e", "/opt/python@3.14/P");

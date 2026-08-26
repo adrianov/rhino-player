@@ -32,21 +32,35 @@ pub fn restore_saved_sub(mpv: &Mpv, prefs: &SubPrefs, shell: Option<&std::path::
     let Some((saved_sid, saved_slot)) = crate::db::load_sub_track(&entity.db_path()) else {
         return false;
     };
+    apply_saved_sub(mpv, saved_sid, saved_slot, &rows, shell)
+}
+
+/// Apply the stored mpv id / DVD slot; returns false when neither matches the track list.
+fn apply_saved_sub(
+    mpv: &Mpv,
+    saved_sid: i64,
+    saved_slot: Option<u8>,
+    rows: &[Row],
+    shell: Option<&std::path::Path>,
+) -> bool {
     if let Some(slot) = saved_slot {
         if let Some(sid) = resolve_sub_id(mpv, saved_sid, Some(slot), shell) {
-            if current_sid(mpv) != Some(sid) {
-                set_sub_id(mpv, sid);
-            }
+            select_sid_if_changed(mpv, sid);
             reapply_styling(mpv);
             return true;
         }
     }
     if saved_sid > 0 && rows.iter().any(|r| r.id == saved_sid) {
-        if current_sid(mpv) != Some(saved_sid) {
-            set_sub_id(mpv, saved_sid);
-        }
+        select_sid_if_changed(mpv, saved_sid);
         reapply_styling(mpv);
         return true;
     }
     false
+}
+
+/// Select a subtitle track unless it is already active (re-setting reopens the decode path).
+fn select_sid_if_changed(mpv: &Mpv, sid: i64) {
+    if current_sid(mpv) != Some(sid) {
+        set_sub_id(mpv, sid);
+    }
 }

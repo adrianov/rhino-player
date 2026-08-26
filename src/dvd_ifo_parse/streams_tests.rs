@@ -3,18 +3,25 @@ use std::path::Path;
 
 #[test]
 fn parse_sample_vts02_audio_bytes() {
-    let samples: &[(&[u8; 8], u8, &str, u8)] = &[
+    for (raw, slot, codec, ch) in [
         (&[0x04, 0xc5, 0x72, 0x75, 0, 0, 0, 0], 0, "ac3", 6),
         (&[0xc4, 0xc4, 0x72, 0x75, 0, 0, 0, 0], 1, "dts", 5),
         (&[0x04, 0xc0, 0x72, 0x75, 0, 0, 0, 0], 2, "ac3", 1),
-    ];
-    for (raw, slot, codec, ch) in samples {
-        let row = parse_audio_attr(*raw, *slot).expect("audio row");
-        assert_eq!(row.codec_key, *codec);
-        assert_eq!(row.channels, *ch);
-        assert_eq!(row.lang, "ru");
-        assert!(row.label.contains("ru"));
+    ] {
+        assert_audio_row(raw, slot, codec, ch);
     }
+    assert_exact_audio_labels();
+}
+
+fn assert_audio_row(raw: &[u8], slot: u8, codec: &str, ch: u8) {
+    let row = parse_audio_attr(raw, slot).expect("audio row");
+    assert_eq!(row.codec_key, codec);
+    assert_eq!(row.channels, ch);
+    assert_eq!(row.lang, "ru");
+    assert!(row.label.contains("ru"));
+}
+
+fn assert_exact_audio_labels() {
     let ac3 = parse_audio_attr(&[0x04, 0xc5, 0x72, 0x75, 0, 0, 0, 0], 0).unwrap();
     assert_eq!(ac3.label, "ru · AC-3 5.1");
     let dts = parse_audio_attr(&[0xc4, 0xc4, 0x72, 0x75, 0, 0, 0, 0], 1).unwrap();
@@ -39,50 +46,41 @@ fn match_audio_by_codec_and_src_id() {
         parse_audio_attr(&[0x04, 0xc0, 0x72, 0x75, 0, 0, 0, 0], 3).unwrap(),
     ];
     let mut used = [false; 4];
-    let dts = match_audio_label(
-        &streams,
+    assert_eq!(
+        matched_audio_label(&streams, 0x89, "dts", 6, &mut used),
+        "ru · DTS 5.1"
+    );
+    assert_eq!(
+        matched_audio_label(&streams, 0x80, "ac3", 6, &mut used),
+        "ru · AC-3 5.1"
+    );
+    assert_eq!(
+        matched_audio_label(&streams, 0x82, "ac3", 1, &mut used),
+        "ru · AC-3 mono"
+    );
+    assert_eq!(
+        matched_audio_label(&streams, 0x83, "ac3", 1, &mut used),
+        "ru · AC-3 mono"
+    );
+}
+
+fn matched_audio_label(
+    streams: &[DvdIfoAudio],
+    src_id: i64,
+    codec: &str,
+    demux_channels: i64,
+    used: &mut [bool],
+) -> String {
+    match_audio_label(
+        streams,
         MpvTrackMeta {
-            src_id: Some(0x89),
-            codec: Some("dts"),
-            demux_channels: Some(6),
+            src_id: Some(src_id),
+            codec: Some(codec),
+            demux_channels: Some(demux_channels),
         },
-        &mut used,
+        used,
     )
-    .unwrap();
-    assert_eq!(dts, "ru · DTS 5.1");
-    let ac3 = match_audio_label(
-        &streams,
-        MpvTrackMeta {
-            src_id: Some(0x80),
-            codec: Some("ac3"),
-            demux_channels: Some(6),
-        },
-        &mut used,
-    )
-    .unwrap();
-    assert_eq!(ac3, "ru · AC-3 5.1");
-    let m1 = match_audio_label(
-        &streams,
-        MpvTrackMeta {
-            src_id: Some(0x82),
-            codec: Some("ac3"),
-            demux_channels: Some(1),
-        },
-        &mut used,
-    )
-    .unwrap();
-    let m2 = match_audio_label(
-        &streams,
-        MpvTrackMeta {
-            src_id: Some(0x83),
-            codec: Some("ac3"),
-            demux_channels: Some(1),
-        },
-        &mut used,
-    )
-    .unwrap();
-    assert_eq!(m1, "ru · AC-3 mono");
-    assert_eq!(m2, "ru · AC-3 mono");
+    .unwrap()
 }
 
 #[test]
@@ -124,9 +122,7 @@ fn sub_slot_for_src_id_maps_dvd_subpicture() {
 
 #[test]
 fn streams_from_mounted_treasure_island_vts04() {
-    let vob = Path::new(
-        "/Volumes/SanDisk/Torrents/TREASURE_ISLAND/VIDEO_TS/VTS_04_1.VOB",
-    );
+    let vob = Path::new("/Volumes/SanDisk/Torrents/TREASURE_ISLAND/VIDEO_TS/VTS_04_1.VOB");
     if !vob.is_file() {
         return;
     }

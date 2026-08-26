@@ -39,25 +39,32 @@ pub(crate) fn sanitize_stale_entity_playback(chapter: &Path, live_local: f64) ->
     if entity_playback_plausible(d, r) {
         return false;
     }
-    let Some(total) = measured_title_total(chapter, live_local) else {
-        if live_local <= 0.0 {
-            crate::db::clear_duration(&key);
+    match measured_title_total(chapter, live_local) {
+        Some(total) => {
+            let global = r.min(total);
+            crate::db::set_playback(&key, total, global);
             eprintln!(
-                "[rhino] load: dvd_entity_sanitize cleared stale duration old_d={d:.1} old_r={r:.1}"
+                "[rhino] load: dvd_entity_sanitize old_d={d:.1} old_r={r:.1} -> total={total:.1} global={global:.1}"
             );
-            return true;
+            true
         }
-        let global = r.min(live_local);
-        crate::db::set_playback(&key, live_local, global);
+        None => apply_live_only_fallback(&key, d, r, live_local),
+    }
+}
+
+/// No measurable timeline: trust the live-open position alone.
+fn apply_live_only_fallback(key: &Path, d: f64, r: f64, live_local: f64) -> bool {
+    if live_local <= 0.0 {
+        crate::db::clear_duration(key);
         eprintln!(
-            "[rhino] load: dvd_entity_sanitize live_only old_d={d:.1} old_r={r:.1} -> total={live_local:.1} global={global:.1}"
+            "[rhino] load: dvd_entity_sanitize cleared stale duration old_d={d:.1} old_r={r:.1}"
         );
         return true;
-    };
-    let global = r.min(total);
-    crate::db::set_playback(&key, total, global);
+    }
+    let global = r.min(live_local);
+    crate::db::set_playback(key, live_local, global);
     eprintln!(
-        "[rhino] load: dvd_entity_sanitize old_d={d:.1} old_r={r:.1} -> total={total:.1} global={global:.1}"
+        "[rhino] load: dvd_entity_sanitize live_only old_d={d:.1} old_r={r:.1} -> total={live_local:.1} global={global:.1}"
     );
     true
 }

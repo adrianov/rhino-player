@@ -33,7 +33,11 @@ fn digit_speed_multiplier(key: gtk::gdk::Key) -> Option<u8> {
 
 /// Digit 3 maps to 1.5×; digits 1, 2, and 4–8 map to N×.
 fn digit_speed_value(n: u8) -> f64 {
-    if n == 3 { 1.5 } else { f64::from(n) }
+    if n == 3 {
+        1.5
+    } else {
+        f64::from(n)
+    }
 }
 
 fn schedule_digit_speed_resync(c: DigitSpeedShortcutCtx, v: f64) {
@@ -47,23 +51,26 @@ fn schedule_digit_speed_resync(c: DigitSpeedShortcutCtx, v: f64) {
         speed_readout,
         ..
     } = c;
-    let bref = player.clone();
-    let vp2 = Rc::clone(&video_pref);
-    let ap2 = app.clone();
-    let sy = speed_sync.clone();
-    let spd_m = speed_menu.clone();
-    let sl = speed_list.clone();
-    let spd_lbl = speed_readout.clone();
     let _ = glib::idle_add_local_once(move || {
-        if bref.borrow().is_none() {
+        if player.borrow().is_none() {
             return;
         }
-        let r = video_pref::refresh_smooth_for_playback_speed(&bref, &mut vp2.borrow_mut(), Some(v));
+        let r = video_pref::refresh_smooth_for_playback_speed(
+            &player,
+            &mut video_pref.borrow_mut(),
+            Some(v),
+        );
         if r.smooth_auto_off {
-            sync_smooth_60_to_off(&ap2);
+            sync_smooth_60_to_off(&app);
         }
-        if let Some(pl) = bref.borrow().as_ref() {
-            let _ = playback_speed::sync_list(&pl.mpv, &sy, &sl, &spd_m, &spd_lbl);
+        if let Some(pl) = player.borrow().as_ref() {
+            let _ = playback_speed::sync_list(
+                &pl.mpv,
+                &speed_sync,
+                &speed_list,
+                &speed_menu,
+                &speed_readout,
+            );
         }
     });
 }
@@ -79,9 +86,21 @@ fn try_digit_speed_shortcut(
     }
     let v = digit_speed_value(n);
     crate::user_action_log::act(format!("key digit {n} -> speed {v:.1}×"));
+    if !set_digit_speed_on_player(c, v) {
+        return Some(glib::Propagation::Proceed);
+    }
+    playback_speed::stamp_header(&c.speed_menu, &c.speed_readout, v);
+    c.gl.queue_render();
+    schedule_digit_speed_resync(c.clone(), v);
+    Some(glib::Propagation::Stop)
+}
+
+/// Unpause when needed, then set mpv's playback speed; false when there is no live player or
+/// mpv rejects the property.
+fn set_digit_speed_on_player(c: &DigitSpeedShortcutCtx, v: f64) -> bool {
     let g = c.player.borrow();
     let Some(b) = g.as_ref() else {
-        return Some(glib::Propagation::Proceed);
+        return false;
     };
     let need_unpause = b.mpv.get_property::<bool>("pause").unwrap_or(false);
     drop(g);
@@ -90,14 +109,11 @@ fn try_digit_speed_shortcut(
     }
     let g = c.player.borrow();
     let Some(b) = g.as_ref() else {
-        return Some(glib::Propagation::Proceed);
+        return false;
     };
     if b.mpv.set_property("speed", v).is_err() {
-        return Some(glib::Propagation::Proceed);
+        return false;
     }
     drop(g);
-    playback_speed::stamp_header(&c.speed_menu, &c.speed_readout, v);
-    c.gl.queue_render();
-    schedule_digit_speed_resync(c.clone(), v);
-    Some(glib::Propagation::Stop)
+    true
 }

@@ -22,51 +22,35 @@ fn vol_pop_show_tracks(
     vol_pop_show_tracks_impl(p, bx, blk, gla, sec, vol_menu);
 }
 
-fn sub_pop_show_tracks_impl(
-    p: &Rc<RefCell<Option<MpvBundle>>>,
-    bx: &gtk::Box,
-    blk: &Rc<Cell<bool>>,
-    gla: &gtk::GLArea,
-    sec: &gtk::Box,
-    on_pick: Option<Rc<dyn Fn(&str)>>,
-    on_sub_off: Option<Rc<dyn Fn()>>,
-    header_readout: Option<gtk::Label>,
-    text_color_row: Option<gtk::Box>,
-) {
-    let show = sub_tracks::rebuild_popover(
-        p,
-        bx,
-        blk,
-        gla,
-        on_pick,
-        on_sub_off,
-        header_readout,
-        text_color_row,
-    );
-    sec.set_visible(show);
+/// Shared refs to a track-list popover's surfaces (player, list box, block, gl area, section).
+struct TrackPopRefs<'a> {
+    p: &'a Rc<RefCell<Option<MpvBundle>>>,
+    bx: &'a gtk::Box,
+    blk: &'a Rc<Cell<bool>>,
+    gla: &'a gtk::GLArea,
+    sec: &'a gtk::Box,
+}
+
+fn sub_pop_show_tracks_impl(t: TrackPopRefs<'_>, parts: sub_tracks::SubPopoverParts) {
+    let show = sub_tracks::rebuild_popover(t.p, t.bx, t.blk, t.gla, parts);
+    t.sec.set_visible(show);
 }
 
 fn sub_pop_show_tracks(
-    p: &Rc<RefCell<Option<MpvBundle>>>,
-    bx: &gtk::Box,
-    blk: &Rc<Cell<bool>>,
-    gla: &gtk::GLArea,
-    sec: &gtk::Box,
-    on_pick: Option<Rc<dyn Fn(&str)>>,
-    on_sub_off: Option<Rc<dyn Fn()>>,
+    t: TrackPopRefs<'_>,
+    on_pick: Option<SubPickHook>,
+    on_sub_off: Option<PopShowHook>,
     header_readout: Option<gtk::Label>,
     text_color_row: Option<gtk::Box>,
 ) {
     sub_pop_show_tracks_impl(
-        p,
-        bx,
-        blk,
-        gla,
-        sec,
-        on_pick,
-        on_sub_off,
-        header_readout,
-        text_color_row,
+        t,
+        sub_tracks::SubPopoverParts {
+            on_pick,
+            on_sub_off,
+            header_readout,
+            text_color_row,
+        },
     );
 }
 
@@ -75,71 +59,13 @@ fn wire_popover_shows(
     w: &WindowWidgets,
     sub_pref: &Rc<RefCell<db::SubPrefs>>,
 ) {
-    let (p, bx, blk, gla, sec, vol_menu) = (
-        player.clone(),
-        w.audio_tracks_box.clone(),
-        Rc::clone(&w.audio_tracks_block),
-        w.gl_area.clone(),
-        w.audio_tracks_section.clone(),
-        w.vol_menu.clone(),
-    );
-    let audio_open = {
-        let (p, bx, blk, gla, sec, vol_menu) =
-            (p.clone(), bx.clone(), blk.clone(), gla.clone(), sec.clone(), vol_menu.clone());
-        Rc::new(move || vol_pop_show_tracks(&p, &bx, &blk, &gla, &sec, &vol_menu))
-    };
+    let audio_open = make_audio_show_hook(player, w);
     w.vol_pop.connect_show({
         let audio_open = Rc::clone(&audio_open);
         move |_| audio_open()
     });
 
-    let sp_pick = sub_pref.clone();
-    let sp_off = sub_pref.clone();
-    let on_sub_pick: Rc<dyn Fn(&str)> = Rc::new(move |label: &str| {
-        let mut s = sp_pick.borrow_mut();
-        s.last_sub_label = label.to_string();
-        s.sub_off = false;
-        db::save_sub(&s);
-    });
-    let on_sub_off: Rc<dyn Fn()> = Rc::new(move || {
-        sp_off.borrow_mut().sub_off = true;
-        db::save_sub(&sp_off.borrow());
-    });
-    let (p2, bx2, blk2, gla2, sec2) = (
-        player.clone(),
-        w.sub_tracks_box.clone(),
-        Rc::clone(&w.sub_tracks_block),
-        w.gl_area.clone(),
-        w.sub_tracks_section.clone(),
-    );
-    let sub_rd = w.sub_readout.clone();
-    let sub_color_row = w.sub_color_row.clone();
-    let sub_pick = Rc::clone(&on_sub_pick);
-    let sub_off = Rc::clone(&on_sub_off);
-    let sub_open = {
-        let p2 = p2.clone();
-        let bx2 = bx2.clone();
-        let blk2 = Rc::clone(&blk2);
-        let gla2 = gla2.clone();
-        let sec2 = sec2.clone();
-        let sub_pick = Rc::clone(&sub_pick);
-        let sub_off = Rc::clone(&sub_off);
-        let sub_rd = sub_rd.clone();
-        let sub_color_row = sub_color_row.clone();
-        Rc::new(move || {
-            sub_pop_show_tracks(
-                &p2,
-                &bx2,
-                &blk2,
-                &gla2,
-                &sec2,
-                Some(Rc::clone(&sub_pick)),
-                Some(Rc::clone(&sub_off)),
-                Some(sub_rd.clone()),
-                Some(sub_color_row.clone()),
-            );
-        })
-    };
+    let sub_open = make_sub_show_hook(player, w, sub_pref);
     w.sub_pop.connect_show({
         let sub_open = Rc::clone(&sub_open);
         move |_| sub_open()
@@ -149,4 +75,85 @@ fn wire_popover_shows(
         audio: audio_open,
         sub: sub_open,
     });
+}
+
+type PopShowHook = Rc<dyn Fn()>;
+
+type SubPickHook = Rc<dyn Fn(&str)>;
+
+type SubPrefHooks = (SubPickHook, PopShowHook);
+
+fn make_audio_show_hook(player: &Rc<RefCell<Option<MpvBundle>>>, w: &WindowWidgets) -> PopShowHook {
+    let (p, bx, blk, gla, sec, vol_menu) = (
+        player.clone(),
+        w.audio_tracks_box.clone(),
+        Rc::clone(&w.audio_tracks_block),
+        w.gl_area.clone(),
+        w.audio_tracks_section.clone(),
+        w.vol_menu.clone(),
+    );
+    Rc::new(move || vol_pop_show_tracks(&p, &bx, &blk, &gla, &sec, &vol_menu))
+}
+
+fn make_sub_show_hook(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    w: &WindowWidgets,
+    sub_pref: &Rc<RefCell<db::SubPrefs>>,
+) -> PopShowHook {
+    let (sub_pick, sub_off) = make_sub_pref_hooks(sub_pref);
+    let p = player.clone();
+    let bx = w.sub_tracks_box.clone();
+    let blk = Rc::clone(&w.sub_tracks_block);
+    let gla = w.gl_area.clone();
+    let sec = w.sub_tracks_section.clone();
+    let rd = w.sub_readout.clone();
+    let color_row = w.sub_color_row.clone();
+    Rc::new(move || {
+        open_sub_tracks(
+            TrackPopRefs {
+                p: &p,
+                bx: &bx,
+                blk: &blk,
+                gla: &gla,
+                sec: &sec,
+            },
+            &sub_pick,
+            &sub_off,
+            &rd,
+            &color_row,
+        )
+    })
+}
+
+/// Preference writes for a subtitle pick / subtitle-off toggle.
+fn make_sub_pref_hooks(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> SubPrefHooks {
+    let sp_pick = sub_pref.clone();
+    let sp_off = sub_pref.clone();
+    let on_pick: SubPickHook = Rc::new(move |label: &str| {
+        let mut s = sp_pick.borrow_mut();
+        s.last_sub_label = label.to_string();
+        s.sub_off = false;
+        db::save_sub(&s);
+    });
+    let on_off: PopShowHook = Rc::new(move || {
+        sp_off.borrow_mut().sub_off = true;
+        db::save_sub(&sp_off.borrow());
+    });
+    (on_pick, on_off)
+}
+
+fn open_sub_tracks(
+    t: TrackPopRefs<'_>,
+    pick: &SubPickHook,
+    off: &PopShowHook,
+    rd: &gtk::Label,
+    color_row: &gtk::Box,
+) {
+    sub_pop_show_tracks(
+        t,
+        Some(Rc::clone(pick)),
+        Some(Rc::clone(off)),
+        Some(rd.clone()),
+        Some(color_row.clone()),
+    );
 }

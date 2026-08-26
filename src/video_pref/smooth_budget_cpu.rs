@@ -8,9 +8,7 @@ fn process_rusage_usec() -> Option<u64> {
     if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) } != 0 {
         return None;
     }
-    Some(
-        timeval_usec(&ru.ru_utime).saturating_add(timeval_usec(&ru.ru_stime)),
-    )
+    Some(timeval_usec(&ru.ru_utime).saturating_add(timeval_usec(&ru.ru_stime)))
 }
 
 #[cfg(unix)]
@@ -36,15 +34,27 @@ fn smooth_budget_refresh_process_cpu_frac(st: &mut SmoothBudgetDecoderState) -> 
             None
         }
         Some((t0, u0)) => {
-            let dt = now.saturating_duration_since(t0).as_secs_f64().max(1e-3);
-            let du = cur.saturating_sub(u0);
             st.rusage_cpu_prev = Some((now, cur));
-            let n = std::thread::available_parallelism()
-                .map(|x| x.get() as f64)
-                .unwrap_or(1.0)
-                .max(1.0);
-            let machine_usec = dt * n * 1_000_000.0;
-            Some((du as f64) / machine_usec)
+            Some(process_cpu_share_since(now, cur, t0, u0))
         }
     }
+}
+
+/// CPU µs accumulated since the previous sample ÷ (wall × all logical processors).
+#[cfg(unix)]
+fn process_cpu_share_since(now: Instant, cur: u64, t0: Instant, u0: u64) -> f64 {
+    let dt = now.saturating_duration_since(t0).as_secs_f64().max(1e-3);
+    let du = cur.saturating_sub(u0);
+    let n = std::thread::available_parallelism()
+        .map(|x| x.get() as f64)
+        .unwrap_or(1.0)
+        .max(1.0);
+    let machine_usec = dt * n * 1_000_000.0;
+    (du as f64) / machine_usec
+}
+
+/// No rusage on this platform → no interval share.
+#[cfg(not(unix))]
+fn process_cpu_share_since(_now: Instant, _cur: u64, _t0: Instant, _u0: u64) -> f64 {
+    0.0
 }

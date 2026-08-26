@@ -1,5 +1,6 @@
 // Register Now Playing metadata and MPRemoteCommandCenter handlers on macOS so system media keys
 // route here during playback instead of launching Apple Music.
+include!("macos_now_playing_info.rs");
 
 use std::ptr::NonNull;
 use std::sync::Once;
@@ -8,10 +9,11 @@ use block2::RcBlock;
 use objc2::runtime::AnyObject;
 use objc2_foundation::{NSMutableDictionary, NSNumber, NSString};
 use objc2_media_player::{
-    MPNowPlayingInfoCenter, MPNowPlayingInfoMediaType, MPNowPlayingInfoPropertyElapsedPlaybackTime,
+    MPMediaItemPropertyPlaybackDuration, MPMediaItemPropertyTitle, MPNowPlayingInfoCenter,
+    MPNowPlayingInfoMediaType, MPNowPlayingInfoPropertyElapsedPlaybackTime,
     MPNowPlayingInfoPropertyMediaType, MPNowPlayingInfoPropertyPlaybackRate,
-    MPNowPlayingPlaybackState, MPMediaItemPropertyPlaybackDuration, MPMediaItemPropertyTitle,
-    MPRemoteCommandCenter, MPRemoteCommandEvent, MPRemoteCommandHandlerStatus,
+    MPNowPlayingPlaybackState, MPRemoteCommandCenter, MPRemoteCommandEvent,
+    MPRemoteCommandHandlerStatus,
 };
 
 /// Install one remote-command handler and give Rust-side ownership of the block/token to ObjC for the
@@ -36,61 +38,64 @@ fn wire_remote_command(
 unsafe fn register_remote_commands(play_key: PlayToggleCtx, nav: SiblingNavCtx) {
     let center = MPRemoteCommandCenter::sharedCommandCenter();
 
-    let pk = play_key.clone();
-    wire_remote_command(
-        &center.togglePlayPauseCommand(),
-        RcBlock::new(move |_ev: NonNull<MPRemoteCommandEvent>| {
-            let _ = toggle_play_pause(&pk);
-            MPRemoteCommandHandlerStatus::Success
-        }),
-    );
+    unsafe {
+        register_playback_remote_commands(&center, &play_key);
+        register_track_remote_commands(&center, &nav);
+    }
+}
 
-    let pk = play_key.clone();
-    wire_remote_command(
-        &center.playCommand(),
-        RcBlock::new(move |_ev: NonNull<MPRemoteCommandEvent>| {
-            let _ = apply_mpv_pause(&pk, false);
-            MPRemoteCommandHandlerStatus::Success
-        }),
-    );
+/// Register one remote command whose handler receives the shared context by reference.
+unsafe fn wire_ctx_command<C, F>(cmd: &objc2_media_player::MPRemoteCommand, ctx: C, handler: F)
+where
+    C: 'static,
+    F: Fn(&C, NonNull<MPRemoteCommandEvent>) -> MPRemoteCommandHandlerStatus + 'static,
+{
+    wire_remote_command(cmd, RcBlock::new(move |ev| handler(&ctx, ev)));
+}
 
-    let pk = play_key.clone();
-    wire_remote_command(
-        &center.pauseCommand(),
-        RcBlock::new(move |_ev: NonNull<MPRemoteCommandEvent>| {
-            let _ = apply_mpv_pause(&pk, true);
+/// Toggle / play / pause / stop handlers on the shared [`PlayToggleCtx`].
+unsafe fn register_playback_remote_commands(
+    center: &MPRemoteCommandCenter,
+    play_key: &PlayToggleCtx,
+) {
+    unsafe {
+        wire_ctx_command(
+            &center.togglePlayPauseCommand(),
+            play_key.clone(),
+            |pk, _| {
+                let _ = toggle_play_pause(pk);
+                MPRemoteCommandHandlerStatus::Success
+            },
+        );
+        wire_ctx_command(&center.playCommand(), play_key.clone(), |pk, _| {
+            let _ = apply_mpv_pause(pk, false);
             MPRemoteCommandHandlerStatus::Success
-        }),
-    );
-
-    let pk = play_key.clone();
-    wire_remote_command(
-        &center.stopCommand(),
-        RcBlock::new(move |_ev: NonNull<MPRemoteCommandEvent>| {
-            media_stop(&pk);
+        });
+        wire_ctx_command(&center.pauseCommand(), play_key.clone(), |pk, _| {
+            let _ = apply_mpv_pause(pk, true);
             MPRemoteCommandHandlerStatus::Success
-        }),
-    );
+        });
+        wire_ctx_command(&center.stopCommand(), play_key.clone(), |pk, _| {
+            media_stop(pk);
+            MPRemoteCommandHandlerStatus::Success
+        });
+    }
+}
 
-    let nav_n = nav.clone();
-    wire_remote_command(
-        &center.nextTrackCommand(),
-        RcBlock::new(move |_ev: NonNull<MPRemoteCommandEvent>| {
-            let r = nav_n.try_refs();
+/// Next / previous track handlers on the shared [`SiblingNavCtx`].
+unsafe fn register_track_remote_commands(center: &MPRemoteCommandCenter, nav: &SiblingNavCtx) {
+    unsafe {
+        wire_ctx_command(&center.nextTrackCommand(), nav.clone(), |nav, _| {
+            let r = nav.try_refs();
             try_load_sibling_pick(sibling_advance::next_after_eof, "next", &r);
             MPRemoteCommandHandlerStatus::Success
-        }),
-    );
-
-    let nav_p = nav;
-    wire_remote_command(
-        &center.previousTrackCommand(),
-        RcBlock::new(move |_ev: NonNull<MPRemoteCommandEvent>| {
-            let r = nav_p.try_refs();
+        });
+        wire_ctx_command(&center.previousTrackCommand(), nav.clone(), |nav, _| {
+            let r = nav.try_refs();
             try_load_sibling_pick(sibling_advance::prev_before_current, "previous", &r);
             MPRemoteCommandHandlerStatus::Success
-        }),
-    );
+        });
+    }
 }
 
 fn wire_macos_now_playing_remote(play_key: PlayToggleCtx, nav: SiblingNavCtx) {
@@ -106,70 +111,42 @@ unsafe fn np_clear() {
     npc.setPlaybackState(MPNowPlayingPlaybackState::Stopped);
 }
 
-unsafe fn np_publish(title: &str, dur: f64, pos: f64, pause: bool, speed: f64) {
-    let npc = MPNowPlayingInfoCenter::defaultCenter();
-    let dict = NSMutableDictionary::<NSString, AnyObject>::new();
-    let title_ns = NSString::from_str(title);
-    // `NSMutableDictionary::insert` → `setObject:forKey:` retains each **value** and copies **keys**
-    // (NSString adopts NSCopying). Rust `Retained` temps may drop after each insert; the dictionary + ARC
-    // keep owning references.
-    dict.insert(MPMediaItemPropertyTitle, title_ns.as_ref());
-
-    let dur_ns = NSNumber::numberWithDouble(dur);
-    dict.insert(MPMediaItemPropertyPlaybackDuration, dur_ns.as_ref());
-
-    let pos_ns = NSNumber::numberWithDouble(pos);
-    dict.insert(MPNowPlayingInfoPropertyElapsedPlaybackTime, pos_ns.as_ref());
-
-    let rate = if pause { 0.0 } else { speed };
-    let rate_ns = NSNumber::numberWithDouble(rate);
-    dict.insert(MPNowPlayingInfoPropertyPlaybackRate, rate_ns.as_ref());
-
-    let media_type_ns = NSNumber::numberWithUnsignedInteger(MPNowPlayingInfoMediaType::Video.0);
-    dict.insert(MPNowPlayingInfoPropertyMediaType, media_type_ns.as_ref());
-
-    npc.setNowPlayingInfo(Some(&dict));
-    npc.setPlaybackState(if pause {
-        MPNowPlayingPlaybackState::Paused
+/// Clamp a finite, non-negative mpv seconds value; fall back when missing or non-finite.
+fn np_sanitized(v: f64, fallback: f64) -> f64 {
+    if v.is_finite() {
+        v.max(0.0)
     } else {
-        MPNowPlayingPlaybackState::Playing
-    });
+        fallback
+    }
 }
 
-pub(crate) fn sync_macos_now_playing_for_transport(player: &Rc<RefCell<Option<MpvBundle>>>) {
-    let Ok(g) = player.try_borrow() else {
-        unsafe { np_clear() };
-        return;
-    };
-    let Some(b) = g.as_ref() else {
-        unsafe { np_clear() };
-        return;
-    };
-    let dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
-    let dur = if dur.is_finite() { dur.max(0.0) } else { 0.0 };
-    if dur <= 0.0 {
-        unsafe { np_clear() };
-        return;
-    }
-    let pause = b.mpv.get_property::<bool>("pause").unwrap_or(false);
-    let mut pos = b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
-    pos = if pos.is_finite() { pos.max(0.0) } else { 0.0 };
-    let mut speed = b.mpv.get_property::<f64>("speed").unwrap_or(1.0);
-    speed = if speed.is_finite() { speed.max(0.0) } else { 1.0 };
+/// Positive duration or `0.0` (which clears Now Playing — no media to describe).
+fn np_duration_secs(b: &MpvBundle) -> f64 {
+    let d = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
+    np_sanitized(d, 0.0)
+}
 
-    let mut title = b
-        .mpv
+/// Media title, falling back to the file name and then the app name.
+fn np_media_title(b: &MpvBundle) -> String {
+    let streamed = np_streamed_title(b);
+    if !streamed.is_empty() {
+        return streamed;
+    }
+    np_fallback_title(b)
+}
+
+/// `media-title` when mpv provides a non-blank one.
+fn np_streamed_title(b: &MpvBundle) -> String {
+    b.mpv
         .get_property::<String>("media-title")
         .ok()
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_default();
-    if title.is_empty() {
-        title = local_file_from_mpv(&b.mpv)
-            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-            .unwrap_or_else(|| "Rhino Player".into());
-    }
+        .unwrap_or_default()
+}
 
-    unsafe {
-        np_publish(&title, dur, pos, pause, speed);
-    }
+/// File name of the playing local file, else the app name.
+fn np_fallback_title(b: &MpvBundle) -> String {
+    local_file_from_mpv(&b.mpv)
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "Rhino Player".into())
 }

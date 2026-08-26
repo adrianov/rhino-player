@@ -2,9 +2,7 @@ pub(super) fn dvdtime_to_sec(raw: &[u8]) -> f64 {
     if raw.len() < 4 {
         return 0.0;
     }
-    let sec = bcd(raw[0]) as f64 * 3600.0
-        + bcd(raw[1]) as f64 * 60.0
-        + bcd(raw[2]) as f64;
+    let sec = bcd(raw[0]) as f64 * 3600.0 + bcd(raw[1]) as f64 * 60.0 + bcd(raw[2]) as f64;
     let fps = match (raw[3] & 0xc0) >> 6 {
         1 => 25.0,
         3 => 29.97,

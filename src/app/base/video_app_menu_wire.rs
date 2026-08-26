@@ -27,18 +27,23 @@ fn stamp_smooth_toolbar_readout(
         l.set_label(&fps_text);
     }
     if let Some(btn) = btn {
-        sync_smooth_load_hold_face(btn);
-        let tip = if crate::video_pref::smooth_load_hold_active() {
-            crate::video_pref::smooth_load_hold_tooltip().to_string()
-        } else {
-            match src_fps {
-                Some(src) => format!("Smooth Video ({src} → 60 FPS)"),
-                None => SMOOTH60_MENU_LABEL.to_string(),
-            }
-        };
-        if btn.tooltip_text().as_deref() != Some(&tip) {
-            btn.set_tooltip_text(Some(&tip));
+        update_smooth_button_tooltip(btn, src_fps);
+    }
+}
+
+/// Tooltip shows the load-hold state while paused for an external load; else the source→60 summary.
+fn update_smooth_button_tooltip(btn: &gtk::Button, src_fps: Option<String>) {
+    sync_smooth_load_hold_face(btn);
+    let tip = if crate::video_pref::smooth_load_hold_active() {
+        crate::video_pref::smooth_load_hold_tooltip().to_string()
+    } else {
+        match src_fps {
+            Some(src) => format!("Smooth Video ({src} → 60 FPS)"),
+            None => SMOOTH60_MENU_LABEL.to_string(),
         }
+    };
+    if btn.tooltip_text().as_deref() != Some(tip.as_str()) {
+        btn.set_tooltip_text(Some(&tip));
     }
 }
 

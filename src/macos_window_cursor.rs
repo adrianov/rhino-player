@@ -9,13 +9,18 @@ pub fn mouse_point_for_gtk_pick(gtk_win: &adw::ApplicationWindow) -> Option<(f64
     }
     let nswin = nswindow_for_widget(gtk_win.upcast_ref::<gtk::Widget>())?;
     let p = nswin.mouseLocationOutsideOfEventStream();
-    let gw = gtk_win.width() as f64;
-    let gh = gtk_win.height() as f64;
+    gtk_pick_point(gtk_win, p.x, p.y)
+}
+
+/// Flip NSWindow bottom-left Y into GTK top-left and reject points outside the window.
+fn gtk_pick_point(win: &adw::ApplicationWindow, ns_x: f64, ns_y: f64) -> Option<(f64, f64)> {
+    let gw = win.width() as f64;
+    let gh = win.height() as f64;
     if gw <= 1.0 || gh <= 1.0 {
         return None;
     }
-    let gtk_x = p.x;
-    let gtk_y = gh - p.y;
+    let gtk_x = ns_x;
+    let gtk_y = gh - ns_y;
     if gtk_x < 0.0 || gtk_y < 0.0 || gtk_x > gw || gtk_y > gh {
         return None;
     }

@@ -12,6 +12,8 @@ use std::rc::Rc;
 
 use crate::mpv_embed::MpvBundle;
 
+mod fill_sync;
+
 const ICON: &str = "view-fill-symbolic";
 const TOOLTIP: &str = "Fill Screen";
 /// Aspect ratio difference below this threshold is treated as "already matching".
@@ -26,71 +28,6 @@ pub struct FillSync {
     preferred: Cell<bool>,
     player: Rc<RefCell<Option<MpvBundle>>>,
     win: adw::ApplicationWindow,
-}
-
-impl FillSync {
-    /// Recheck visibility; apply or reset panscan to match user preference.
-    pub fn sync(&self) {
-        let is_fs = self.win.is_fullscreen();
-        let mismatch = self.aspect_mismatch();
-        let show = is_fs && mismatch;
-        if show {
-            self.apply_panscan(self.preferred.get());
-        } else if self.active.get() {
-            self.reset_panscan();
-        }
-        self.btn.set_visible(show);
-        if is_fs && !mismatch {
-            if let Some(ar) = monitor_ar(&self.win) {
-                eprintln!("[rhino] fill: fullscreen but no AR mismatch (monitor={ar:.3})");
-            }
-        }
-    }
-
-    /// Clear preference on new media so fill doesn't carry over across unrelated videos.
-    pub fn reset_preferred(&self) {
-        self.preferred.set(false);
-        if self.active.get() {
-            self.reset_panscan();
-        }
-        self.btn.set_visible(false);
-    }
-
-    fn aspect_mismatch(&self) -> bool {
-        let guard = self.player.borrow();
-        let Some(b) = guard.as_ref() else { return false };
-        let Some(screen_ar) = monitor_ar(&self.win) else { return false };
-        let Ok(vw) = b.mpv.get_property::<i64>("dwidth") else { return false };
-        let Ok(vh) = b.mpv.get_property::<i64>("dheight") else { return false };
-        if vw <= 0 || vh <= 0 {
-            return false;
-        }
-        (screen_ar - vw as f64 / vh as f64).abs() > AR_TOLERANCE
-    }
-
-    fn apply_panscan(&self, on: bool) {
-        self.active.set(on);
-        self.preferred.set(on);
-        if let Some(b) = self.player.borrow().as_ref() {
-            let v: f64 = if on { 1.0 } else { 0.0 };
-            if let Err(e) = b.mpv.set_property("panscan", v) {
-                eprintln!("[rhino] fill: panscan set failed: {e}");
-            }
-        }
-        if on {
-            self.btn.add_css_class("rp-fill-on");
-        } else {
-            self.btn.remove_css_class("rp-fill-on");
-        }
-    }
-
-    fn reset_panscan(&self) {
-        self.active.set(false);
-        if let Some(b) = self.player.borrow().as_ref() {
-            let _ = b.mpv.set_property("panscan", 0.0f64);
-        }
-        self.btn.remove_css_class("rp-fill-on");
-    }
 }
 
 /// Returns the aspect ratio of the monitor the window is currently on.
@@ -109,6 +46,21 @@ pub fn build_fill_header(
     win: &adw::ApplicationWindow,
     player: &Rc<RefCell<Option<MpvBundle>>>,
 ) -> (gtk::Button, Rc<FillSync>) {
+    let btn = build_fill_button();
+    let sync = Rc::new(FillSync {
+        btn: btn.clone(),
+        active: Cell::new(false),
+        preferred: Cell::new(false),
+        player: Rc::clone(player),
+        win: win.clone(),
+    });
+    connect_fill_clicked(&btn, &sync);
+    connect_fill_resync_on_fullscreen(win, &sync);
+    register_fill_hooks(&sync);
+    (btn, sync)
+}
+
+fn build_fill_button() -> gtk::Button {
     let btn = gtk::Button::new();
     btn.add_css_class("flat");
     btn.add_css_class("rp-fill-btn");
@@ -117,24 +69,23 @@ pub fn build_fill_header(
     btn.set_tooltip_text(Some(TOOLTIP));
     btn.set_visible(false);
 
+    warn_missing_fill_icon();
+    let img = gtk::Image::from_icon_name(ICON);
+    img.set_valign(gtk::Align::Center);
+    btn.set_child(Some(&img));
+    btn
+}
+
+fn warn_missing_fill_icon() {
     if let Some(display) = gtk::gdk::Display::default() {
         if !gtk::IconTheme::for_display(&display).has_icon(ICON) {
             eprintln!("[rhino] fill: icon not found in theme: {ICON}");
         }
     }
-    let img = gtk::Image::from_icon_name(ICON);
-    img.set_valign(gtk::Align::Center);
-    btn.set_child(Some(&img));
+}
 
-    let sync = Rc::new(FillSync {
-        btn: btn.clone(),
-        active: Cell::new(false),
-        preferred: Cell::new(false),
-        player: Rc::clone(player),
-        win: win.clone(),
-    });
-
-    let sc = Rc::clone(&sync);
+fn connect_fill_clicked(btn: &gtk::Button, sync: &Rc<FillSync>) {
+    let sc = Rc::clone(sync);
     btn.connect_clicked(move |_| {
         let on = !sc.preferred.get();
         crate::user_action_log::act(format!(
@@ -143,21 +94,22 @@ pub fn build_fill_header(
         ));
         sc.apply_panscan(on);
     });
+}
 
+fn connect_fill_resync_on_fullscreen(win: &adw::ApplicationWindow, sync: &Rc<FillSync>) {
     // Defer sync: window dimensions are updated after fullscreened-notify fires.
-    let sw = Rc::clone(&sync);
+    let sw = Rc::clone(sync);
     win.connect_fullscreened_notify(move |_| {
         let s = Rc::clone(&sw);
         let _ = glib::idle_add_local_once(move || s.sync());
     });
+}
 
-    let st = Rc::clone(&sync);
+fn register_fill_hooks(sync: &Rc<FillSync>) {
+    let st = Rc::clone(sync);
     FILL_RESYNC.with(|s| *s.borrow_mut() = Some(Rc::new(move || st.sync())));
-
-    let sr = Rc::clone(&sync);
+    let sr = Rc::clone(sync);
     FILL_RESET.with(|s| *s.borrow_mut() = Some(Rc::new(move || sr.reset_preferred())));
-
-    (btn, sync)
 }
 
 thread_local! {

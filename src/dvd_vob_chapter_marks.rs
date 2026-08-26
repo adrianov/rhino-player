@@ -11,39 +11,47 @@ pub(super) fn chapter_labels_for_timeline(tl: &DvdVobTimeline) -> Vec<(f64, Stri
     let mut chapter_n = 1;
     let mut i = 0;
     while i < tl.vobs.len() {
-        let tid = crate::dvd_entity::vob_title_id(&tl.vobs[i]);
-        let mut j = i + 1;
-        while j < tl.vobs.len() {
-            if crate::dvd_entity::vob_title_id(&tl.vobs[j]) != tid {
-                break;
-            }
-            j += 1;
-        }
         let group_start = tl.global_pos(&tl.vobs[i], 0.0);
         if i > 0 {
             chapter_n += 1;
             out.push((group_start, format!("Chapter {chapter_n}")));
         }
-        let group_vob_total: f64 = (i..j).map(|k| tl.chapter_dur_at(k)).sum();
-        if let Some(ifo) = chapter_marks_from_vob(&tl.vobs[i]) {
-            append_scaled_ifo_marks(
-                &mut out,
-                &ifo,
-                group_start,
-                group_vob_total,
-                tl.total_sec,
-                &mut chapter_n,
-            );
-        } else {
-            append_vob_part_marks(&mut out, tl, i, j, &mut chapter_n);
-        }
-        i = j;
+        i = append_group_labels(&mut out, tl, i, group_start, &mut chapter_n);
     }
     if out.len() <= 1 {
         Vec::new()
     } else {
         out
     }
+}
+
+/// Emit labels for the group of `.vob` parts sharing one title id; returns the group end.
+fn append_group_labels(
+    out: &mut Vec<(f64, String)>,
+    tl: &DvdVobTimeline,
+    i: usize,
+    group_start: f64,
+    chapter_n: &mut u32,
+) -> usize {
+    let tid = crate::dvd_entity::vob_title_id(&tl.vobs[i]);
+    let mut j = i + 1;
+    while j < tl.vobs.len() && crate::dvd_entity::vob_title_id(&tl.vobs[j]) == tid {
+        j += 1;
+    }
+    let group_vob_total: f64 = (i..j).map(|k| tl.chapter_dur_at(k)).sum();
+    if let Some(ifo) = chapter_marks_from_vob(&tl.vobs[i]) {
+        append_scaled_ifo_marks(
+            out,
+            &ifo,
+            group_start,
+            group_vob_total,
+            tl.total_sec,
+            chapter_n,
+        );
+    } else {
+        append_vob_part_marks(out, tl, i, j, chapter_n);
+    }
+    j
 }
 
 fn append_scaled_ifo_marks(
@@ -104,7 +112,10 @@ pub(crate) fn preview_chapter_dur(
     if dur <= 0.0 {
         return local + 1.0;
     }
-    if let Some(&(next_t, _)) = bar.chapter_labels.iter().find(|(t, _)| *t > global_t + 0.05)
+    if let Some(&(next_t, _)) = bar
+        .chapter_labels
+        .iter()
+        .find(|(t, _)| *t > global_t + 0.05)
     {
         let remain = next_t - global_t;
         if remain > 0.0 && remain <= PREVIEW_MARK_NEAR_SEC {

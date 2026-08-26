@@ -90,19 +90,46 @@ fn get_setting_str(key: &str) -> Option<String> {
 /// Default loaded prefs (merged with [Default] for missing keys).
 pub fn load_sub() -> SubPrefs {
     let mut p = SubPrefs::default();
+    apply_sub_colors(&mut p);
+    apply_sub_geometry(&mut p);
+    apply_sub_flags(&mut p);
+    p
+}
+
+/// Text + border colors (`0xRRGGBB`).
+fn apply_sub_colors(p: &mut SubPrefs) {
     let hex = |k| get_setting_str(k).and_then(|s| parse_u32(&s));
+    if let Some(n) = hex(K_SUB_COLOR) {
+        p.color = n;
+    }
+    if let Some(n) = hex(K_SUB_BORDER) {
+        p.border_color = n;
+    }
+}
+
+/// Border size and scale with their clamp ranges.
+fn apply_sub_geometry(p: &mut SubPrefs) {
     let f64_clamped = |k, lo, hi| {
         get_setting_str(k)
             .and_then(|s| s.parse::<f64>().ok())
             .map(|f| f.clamp(lo, hi))
     };
-    if let Some(n) = hex(K_SUB_COLOR)  { p.color = n; }
-    if let Some(n) = hex(K_SUB_BORDER) { p.border_color = n; }
-    if let Some(f) = f64_clamped(K_SUB_BSIZE, 0.0, 8.0) { p.border_size = f; }
-    if let Some(f) = f64_clamped(K_SUB_SCALE, 0.2, 3.0) { p.scale = f; }
-    if let Some(s) = get_setting_str(K_SUB_LAST) { p.last_sub_label = s; }
-    if let Some(s) = get_setting_str(K_SUB_OFF)  { p.sub_off = s == "1" || s.eq_ignore_ascii_case("true"); }
-    p
+    if let Some(f) = f64_clamped(K_SUB_BSIZE, 0.0, 8.0) {
+        p.border_size = f;
+    }
+    if let Some(f) = f64_clamped(K_SUB_SCALE, 0.2, 3.0) {
+        p.scale = f;
+    }
+}
+
+/// Last manual track label and the "Off" flag.
+fn apply_sub_flags(p: &mut SubPrefs) {
+    if let Some(s) = get_setting_str(K_SUB_LAST) {
+        p.last_sub_label = s;
+    }
+    if let Some(s) = get_setting_str(K_SUB_OFF) {
+        p.sub_off = s == "1" || s.eq_ignore_ascii_case("true");
+    }
 }
 
 fn put_setting(key: &str, val: &str) {
@@ -127,4 +154,3 @@ pub fn save_sub(p: &SubPrefs) {
     put_setting(K_SUB_LAST, &p.last_sub_label);
     put_setting(K_SUB_OFF, if p.sub_off { "1" } else { "0" });
 }
-

@@ -21,157 +21,44 @@ struct FileLoadedCtx {
 }
 
 fn make_file_loaded_handler(ctx: FileLoadedCtx) -> Rc<dyn Fn()> {
-    let FileLoadedCtx {
-        player,
-        last_path,
-        sibling_seof,
-        sibling_nav,
-        sub_pref,
-        gl,
-        bar_show,
-        recent,
-        bottom,
-        sub_menu,
-        close_action_cell,
-        trash_action_cell,
-        speed_sync,
-        speed_menu,
-        speed_list,
-        speed_readout,
-        video_pref,
-        app,
-        close_video_btn,
-    } = ctx;
-    Rc::new({
-        let p = player.clone();
-        let lp = last_path.clone();
-        let seof = sibling_seof.clone();
-        let nav = sibling_nav.clone();
-        let sp = sub_pref.clone();
-        let g2 = gl.clone();
-        let bshow = bar_show.clone();
-        let rec = recent.clone();
-        let bot = bottom.clone();
-        let sub_m_btn = sub_menu.clone();
-        let close_a = Rc::clone(&close_action_cell);
-        let trash_a = Rc::clone(&trash_action_cell);
-        let syf = speed_sync.clone();
-        let spd_m = speed_menu.clone();
-        let sl = speed_list.clone();
-        let spd_r = speed_readout.clone();
-        let vp_onload = Rc::clone(&video_pref);
-        let app_onload = app.clone();
-        let tip_onload = close_video_btn.clone();
-        move || {
-            let cur = lp.borrow().clone();
-            nav.refresh(cur.as_deref(), seof.as_ref());
-            let p2 = p.clone();
-            let sp2 = sp.clone();
-            let g3 = g2.clone();
-            let b3 = bshow.clone();
-            let r3 = rec.clone();
-            let bot2 = bot.clone();
-            let sub320 = sub_m_btn.clone();
-            let close_a2 = Rc::clone(&close_a);
-            let trash_a2 = Rc::clone(&trash_a);
-            let syf320 = syf.clone();
-            let spd_m320 = spd_m.clone();
-            let sl320 = sl.clone();
-            let spd320 = spd_r.clone();
-            let vp_320 = Rc::clone(&vp_onload);
-            let app_320 = app_onload.clone();
-            let tip_320 = tip_onload.clone();
-            let _ = glib::timeout_add_local(Duration::from_millis(320), move || {
-                on_320ms_tick(On320Ctx {
-                    player: p2.clone(),
-                    sub_pref: sp2.clone(),
-                    recent: r3.clone(),
-                    bar_show: b3.clone(),
-                    bottom: bot2.clone(),
-                    gl: g3.clone(),
-                    sub_btn: sub320.clone(),
-                    speed_sync_flag: syf320.clone(),
-                    speed_menu: spd_m320.clone(),
-                    speed_list: sl320.clone(),
-                    speed_readout: spd320.clone(),
-                    video_pref: vp_320.clone(),
-                    app: app_320.clone(),
-                    close_action: close_a2.clone(),
-                    trash_action: trash_a2.clone(),
-                    close_video_btn: tip_320.clone(),
-                });
-                glib::ControlFlow::Break
-            });
-            // 60p: load idle attaches vf; this 320 ms hook aligns speed env without racing it.
-        }
+    Rc::new(move || {
+        let cur = ctx.last_path.borrow().clone();
+        ctx.sibling_nav
+            .refresh(cur.as_deref(), ctx.sibling_seof.as_ref());
+        let t = tick_captures(&ctx);
+        let _ = glib::timeout_add_local(Duration::from_millis(320), move || {
+            on_320ms_tick(t.clone());
+            glib::ControlFlow::Break
+        });
+        // 60p: load idle attaches vf; this 320 ms hook aligns speed env without racing it.
     })
 }
 
-struct SubStyleCtx {
-    player: Rc<RefCell<Option<MpvBundle>>>,
-    sub_pref: Rc<RefCell<db::SubPrefs>>,
-    gl: gtk::GLArea,
-    bar_show: Rc<Cell<bool>>,
-    recent: gtk::Box,
-    bottom: gtk::Box,
-    sub_scale_adj: gtk::Adjustment,
-    sub_color_btn: gtk::ColorDialogButton,
-}
-
-fn wire_sub_style_controls(ctx: SubStyleCtx) {
-    let SubStyleCtx {
-        player,
-        sub_pref,
-        gl: gl_area,
-        bar_show,
-        recent,
-        bottom,
-        sub_scale_adj,
-        sub_color_btn,
-    } = ctx;
-    {
-        let p = player.clone();
-        let sp = sub_pref.clone();
-        let gll = gl_area.clone();
-        let adj = sub_scale_adj.clone();
-        let bshow = bar_show.clone();
-        let rec = recent.clone();
-        let bot = bottom.clone();
-        sub_scale_adj.connect_value_changed(move |_| {
-            let v = adj.value();
-            sp.borrow_mut().scale = v;
-            if let Some(b) = p.borrow().as_ref() {
-                let pr = sp.borrow();
-                sub_prefs::apply_mpv(&b.mpv, &pr);
-                let show = if rec.is_visible() { true } else { bshow.get() };
-                sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, bot.height(), gll.height());
-            }
-            db::save_sub(&sp.borrow());
-            gll.queue_render();
-        });
-    }
-    {
-        let p = player.clone();
-        let sp = sub_pref.clone();
-        let gll = gl_area.clone();
-        let btn = sub_color_btn.clone();
-        let bshow = bar_show.clone();
-        let rec = recent.clone();
-        let bot = bottom.clone();
-        sub_color_btn.connect_rgba_notify(move |_| {
-            sp.borrow_mut().color = sub_prefs::rgba_to_u32(&btn.rgba());
-            if let Some(b) = p.borrow().as_ref() {
-                let pr = sp.borrow();
-                sub_prefs::apply_mpv(&b.mpv, &pr);
-                let show = if rec.is_visible() { true } else { bshow.get() };
-                sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, bot.height(), gll.height());
-            }
-            db::save_sub(&sp.borrow());
-            gll.queue_render();
-        });
+/// Clones the pieces the one-shot 320 ms tick needs out of the file-loaded context.
+fn tick_captures(ctx: &FileLoadedCtx) -> On320Ctx {
+    On320Ctx {
+        player: ctx.player.clone(),
+        sub_pref: ctx.sub_pref.clone(),
+        recent: ctx.recent.clone(),
+        bar_show: ctx.bar_show.clone(),
+        bottom: ctx.bottom.clone(),
+        gl: ctx.gl.clone(),
+        sub_btn: ctx.sub_menu.clone(),
+        speed_sync_flag: ctx.speed_sync.clone(),
+        speed_menu: ctx.speed_menu.clone(),
+        speed_list: ctx.speed_list.clone(),
+        speed_readout: ctx.speed_readout.clone(),
+        video_pref: ctx.video_pref.clone(),
+        app: ctx.app.clone(),
+        close_action: ctx.close_action_cell.clone(),
+        trash_action: ctx.trash_action_cell.clone(),
+        close_video_btn: ctx.close_video_btn.clone(),
     }
 }
 
+include!("file_loaded/sub_style.rs");
+
+#[derive(Clone)]
 struct On320Ctx {
     player: Rc<RefCell<Option<MpvBundle>>>,
     sub_pref: Rc<RefCell<db::SubPrefs>>,
@@ -193,37 +80,41 @@ struct On320Ctx {
 
 fn on_320ms_tick(c: On320Ctx) {
     if let Some(b) = c.player.borrow().as_ref() {
-        schedule_sub_button_scan(c.player.clone(), c.sub_btn);
-        let pr = c.sub_pref.borrow();
-        // Pick `sid` before styling so BDMV text tracks get `sub-color` / `sub-scale`.
-        sub_tracks::reapply_saved_or_autopick(
-            &b.mpv,
-            &pr,
-            b.me_budget_shell_path.borrow().as_deref(),
-        );
-        sub_prefs::apply_mpv(&b.mpv, &pr);
-        let show = c.recent.is_visible() || c.bar_show.get();
-        sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, c.bottom.height(), c.gl.height());
-        let listed = playback_speed::sync_list(
-            &b.mpv,
-            &c.speed_sync_flag,
-            &c.speed_list,
-            &c.speed_menu,
-            &c.speed_readout,
-        );
-        let mut g = c.video_pref.borrow_mut();
-        if g.smooth_60 {
-            let r = resync_smooth_speed(&c.player, &mut g, listed);
-            if r.smooth_auto_off {
-                sync_smooth_60_to_off(&c.app);
-            }
-        }
+        tick_player_side(&c, b);
     }
     if let Some(a) = c.close_action.borrow().as_ref() {
         sync_close_video_action(a, &c.close_video_btn, &c.player, &c.recent);
     }
     if let Some(a) = c.trash_action.borrow().as_ref() {
         sync_trash_action(a, &c.player, &c.recent);
+    }
+}
+
+fn tick_player_side(c: &On320Ctx, b: &MpvBundle) {
+    sync_sub_button_after_load(c.player.clone(), c.sub_btn.clone());
+    let pr = c.sub_pref.borrow();
+    // Pick `sid` before styling so BDMV text tracks get `sub-color` / `sub-scale`.
+    sub_tracks::reapply_saved_or_autopick(&b.mpv, &pr, b.me_budget_shell_path.borrow().as_deref());
+    sub_prefs::apply_mpv(&b.mpv, &pr);
+    let show = c.recent.is_visible() || c.bar_show.get();
+    sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, c.bottom.height(), c.gl.height());
+    resync_speed_if_smooth_60(c, b);
+}
+
+fn resync_speed_if_smooth_60(c: &On320Ctx, b: &MpvBundle) {
+    let listed = playback_speed::sync_list(
+        &b.mpv,
+        &c.speed_sync_flag,
+        &c.speed_list,
+        &c.speed_menu,
+        &c.speed_readout,
+    );
+    let mut g = c.video_pref.borrow_mut();
+    if g.smooth_60 {
+        let r = resync_smooth_speed(&c.player, &mut g, listed);
+        if r.smooth_auto_off {
+            sync_smooth_60_to_off(&c.app);
+        }
     }
 }
 

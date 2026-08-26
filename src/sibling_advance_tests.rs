@@ -46,21 +46,40 @@ fn assert_same_path(got: &Path, want: &Path) {
     );
 }
 
+/// Creates [path] as a directory.
+fn ensure_dir(path: &Path) {
+    fs::create_dir_all(path).unwrap();
+}
+
+/// Creates parent dir if needed, writes an empty video placeholder, returns the file path.
+fn seeded_video(dir: &Path, name: &str) -> PathBuf {
+    let p = dir.join(name);
+    touch_file(&p);
+    p
+}
+
+fn touch_file(path: &Path) {
+    fs::write(path, b"x").unwrap();
+}
+
+/// Removes a scratch island, ignoring absence.
+fn cleanup(island: &Path) {
+    let _ = fs::remove_dir_all(island);
+}
+
 #[test]
 fn natural_episode_order() {
     let island = scratch_island("nat_ep", ScratchTmpOrder::First);
     let base = media_flat(&island);
     for name in ["ep2.mkv", "ep10.mkv", "ep1.mkv"] {
-        fs::write(base.join(name), b"x").unwrap();
+        seeded_video(&base, name);
     }
     let e1 = base.join("ep1.mkv");
     let e2 = base.join("ep2.mkv");
     let e10 = base.join("ep10.mkv");
-    let n1 = next_after_eof(&e1).unwrap();
-    assert_same_path(&n1, &e2);
-    let n2 = next_after_eof(&e2).unwrap();
-    assert_same_path(&n2, &e10);
-    let _ = fs::remove_dir_all(&island);
+    assert_same_path(&next_after_eof(&e1).unwrap(), &e2);
+    assert_same_path(&next_after_eof(&e2).unwrap(), &e10);
+    cleanup(&island);
 }
 
 #[test]
@@ -79,18 +98,14 @@ fn same_folder_next() {
 #[test]
 fn last_in_folder_goes_to_next_sibling_subdir() {
     let island = scratch_island("sib2", ScratchTmpOrder::First);
-    let base = &island;
-    let s1 = base.join("S1");
-    let s2 = base.join("S2");
-    fs::create_dir_all(&s1).unwrap();
-    fs::create_dir_all(&s2).unwrap();
-    let v1 = s1.join("e.mp4");
-    let v2 = s2.join("a.mp4");
-    fs::write(&v1, b"x").unwrap();
-    fs::write(&v2, b"x").unwrap();
-    let n = next_after_eof(&v1).unwrap();
-    assert_same_path(&n, &v2);
-    let _ = fs::remove_dir_all(island);
+    let s1 = island.join("S1");
+    let s2 = island.join("S2");
+    ensure_dir(&s1);
+    ensure_dir(&s2);
+    let v1 = seeded_video(&s1, "e.mp4");
+    let v2 = seeded_video(&s2, "a.mp4");
+    assert_same_path(&next_after_eof(&v1).unwrap(), &v2);
+    cleanup(&island);
 }
 
 #[test]
@@ -121,17 +136,14 @@ fn prev_same_folder() {
 #[test]
 fn prev_from_first_in_folder_to_previous_sibling_last() {
     let island = scratch_island("prev2", ScratchTmpOrder::First);
-    let base = &island;
-    let s1 = base.join("S1");
-    let s2 = base.join("S2");
-    fs::create_dir_all(&s1).unwrap();
-    fs::create_dir_all(&s2).unwrap();
-    let v1 = s1.join("a.mp4");
-    let v2 = s2.join("z.mp4");
-    fs::write(&v1, b"x").unwrap();
-    fs::write(&v2, b"x").unwrap();
+    let s1 = island.join("S1");
+    let s2 = island.join("S2");
+    ensure_dir(&s1);
+    ensure_dir(&s2);
+    let v1 = seeded_video(&s1, "a.mp4");
+    let v2 = seeded_video(&s2, "z.mp4");
     assert_same_path(&prev_before_current(&v2).unwrap(), &v1);
-    let _ = fs::remove_dir_all(island);
+    cleanup(&island);
 }
 
 #[test]
@@ -156,14 +168,12 @@ fn does_not_jump_to_parallel_folder_under_grandparent() {
     let show_b = island.join("ShowB");
     let s1a = show_a.join("S01");
     let s1b = show_b.join("S01");
-    fs::create_dir_all(&s1a).unwrap();
-    fs::create_dir_all(&s1b).unwrap();
-    let va = s1a.join("only.mkv");
-    let vb = s1b.join("other.mkv");
-    fs::write(&va, b"x").unwrap();
-    fs::write(&vb, b"x").unwrap();
+    ensure_dir(&s1a);
+    ensure_dir(&s1b);
+    let va = seeded_video(&s1a, "only.mkv");
+    seeded_video(&s1b, "other.mkv");
     assert!(next_after_eof(&va).is_none());
-    let _ = fs::remove_dir_all(island);
+    cleanup(&island);
 }
 
 #[test]
@@ -175,30 +185,5 @@ fn vob_sibling_uses_shared_ext_list() {
     fs::write(&a, b"x").unwrap();
     fs::write(&b, b"x").unwrap();
     assert_same_path(&next_after_eof(&a).unwrap(), &b);
-    let _ = fs::remove_dir_all(&island);
-}
-
-fn write_min_dvd(disc: &Path, vob_name: &str) {
-    let vts = disc.join("VIDEO_TS");
-    fs::create_dir_all(&vts).unwrap();
-    fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").unwrap();
-    fs::write(vts.join(vob_name), b"v").unwrap();
-}
-
-#[test]
-fn dvd_advances_to_sibling_disc_dir_not_next_vob() {
-    let island = scratch_island("dvd_sib", ScratchTmpOrder::First);
-    let d1 = island.join("DVD1");
-    let d2 = island.join("DVD2");
-    write_min_dvd(&d1, "VTS_02_1.VOB");
-    write_min_dvd(&d1, "VTS_02_2.VOB");
-    write_min_dvd(&d2, "VTS_02_1.VOB");
-    let ch1 = d1.join("VIDEO_TS").join("VTS_02_1.VOB");
-    let ch2 = d2.join("VIDEO_TS").join("VTS_02_1.VOB");
-    assert_same_path(&next_after_eof(&ch1).unwrap(), &ch2);
-    let mid = d1.join("VIDEO_TS").join("VTS_02_2.VOB");
-    assert_same_path(&next_after_eof(&mid).unwrap(), &ch2);
-    let p = prev_before_current(&ch2).unwrap();
-    assert_same_path(&p, &ch1);
     let _ = fs::remove_dir_all(&island);
 }

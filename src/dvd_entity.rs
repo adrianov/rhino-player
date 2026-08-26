@@ -62,13 +62,18 @@ fn chapter_vobs_for_title(vts_dir: &Path, title_id: u32) -> Vec<PathBuf> {
         .filter(|p| is_playable_chapter_vob(p))
         .filter(|p| vob_title_id(p) == Some(title_id))
         .collect();
+    sort_vobs_naturally(&mut v);
+    v
+}
+
+/// Natural-lexicographic name order so part 10 sorts after part 9.
+fn sort_vobs_naturally(v: &mut [PathBuf]) {
     v.sort_by(|a, b| {
         lexical_sort::natural_lexical_cmp(
             a.file_name().and_then(|n| n.to_str()).unwrap_or(""),
             b.file_name().and_then(|n| n.to_str()).unwrap_or(""),
         )
     });
-    v
 }
 
 include!("dvd_entity_timeline_queue.rs");
@@ -84,8 +89,7 @@ pub(crate) fn first_chapter_vob(vts: &Path, title_id: u32) -> Option<PathBuf> {
     let vts_dir = video_ts_for_vob(vts)?;
     let vobs = chapter_vobs_for_title(&vts_dir, title_id);
     let first = vobs.first()?;
-    crate::dvd_ifo_parse::first_substantial_vob(first)
-        .or_else(|| vobs.into_iter().next())
+    crate::dvd_ifo_parse::first_substantial_vob(first).or_else(|| vobs.into_iter().next())
 }
 
 /// All chapter paths for the same title set as `path` (`VTS_XX_*` only).
@@ -131,7 +135,6 @@ pub(crate) fn title_entity_path(path: &Path) -> Option<PathBuf> {
         .and_then(|p| std::fs::canonicalize(&p).ok().or(Some(p)))
 }
 
-/// Drop legacy per-chapter `.vob` `media` rows after consolidating onto the title entity.
 pub(crate) fn purge_chapter_media_rows(entity: &Path) {
     let Some((disc_key, chapters)) = title_playback_entity(entity).or_else(|| {
         let chapters = timeline_chapter_paths(entity)?;
@@ -143,18 +146,24 @@ pub(crate) fn purge_chapter_media_rows(entity: &Path) {
         if crate::video_ext::paths_same_file(ch, &disc_key) {
             continue;
         }
-        crate::db::delete_media_row_exact(ch);
-        if let Ok(c) = std::fs::canonicalize(ch) {
-            crate::db::delete_media_row_exact(&c);
-        }
+        delete_media_row_and_canonical(ch);
     }
-    if let Some(vob) = crate::video_ext::dvd_first_playable_vob(&disc_key) {
+    purge_legacy_entity_row(&disc_key);
+}
+
+fn delete_media_row_and_canonical(path: &Path) {
+    crate::db::delete_media_row_exact(path);
+    if let Ok(c) = std::fs::canonicalize(path) {
+        crate::db::delete_media_row_exact(&c);
+    }
+}
+
+/// Drop the pre-consolidation first-chapter entity row when it differs from the disc root.
+fn purge_legacy_entity_row(disc_key: &Path) {
+    if let Some(vob) = crate::video_ext::dvd_first_playable_vob(disc_key) {
         if let Some(legacy) = title_entity_path(&vob) {
-            if !crate::video_ext::paths_same_file(&legacy, &disc_key) {
-                crate::db::delete_media_row_exact(&legacy);
-                if let Ok(c) = std::fs::canonicalize(&legacy) {
-                    crate::db::delete_media_row_exact(&c);
-                }
+            if !crate::video_ext::paths_same_file(&legacy, disc_key) {
+                delete_media_row_and_canonical(&legacy);
             }
         }
     }
@@ -168,16 +177,42 @@ mod tests {
     use super::*;
     use std::fs;
 
-    #[test]
-    fn entity_path_is_first_chapter_in_title() {
-        let base = std::env::temp_dir().join(format!("rhino-dvd-ent-{}", std::process::id()));
+    /// Fresh temp disc: `base/VIDEO_TS/VIDEO_TS.IFO`.
+    fn fresh_disc_dir(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let base = std::env::temp_dir().join(format!("rhino-dvd-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let vts = base.join("VIDEO_TS");
         fs::create_dir_all(&vts).expect("mkdir");
         fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
-        for n in ["VTS_02_1.VOB", "VTS_02_2.VOB"] {
+        (base, vts)
+    }
+
+    fn write_stub_vobs(vts: &std::path::Path, names: &[&str]) {
+        for n in names {
             fs::write(vts.join(n), b"v").expect("write");
         }
+    }
+
+    fn write_sized_chapter_vobs(vts: &std::path::Path) {
+        for (i, n) in [100usize, 200, 300, 400].iter().enumerate() {
+            fs::write(vts.join(format!("VTS_02_{}.VOB", i + 1)), vec![b'x'; *n]).expect("vob");
+        }
+    }
+
+    /// Duration map covering chapters 1–3 of `VTS_02` (100 s steps).
+    fn three_chapter_durs(vts: &std::path::Path) -> HashMap<String, f64> {
+        let mut durs = HashMap::new();
+        for (i, dur) in [100.0f64, 200.0, 300.0].iter().enumerate() {
+            let p = vts.join(format!("VTS_02_{}.VOB", i + 1));
+            durs.insert(p.to_string_lossy().into_owned(), *dur);
+        }
+        durs
+    }
+
+    #[test]
+    fn entity_path_is_first_chapter_in_title() {
+        let (base, vts) = fresh_disc_dir("ent");
+        write_stub_vobs(&vts, &["VTS_02_1.VOB", "VTS_02_2.VOB"]);
         let p1 = vts.join("VTS_02_1.VOB");
         let p2 = vts.join("VTS_02_2.VOB");
         let (disc_key, _) = title_playback_entity(&p1).expect("entity");
@@ -191,24 +226,11 @@ mod tests {
 
     #[test]
     fn resume_maps_past_first_vob_with_per_file_durs() {
-        let base = std::env::temp_dir().join(format!("rhino-dvd-res-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
-        let vts = base.join("VIDEO_TS");
-        fs::create_dir_all(&vts).expect("mkdir");
-        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
-        let sizes = [100usize, 200, 300, 400];
-        for (i, n) in sizes.iter().enumerate() {
-            fs::write(vts.join(format!("VTS_02_{}.VOB", i + 1)), vec![b'x'; *n]).expect("vob");
-        }
+        let (base, vts) = fresh_disc_dir("res");
+        write_sized_chapter_vobs(&vts);
         let p1 = vts.join("VTS_02_1.VOB");
         let p3 = vts.join("VTS_02_3.VOB");
-        let mut durs = HashMap::new();
-        durs.insert(p1.to_string_lossy().into_owned(), 100.0);
-        durs.insert(
-            vts.join("VTS_02_2.VOB").to_string_lossy().into_owned(),
-            200.0,
-        );
-        durs.insert(p3.to_string_lossy().into_owned(), 300.0);
+        let durs = three_chapter_durs(&vts);
         let (load, local) = resume_chapter_and_local(&p1, 350.0, &durs).expect("target");
         assert!(crate::video_ext::paths_same_file(&load, &p3));
         assert!((local - 50.0).abs() < 1e-6, "local={local}");
@@ -217,39 +239,25 @@ mod tests {
 
     #[test]
     fn still_target_past_first_vob_with_per_file_durs() {
-        let base = std::env::temp_dir().join(format!("rhino-dvd-stale-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
-        let vts = base.join("VIDEO_TS");
-        fs::create_dir_all(&vts).expect("mkdir");
-        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
-        let sizes = [100usize, 200, 300, 400];
-        for (i, n) in sizes.iter().enumerate() {
-            fs::write(vts.join(format!("VTS_02_{}.VOB", i + 1)), vec![b'x'; *n]).expect("vob");
-        }
+        let (base, vts) = fresh_disc_dir("stale");
+        write_sized_chapter_vobs(&vts);
         let p1 = vts.join("VTS_02_1.VOB");
         let p3 = vts.join("VTS_02_3.VOB");
-        let mut durs = HashMap::new();
-        durs.insert(p1.to_string_lossy().into_owned(), 100.0);
-        durs.insert(
-            vts.join("VTS_02_2.VOB").to_string_lossy().into_owned(),
-            200.0,
-        );
-        durs.insert(p3.to_string_lossy().into_owned(), 300.0);
+        let durs = three_chapter_durs(&vts);
         let still = still_at_global(&p1, 350.0, &durs, None, None).expect("still");
         assert!(crate::video_ext::paths_same_file(&still.load, &p3));
-        assert!((still.local_sec - 50.0).abs() < 1e-6, "local={}", still.local_sec);
+        assert!(
+            (still.local_sec - 50.0).abs() < 1e-6,
+            "local={}",
+            still.local_sec
+        );
         let _ = fs::remove_dir_all(&base);
     }
 
     #[test]
     fn purge_targets_chapter_vob_rows_not_entity() {
-        let base = std::env::temp_dir().join(format!("rhino-dvd-purge-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
-        let vts = base.join("VIDEO_TS");
-        fs::create_dir_all(&vts).expect("mkdir");
-        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
-        fs::write(vts.join("VTS_02_1.VOB"), b"v").expect("write");
-        fs::write(vts.join("VTS_02_2.VOB"), b"v").expect("write");
+        let (base, vts) = fresh_disc_dir("purge");
+        write_stub_vobs(&vts, &["VTS_02_1.VOB", "VTS_02_2.VOB"]);
         let p1 = vts.join("VTS_02_1.VOB");
         let entity = crate::playback_entity::db_path_for(&p1);
         let exact = crate::db::media_path_key_exact(&p1).expect("exact");
@@ -257,7 +265,6 @@ mod tests {
         assert_ne!(exact, entity_k);
         let _ = fs::remove_dir_all(&base);
     }
-
     #[test]
     fn fritt_first_chapter_opens_vts01_splash() {
         let disc = std::path::Path::new("/Volumes/SanDisk/Torrents/Fritt.vilt.2006.DVD9");
@@ -275,12 +282,8 @@ mod tests {
 
     #[test]
     fn title_playback_entity_uses_disc_root() {
-        let base = std::env::temp_dir().join(format!("rhino-dvd-disc-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
-        let vts = base.join("VIDEO_TS");
-        fs::create_dir_all(&vts).expect("mkdir");
-        fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
-        fs::write(vts.join("VTS_02_1.VOB"), b"v").expect("write");
+        let (base, vts) = fresh_disc_dir("disc");
+        write_stub_vobs(&vts, &["VTS_02_1.VOB"]);
         let (key, chapters) = title_playback_entity(&base).expect("disc entity");
         assert!(crate::video_ext::paths_same_file(&key, &base));
         assert_eq!(chapters.len(), 1);

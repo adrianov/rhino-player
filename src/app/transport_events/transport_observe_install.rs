@@ -23,6 +23,21 @@ fn install_observers_when_ready(ctx: &Rc<TransportCtx>) -> bool {
         }
         return false;
     };
+    if !install_observers_on_bundle(ctx, b, trace) {
+        return false;
+    }
+    drop(g);
+    // Pull current state directly from mpv so the play / seek / nav UI is correct **right now**,
+    // even if the warm-preloaded file finished loading before observers were registered.
+    transport_tick(ctx);
+    refresh_sibling_nav(ctx);
+    drain_into_main(ctx);
+    install_transport_tick(ctx);
+    true
+}
+
+/// Attach property observers + the libmpv event drain to an existing bundle.
+fn install_observers_on_bundle(ctx: &Rc<TransportCtx>, b: &mut MpvBundle, trace: bool) -> bool {
     if let Err(e) = b.observe_props(&[
         (PROP_PAUSE, "pause", Format::Flag),
         (PROP_DURATION, "duration", Format::Double),
@@ -41,13 +56,6 @@ fn install_observers_when_ready(ctx: &Rc<TransportCtx>) -> bool {
     if trace {
         eprintln!("[rhino] transport install: observers wired, draining initial events");
     }
-    drop(g);
-    // Pull current state directly from mpv so the play / seek / nav UI is correct **right now**,
-    // even if the warm-preloaded file finished loading before observers were registered.
-    transport_tick(ctx);
-    refresh_sibling_nav(ctx);
-    drain_into_main(ctx);
-    install_transport_tick(ctx);
     true
 }
 
@@ -118,9 +126,20 @@ fn collect_events(ctx: &Rc<TransportCtx>) -> Vec<TransportEv> {
     let Some(b) = g.as_mut() else {
         return out;
     };
-    let saw_err = b.drain_events(|ev| match ev {
+    let saw_err = drained_transport_events(b, &mut out);
+    if saw_err {
+        out.push(TransportEv::LoadFailed);
+    }
+    out
+}
+
+/// Drain queued libmpv events into `out`; returns whether mpv reported a drain error.
+fn drained_transport_events(b: &mut MpvBundle, out: &mut Vec<TransportEv>) -> bool {
+    b.drain_events(|ev| match ev {
         Event::PropertyChange {
-            reply_userdata, change, ..
+            reply_userdata,
+            change,
+            ..
         } => {
             if let Some(t) = property_event(reply_userdata, change) {
                 out.push(t);
@@ -128,20 +147,19 @@ fn collect_events(ctx: &Rc<TransportCtx>) -> Vec<TransportEv> {
         }
         Event::FileLoaded => out.push(TransportEv::FileLoaded),
         Event::VideoReconfig => out.push(TransportEv::VideoReconfig),
-        Event::EndFile(r) => {
-            if r == libmpv2::mpv_end_file_reason::Error {
-                out.push(TransportEv::LoadFailed);
-            }
+        Event::EndFile(r) if r == libmpv2::mpv_end_file_reason::Error => {
+            out.push(TransportEv::LoadFailed);
         }
-        Event::LogMessage { prefix, level, text, .. } => {
+        Event::LogMessage {
+            prefix,
+            level,
+            text,
+            ..
+        } => {
             log_mpv_message(prefix, level, text);
         }
         _ => {}
-    });
-    if saw_err {
-        out.push(TransportEv::LoadFailed);
-    }
-    out
+    })
 }
 
 fn property_event(id: u64, data: PropertyData<'_>) -> Option<TransportEv> {

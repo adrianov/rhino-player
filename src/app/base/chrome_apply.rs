@@ -34,52 +34,57 @@ fn apply_chrome<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>) {
 }
 
 fn log_chrome_layout<R: IsA<gtk::Widget>>(c: &ChromeApplyParts<'_, R>, show: bool) {
-    let Some(win) = c
-        .gl
-        .root()
-        .and_then(|r| r.downcast::<adw::ApplicationWindow>().ok())
+    let Some(win) =
+        c.gl.root()
+            .and_then(|r| r.downcast::<adw::ApplicationWindow>().ok())
     else {
         return;
     };
     #[cfg(target_os = "macos")]
     {
         use glib::object::Cast;
-        if let Some(shell) = c.bottom.parent().and_then(|p| p.downcast::<gtk::Box>().ok()) {
+        if let Some(shell) = c
+            .bottom
+            .parent()
+            .and_then(|p| p.downcast::<gtk::Box>().ok())
+        {
             crate::shell_debug_log::log_toolbar_layout(
                 "chrome",
-                &win,
-                c.root,
-                c.header,
-                c.bottom,
-                c.gl,
+                &crate::shell_debug_log::ToolbarLayoutRefs {
+                    win: &win,
+                    root: c.root,
+                    header: c.header,
+                    bottom: c.bottom,
+                    gl: c.gl,
+                    bottom_shell: &shell,
+                },
                 c.recent.is_visible(),
                 c.bar_show.get(),
                 show,
-                &shell,
             );
         }
     }
     #[cfg(not(target_os = "macos"))]
     crate::shell_debug_log::log_toolbar_layout(
         "chrome",
-        &win,
-        c.root,
-        c.header,
-        c.bottom,
-        c.gl,
+        &crate::shell_debug_log::ToolbarLayoutRefs {
+            win: &win,
+            root: c.root,
+            header: c.header,
+            bottom: c.bottom,
+            gl: c.gl,
+        },
         c.recent.is_visible(),
         c.bar_show.get(),
         show,
     );
 }
 
-fn repaint_chrome_after_layout<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>, show: bool) {
+/// Queue redraws up the widget chain so macOS surface layers pick up bar changes.
+fn queue_native_repaint(gl: &gtk::GLArea) {
     use gtk::prelude::NativeExt;
 
-    c.root.queue_allocate();
-    c.gl.queue_render();
-    if let Some(win) = c
-        .gl
+    if let Some(win) = gl
         .root()
         .and_then(|r| r.downcast::<adw::ApplicationWindow>().ok())
     {
@@ -92,6 +97,12 @@ fn repaint_chrome_after_layout<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>, 
             crate::macos_window::invalidate_window_layers(&win);
         }
     }
+}
+
+fn repaint_chrome_after_layout<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>, show: bool) {
+    c.root.queue_allocate();
+    c.gl.queue_render();
+    queue_native_repaint(c.gl);
     if let Some(b) = c.player.borrow().as_ref() {
         sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, c.bottom.height(), c.gl.height());
     }
@@ -113,36 +124,45 @@ fn replace_timeout(s: Rc<RefCell<Option<glib::SourceId>>>, f: impl Fn() + 'stati
     ));
 }
 
+/// Bars stay shown while any header popover is open or the seek bar is grabbed.
+fn bars_stay_shown(ctx: &ChromeBarHide) -> bool {
+    #[cfg(target_os = "macos")]
+    let pop_open = crate::macos_header_menu::any_open();
+    #[cfg(not(target_os = "macos"))]
+    let pop_open = false;
+    ctx.vol.is_active()
+        || ctx.sub.is_active()
+        || ctx.speed.is_active()
+        || ctx.main.is_active()
+        || ctx.seek_grabbed.get()
+        || pop_open
+}
+
+/// Hide bars now: re-apply chrome, squelch layout logs, hide the cursor.
+fn hide_bars_now(ctx: &ChromeBarHide) {
+    ctx.bar_show.set(false);
+    apply_chrome(ChromeApplyParts {
+        hdr_csd_baseline: &ctx.hdr_csd_baseline,
+        root: &ctx.root,
+        header: &ctx.header,
+        gl: &ctx.gl,
+        bar_show: &ctx.bar_show,
+        recent: &ctx.recent,
+        bottom: &ctx.bottom,
+        player: &ctx.player,
+    });
+    ctx.squelch.set(Some(Instant::now() + LAYOUT_SQUELCH));
+    hide_cursor_after_bars_hide(&ctx.win, &ctx.gl, &ctx.recent, &ctx.player);
+}
+
 fn schedule_bars_autohide(ctx: Rc<ChromeBarHide>) {
     replace_timeout(Rc::clone(&ctx.nav), {
         let ctx2 = Rc::clone(&ctx);
         move || {
-            #[cfg(target_os = "macos")]
-            let pop_open = crate::macos_header_menu::any_open();
-            #[cfg(not(target_os = "macos"))]
-            let pop_open = false;
-            if ctx2.vol.is_active()
-                || ctx2.sub.is_active()
-                || ctx2.speed.is_active()
-                || ctx2.main.is_active()
-                || ctx2.seek_grabbed.get()
-                || pop_open
-            {
+            if bars_stay_shown(&ctx2) {
                 schedule_bars_autohide(Rc::clone(&ctx2));
             } else {
-                ctx2.bar_show.set(false);
-                apply_chrome(ChromeApplyParts {
-                    hdr_csd_baseline: &ctx2.hdr_csd_baseline,
-                    root: &ctx2.root,
-                    header: &ctx2.header,
-                    gl: &ctx2.gl,
-                    bar_show: &ctx2.bar_show,
-                    recent: &ctx2.recent,
-                    bottom: &ctx2.bottom,
-                    player: &ctx2.player,
-                });
-                ctx2.squelch.set(Some(Instant::now() + LAYOUT_SQUELCH));
-                hide_cursor_after_bars_hide(&ctx2.win, &ctx2.gl, &ctx2.recent, &ctx2.player);
+                hide_bars_now(&ctx2);
             }
         }
     });

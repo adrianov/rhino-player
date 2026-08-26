@@ -63,16 +63,37 @@ fn cancel_smooth_60_resync_idle(ctx: &Rc<TransportCtx>) {
 }
 
 fn schedule_smooth_60_resync_idle(ctx: &Rc<TransportCtx>) {
-    if ctx.recent_visible.get() {
-        // [transport_drain_after_loadfile] can emit FileLoaded before [reveal_ui_after_load] hides
-        // the continue grid on a playback open — retry once recent hides. Browse-only warm preload
-        // (grid stays up, no playback focus) keeps the early return.
-        if ctx.eof.playback_focus.get() {
-            let c = Rc::clone(ctx);
-            glib::idle_add_local_once(move || schedule_smooth_60_resync_idle(&c));
-        }
+    if defer_for_recent_grid(ctx) {
         return;
     }
+    if defer_while_vf_attach_pending(ctx) {
+        return;
+    }
+    if blocked_by_chapter_scrub_resume(ctx) {
+        return;
+    }
+    if skip_when_smooth_off_and_vf_gone(ctx) {
+        return;
+    }
+    sync_media_decode_row_for_me_budget(&ctx.player);
+    arm_smooth_60_resync_debounce(ctx, smooth_60_resync_fire);
+}
+
+fn defer_for_recent_grid(ctx: &Rc<TransportCtx>) -> bool {
+    if !ctx.recent_visible.get() {
+        return false;
+    }
+    // [transport_drain_after_loadfile] can emit FileLoaded before [reveal_ui_after_load] hides
+    // the continue grid on a playback open — retry once recent hides. Browse-only warm preload
+    // (grid stays up, no playback focus) keeps the early return.
+    if ctx.eof.playback_focus.get() {
+        let c = Rc::clone(ctx);
+        glib::idle_add_local_once(move || schedule_smooth_60_resync_idle(&c));
+    }
+    true
+}
+
+fn defer_while_vf_attach_pending(ctx: &Rc<TransportCtx>) -> bool {
     if ctx
         .player
         .borrow()
@@ -81,26 +102,24 @@ fn schedule_smooth_60_resync_idle(ctx: &Rc<TransportCtx>) {
     {
         eprintln!("[rhino] video: smooth resync deferred (vapoursynth attach in flight)");
         arm_smooth_60_resync_debounce(ctx, schedule_smooth_60_resync_idle);
-        return;
+        return true;
     }
-    if ctx
-        .player
+    false
+}
+
+fn blocked_by_chapter_scrub_resume(ctx: &Rc<TransportCtx>) -> bool {
+    ctx.player
         .borrow()
         .as_ref()
         .is_some_and(|b| b.chapter_scrub_resume_pending())
-    {
-        return;
+}
+
+fn skip_when_smooth_off_and_vf_gone(ctx: &Rc<TransportCtx>) -> bool {
+    if ctx.video_pref.borrow().smooth_60 {
+        return false;
     }
-    if !ctx.video_pref.borrow().smooth_60 {
-        let vf_gone = ctx
-            .player
-            .borrow()
-            .as_ref()
-            .is_none_or(|b| !crate::video_pref::vf_chain_has_vapoursynth(&b.mpv));
-        if vf_gone {
-            return;
-        }
-    }
-    sync_media_decode_row_for_me_budget(&ctx.player);
-    arm_smooth_60_resync_debounce(ctx, smooth_60_resync_fire);
+    let vf_gone = ctx.player.borrow().as_ref().map_or(true, |b| {
+        !crate::video_pref::vf_chain_has_vapoursynth(&b.mpv)
+    });
+    vf_gone
 }

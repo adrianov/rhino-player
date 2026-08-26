@@ -32,6 +32,12 @@ pub fn title_vob_durations(chapter_vob: &Path) -> Option<Vec<f64>> {
     map_disc_paths_by_sector(&paths)
 }
 
+fn block_durations(block: &[PathBuf]) -> Option<Vec<f64>> {
+    let cells = title_cells(&block[0])?;
+    let block_durs = title_vob_sector_durs::map_cells_by_sector(&cells, block)?;
+    (block_durs.len() == block.len()).then_some(block_durs)
+}
+
 fn map_disc_paths_by_sector(paths: &[PathBuf]) -> Option<Vec<f64>> {
     let mut out = Vec::with_capacity(paths.len());
     let mut i = 0;
@@ -41,13 +47,7 @@ fn map_disc_paths_by_sector(paths: &[PathBuf]) -> Option<Vec<f64>> {
         while j < paths.len() && crate::dvd_entity::vob_title_id(&paths[j]) == Some(tid) {
             j += 1;
         }
-        let block = &paths[i..j];
-        let cells = title_cells(&block[0])?;
-        let block_durs = title_vob_sector_durs::map_cells_by_sector(&cells, block)?;
-        if block_durs.len() != block.len() {
-            return None;
-        }
-        out.extend(block_durs);
+        out.extend(block_durations(&paths[i..j])?);
         i = j;
     }
     Some(out)
@@ -65,21 +65,30 @@ pub fn title_playback_sec(chapter_vob: &Path) -> Option<f64> {
 pub fn first_substantial_vob(chapter_vob: &Path) -> Option<PathBuf> {
     let paths = crate::dvd_entity::title_chapter_paths(chapter_vob)?;
     let durs = title_vob_durations(chapter_vob)?;
-    if let Some(first) = paths.first() {
-        if durs.first().copied().unwrap_or(0.0) <= MIN_SUBSTANTIAL_SEC
-            && crate::dvd_entity::chapter_vob_substantial_on_disk(first)
-        {
-            return Some(first.clone());
-        }
-    }
-    if let Some((p, _)) = paths
+    pick_substantial_chapter(&paths, &durs)
+}
+
+/// First chapter path: the on-disk-substantial opener unless a later one has real IFO length.
+fn pick_substantial_chapter(paths: &[PathBuf], durs: &[f64]) -> Option<PathBuf> {
+    substantial_opener(paths, durs)
+        .or_else(|| first_over_min_duration(paths, durs))
+        .or_else(|| paths.first().cloned())
+}
+
+/// Opener when its IFO segment is a stub but the file itself carries real content.
+fn substantial_opener(paths: &[PathBuf], durs: &[f64]) -> Option<PathBuf> {
+    let first = paths.first()?;
+    (durs.first().copied().unwrap_or(0.0) <= MIN_SUBSTANTIAL_SEC
+        && crate::dvd_entity::chapter_vob_substantial_on_disk(first))
+    .then(|| first.clone())
+}
+
+fn first_over_min_duration(paths: &[PathBuf], durs: &[f64]) -> Option<PathBuf> {
+    paths
         .iter()
         .zip(durs.iter())
         .find(|(_, d)| **d > MIN_SUBSTANTIAL_SEC)
-    {
-        return Some(p.clone());
-    }
-    paths.into_iter().next()
+        .map(|(p, _)| p.clone())
 }
 
 #[cfg(test)]
@@ -89,15 +98,19 @@ mod tests {
 
     #[test]
     fn fritt_ifo_vob_durations_when_mounted() {
-        let vob = Path::new(
-            "/Volumes/SanDisk/Torrents/Fritt.vilt.2006.DVD9/VIDEO_TS/VTS_01_1.VOB",
-        );
+        let vob = Path::new("/Volumes/SanDisk/Torrents/Fritt.vilt.2006.DVD9/VIDEO_TS/VTS_01_1.VOB");
         if !vob.is_file() {
             return;
         }
         let paths = crate::dvd_entity::timeline_chapter_paths(vob).expect("paths");
         let durs = title_vob_durations(vob).expect("ifo durs");
         assert_eq!(durs.len(), paths.len());
+        assert_fritt_totals(&durs);
+        assert_bar_matches_ifo_total(vob, durs.iter().sum());
+        assert_first_substantial(vob);
+    }
+
+    fn assert_fritt_totals(durs: &[f64]) {
         let total: f64 = durs.iter().sum();
         assert!(
             (total - 5842.0).abs() < 5.0,
@@ -108,6 +121,9 @@ mod tests {
             "VTS_01_1 sector split should be ~1062s, got {:.1}s",
             durs[0]
         );
+    }
+
+    fn assert_bar_matches_ifo_total(vob: &Path, total: f64) {
         let tl = crate::dvd_vob_timeline::DvdVobTimeline::from_title_vobs_with(
             vob,
             &std::collections::HashMap::new(),
@@ -120,6 +136,9 @@ mod tests {
             "bar total should match IFO sector sum, got {:.1}s vs {total:.1}s",
             tl.total_sec
         );
+    }
+
+    fn assert_first_substantial(vob: &Path) {
         let first = first_substantial_vob(vob).expect("first");
         assert_eq!(
             first.file_name().and_then(|n| n.to_str()),

@@ -7,6 +7,47 @@ const MACOS_TOGGLE_DEFER: std::time::Duration = std::time::Duration::from_millis
 const MACOS_TOGGLE_DEFER_MAX: u8 = 16;
 
 #[cfg(target_os = "macos")]
+fn arm_skip_and_unfullscreen(win: &adw::ApplicationWindow, skip_max: Option<&Cell<bool>>) {
+    if let Some(skip) = skip_max {
+        skip.set(true);
+    }
+    macos_schedule_unfullscreen(win.clone());
+}
+
+/// Maximize, remembering the windowed size (preferring the restore slot's dims).
+#[cfg(target_os = "macos")]
+fn maximize_preserving_dims(
+    win: &adw::ApplicationWindow,
+    fs_restore: Option<&RefCell<Option<(i32, i32)>>>,
+    last_unmax: Option<&RefCell<(i32, i32)>>,
+) {
+    let dims = fs_restore
+        .map(|_| win_normal_size(win))
+        .or_else(|| last_unmax.map(|lu| *lu.borrow()))
+        .unwrap_or_else(|| win_normal_size(win));
+    if let Some(fr) = fs_restore {
+        *fr.borrow_mut() = Some(dims);
+    }
+    win.maximize();
+}
+
+/// Enter fullscreen from maximized, seeding the restore size from the last unmaximized size.
+#[cfg(target_os = "macos")]
+fn fullscreen_from_maximized(
+    win: &adw::ApplicationWindow,
+    fs_restore: Option<&RefCell<Option<(i32, i32)>>>,
+    last_unmax: Option<&RefCell<(i32, i32)>>,
+) {
+    if let (Some(fr), Some(lu)) = (fs_restore, last_unmax) {
+        if fr.borrow().is_none() {
+            *fr.borrow_mut() = Some(*lu.borrow());
+        }
+    }
+    crate::macos_fs_debug::log("enter fullscreen");
+    crate::macos_window::enter_fullscreen_from_maximized(win);
+}
+
+#[cfg(target_os = "macos")]
 fn macos_apply_toggle(
     win: &adw::ApplicationWindow,
     fs_restore: Option<&RefCell<Option<(i32, i32)>>>,
@@ -16,34 +57,15 @@ fn macos_apply_toggle(
     if crate::macos_window::clear_stale_gtk_fullscreen(win) {
         return;
     }
-
     if crate::macos_window::ns_fullscreen_for_win(win) {
-        if let Some(skip) = skip_max {
-            skip.set(true);
-        }
-        macos_schedule_unfullscreen(win.clone());
+        arm_skip_and_unfullscreen(win, skip_max);
         return;
     }
-
     if !win.is_maximized() {
-        let dims = fs_restore
-            .map(|_| win_normal_size(win))
-            .or_else(|| last_unmax.map(|lu| *lu.borrow()))
-            .unwrap_or_else(|| win_normal_size(win));
-        if let Some(fr) = fs_restore {
-            *fr.borrow_mut() = Some(dims);
-        }
-        win.maximize();
+        maximize_preserving_dims(win, fs_restore, last_unmax);
         return;
     }
-
-    if let (Some(fr), Some(lu)) = (fs_restore, last_unmax) {
-        if fr.borrow().is_none() {
-            *fr.borrow_mut() = Some(*lu.borrow());
-        }
-    }
-    crate::macos_fs_debug::log("enter fullscreen");
-    crate::macos_window::enter_fullscreen_from_maximized(win);
+    fullscreen_from_maximized(win, fs_restore, last_unmax);
 }
 
 #[cfg(target_os = "macos")]
@@ -74,5 +96,10 @@ pub(super) fn macos_toggle_fullscreen(
         macos_defer_toggle(win.clone(), 0);
         return;
     }
-    macos_apply_toggle(win, Some(fs_restore), Some(last_unmax), Some(skip_max_to_fs));
+    macos_apply_toggle(
+        win,
+        Some(fs_restore),
+        Some(last_unmax),
+        Some(skip_max_to_fs),
+    );
 }

@@ -101,6 +101,24 @@ define_class!(
     }
 );
 
+/// The window's content view, once the window has one to offer.
+fn content_view_of(nswin: &objc2_app_kit::NSWindow) -> Option<Retained<NSView>> {
+    let content: *mut NSView = unsafe { msg_send![nswin, contentView] };
+    unsafe { Retained::retain(content) }
+}
+
+/// Frame, autoresize and register a fresh drop view over `content`.
+fn build_drop_view(mtm: MainThreadMarker, content: &NSView) -> Retained<RhinoDropView> {
+    let this = RhinoDropView::alloc(mtm).set_ivars(DropIvars);
+    let view: Retained<RhinoDropView> = unsafe { msg_send![super(this), init] };
+    view.setFrame(content.bounds());
+    view.setAutoresizingMask(
+        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+    );
+    view.registerForDraggedTypes(&file_pasteboard_types());
+    view
+}
+
 fn attach_drop_view(win: &adw::ApplicationWindow) -> bool {
     let Some(mtm) = MainThreadMarker::new() else {
         eprintln!("[rhino] dnd: NSDraggingDestination requires the main thread");
@@ -109,20 +127,12 @@ fn attach_drop_view(win: &adw::ApplicationWindow) -> bool {
     let Some(nswin) = nswindow_for_widget(win) else {
         return false;
     };
-    let content: *mut NSView = unsafe { msg_send![&*nswin, contentView] };
-    let Some(content) = (unsafe { Retained::retain(content) }) else {
+    let Some(content) = content_view_of(&nswin) else {
         eprintln!("[rhino] dnd: NSWindow has no contentView");
         return false;
     };
 
-    let this = RhinoDropView::alloc(mtm).set_ivars(DropIvars);
-    let view: Retained<RhinoDropView> = unsafe { msg_send![super(this), init] };
-    let bounds = content.bounds();
-    view.setFrame(bounds);
-    view.setAutoresizingMask(
-        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
-    );
-    view.registerForDraggedTypes(&file_pasteboard_types());
+    let view = build_drop_view(mtm, &content);
     content.addSubview(&view);
     true
 }
@@ -136,6 +146,15 @@ fn try_attach_once(win: &adw::ApplicationWindow, attached: &Cell<bool>) {
     }
 }
 
+/// Present can realize without a second realize signal in some gdk-macos paths.
+fn schedule_idle_attach(win: &adw::ApplicationWindow, attached: &Rc<Cell<bool>>) {
+    let win2 = win.clone();
+    let attached_idle = Rc::clone(attached);
+    glib::idle_add_local_once(move || {
+        try_attach_once(&win2, &attached_idle);
+    });
+}
+
 /// Install Finder drop handling on `win`. Safe to call before realize; attaches on map.
 pub fn install(win: &adw::ApplicationWindow, on_paths: impl Fn(Vec<PathBuf>) + 'static) {
     HANDLER.with(|slot| {
@@ -147,10 +166,5 @@ pub fn install(win: &adw::ApplicationWindow, on_paths: impl Fn(Vec<PathBuf>) + '
     }
     let attached_rz = Rc::clone(&attached);
     win.connect_realize(move |w| try_attach_once(w, &attached_rz));
-    // Present can realize without a second realize signal in some gdk-macos paths.
-    let win2 = win.clone();
-    let attached_idle = Rc::clone(&attached);
-    glib::idle_add_local_once(move || {
-        try_attach_once(&win2, &attached_idle);
-    });
+    schedule_idle_attach(win, &attached);
 }

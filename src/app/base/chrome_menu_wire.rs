@@ -1,3 +1,38 @@
+/// Reveal bars because a header popover opened.
+fn reveal_menu_chrome(ch: &Rc<ChromeBarHide>) {
+    drop_glib_source(ch.nav.as_ref());
+    if ch.bar_show.get() {
+        return;
+    }
+    ch.bar_show.set(true);
+    apply_chrome(ChromeApplyParts {
+        hdr_csd_baseline: &ch.hdr_csd_baseline,
+        root: &ch.root,
+        header: &ch.header,
+        gl: &ch.gl,
+        bar_show: &ch.bar_show,
+        recent: &ch.recent,
+        bottom: &ch.bottom,
+        player: &ch.player,
+    });
+    show_chrome_pointer(&ch.win, &ch.gl);
+}
+
+/// Any header popover active → keep chrome shown; all closed → schedule auto-hide.
+fn on_menu_chrome_toggle(ch: &Rc<ChromeBarHide>) {
+    let any =
+        ch.vol.is_active() || ch.sub.is_active() || ch.speed.is_active() || ch.main.is_active();
+    if any {
+        reveal_menu_chrome(ch);
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    if crate::macos_header_menu::any_open() {
+        return;
+    }
+    schedule_bars_autohide(Rc::clone(ch));
+}
+
 /// Keeps floating chrome visible while any header popover is open.
 fn wire_menu_chrome(
     ch: Rc<ChromeBarHide>,
@@ -6,34 +41,7 @@ fn wire_menu_chrome(
     speed: &gtk::MenuButton,
     main: &gtk::MenuButton,
 ) {
-    let h = Rc::new(move || {
-        let any =
-            ch.vol.is_active() || ch.sub.is_active() || ch.speed.is_active() || ch.main.is_active();
-        if any {
-            drop_glib_source(ch.nav.as_ref());
-            if ch.bar_show.get() {
-                return;
-            }
-            ch.bar_show.set(true);
-            apply_chrome(ChromeApplyParts {
-                hdr_csd_baseline: &ch.hdr_csd_baseline,
-                root: &ch.root,
-                header: &ch.header,
-                gl: &ch.gl,
-                bar_show: &ch.bar_show,
-                recent: &ch.recent,
-                bottom: &ch.bottom,
-                player: &ch.player,
-            });
-            show_chrome_pointer(&ch.win, &ch.gl);
-        } else {
-            #[cfg(target_os = "macos")]
-            if crate::macos_header_menu::any_open() {
-                return;
-            }
-            schedule_bars_autohide(Rc::clone(&ch));
-        }
-    });
+    let h = Rc::new(move || on_menu_chrome_toggle(&ch));
     let h1 = Rc::clone(&h);
     let h2 = Rc::clone(&h);
     let h3 = Rc::clone(&h);

@@ -2,6 +2,8 @@
 
 use libmpv2::Mpv;
 
+include!("dvd_chapter_eof_detect.rs");
+
 impl DvdVobTimeline {
     /// Map mpv EOF on the open `.vob` to the next `loadfile` target and whole-title hold time.
     ///
@@ -16,106 +18,36 @@ impl DvdVobTimeline {
         if i + 1 >= self.vobs.len() {
             return None;
         }
-        let local_eof = local_eof.max(0.0);
-        let g_eof = self.starts[i] + local_eof;
-        let g_cont = (g_eof + 0.05).min(self.total_sec);
-        let (idx, mut local) = self.resolve_global(g_cont);
-        let mut target = self.vobs.get(idx)?.clone();
+        let g_cont = self.continuation_global(i, local_eof);
+        let (idx, local) = self.resolve_global(g_cont);
+        let target = self.vobs.get(idx)?.clone();
         if crate::video_ext::paths_same_file(&target, current) {
-            let j = i + 1;
-            target = self.vobs[j].clone();
-            let stored_end = self.starts[i] + self.durs[i].max(0.0);
-            local = if g_eof + 1e-3 >= stored_end {
-                (g_cont - self.starts[j]).max(0.0)
-            } else {
-                0.0
-            };
-            if self.durs[j] > 0.0 {
-                local = local.min((self.durs[j] - 0.05).max(0.0));
-            }
+            return self.same_file_fallback(i, self.starts[i] + local_eof.max(0.0), g_cont);
         }
         Some((target, local, g_cont))
     }
-}
 
-fn mpv_playback_pos_dur(mpv: &Mpv) -> (f64, f64) {
-    let lpos = mpv
-        .get_property::<f64>("time-pos")
-        .ok()
-        .filter(|p| p.is_finite() && *p >= 0.0)
-        .unwrap_or(0.0);
-    let ldur = mpv
-        .get_property::<f64>("duration")
-        .ok()
-        .filter(|d| d.is_finite() && *d > 0.0)
-        .unwrap_or(0.0);
-    (lpos, ldur)
-}
-
-fn ifo_segment_near_eof(ifo_local: f64, ifo_seg: f64) -> bool {
-    ifo_seg > 0.0 && (ifo_seg - ifo_local) <= crate::app::TICK_EOF_TAIL_SEC
-}
-
-fn chain_head_chapter_context(
-    chapter: &Path,
-    tl: &DvdVobTimeline,
-    mpv_dur: f64,
-) -> Option<(usize, f64)> {
-    let idx = tl.index_of(chapter)?;
-    let seg = tl.chapter_dur_at(idx);
-    if crate::dvd_vob_mpv_probe::is_title_chain_head(chapter)
-        && seg > 0.0
-        && chain_head_stretched(mpv_dur, seg)
-    {
-        Some((idx, seg))
-    } else {
-        None
+    /// Global continuation seconds: just past the live tail, clamped into the title length.
+    fn continuation_global(&self, i: usize, local_eof: f64) -> f64 {
+        (self.starts[i] + local_eof.max(0.0) + 0.05).min(self.total_sec)
     }
-}
 
-fn chain_head_ifo_near_eof(mpv_pos: f64, mpv_dur: f64, chapter: &Path, tl: &DvdVobTimeline) -> bool {
-    let Some((_, seg)) = chain_head_chapter_context(chapter, tl, mpv_dur) else {
-        return false;
-    };
-    let ifo = timeline_local_from_mpv(tl, chapter, mpv_pos, mpv_dur);
-    ifo_segment_near_eof(ifo, seg)
-}
-
-fn chapter_eof_local_sec(mpv: &Mpv, chapter: &Path, tl: &DvdVobTimeline) -> f64 {
-    let (lpos, ldur) = mpv_playback_pos_dur(mpv);
-    if let Some((_, seg)) = chain_head_chapter_context(chapter, tl, ldur) {
-        let ifo = timeline_local_from_mpv(tl, chapter, lpos, ldur);
-        return ifo.max((seg - crate::app::TICK_EOF_TAIL_SEC).max(0.0));
-    }
-    if ldur > 0.0 {
-        lpos.max(ldur - crate::app::TICK_EOF_TAIL_SEC)
-    } else {
-        lpos
-    }
-}
-
-/// Open chapter near EOF: IFO segment tail on chain-head `.vob`, else mpv `duration` tail.
-#[must_use]
-pub fn chapter_local_at_eof(mpv: &Mpv) -> bool {
-    chapter_local_at_eof_for(mpv, None, None)
-}
-
-#[must_use]
-pub fn chapter_local_at_eof_for(
-    mpv: &Mpv,
-    chapter: Option<&Path>,
-    tl: Option<&DvdVobTimeline>,
-) -> bool {
-    let (lpos, ldur) = mpv_playback_pos_dur(mpv);
-    if let (Some(ch), Some(tl)) = (chapter, tl) {
-        if chain_head_chapter_context(ch, tl, ldur).is_some() {
-            return chain_head_ifo_near_eof(lpos, ldur, ch, tl);
+    /// Next `.vob` when the continuation point resolves back into the current file:
+    /// resume at the following part, honoring the stored boundary only past its end.
+    fn same_file_fallback(&self, i: usize, g_eof: f64, g_cont: f64) -> Option<(PathBuf, f64, f64)> {
+        let j = i + 1;
+        let target = self.vobs[j].clone();
+        let stored_end = self.starts[i] + self.durs[i].max(0.0);
+        let mut local = if g_eof + 1e-3 >= stored_end {
+            (g_cont - self.starts[j]).max(0.0)
+        } else {
+            0.0
+        };
+        if self.durs[j] > 0.0 {
+            local = local.min((self.durs[j] - 0.05).max(0.0));
         }
+        Some((target, local, g_cont))
     }
-    if mpv.get_property::<bool>("eof-reached").unwrap_or(false) {
-        return true;
-    }
-    ldur > 0.0 && (ldur - lpos) <= crate::app::TICK_EOF_TAIL_SEC
 }
 
 /// Load the next chapter in the same DVD title when the open file ends but the title has not.
@@ -130,47 +62,98 @@ pub fn advance_title_chapter_eof(
     let Some(b) = g.as_mut() else {
         return false;
     };
-    let shell = b.me_budget_shell_path.borrow().clone();
-    let Some(chapter) = open_dvd_chapter_path(&b.mpv, shell.as_deref()) else {
-        return false;
-    };
-    if !chapter_local_at_eof_for(&b.mpv, Some(chapter.as_path()), Some(&bar.tl)) {
-        return false;
+    match plan_chapter_eof_load(b, bar) {
+        Some(plan) => load_next_chapter(b, plan),
+        None => false,
     }
-    if b.chapter_cross_load_busy() {
-        if b.chapter_scrub_resume_pending() {
-            return false;
-        }
-        crate::dvd_vob_log::dvd_seek_log("eof_advance: clear stale chapter scrub");
-        b.abort_chapter_load(true);
+}
+
+/// Resolved next-chapter `loadfile`: source, target, resume position and hold times.
+struct EofAdvancePlan {
+    chapter: PathBuf,
+    next: PathBuf,
+    local: f64,
+    hold_global: f64,
+    local_eof: f64,
+}
+
+/// Resolve the next-chapter `loadfile` target once the open `.vob` reaches its tail.
+fn plan_chapter_eof_load(
+    b: &crate::mpv_embed::MpvBundle,
+    bar: &DvdBarState,
+) -> Option<EofAdvancePlan> {
+    let chapter = bundle_open_chapter(b)?;
+    if !chapter_local_at_eof_for(&b.mpv, Some(chapter.as_path()), Some(&bar.tl)) {
+        return None;
+    }
+    if !clear_stale_chapter_scrub(b) {
+        return None;
     }
     let local_eof = chapter_eof_local_sec(&b.mpv, &chapter, &bar.tl);
-    let Some((next, local, hold_global)) = bar.tl.continue_after_vob_eof(&chapter, local_eof)
-    else {
+    let (next, local, hold_global) = next_target_after_tail(bar, &chapter, local_eof)?;
+    Some(EofAdvancePlan {
+        chapter,
+        next,
+        local,
+        hold_global,
+        local_eof,
+    })
+}
+
+/// Chapter path currently open in the playing bundle.
+fn bundle_open_chapter(b: &crate::mpv_embed::MpvBundle) -> Option<PathBuf> {
+    let shell = b.me_budget_shell_path.borrow().clone();
+    open_dvd_chapter_path(&b.mpv, shell.as_deref())
+}
+
+/// Next segment past the live tail; logs when no further segment exists.
+fn next_target_after_tail(
+    bar: &DvdBarState,
+    chapter: &Path,
+    local_eof: f64,
+) -> Option<(PathBuf, f64, f64)> {
+    let Some((next, local, hold_global)) = bar.tl.continue_after_vob_eof(chapter, local_eof) else {
         crate::dvd_vob_log::dvd_seek_log(format!(
             "eof_advance: no next segment after {} local={local_eof:.2}",
             chapter.display()
         ));
-        return false;
+        return None;
     };
-    if crate::video_ext::paths_same_file(&next, &chapter) {
-        return false;
-    }
+    (!crate::video_ext::paths_same_file(&next, chapter)).then_some((next, local, hold_global))
+}
+
+/// Load the planned next chapter, logging progress and any rejected `loadfile`.
+fn load_next_chapter(b: &crate::mpv_embed::MpvBundle, plan: EofAdvancePlan) -> bool {
     crate::dvd_vob_log::dvd_seek_log(format!(
-        "eof_advance: {} -> {} global={hold_global:.2} local={local:.2} (tail={local_eof:.2})",
-        chapter.display(),
-        next.display()
+        "eof_advance: {} -> {} global={:.2} local={:.2} (tail={:.2})",
+        plan.chapter.display(),
+        plan.next.display(),
+        plan.hold_global,
+        plan.local,
+        plan.local_eof
     ));
-    if b
-        .load_chapter_seek(&next, local, hold_global, true, true)
+    if b.load_chapter_seek(&plan.next, plan.local, plan.hold_global, true, true)
         .is_err()
     {
         eprintln!(
             "[rhino] dvd: eof_advance loadfile failed {} -> {}",
-            chapter.display(),
-            next.display()
+            plan.chapter.display(),
+            plan.next.display()
         );
         return false;
     }
+    true
+}
+
+/// Clear a stale chapter-scrub load before advancing; `false` = do not advance.
+fn clear_stale_chapter_scrub(b: &crate::mpv_embed::MpvBundle) -> bool {
+    if !b.chapter_cross_load_busy() {
+        return true;
+    }
+    if b.chapter_scrub_resume_pending() {
+        return false;
+    }
+    crate::dvd_vob_log::dvd_seek_log("eof_advance: clear stale chapter scrub");
+    b.abort_chapter_load(true);
     true
 }

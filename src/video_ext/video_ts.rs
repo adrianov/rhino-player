@@ -42,12 +42,7 @@ impl VideoTsDir {
             .map(|e| e.path())
             .filter(|p| is_vob_file(p))
             .collect();
-        v.sort_by(|a, b| {
-            lexical_sort::natural_lexical_cmp(
-                a.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-                b.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-            )
-        });
+        super::folder_scan::sort_naturally(&mut v);
         v
     }
 

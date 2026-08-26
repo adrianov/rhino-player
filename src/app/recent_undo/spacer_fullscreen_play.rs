@@ -4,47 +4,33 @@ fn wire_recent_spacer_fullscreen(
     fs: &FullscreenToggleRefs,
     recent: &gtk::Box,
 ) {
-    for sp in sp_empty {
-        let d2 = gtk::GestureClick::new();
-        d2.set_button(gtk::gdk::BUTTON_PRIMARY);
-        let w2 = win.clone();
-        let fr2 = Rc::clone(&fs.fs_restore);
-        let lu2 = Rc::clone(&fs.last_unmax);
-        let sk2 = Rc::clone(&fs.skip_max_to_fs);
-        let fb2 = Rc::clone(&fs.fs_transition_busy);
-        let rec2 = recent.clone();
-        d2.connect_pressed(move |_, n_press, _, _| {
-            if n_press != 2 || !rec2.is_visible() {
-                return;
-            }
-            toggle_fullscreen(&w2, &fr2, &lu2, &sk2, fb2.as_ref());
-        });
-        sp.add_controller(d2);
+    for sp in &sp_empty {
+        wire_spacer_double_click(sp, win, fs, recent);
     }
 }
 
-#[derive(Clone)]
-struct PlayToggleCtx {
-    app: adw::Application,
-    player: Rc<RefCell<Option<MpvBundle>>>,
-    video_pref: Rc<RefCell<db::VideoPrefs>>,
-    win: adw::ApplicationWindow,
-    video_handle: gtk::WindowHandle,
-    gl: gtk::GLArea,
-    recent: gtk::Box,
-    last_path: Rc<RefCell<Option<PathBuf>>>,
-    on_video_chrome: Rc<dyn Fn()>,
-    on_file_loaded: Rc<dyn Fn()>,
-    win_aspect: Rc<WinAspectCell>,
-    sub_menu: Option<gtk::MenuButton>,
-    hdr_title_mirror: Option<Rc<gtk::Label>>,
-    playback_focus: Rc<Cell<bool>>,
-    /// Bottom-bar play/pause button. The toggle handler updates its icon
-    /// optimistically so the click feels instant; the 1 Hz transport tick
-    /// reconciles with mpv's actual state right after.
-    play_pause: gtk::Button,
-    /// Shared with [SiblingEofState]: resume a paused incomplete download on unpause.
-    incomplete_hold: Rc<crate::incomplete_download_eof::IncompleteEofHold>,
+/// Double-click on an empty grid spacer toggles fullscreen (browse overlay visible only).
+fn wire_spacer_double_click(
+    sp: &gtk::Box,
+    win: &adw::ApplicationWindow,
+    fs: &FullscreenToggleRefs,
+    recent: &gtk::Box,
+) {
+    let d2 = gtk::GestureClick::new();
+    d2.set_button(gtk::gdk::BUTTON_PRIMARY);
+    let w2 = win.clone();
+    let fr2 = Rc::clone(&fs.fs_restore);
+    let lu2 = Rc::clone(&fs.last_unmax);
+    let sk2 = Rc::clone(&fs.skip_max_to_fs);
+    let fb2 = Rc::clone(&fs.fs_transition_busy);
+    let rec2 = recent.clone();
+    d2.connect_pressed(move |_, n_press, _, _| {
+        if n_press != 2 || !rec2.is_visible() {
+            return;
+        }
+        toggle_fullscreen(&w2, &fr2, &lu2, &sk2, fb2.as_ref());
+    });
+    sp.add_controller(d2);
 }
 
 /// Loaded media pause flag, if any (`None` when browse overlay, no player, or unknown duration).
@@ -84,141 +70,4 @@ fn fs_on_exit_pause(play: &PlayToggleCtx, stash: &RefCell<Option<bool>>) {
     }
 }
 
-/// Pause or unpause through mpv (bottom bar play control and Linux MPRIS). Returns [`false`] when no
-/// media is loaded, the welcome grid covers video, or the engine rejects the pause write.
-///
-/// Matches vapoursynth smooth unpause bookkeeping used by the spacer / play button wiring. Uses a
-/// single [`RefCell`] borrow for mpv reads and the pause write so state stays consistent on the GTK
-/// main thread (callbacks do not run concurrently).
-fn apply_mpv_pause(ctx: &PlayToggleCtx, want_pause: bool) -> bool {
-    if ctx.recent.is_visible() {
-        return false;
-    }
-    let g = ctx.player.borrow();
-    let Some(b) = g.as_ref() else {
-        return false;
-    };
-    let dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
-    if dur <= 0.0 {
-        return false;
-    }
-    let cur_pause = b.mpv.get_property::<bool>("pause").unwrap_or(false);
-    if cur_pause == want_pause {
-        return true;
-    }
-
-    let smooth_off = if !want_pause && cur_pause {
-        let mut pref = ctx.video_pref.borrow_mut();
-        video_pref::resync_smooth_if_speed_mismatch(&ctx.player, &mut pref).smooth_auto_off
-    } else {
-        false
-    };
-
-    if smooth_off {
-        sync_smooth_60_to_off(&ctx.app);
-    }
-
-    if !want_pause && cur_pause {
-        let path = local_file_from_mpv(&b.mpv).or_else(|| ctx.last_path.borrow().clone());
-        if let Some(p) = path.as_deref() {
-            ctx.incomplete_hold.on_unpause(&b.mpv, p);
-        }
-    }
-
-    if b.mpv.set_property("pause", want_pause).is_ok() {
-        flip_play_icon(&ctx.play_pause, want_pause);
-        ctx.gl.queue_render();
-        true
-    } else {
-        false
-    }
-}
-
-/// Stop-style pause (media keys **Stop** shell action + MPRIS `Stop`): hold position, show play icon.
-fn media_stop(play_key: &PlayToggleCtx) {
-    let _ = apply_mpv_pause(play_key, true);
-}
-
-fn toggle_play_pause(ctx: &PlayToggleCtx) -> bool {
-    let g = ctx.player.borrow();
-    let Some(b) = g.as_ref() else {
-        return false;
-    };
-    if b.mpv.get_property::<f64>("duration").unwrap_or(0.0) <= 0.0 {
-        return false;
-    }
-    if ctx.recent.is_visible() {
-        crate::user_action_log::act("play/pause (continue grid) -> open from warm card");
-        if let Some(path) = local_file_from_mpv(&b.mpv) {
-            *ctx.last_path.borrow_mut() = std::fs::canonicalize(&path).ok();
-            let ttl = title_for_open_path(&path);
-            sync_app_window_title(&ctx.win, ctx.hdr_title_mirror.as_deref(), Some(ttl.as_str()));
-        }
-        sync_window_aspect_from_mpv(&b.mpv, ctx.win_aspect.as_ref());
-        ctx.gl.queue_render();
-        drop(g);
-        schedule_warm_reveal(ctx.clone());
-        return true;
-    }
-    let paused = b.mpv.get_property::<bool>("pause").unwrap_or(false);
-    drop(g);
-    crate::user_action_log::act(format!(
-        "play/pause button -> {}",
-        if paused { "play" } else { "pause" }
-    ));
-    apply_mpv_pause(ctx, !paused)
-}
-
-/// Optimistic icon swap so the click is felt immediately. The 1 Hz transport
-/// tick will reconcile with mpv's `pause` + `core-idle` shortly after.
-fn flip_play_icon(btn: &gtk::Button, now_paused: bool) {
-    let (icon, tip) = if now_paused {
-        ("media-playback-start-symbolic", "Play (Space)")
-    } else {
-        ("media-playback-pause-symbolic", "Pause (Space)")
-    };
-    if btn.icon_name().as_deref() != Some(icon) {
-        btn.set_icon_name(icon);
-    }
-    btn.set_tooltip_text(Some(tip));
-}
-
-fn schedule_warm_reveal(ctx: PlayToggleCtx) {
-    crate::app::cancel_warm_preload_for_playback();
-    ctx.playback_focus.set(true);
-    let _ = glib::timeout_add_local(Duration::from_millis(WARM_REVEAL_DELAY_MS), move || {
-        ctx.recent.set_visible(false);
-        (ctx.on_video_chrome)();
-        schedule_window_fit_h_video(ctx.player.clone(), ctx.win.clone(), ctx.gl.clone());
-        if let Some(button) = ctx.sub_menu.as_ref() {
-            schedule_sub_button_scan(ctx.player.clone(), button.clone());
-        }
-        ctx.win.present();
-        unpause_and_finish_resume(&ctx.player);
-        ctx.gl.queue_render();
-        (ctx.on_file_loaded)();
-        glib::ControlFlow::Break
-    });
-}
-
-fn wire_play_toggles(play_pause: &gtk::Button, ctx: PlayToggleCtx) {
-    {
-        let btn_ctx = ctx.clone();
-        play_pause.connect_clicked(move |_| {
-            toggle_play_pause(&btn_ctx);
-        });
-    }
-
-    // Secondary click on WindowHandle: use GestureClick + Claimed so GTK’s pointer/active-state
-    // bookkeeping stays paired (EventControllerLegacy + Stop risked “broken accounting” warnings).
-    let sec = gtk::GestureClick::new();
-    sec.set_button(gtk::gdk::BUTTON_SECONDARY);
-    sec.set_propagation_phase(gtk::PropagationPhase::Capture);
-    let vh_ctx = ctx.clone();
-    sec.connect_pressed(move |gesture, _n_press, _x, _y| {
-        if toggle_play_pause(&vh_ctx) {
-            let _ = gesture.set_state(gtk::EventSequenceState::Claimed);
-        }
-    });
-    ctx.video_handle.add_controller(sec);
-}
+include!("play_toggle.rs");

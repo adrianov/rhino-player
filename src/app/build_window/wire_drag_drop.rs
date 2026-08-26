@@ -50,26 +50,39 @@ fn wire_gtk_window_drop_targets(
     tgt.connect_drag_enter(|_, _drop, _x, _y| gtk::gdk::DragAction::COPY);
     tgt.connect_drag_motion(|_, _drop, _x, _y| gtk::gdk::DragAction::COPY);
 
+    connect_drop_accept(&tgt, &merged);
+    connect_window_drop(&tgt, merged.clone(), player, sub_menu, on_open);
+
+    win.add_controller(tgt);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn connect_drop_accept(tgt: &gtk::DropTargetAsync, merged: &gtk::gdk::ContentFormats) {
     let fm_accept = merged.clone();
     tgt.connect_accept(move |_t, dk_drop| {
         dk_drop.formats().match_(&fm_accept)
-            || dk_drop.formats().contains_type(gtk::gdk::FileList::static_type())
+            || dk_drop
+                .formats()
+                .contains_type(gtk::gdk::FileList::static_type())
             || dk_drop.formats().contains_type(gio::File::static_type())
             || !mime_types_ordered_for_drop_read(dk_drop).is_empty()
     });
+}
 
-    let fm_types = merged.clone();
-
+#[cfg(not(target_os = "macos"))]
+fn connect_window_drop(
+    tgt: &gtk::DropTargetAsync,
+    fm_types: gtk::gdk::ContentFormats,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    sub_menu: &gtk::MenuButton,
+    on_open: &RcPathFn,
+) {
     let player = Rc::clone(player);
     let sub_menu = sub_menu.clone();
     let on_open = Rc::clone(on_open);
-
     tgt.connect_drop(move |_t, dk, _, _| {
-        let negotiated = dk.formats().match_type(&fm_types);
-        let mimes_ok = !mime_types_ordered_for_drop_read(dk).is_empty();
-        let has_list = dk.formats().contains_type(gtk::gdk::FileList::static_type());
-        let has_gfile = dk.formats().contains_type(gio::File::static_type());
-        if !negotiated.is_valid() && !mimes_ok && !has_list && !has_gfile {
+        let negotiated_ok = dk.formats().match_type(&fm_types).is_valid();
+        if !negotiated_ok && drop_lacks_readable_type(dk) {
             eprintln!("[rhino] dnd: reject drop (no negotiated type / MIME / file list)");
             return false;
         }
@@ -82,6 +95,13 @@ fn wire_gtk_window_drop_targets(
         );
         true
     });
+}
 
-    win.add_controller(tgt);
+#[cfg(not(target_os = "macos"))]
+fn drop_lacks_readable_type(dk: &gtk::gdk::Drop) -> bool {
+    mime_types_ordered_for_drop_read(dk).is_empty()
+        && !dk
+            .formats()
+            .contains_type(gtk::gdk::FileList::static_type())
+        && !dk.formats().contains_type(gio::File::static_type())
 }

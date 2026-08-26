@@ -24,25 +24,27 @@ fn make_on_open_handler(ctx: OpenHandlerCtx) -> RcPathFn {
             &ctx.win,
             &ctx.gl,
             &ctx.recent,
-            &{
-                let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
-                    video_pref: Rc::clone(&ctx.video_pref),
-                    last_path: ctx.last_path.clone(),
-                    on_start: Some(Rc::clone(&ctx.on_start)),
-                    win_aspect: ctx.win_aspect.clone(),
-                    on_loaded: Some(Rc::clone(&ctx.on_loaded)),
-                    play_on_start: true,
-                    reset_speed_to_normal: false,
-                    hdr_title_mirror: ctx.hdr_title_mirror.clone(),
-                });
-                o.playback_focus = Some(Rc::clone(&ctx.playback_focus));
-                o.on_open_fail = Some(Rc::clone(&ctx.on_open_fail));
-                o
-            },
+            &open_load_opts(&ctx),
         );
         match loaded {
-            Ok(()) => schedule_sub_button_scan(ctx.player.clone(), ctx.sub_menu.clone()),
+            Ok(()) => sync_sub_button_after_load(ctx.player.clone(), ctx.sub_menu.clone()),
             Err(e) => eprintln!("[rhino] on_open: try_load error: {e}"),
         }
     })
+}
+
+fn open_load_opts(ctx: &OpenHandlerCtx) -> LoadOpts {
+    let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
+        video_pref: Rc::clone(&ctx.video_pref),
+        last_path: ctx.last_path.clone(),
+        on_start: Some(Rc::clone(&ctx.on_start)),
+        win_aspect: ctx.win_aspect.clone(),
+        on_loaded: Some(Rc::clone(&ctx.on_loaded)),
+        play_on_start: true,
+        reset_speed_to_normal: false,
+        hdr_title_mirror: ctx.hdr_title_mirror.clone(),
+    });
+    o.playback_focus = Some(Rc::clone(&ctx.playback_focus));
+    o.on_open_fail = Some(Rc::clone(&ctx.on_open_fail));
+    o
 }

@@ -40,19 +40,28 @@ pub(crate) fn effective_smooth_me_budget_px(
     let path = me_budget_local_path(mpv, bundle);
     let eff = crate::db::resolve_media_smooth_me_budget(path.as_deref(), global);
     if video_log() {
-        let wh = decode_wh_from_mpv(mpv);
-        let key = path
-            .as_deref()
-            .and_then(crate::db::history_key)
-            .map(|s| s.len())
-            .unwrap_or(0);
-        let me_var = std::env::var(crate::paths::RHINO_SMOOTH_MAX_AREA_VAR).ok();
-        let me_matches = crate::paths::smooth_max_area_env_matches(eff);
-        eprintln!(
-            "[rhino] video: (verbose) ME resolve effective_px²={eff} prefs.smooth_max_area={} mpv_decode_wh={wh:?} history_key_len={key} {}={me_var:?} max_area_env_matches={me_matches}",
-            v.smooth_max_area,
-            crate::paths::RHINO_SMOOTH_MAX_AREA_VAR,
-        );
+        log_effective_me_budget_resolve(mpv, v, path.as_deref(), eff);
     }
     eff
+}
+
+/// Verbose trace of the resolve inputs (decoded WxH, history key, env) and the effective px².
+fn log_effective_me_budget_resolve(
+    mpv: &Mpv,
+    v: &crate::db::VideoPrefs,
+    path: Option<&std::path::Path>,
+    eff: u64,
+) {
+    let wh = decode_wh_from_mpv(mpv);
+    let key = path
+        .and_then(crate::db::history_key)
+        .map(|s| s.len())
+        .unwrap_or(0);
+    let me_var = std::env::var(crate::paths::RHINO_SMOOTH_MAX_AREA_VAR).ok();
+    let me_matches = crate::paths::smooth_max_area_env_matches(eff);
+    eprintln!(
+        "[rhino] video: (verbose) ME resolve effective_px²={eff} prefs.smooth_max_area={} mpv_decode_wh={wh:?} history_key_len={key} {}={me_var:?} max_area_env_matches={me_matches}",
+        v.smooth_max_area,
+        crate::paths::RHINO_SMOOTH_MAX_AREA_VAR,
+    );
 }

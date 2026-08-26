@@ -13,11 +13,16 @@ pub fn move_to_trash_ns(path: &Path) -> Result<PathBuf, String> {
     let url =
         NSURL::from_file_path(&abs).ok_or_else(|| "trash: path not representable".to_string())?;
     let fm = NSFileManager::defaultManager();
-    let mut out: Option<Retained<NSURL>> = None;
-    fm.trashItemAtURL_resultingItemURL_error(&url, Some(&mut out))
-        .map_err(|e| e.localizedDescription().to_string())?;
-    let trashed = out.ok_or_else(|| "trash: no resulting trash URL".to_string())?;
+    let trashed = fm_trash_url(&fm, &url)?;
     trashed
         .to_file_path()
         .ok_or_else(|| "trash: could not read trashed file path".to_string())
+}
+
+/// Finder-equivalent trash move; returns the resulting Trash URL.
+fn fm_trash_url(fm: &NSFileManager, url: &NSURL) -> Result<Retained<NSURL>, String> {
+    let mut out: Option<Retained<NSURL>> = None;
+    fm.trashItemAtURL_resultingItemURL_error(url, Some(&mut out))
+        .map_err(|e| e.localizedDescription().to_string())?;
+    out.ok_or_else(|| "trash: no resulting trash URL".to_string())
 }

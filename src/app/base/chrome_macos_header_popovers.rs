@@ -16,10 +16,7 @@ fn widget_is_descendant_of(widget: &gtk::Widget, ancestor: &gtk::Widget) -> bool
     false
 }
 
-fn click_targets_header_menu(
-    picked: Option<gtk::Widget>,
-    menus: &[gtk::MenuButton],
-) -> bool {
+fn click_targets_header_menu(picked: Option<gtk::Widget>, menus: &[gtk::MenuButton]) -> bool {
     let Some(picked) = picked else {
         return false;
     };
@@ -42,6 +39,27 @@ fn header_menu_open(menus: &[gtk::MenuButton]) -> bool {
         || menus.iter().any(gtk::MenuButton::is_active)
 }
 
+/// Press landed outside every header menu — close them all.
+fn dismiss_on_outside_press(shell_pick: &gtk::Widget, menus: &[gtk::MenuButton], x: f64, y: f64) {
+    if !crate::macos_header_menu::dismiss_allowed() {
+        return;
+    }
+    if !header_menu_open(menus) {
+        return;
+    }
+    let picked = shell_pick.pick(x, y, gtk::PickFlags::DEFAULT);
+    if click_targets_header_menu(picked.clone(), menus) {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    crate::macos_header_menu_debug::log_event(
+        "header",
+        "close",
+        &format!("reason=outside_click pick={}", picked.is_some()),
+    );
+    popdown_header_menus(menus, "outside_click");
+}
+
 /// Dismiss open header popovers when the user clicks elsewhere in the shell.
 pub(super) fn wire_macos_header_popover_dismiss(
     shell: &impl IsA<gtk::Widget>,
@@ -54,24 +72,6 @@ pub(super) fn wire_macos_header_popover_dismiss(
     g.set_button(gtk::gdk::BUTTON_PRIMARY);
     g.set_propagation_phase(gtk::PropagationPhase::Capture);
     let shell_pick = shell.clone();
-    g.connect_pressed(move |_, _n, x, y| {
-        if !crate::macos_header_menu::dismiss_allowed() {
-            return;
-        }
-        if !header_menu_open(&menus) {
-            return;
-        }
-        let picked = shell_pick.pick(x, y, gtk::PickFlags::DEFAULT);
-        if click_targets_header_menu(picked.clone(), &menus) {
-            return;
-        }
-        #[cfg(target_os = "macos")]
-        crate::macos_header_menu_debug::log_event(
-            "header",
-            "close",
-            &format!("reason=outside_click pick={}", picked.is_some()),
-        );
-        popdown_header_menus(&menus, "outside_click");
-    });
+    g.connect_pressed(move |_, _n, x, y| dismiss_on_outside_press(&shell_pick, &menus, x, y));
     shell.add_controller(g);
 }

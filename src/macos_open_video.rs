@@ -7,14 +7,16 @@ use std::path::PathBuf;
 
 use block2::RcBlock;
 use objc2::MainThreadMarker;
-use objc2_app_kit::{NSModalResponseOK, NSOpenPanel, NSWindow};
+use objc2_app_kit::{NSModalResponse, NSModalResponseOK, NSOpenPanel, NSWindow};
 use objc2_foundation::{NSArray, NSString, NSURL};
 use objc2_uniform_type_identifiers::UTType;
 
 use crate::video_ext;
 
+/// Callback invoked with the picked path (or [None] when the sheet is cancelled).
+type OpenPickFn = Box<dyn FnOnce(Option<PathBuf>)>;
 thread_local! {
-    static OPEN_PICK: RefCell<Option<Box<dyn FnOnce(Option<PathBuf>)>>> = const { RefCell::new(None) };
+    static OPEN_PICK: RefCell<Option<OpenPickFn>> = const { RefCell::new(None) };
 }
 
 fn push_uti_id(types: &mut Vec<objc2::rc::Retained<UTType>>, id: &str) {
@@ -76,9 +78,7 @@ pub fn present_open_video_sheet(
     true
 }
 
-fn present_open_video_sheet_ns(ns_win: objc2::rc::Retained<NSWindow>) {
-    let mtm = MainThreadMarker::new().expect("main thread");
-    let panel = NSOpenPanel::openPanel(mtm);
+fn configure_open_panel(panel: &NSOpenPanel) {
     panel.setTitle(Some(&NSString::from_str("Open Video")));
     panel.setPrompt(Some(&NSString::from_str("Open")));
     panel.setCanChooseFiles(true);
@@ -86,20 +86,27 @@ fn present_open_video_sheet_ns(ns_win: objc2::rc::Retained<NSWindow>) {
     panel.setAllowsMultipleSelection(false);
     panel.setTreatsFilePackagesAsDirectories(false);
     panel.setAllowedContentTypes(&panel_allowed_content_types());
+}
 
-    let panel_ret = panel.clone();
-    let handler = RcBlock::new(move |response| {
-        let path = (response == NSModalResponseOK)
-            .then(|| panel_ret.URL())
-            .flatten()
-            .as_ref()
-            .and_then(path_from_url);
-        glib::idle_add_local_once(move || {
-            let pick = OPEN_PICK.with(|slot| slot.borrow_mut().take());
-            if let Some(f) = pick {
-                f(path);
-            }
-        });
+fn finish_open_panel_response(panel: &NSOpenPanel, response: NSModalResponse) {
+    let path = (response == NSModalResponseOK)
+        .then(|| panel.URL())
+        .flatten()
+        .as_ref()
+        .and_then(path_from_url);
+    glib::idle_add_local_once(move || {
+        let pick = OPEN_PICK.with(|slot| slot.borrow_mut().take());
+        if let Some(f) = pick {
+            f(path);
+        }
     });
+}
+
+fn present_open_video_sheet_ns(ns_win: objc2::rc::Retained<NSWindow>) {
+    let mtm = MainThreadMarker::new().expect("main thread");
+    let panel = NSOpenPanel::openPanel(mtm);
+    configure_open_panel(&panel);
+    let panel_ret = panel.clone();
+    let handler = RcBlock::new(move |response| finish_open_panel_response(&panel_ret, response));
     panel.beginSheetModalForWindow_completionHandler(&ns_win, &handler);
 }

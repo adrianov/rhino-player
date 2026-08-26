@@ -28,39 +28,53 @@ fn apply_mvtools_env(v: &mut crate::db::VideoPrefs) -> bool {
     }
     #[cfg(target_os = "macos")]
     {
-        if let Some(p) = crate::paths::mvtools_lib_search() {
-            adopt_mvtools(v, &p, "app / config vendor / Homebrew");
-            return true;
-        }
-        eprintln!(
-            "[rhino] video: libmvtools not found; set {} or run `brew install vapoursynth-mvtools` \
-             once (Rhino vendors a copy under ~/.config/rhino/lib). See `data/vs/README.md`.",
-            crate::paths::RHINO_MVTOOLS_LIB_VAR
-        );
-        false
+        apply_mvtools_env_macos(v)
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let c = v.mvtools_lib.trim();
-        if !c.is_empty() {
-            if std::path::Path::new(c).is_file() {
-                std::env::set_var(crate::paths::RHINO_MVTOOLS_LIB_VAR, c);
-                eprintln!("[rhino] video: libmvtools -> {c} (cached in settings)");
-                return true;
-            }
-            v.mvtools_lib.clear();
-            crate::db::save_video(v);
+        apply_mvtools_env_cached_then_search(v)
+    }
+}
+
+/// macOS: [crate::paths::mvtools_lib_search] (`.app` / config vendor / Homebrew+seed). The SQLite
+/// cache is **not** consulted first — sticky Cellar paths survive `brew upgrade` and would skip
+/// seeding `~/.config/rhino/lib`.
+#[cfg(target_os = "macos")]
+fn apply_mvtools_env_macos(v: &mut crate::db::VideoPrefs) -> bool {
+    if let Some(p) = crate::paths::mvtools_lib_search() {
+        adopt_mvtools(v, &p, "app / config vendor / Homebrew");
+        return true;
+    }
+    eprintln!(
+        "[rhino] video: libmvtools not found; set {} or run `brew install vapoursynth-mvtools` \
+         once (Rhino vendors a copy under ~/.config/rhino/lib). See `data/vs/README.md`.",
+        crate::paths::RHINO_MVTOOLS_LIB_VAR
+    );
+    false
+}
+
+/// Linux: cached path if still a file → search.
+#[cfg(not(target_os = "macos"))]
+fn apply_mvtools_env_cached_then_search(v: &mut crate::db::VideoPrefs) -> bool {
+    let c = v.mvtools_lib.trim();
+    if !c.is_empty() {
+        if std::path::Path::new(c).is_file() {
+            std::env::set_var(crate::paths::RHINO_MVTOOLS_LIB_VAR, c);
+            eprintln!("[rhino] video: libmvtools -> {c} (cached in settings)");
+            return true;
         }
-        if let Some(p) = crate::paths::mvtools_lib_search() {
-            adopt_mvtools(v, &p, "search");
-            true
-        } else {
-            eprintln!(
-                "[rhino] video: libmvtools not found; set {} or install MVTools (vsrepo / distro \
-                 package). See `data/vs/README.md`.",
-                crate::paths::RHINO_MVTOOLS_LIB_VAR
-            );
-            false
-        }
+        v.mvtools_lib.clear();
+        crate::db::save_video(v);
+    }
+    if let Some(p) = crate::paths::mvtools_lib_search() {
+        adopt_mvtools(v, &p, "search");
+        true
+    } else {
+        eprintln!(
+            "[rhino] video: libmvtools not found; set {} or install MVTools (vsrepo / distro \
+             package). See `data/vs/README.md`.",
+            crate::paths::RHINO_MVTOOLS_LIB_VAR
+        );
+        false
     }
 }

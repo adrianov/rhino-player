@@ -15,18 +15,22 @@ use glib::SignalHandlerId;
 use gtk::prelude::{Cast, WidgetExt};
 use objc2::rc::Retained;
 use objc2::{msg_send, MainThreadMarker};
-use objc2_app_kit::NSView;
 
 use crate::macos_window::nswindow_for_widget;
 
 use objc2_quartz_core::CALayer;
 
-use super::macos_video_cgl::{
-    self, make_pixel_format_and_context, CGLContextObj, CGLPixelFormatObj, GlSymbolLoader,
-};
+use super::macos_video_cgl::{self, CGLContextObj, CGLPixelFormatObj, GlSymbolLoader};
 use super::macos_video_displaylink::{DisplayLinkDriver, DriverStateHandle};
-use super::macos_video_layer::{as_calayer, DrawCallback, RhinoMpvGlLayer};
-use super::macos_video_layer_frame::{sync_layer_frame_now, wire_sizer_resync};
+use super::macos_video_layer::{DrawCallback, RhinoMpvGlLayer};
+use super::macos_video_layer_frame::sync_layer_frame_now;
+
+mod nswindow_attach;
+
+use self::nswindow_attach::{
+    attach_native_layers, connect_overlay_visibility, start_session, wire_backing_scale_tracking,
+    AttachedLayers, RenderSession,
+};
 
 /// Public handle returned from [`install`]. Drops everything in order on release.
 ///
@@ -116,14 +120,13 @@ impl NativeVideoSurface {
         let Some(sizer_widget) = self.sizer_widget.clone() else {
             return;
         };
-        let layer = self.layer.clone();
-        let overlay = self.overlay.clone();
-        let repaint = self.redraw_handle.clone();
-        w.connect_local("notify::visible", false, move |_| {
-            let ov = overlay.borrow().clone();
-            sync_layer_frame_now(&layer, &sizer_widget, ov.as_ref(), Some(repaint.as_ref()));
-            None
-        });
+        connect_overlay_visibility(
+            &w,
+            &sizer_widget,
+            &self.layer,
+            &self.overlay,
+            &self.redraw_handle,
+        );
     }
 
     /// Detach the layer from contentView, stop the displayLink, drop the size-tracking
@@ -141,6 +144,24 @@ impl NativeVideoSurface {
     }
 }
 
+impl NativeVideoSurface {
+    /// Assemble the surface from its attached native pieces and the running session.
+    fn assemble(native: AttachedLayers, session: RenderSession, sizer_widget: gtk::Widget) -> Self {
+        Self {
+            layer: native.layer,
+            parent_layer: native.parent_layer,
+            display_link: Some(session.display_link),
+            redraw_handle: session.redraw_handle,
+            pixel_format: native.pixel_format,
+            context: native.context,
+            gl_loader: native.gl_loader,
+            sizer: Some(session.sizer_handler),
+            sizer_widget: Some(sizer_widget),
+            overlay: session.overlay,
+        }
+    }
+}
+
 impl Drop for NativeVideoSurface {
     fn drop(&mut self) {
         self.detach();
@@ -154,73 +175,12 @@ impl Drop for NativeVideoSurface {
 /// Create the native surface, attach as a subview of the NSWindow's `contentView`, and
 /// start mirroring `sizer`'s allocation onto the view's frame.
 ///
-/// Must be called on the main thread.
 pub fn install<W: IsA<gtk::Widget>>(sizer: &W) -> Result<NativeVideoSurface, String> {
     let _ = MainThreadMarker::new().ok_or("install must run on the main thread")?;
     let window = nswindow_for_widget(sizer).ok_or("NSWindow not realized for video sizer")?;
-    let (pix, ctx) = make_pixel_format_and_context()?;
-    let gl_loader = Arc::new(GlSymbolLoader::open()?);
-    let layer = RhinoMpvGlLayer::new(pix, ctx);
-
-    let content_view: Retained<NSView> = unsafe {
-        let cv: *mut NSView = msg_send![&*window, contentView];
-        Retained::retain(cv).ok_or("contentView is nil")?
-    };
-
-    // Make sure the contentView is layer-backed (gdk-macos already does this, but
-    // belt-and-braces). Then insert our layer as a direct sublayer with a high
-    // zPosition so it's composited above gdk's GTK rendering.
-    let parent_layer: Retained<CALayer> = unsafe {
-        let _: () = msg_send![&*content_view, setWantsLayer: true];
-        let cv_layer: *mut CALayer = msg_send![&*content_view, layer];
-        Retained::retain(cv_layer).ok_or("contentView.layer is nil after setWantsLayer")?
-    };
-
-    let overlay: std::rc::Rc<std::cell::RefCell<Option<gtk::Widget>>> =
-        std::rc::Rc::new(std::cell::RefCell::new(None));
-
-    layer.set_backing_scale(sizer.scale_factor() as f64);
-    let our_calayer = as_calayer(&layer);
-    unsafe {
-        // Insert at the BOTTOM of the contentView's sublayer stack and skip
-        // `setZPosition:` so gdk-macos's GTK rendering sublayer (which carries the
-        // header / bottom bar / GLArea) composites *above* us. The GTK GLArea is made
-        // transparent by [`super::macos_video_bundle::install_transparent_glarea`]
-        // (`background-color: transparent` + an alpha-0 GL clear in the render
-        // callback) so the video region of gdk's sublayer is alpha=0 and our layer
-        // shows through, while the bars stay opaque on top.
-        let _: () = msg_send![&*parent_layer, insertSublayer: &*our_calayer, atIndex: 0u32];
-    }
-
+    let native = attach_native_layers(&window, sizer.scale_factor() as f64)?;
     let sizer_widget = sizer.clone().upcast::<gtk::Widget>();
-    let (display_link, redraw_handle) = DisplayLinkDriver::install(layer.clone())?;
-    sync_layer_frame_now(&layer, sizer, None, Some(redraw_handle.as_ref()));
-    let id = wire_sizer_resync(
-        &sizer_widget,
-        layer.clone(),
-        overlay.clone(),
-        redraw_handle.clone(),
-    );
-
-    // Track Retina / non-Retina monitor changes so the FBO matches actual pixels.
-    let l_scale = layer.clone();
-    sizer_widget.connect_local("notify::scale-factor", false, move |args| {
-        if let Ok(w) = args[0].get::<gtk::Widget>() {
-            l_scale.set_backing_scale(w.scale_factor() as f64);
-        }
-        None
-    });
-
-    Ok(NativeVideoSurface {
-        layer,
-        parent_layer,
-        display_link: Some(display_link),
-        redraw_handle,
-        pixel_format: pix,
-        context: ctx,
-        gl_loader,
-        sizer: Some(id),
-        sizer_widget: Some(sizer_widget),
-        overlay,
-    })
+    let session = start_session(&native, &sizer_widget, sizer)?;
+    wire_backing_scale_tracking(&sizer_widget, &native.layer);
+    Ok(NativeVideoSurface::assemble(native, session, sizer_widget))
 }

@@ -7,6 +7,54 @@ pub struct NoticeToast {
 }
 
 fn new_notice_toast() -> NoticeToast {
+    let label = toast_label();
+
+    let close = dismiss_button();
+
+    let bar = toast_bar(&label, &close);
+    let shell = toast_shell(&bar, &["rp-notice-shell"]);
+
+    NoticeToast {
+        shell,
+        label,
+        close,
+    }
+}
+
+/// Horizontal pill row holding the message label and dismiss button.
+fn toast_bar(label: &gtk::Label, close: &gtk::Button) -> gtk::Box {
+    let bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    bar.set_spacing(6);
+    bar.set_halign(gtk::Align::Center);
+    bar.set_valign(gtk::Align::Center);
+    bar.append(label);
+    bar.append(close);
+    bar.add_css_class("rp-undo-toast");
+    bar.add_css_class("rp-notice-toast");
+    bar
+}
+
+/// Hidden-by-default vertical band under the continue strip; [css_classes] extend
+/// `rp-undo-shell`.
+fn toast_shell(bar: &gtk::Box, css_classes: &[&str]) -> gtk::Box {
+    let shell = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    shell.set_hexpand(true);
+    shell.set_halign(gtk::Align::Fill);
+    shell.set_valign(gtk::Align::Start);
+    shell.set_vexpand(false);
+    shell.set_visible(false);
+    shell.set_margin_top(4);
+    shell.set_margin_start(16);
+    shell.set_margin_end(16);
+    shell.add_css_class("rp-undo-shell");
+    for c in css_classes {
+        shell.add_css_class(c);
+    }
+    shell.append(bar);
+    shell
+}
+
+fn toast_label() -> gtk::Label {
     let label = gtk::Label::new(None);
     label.set_ellipsize(gtk::pango::EllipsizeMode::End);
     label.set_max_width_chars(64);
@@ -18,7 +66,10 @@ fn new_notice_toast() -> NoticeToast {
     label.set_hexpand(true);
     label.add_css_class("rp-undo-toast-text");
     label.add_css_class("rp-notice-toast-text");
+    label
+}
 
+fn dismiss_button() -> gtk::Button {
     let close = gtk::Button::from_icon_name("window-close-symbolic");
     close.set_valign(gtk::Align::Center);
     close.set_halign(gtk::Align::Center);
@@ -27,30 +78,7 @@ fn new_notice_toast() -> NoticeToast {
     close.add_css_class("flat");
     close.add_css_class("rp-undo-toast-close");
     close.set_cursor_from_name(Some("pointer"));
-
-    let bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    bar.set_spacing(6);
-    bar.set_halign(gtk::Align::Center);
-    bar.set_valign(gtk::Align::Center);
-    bar.append(&label);
-    bar.append(&close);
-    bar.add_css_class("rp-undo-toast");
-    bar.add_css_class("rp-notice-toast");
-
-    let shell = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    shell.set_hexpand(true);
-    shell.set_halign(gtk::Align::Fill);
-    shell.set_valign(gtk::Align::Start);
-    shell.set_vexpand(false);
-    shell.set_visible(false);
-    shell.set_margin_top(4);
-    shell.set_margin_start(16);
-    shell.set_margin_end(16);
-    shell.add_css_class("rp-undo-shell");
-    shell.add_css_class("rp-notice-shell");
-    shell.append(&bar);
-
-    NoticeToast { shell, label, close }
+    close
 }
 
 /// Show / auto-dismiss controller for [NoticeToast].
@@ -80,14 +108,12 @@ impl NoticeToastCtrl {
         self.toast.shell.set_visible(true);
         let shell = self.toast.shell.clone();
         let slot = Rc::clone(&self.timer);
-        *self.timer.borrow_mut() = Some(glib::timeout_add_local(
-            Duration::from_secs(6),
-            move || {
+        *self.timer.borrow_mut() =
+            Some(glib::timeout_add_local(Duration::from_secs(6), move || {
                 crate::glib_source_drop::finish_glib_source(slot.as_ref());
                 shell.set_visible(false);
                 glib::ControlFlow::Break
-            },
-        ));
+            }));
     }
 
     pub fn dismiss(&self) {

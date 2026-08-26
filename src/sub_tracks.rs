@@ -66,16 +66,16 @@ fn text_styling_applies_codecs(mpv: &Mpv, subs: &[(i64, String)]) -> bool {
             .find(|(tid, _)| *tid == id)
             .is_some_and(|(_, codec)| !is_bitmap_sub_codec(codec));
     }
-    subs.iter()
-        .any(|(_, codec)| !is_bitmap_sub_codec(codec))
-}
-
-pub fn sync_text_color_row(mpv: &Mpv, row: &impl IsA<gtk::Widget>) {
-    sync_text_color_row_codecs(mpv, row, &sub_stream_codecs(mpv));
+    subs.iter().any(|(_, codec)| !is_bitmap_sub_codec(codec))
 }
 
 fn sync_text_color_row_codecs(mpv: &Mpv, row: &impl IsA<gtk::Widget>, codecs: &[(i64, String)]) {
     row.set_visible(text_styling_applies_codecs(mpv, codecs));
+}
+
+/// Visibility of the text-styling row straight from the current mpv track list.
+pub fn sync_text_color_row(mpv: &Mpv, row: &impl IsA<gtk::Widget>) {
+    sync_text_color_row_codecs(mpv, row, &sub_stream_codecs(mpv));
 }
 
 fn sub_stream_codecs(mpv: &Mpv) -> Vec<(i64, String)> {
@@ -94,74 +94,7 @@ fn sub_nodes_from_track_list(mpv: &Mpv) -> Vec<Node> {
     nodes.into_iter().filter(|n| n.kind == "sub").collect()
 }
 
-fn track_header_token(r: &Row) -> String {
-    let l = r.lang.trim();
-    if !l.is_empty() {
-        let a = abbrev_track_lang(Some(l));
-        if !a.is_empty() {
-            return a;
-        }
-    }
-    let head = r.text.split(" – ").next().unwrap_or(r.text.as_str()).trim();
-    abbrev_track_lang(Some(head))
-}
-
-fn compact_header_label_row(sid: i64, rows: &[Row], mpv: &Mpv, shell: Option<&std::path::Path>) -> String {
-    let Some(row) = row_for_sid(sid, rows, mpv, shell) else {
-        return "…".to_string();
-    };
-    let t = track_header_token(row);
-    if t.is_empty() {
-        "…".into()
-    } else {
-        t
-    }
-}
-
-fn row_for_sid<'a>(sid: i64, rows: &'a [Row], mpv: &Mpv, shell: Option<&std::path::Path>) -> Option<&'a Row> {
-    rows.iter()
-        .find(|r| r.id == sid)
-        .or_else(|| {
-            let slot = ifo_slot_for_sid(mpv, sid, shell)?;
-            rows.iter().find(|r| r.ifo_slot == Some(slot))
-        })
-}
-
-/// Updates the subtitles header caption from the current subtitle track (`Off` when hidden).
-pub fn refresh_sub_header(mpv: &Mpv, label: &gtk::Label, shell: Option<&std::path::Path>) {
-    let s = sub_header_compact(mpv, shell);
-    if label.text().as_str() != s.as_str() {
-        label.set_text(&s);
-    }
-}
-
-fn sub_header_compact(mpv: &Mpv, shell: Option<&std::path::Path>) -> String {
-    if !sub_visibility(mpv) {
-        return "Off".to_string();
-    }
-    let rows = sub_rows(mpv, shell);
-    if let Some(sid) = current_sid(mpv) {
-        return compact_header_label_row(sid, &rows, mpv, shell);
-    }
-    let prefs = crate::db::load_sub();
-    let saved = prefs.last_sub_label.trim();
-    if !saved.is_empty() {
-        for r in &rows {
-            if r.text.eq_ignore_ascii_case(saved)
-                || r.lang.eq_ignore_ascii_case(saved)
-                || r.text.contains(saved)
-            {
-                return track_header_token(r);
-            }
-        }
-        let a = abbrev_track_lang(Some(saved));
-        if !a.is_empty() {
-            return a;
-        }
-    }
-    "Auto".to_string()
-}
-
+include!("sub_tracks_header.rs");
 include!("sub_tracks_dvd.rs");
 include!("sub_tracks_restore.rs");
 
@@ -177,63 +110,7 @@ pub fn has_subtitle_tracks(mpv: &Mpv, shell: Option<&std::path::Path>) -> bool {
     crate::playback_entity::entity_has_subtitles(mpv, shell)
 }
 
-/// Seeding text for fuzzy match: last hand-picked track label, else a short [LANG] hint.
-pub fn autoseed(prefs: &SubPrefs) -> String {
-    let t = prefs.last_sub_label.trim();
-    if !t.is_empty() {
-        return t.to_lowercase();
-    }
-    std::env::var("LANG")
-        .ok()
-        .and_then(|s| s.split('.').next().map(str::to_string))
-        .unwrap_or_else(|| "en".into())
-        .split('_')
-        .next()
-        .unwrap_or("en")
-        .to_lowercase()
-}
-
-/// After a new [loadfile], pick the subtitle track whose label best matches [autoseed]
-/// (word multiset overlap first, then alphanumeric character multiset overlap).
-pub fn autopick_sub_track(mpv: &Mpv, prefs: &SubPrefs, shell: Option<&std::path::Path>) {
-    if prefs.sub_off {
-        set_sub_off(mpv);
-        return;
-    }
-    let rows = sub_rows(mpv, shell);
-    if rows.is_empty() {
-        return;
-    }
-    let seed = autoseed(prefs);
-    if seed.is_empty() {
-        return;
-    }
-    let mut best_score = LabelMatchScore {
-        word_intersection: 0,
-        char_intersection: 0,
-    };
-    let mut best_id: Option<i64> = None;
-    for r in &rows {
-        let s = seed_row_score(&seed, &r.text, &r.lang);
-        if best_id.is_none() || s > best_score {
-            best_score = s;
-            best_id = Some(r.id);
-        }
-    }
-    if !subtitle_autopick_qualifies(best_score) {
-        return;
-    }
-    if let Some(id) = best_id {
-        let sid = rows
-            .iter()
-            .find(|r| r.id == id)
-            .and_then(|row| resolve_sub_id(mpv, id, row.ifo_slot, shell))
-            .unwrap_or(id);
-        let _ = mpv.set_property("sub-visibility", true);
-        let _ = mpv.set_property("sid", sid);
-        reapply_styling(mpv);
-    }
-}
+include!("sub_tracks_autopick.rs");
 
 fn sub_visibility(mpv: &Mpv) -> bool {
     mpv.get_property::<bool>("sub-visibility").unwrap_or(true)

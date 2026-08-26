@@ -50,32 +50,39 @@ impl OpticalDisc {
     }
 
     fn bluray_root(path: &Path) -> Option<PathBuf> {
-        let candidates: Vec<PathBuf> = if path.is_file() {
-            path.parent().map(|p| vec![p.to_path_buf()])?
-        } else {
-            let mut v = vec![path.to_path_buf()];
-            let bdmv = path.join("BDMV");
-            if bdmv.is_dir() {
-                v.push(bdmv);
-            }
-            v
-        };
-        for root in candidates {
+        for root in Self::bluray_root_candidates(path)? {
             if !movie_object_in(&root) {
                 continue;
             }
-            let disc = if root
-                .file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.eq_ignore_ascii_case("BDMV"))
-            {
-                root.parent()?.to_path_buf()
-            } else {
-                root
-            };
-            return Some(disc);
+            return Self::disc_root_above_bdmv(root);
         }
         None
+    }
+
+    /// Paths that could host `MovieObject.bdmv`: the file's parent, the dir itself, or its `BDMV/`.
+    fn bluray_root_candidates(path: &Path) -> Option<Vec<PathBuf>> {
+        if path.is_file() {
+            return path.parent().map(|p| vec![p.to_path_buf()]);
+        }
+        let mut v = vec![path.to_path_buf()];
+        let bdmv = path.join("BDMV");
+        if bdmv.is_dir() {
+            v.push(bdmv);
+        }
+        Some(v)
+    }
+
+    /// A `BDMV/` package dir is not the disc root — its parent is.
+    fn disc_root_above_bdmv(root: PathBuf) -> Option<PathBuf> {
+        if root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case("BDMV"))
+        {
+            root.parent().map(Path::to_path_buf)
+        } else {
+            Some(root)
+        }
     }
 
     fn dvd_root(path: &Path) -> Option<PathBuf> {

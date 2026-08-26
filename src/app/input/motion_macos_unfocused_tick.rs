@@ -79,16 +79,15 @@ impl UnfocusedCursor {
             self.leave();
             return;
         }
+        self.tick_advance(x, y);
+    }
+
+    /// Pointer is confirmed over live theater video: show it, then rearm the hide timer unless
+    /// this sample is squelched / a duplicate position.
+    fn tick_advance(&self, x: f64, y: f64) {
         self.ptr.set(true);
-        if let Some(t) = self.sq.get() {
-            if Instant::now() < t {
-                return;
-            }
-        }
-        if let Some((lx, ly)) = self.lgl.get() {
-            if same_xy(x, lx) && same_xy(y, ly) {
-                return;
-            }
+        if motion_sample_stale(&self.sq, &self.lgl, x, y) {
+            return;
         }
         self.lgl.set(Some((x, y)));
         show_chrome_pointer(&self.win, &self.gl);

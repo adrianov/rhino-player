@@ -20,21 +20,27 @@ fn smooth_60_full_resync_after_media_change(
         turn_off = a.smooth_auto_off;
     }
     if turn_off {
-        let defer_setup = player.borrow().as_ref().is_some_and(|b| {
-            crate::video_pref::vf_swap_defer_in_flight()
-                || b.resume_seek_pending()
-                || b.smooth_vf_attach_pending()
-        });
-        if defer_setup {
-            eprintln!("[rhino] video: smooth setup dialog skipped (vf reattach in flight)");
-        } else {
-            sync_smooth_60_to_off(&r.app);
-            show_smooth_setup_dialog(&r.app);
-        }
+        offer_smooth_setup_or_skip(player, r);
     }
     // Playing Smooth-on reload stays paused until resume + vf apply (or auto-off).
     if let Some(b) = player.borrow().as_ref() {
         video_pref::maybe_unpause_after_smooth_reload(&b.mpv);
     }
     gl.queue_render();
+}
+
+/// Smooth auto-off handling: skip the setup dialog while a vf swap / resume is still in
+/// flight, otherwise flip the preference off and surface the setup dialog.
+fn offer_smooth_setup_or_skip(player: &Rc<RefCell<Option<MpvBundle>>>, r: &VideoReapply60) {
+    let defer_setup = player.borrow().as_ref().is_some_and(|b| {
+        crate::video_pref::vf_swap_defer_in_flight()
+            || b.resume_seek_pending()
+            || b.smooth_vf_attach_pending()
+    });
+    if defer_setup {
+        eprintln!("[rhino] video: smooth setup dialog skipped (vf reattach in flight)");
+    } else {
+        sync_smooth_60_to_off(&r.app);
+        show_smooth_setup_dialog(&r.app);
+    }
 }

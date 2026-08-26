@@ -16,7 +16,11 @@ fn mpv_sub_track_metas(nodes: &[TrackNode]) -> Vec<crate::dvd_ifo_parse::MpvSubT
         .collect()
 }
 
-fn mpv_sid_for_slot(nodes: &[TrackNode], ifo: &crate::dvd_ifo_parse::DvdIfoStreams, slot: u8) -> Option<i64> {
+fn mpv_sid_for_slot(
+    nodes: &[TrackNode],
+    ifo: &crate::dvd_ifo_parse::DvdIfoStreams,
+    slot: u8,
+) -> Option<i64> {
     crate::dvd_ifo_parse::mpv_sub_id_for_ifo_slot(&ifo.sub, &mpv_sub_track_metas(nodes), slot)
 }
 
@@ -25,7 +29,8 @@ fn ifo_sub_rows(nodes: &[TrackNode], ifo: &crate::dvd_ifo_parse::DvdIfoStreams) 
     ifo.sub
         .iter()
         .map(|s| SubMenuRow {
-            mpv_id: crate::dvd_ifo_parse::mpv_sub_id_for_ifo_slot(&ifo.sub, &metas, s.slot).unwrap_or(-1),
+            mpv_id: crate::dvd_ifo_parse::mpv_sub_id_for_ifo_slot(&ifo.sub, &metas, s.slot)
+                .unwrap_or(-1),
             label: s.label.clone(),
             lang: s.lang.clone(),
             ifo_slot: Some(s.slot),
@@ -34,7 +39,7 @@ fn ifo_sub_rows(nodes: &[TrackNode], ifo: &crate::dvd_ifo_parse::DvdIfoStreams) 
 }
 
 fn mpv_sub_label_for_node(n: &TrackNode, ifo: Option<&str>) -> String {
-    if let Some(s) = ifo.map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(s) = trimmed(ifo) {
         return s.to_string();
     }
     let rich = crate::track_menu_label::mpv_sub_label(
@@ -52,48 +57,63 @@ fn mpv_sub_label_for_node(n: &TrackNode, ifo: Option<&str>) -> String {
     line_label(n.id, n.title.clone(), n.lang.clone(), None)
 }
 
-fn mpv_sub_rows(nodes: &[TrackNode], ifo: Option<&crate::dvd_ifo_parse::DvdIfoStreams>) -> Vec<SubMenuRow> {
-    let mut used = ifo
-        .map(|s| vec![false; s.sub.len()])
-        .unwrap_or_default();
+fn matched_sub_label(
+    s: &crate::dvd_ifo_parse::DvdIfoStreams,
+    n: &TrackNode,
+    index: usize,
+    used: &mut [bool],
+) -> Option<String> {
+    let slot_byte = crate::dvd_ifo_parse::sub_slot_for_src_id(&s.sub, sub_stream_src_id(n), index)?;
+    let idx = s
+        .sub
+        .iter()
+        .position(|r| r.slot == slot_byte)
+        .unwrap_or(index);
+    crate::dvd_ifo_parse::match_sub_label(&s.sub, idx, used)
+}
+
+fn mpv_sub_row(
+    n: &TrackNode,
+    ifo: Option<&crate::dvd_ifo_parse::DvdIfoStreams>,
+    index: usize,
+    used: &mut [bool],
+) -> SubMenuRow {
+    let ifo_label = ifo.and_then(|s| matched_sub_label(s, n, index, used));
+    let lang = trimmed(n.lang.as_deref()).unwrap_or("").to_string();
+    SubMenuRow {
+        mpv_id: n.id,
+        label: mpv_sub_label_for_node(n, ifo_label.as_deref()),
+        lang: if lang.is_empty() {
+            ifo_label.unwrap_or_default()
+        } else {
+            lang
+        },
+        ifo_slot: None,
+    }
+}
+
+fn apply_sub_label_disambiguation(rows: &mut [SubMenuRow]) {
+    let mut labels: Vec<String> = rows.iter().map(|r| r.label.clone()).collect();
+    crate::track_menu_label::disambiguate_labels(&mut labels);
+    for (row, label) in rows.iter_mut().zip(labels) {
+        row.label = label;
+    }
+}
+
+fn mpv_sub_rows(
+    nodes: &[TrackNode],
+    ifo: Option<&crate::dvd_ifo_parse::DvdIfoStreams>,
+) -> Vec<SubMenuRow> {
+    let mut used = ifo.map(|s| vec![false; s.sub.len()]).unwrap_or_default();
     let mut v = vec![];
     for n in nodes {
         if n.kind != "sub" {
             continue;
         }
-        let ifo_label = ifo.and_then(|s| {
-            let slot_byte =
-                crate::dvd_ifo_parse::sub_slot_for_src_id(&s.sub, sub_stream_src_id(n), v.len())?;
-            let idx = s
-                .sub
-                .iter()
-                .position(|r| r.slot == slot_byte)
-                .unwrap_or(v.len());
-            crate::dvd_ifo_parse::match_sub_label(&s.sub, idx, &mut used)
-        });
-        let lang = n
-            .lang
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or("")
-            .to_string();
-        v.push(SubMenuRow {
-            mpv_id: n.id,
-            label: mpv_sub_label_for_node(n, ifo_label.as_deref()),
-            lang: if lang.is_empty() {
-                ifo_label.unwrap_or_default()
-            } else {
-                lang
-            },
-            ifo_slot: None,
-        });
+        let row = mpv_sub_row(n, ifo, v.len(), &mut used);
+        v.push(row);
     }
-    let mut labels: Vec<String> = v.iter().map(|r| r.label.clone()).collect();
-    apply_label_disambiguation(&mut labels);
-    for (row, label) in v.iter_mut().zip(labels) {
-        row.label = label;
-    }
+    apply_sub_label_disambiguation(&mut v);
     v
 }
 

@@ -31,19 +31,30 @@ fn wire_quit_close(
         td_quit,
         move |_, _| {
             eprintln!("[rhino] quit: quit action");
-            schedule_quit_persist(
-                &app,
-                &win_q,
-                &gl_q,
-                &p_quit,
-                &sp_quit,
-                &idle_q,
-                &td_quit,
-            );
+            schedule_quit_persist(&app, &win_q, &gl_q, &p_quit, &sp_quit, &idle_q, &td_quit);
         }
     ));
     app.add_action(&quit);
+    wire_close_request_quit(
+        app,
+        win,
+        gl,
+        player,
+        sub_pref,
+        idle_inhib,
+        mpv_teardown_after_draw,
+    );
+}
 
+fn wire_close_request_quit(
+    app: &adw::Application,
+    win: &adw::ApplicationWindow,
+    gl: &gtk::GLArea,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    sub_pref: &Rc<RefCell<db::SubPrefs>>,
+    idle_inhib: &Rc<RefCell<Option<crate::idle_inhibit::Held>>>,
+    mpv_teardown_after_draw: &Rc<Cell<bool>>,
+) {
     let p = player.clone();
     let w = win.clone();
     let gl_close = gl.clone();
@@ -67,15 +78,7 @@ fn wire_quit_close(
         td_close,
         move |_win| {
             eprintln!("[rhino] quit: window close request");
-            schedule_quit_persist(
-                &app,
-                &w,
-                &gl_close,
-                &p,
-                &sp_close,
-                &iclose,
-                &td_close,
-            );
+            schedule_quit_persist(&app, &w, &gl_close, &p, &sp_close, &iclose, &td_close);
             glib::Propagation::Stop
         }
     ));

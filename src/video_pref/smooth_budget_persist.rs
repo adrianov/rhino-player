@@ -13,10 +13,9 @@ fn persist_budget_save_media_row_verbose(
     new_budget_px: u64,
     stderr_reason_suffix: &'static str,
 ) {
-    if let Some(p) = crate::media_probe::shell_media_path(
-        &b.mpv,
-        b.me_budget_shell_path.borrow().as_deref(),
-    ) {
+    if let Some(p) =
+        crate::media_probe::shell_media_path(&b.mpv, b.me_budget_shell_path.borrow().as_deref())
+    {
         let entity = crate::playback_entity::db_path_for(&p);
         crate::db::media_save_smooth_me_budget(&entity, new_budget_px);
         if video_log() {
@@ -62,54 +61,83 @@ fn persist_budget_and_maybe_rebuild_vf(
     new_budget_px: u64,
     stderr_reason_suffix: &'static str,
 ) -> bool {
-    if player
-        .try_borrow()
-        .ok()
-        .and_then(|g| g.as_ref().map(|b| b.may_persist_media_rows()))
-        != Some(true)
-    {
+    if !persist_budget_media_rows_allowed(player) {
         return false;
     }
     let Some(eff) = persist_budget_current_effective(player, video_pref) else {
-        if video_log() {
-            eprintln!(
-                "[rhino] video: (verbose) persist_budget skip (no player) {stderr_reason_suffix}"
-            );
-        }
+        log_persist_skip(stderr_reason_suffix);
         return false;
     };
     if new_budget_px == eff {
-        if video_log() {
-            eprintln!(
-                "[rhino] smooth: persist_skip ME_budget_px² already {eff} ({stderr_reason_suffix})",
-            );
-        }
+        log_persist_already_at(eff, stderr_reason_suffix);
         return false;
     }
 
     forget_bundled_me_budget_vf_apply();
-    match player.try_borrow_mut() {
-        Ok(mut g) => {
-            let Some(b) = g.as_mut() else {
-                return true;
-            };
-            // Same `borrow_mut` as `apply_mpv_video`: a failing `try_borrow()` before `try_borrow_mut()`
-            // used to skip `media_save_smooth_me_budget` while vf still rebuilt — then `resolve_media_smooth_me_budget`
-            // fell through to another file's lower neighbor px² and **`smooth_cap`** lagged prefs.
-            persist_budget_save_media_row_verbose(b, new_budget_px, stderr_reason_suffix);
-            // Release the player borrow before reapplying: `apply_mpv_video` borrows `player` itself.
-            drop(g);
-            let mut vp = video_pref.borrow_mut();
-            let _ = apply_mpv_video(player, &mut vp, None);
-        }
-        Err(_) => {
-            if video_log() {
-                eprintln!(
-                    "[rhino] video: (verbose) persist_budget px²={new_budget_px} could_not_borrow_player_mut_for_vf_apply (best-effort media_save via imm borrow)",
-                );
-            }
-            persist_budget_save_media_imm_borrow(player, new_budget_px);
-        }
+    if player.try_borrow_mut().is_err() {
+        log_could_not_borrow_player_mut(new_budget_px);
+        persist_budget_save_media_imm_borrow(player, new_budget_px);
+        return true;
     }
+    persist_budget_apply_with_mut_borrow(player, video_pref, new_budget_px, stderr_reason_suffix);
     true
+}
+
+/// Only open local media rows may receive an adaptive per-file ME budget.
+fn persist_budget_media_rows_allowed(
+    player: &Rc<RefCell<Option<crate::mpv_embed::MpvBundle>>>,
+) -> bool {
+    player
+        .try_borrow()
+        .ok()
+        .and_then(|g| g.as_ref().map(|b| b.may_persist_media_rows()))
+        == Some(true)
+}
+
+fn log_persist_skip(stderr_reason_suffix: &'static str) {
+    if video_log() {
+        eprintln!(
+            "[rhino] video: (verbose) persist_budget skip (no player) {stderr_reason_suffix}"
+        );
+    }
+}
+
+fn log_persist_already_at(eff: u64, stderr_reason_suffix: &'static str) {
+    if video_log() {
+        eprintln!(
+            "[rhino] smooth: persist_skip ME_budget_px² already {eff} ({stderr_reason_suffix})"
+        );
+    }
+}
+
+fn log_could_not_borrow_player_mut(new_budget_px: u64) {
+    if video_log() {
+        eprintln!(
+            "[rhino] video: (verbose) persist_budget px²={new_budget_px} could_not_borrow_player_mut_for_vf_apply (best-effort media_save via imm borrow)",
+        );
+    }
+}
+
+/// Mut-borrow path: save the media row while the player is borrowed (same `borrow_mut` as
+/// [apply_mpv_video]), release it, then reapply the `vf`.
+fn persist_budget_apply_with_mut_borrow(
+    player: &Rc<RefCell<Option<crate::mpv_embed::MpvBundle>>>,
+    video_pref: &Rc<RefCell<crate::db::VideoPrefs>>,
+    new_budget_px: u64,
+    stderr_reason_suffix: &'static str,
+) {
+    let mut g = player
+        .try_borrow_mut()
+        .expect("try_borrow_mut checked by caller");
+    let Some(b) = g.as_mut() else {
+        return;
+    };
+    // Same `borrow_mut` as `apply_mpv_video`: a failing `try_borrow()` before `try_borrow_mut()`
+    // used to skip `media_save_smooth_me_budget` while vf still rebuilt — then `resolve_media_smooth_me_budget`
+    // fell through to another file's lower neighbor px² and **`smooth_cap`** lagged prefs.
+    persist_budget_save_media_row_verbose(b, new_budget_px, stderr_reason_suffix);
+    // Release the player borrow before reapplying: `apply_mpv_video` borrows `player` itself.
+    drop(g);
+    let mut vp = video_pref.borrow_mut();
+    let _ = apply_mpv_video(player, &mut vp, None);
 }

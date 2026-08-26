@@ -1,12 +1,4 @@
-/// CLI path for first launch; ignore macOS `-psn_*` and other non-media argv tails.
-fn boot_path_from_argv() -> Option<PathBuf> {
-    let p = std::env::args().nth(1).map(PathBuf::from)?;
-    if crate::video_ext::is_openable_media_path(&p) {
-        Some(p)
-    } else {
-        None
-    }
-}
+include!("app_bootstrap.rs");
 
 include!("warm_preload_idle.rs");
 
@@ -15,7 +7,8 @@ fn mpv_has_open_target(path: &Path, player: &Rc<RefCell<Option<MpvBundle>>>) -> 
     let Ok(g) = player.try_borrow() else {
         return false;
     };
-    g.as_ref().is_some_and(|b| crate::media_probe::mpv_warm_hit_ready(&b.mpv, path))
+    g.as_ref()
+        .is_some_and(|b| crate::media_probe::mpv_warm_hit_ready(&b.mpv, path))
 }
 
 pub(crate) struct WarmPreloadCtx {
@@ -69,135 +62,79 @@ impl WarmPreloadCtx {
             ctx.gate.queue(path);
             return;
         }
-        match preload_continue_path(
+        let outcome = preload_continue_path(
             &path,
             &ctx.player,
             &ctx.video_pref,
             &ctx.recent,
             &ctx.gl,
             &ctx.last_path,
-        ) {
-            PreloadOutcome::Deferred => {
-                let gen = ctx
-                    .player
-                    .borrow()
-                    .as_ref()
-                    .map(crate::mpv_embed::MpvBundle::warm_file_gen)
-                    .unwrap_or(0);
-                ctx.gate.set_inflight_gen(gen);
-                ctx.gate
-                    .arm_watchdog(Rc::clone(&ctx.player), gen);
-                schedule_preload_pause(Rc::clone(&ctx.player), ctx.gl.clone());
-            }
-            PreloadOutcome::Ready => {
-                let run = Rc::clone(ctx);
-                let gate = Rc::clone(&run.gate);
-                let player = Rc::clone(&ctx.player);
-                let gl = ctx.gl.clone();
-                let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
-                    finish_warm_preload_ready_now(&player, &gl);
-                    let run = Rc::clone(&run);
-                    gate.complete(move |p| Self::run_path(&run, p));
-                    glib::ControlFlow::Break
-                });
-            }
-            PreloadOutcome::Failed => {
-                let run = Rc::clone(ctx);
-                let gate = Rc::clone(&ctx.gate);
-                gate.complete(move |p| Self::run_path(&run, p));
-            }
+        );
+        settle_preload_outcome(ctx, outcome);
+    }
+}
+
+/// Shared disposition of a [PreloadOutcome] from [preload_continue_path]: arm the watchdog and
+/// pause tick on [PreloadOutcome::Deferred], finish chrome sync then drain the queue on
+/// [PreloadOutcome::Ready], release the gate on [PreloadOutcome::Failed].
+/// Returns `true` only for [PreloadOutcome::Deferred] (a warm load actually started).
+fn settle_preload_outcome(ctx: &Rc<WarmPreloadCtx>, outcome: PreloadOutcome) -> bool {
+    match outcome {
+        PreloadOutcome::Deferred => {
+            arm_deferred_warm_load(ctx);
+            true
+        }
+        PreloadOutcome::Ready => {
+            finish_ready_then_drain_queue(ctx);
+            false
+        }
+        PreloadOutcome::Failed => {
+            let run = Rc::clone(ctx);
+            let gate = Rc::clone(&ctx.gate);
+            gate.complete(move |p| WarmPreloadCtx::run_path(&run, p));
+            false
         }
     }
+}
+
+/// [PreloadOutcome::Deferred] arm: latch the in-flight gen, arm the watchdog and the pause tick.
+fn arm_deferred_warm_load(ctx: &Rc<WarmPreloadCtx>) {
+    let gen = ctx
+        .player
+        .borrow()
+        .as_ref()
+        .map(crate::mpv_embed::MpvBundle::warm_file_gen)
+        .unwrap_or(0);
+    ctx.gate.set_inflight_gen(gen);
+    ctx.gate.arm_watchdog(Rc::clone(&ctx.player), gen);
+    schedule_preload_pause(Rc::clone(&ctx.player), ctx.gl.clone());
+}
+
+/// [PreloadOutcome::Ready] arm: finish chrome sync on a low-priority idle, then drain the queue.
+fn finish_ready_then_drain_queue(ctx: &Rc<WarmPreloadCtx>) {
+    let player = Rc::clone(&ctx.player);
+    let gl = ctx.gl.clone();
+    let run = Rc::clone(ctx);
+    let gate = Rc::clone(&run.gate);
+    let _ = glib::source::idle_add_local_full(glib::Priority::LOW, move || {
+        finish_warm_preload_ready_now(&player, &gl);
+        let run = Rc::clone(&run);
+        gate.complete(move |p| WarmPreloadCtx::run_path(&run, p));
+        glib::ControlFlow::Break
+    });
 }
 
 include!("warm_preload_path.rs");
 
 pub fn run() -> i32 {
-    if std::env::args()
-        .skip(1)
-        .any(|a| matches!(a.as_str(), "--version" | "-V"))
-    {
-        println!("rhino-player {}", env!("CARGO_PKG_VERSION"));
-        return 0;
+    if let Some(code) = print_version_exit() {
+        return code;
     }
-
-    crate::glib_log_filter::install();
-
-    unsafe {
-        libc::setlocale(libc::LC_NUMERIC, b"C\0".as_ptr().cast());
-    }
-
-    if let Err(e) = adw::init() {
-        eprintln!("libadwaita: {e}");
+    let Ok(app) = bootstrap_app() else {
         return 1;
-    }
-
-    let app = adw::Application::builder()
-        .application_id(APP_ID)
-        .flags(gio::ApplicationFlags::HANDLES_OPEN)
-        .build();
-
-    app.connect_startup(|app| {
-        glib::set_application_name(APP_WIN_TITLE);
-        icons::register_hicolor_from_manifest();
-        adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
-        db::init();
-        theme::apply();
-        #[cfg(target_os = "macos")]
-        crate::window_present::wire_activation_present(app);
-        for sig in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
-            let a = app.clone();
-            glib::unix_signal_add_local(sig, move || {
-                a.activate_action("quit", None);
-                glib::ControlFlow::Break
-            });
-        }
-    });
-
-    let player: Rc<RefCell<Option<MpvBundle>>> = Rc::new(RefCell::new(None));
-    let file_boot: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
-    let on_open_slot: Rc<RefCell<Option<RcPathFn>>> = Rc::new(RefCell::new(None));
-    {
-        let fb = Rc::clone(&file_boot);
-        let slot = Rc::clone(&on_open_slot);
-        let p_open = Rc::clone(&player);
-        app.connect_open(move |app, files, _| {
-            let path = match files.first().and_then(|f| f.path()) {
-                Some(p) => p,
-                None => {
-                    eprintln!("[rhino] open: no local path in file list");
-                    return;
-                }
-            };
-            if p_open.borrow().is_some() {
-                // Never run try_load synchronously here: macOS Finder / "Open With" delivers
-                // g_application_open during Apple Event handling; a nested player RefCell
-                // borrow (transport drain, loadfile) aborts via panic_cannot_unwind.
-                if let Some(f) = slot.borrow().clone() {
-                    glib::idle_add_local_once(move || f(&path));
-                } else {
-                    *fb.borrow_mut() = Some(path);
-                }
-                return;
-            }
-            *fb.borrow_mut() = Some(path);
-            if app.windows().is_empty() {
-                app.activate();
-            }
-        });
-    }
-    {
-        let p = player.clone();
-        let file_boot = Rc::clone(&file_boot);
-        let on_open_slot = Rc::clone(&on_open_slot);
-        app.connect_activate(move |a: &adw::Application| {
-            if a.windows().is_empty() {
-                if file_boot.borrow().is_none() {
-                    *file_boot.borrow_mut() = boot_path_from_argv();
-                }
-                build_window(a, &p, Rc::clone(&file_boot), Rc::clone(&on_open_slot));
-            }
-        });
-    }
+    };
+    let (player, file_boot, on_open_slot) = new_app_state();
+    wire_app_open(&app, &player, &file_boot, &on_open_slot);
+    wire_app_activate(&app, &player, &file_boot, &on_open_slot);
     app.run().into()
 }

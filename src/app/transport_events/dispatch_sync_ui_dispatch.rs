@@ -1,84 +1,10 @@
-enum ReattachNeed {
-    Yes,
-    No,
-    /// Pause(false) arrived while [TransportCtx::player] was already borrowed (load / drain).
-    BorrowBusy,
-}
-
-/// Unpause needs a Smooth resync only when the graph is missing / was stripped (Smooth on),
-/// or a stale graph must be removed (Smooth off). Plain pause→resume with a live graph skips it.
-fn smooth_needs_reattach_on_unpause(ctx: &Rc<TransportCtx>) -> ReattachNeed {
-    // try_borrow: pause events may be dispatched while the bundle is already borrowed.
-    let Ok(g) = ctx.player.try_borrow() else {
-        return ReattachNeed::BorrowBusy;
-    };
-    let Some(b) = g.as_ref() else {
-        return ReattachNeed::No;
-    };
-    if !has_open_path(&b.mpv) {
-        return ReattachNeed::No;
-    }
-    let has_vf = crate::video_pref::vf_chain_has_vapoursynth(&b.mpv);
-    if !ctx.video_pref.borrow().smooth_60 {
-        return if has_vf {
-            ReattachNeed::Yes
-        } else {
-            ReattachNeed::No
-        };
-    }
-    if b.smooth_vf_stripped_this_open() || !has_vf {
-        ReattachNeed::Yes
-    } else {
-        ReattachNeed::No
-    }
-}
-
-fn sync_smooth_vf_on_pause_transition(ctx: &Rc<TransportCtx>, paused: bool) {
-    if !paused {
-        match smooth_needs_reattach_on_unpause(ctx) {
-            ReattachNeed::Yes => schedule_smooth_60_resync_idle(ctx),
-            ReattachNeed::BorrowBusy if ctx.video_pref.borrow().smooth_60 => {
-                let c = Rc::clone(ctx);
-                glib::idle_add_local_once(move || {
-                    if matches!(smooth_needs_reattach_on_unpause(&c), ReattachNeed::Yes) {
-                        schedule_smooth_60_resync_idle(&c);
-                    }
-                });
-            }
-            _ => {}
-        }
-    }
-    ctx.eof.gl.queue_render();
-}
-
 fn dispatch_duration_event(ctx: &Rc<TransportCtx>, raw: f64) {
     let w = &ctx.widgets;
-    let mut d = if raw.is_finite() { raw } else { 0.0 };
+    let d = if raw.is_finite() { raw } else { 0.0 };
     if d > 0.0 {
-        maybe_refresh_dvd_bar_cache(ctx);
-        if !ctx.recent_visible.get() {
-            let resume_was_pending = ctx
-                .player
-                .borrow()
-                .as_ref()
-                .is_some_and(|b| b.resume_seek_pending());
-            try_apply_pending_resume(ctx);
-            let resume_cleared = resume_was_pending
-                && !ctx
-                    .player
-                    .borrow()
-                    .as_ref()
-                    .is_some_and(|b| b.resume_seek_pending());
-            if resume_cleared && ctx.video_pref.borrow().smooth_60 {
-                schedule_smooth_60_resync_idle(ctx);
-            }
-        }
+        apply_duration_resume_side_effects(ctx);
     }
-    if let Some(ch) = transport_chapter_path_for_ctx(ctx) {
-        if crate::playback_entity::PlaybackEntity::resolve(&ch).has_unified_timeline() {
-            d = crate::dvd_vob_timeline::clamp_vob_duration(d);
-        }
-    }
+    let d = clamp_duration_for_chapter_timeline(ctx, d);
     let bar_d = dvd_bar_duration(ctx).unwrap_or(d);
     ctx.cache.borrow_mut().duration = bar_d;
     sync_seek_range(w, bar_d);
@@ -91,87 +17,77 @@ fn dispatch_duration_event(ctx: &Rc<TransportCtx>, raw: f64) {
     }
 }
 
+fn apply_duration_resume_side_effects(ctx: &Rc<TransportCtx>) {
+    maybe_refresh_dvd_bar_cache(ctx);
+    if !ctx.recent_visible.get() {
+        apply_resume_seek_and_resync_if_cleared(ctx);
+    }
+}
+
+fn apply_resume_seek_and_resync_if_cleared(ctx: &Rc<TransportCtx>) {
+    let resume_was_pending = ctx
+        .player
+        .borrow()
+        .as_ref()
+        .is_some_and(|b| b.resume_seek_pending());
+    try_apply_pending_resume(ctx);
+    let resume_cleared = resume_was_pending
+        && !ctx
+            .player
+            .borrow()
+            .as_ref()
+            .is_some_and(|b| b.resume_seek_pending());
+    if resume_cleared && ctx.video_pref.borrow().smooth_60 {
+        schedule_smooth_60_resync_idle(ctx);
+    }
+}
+
+fn clamp_duration_for_chapter_timeline(ctx: &TransportCtx, d: f64) -> f64 {
+    if let Some(ch) = transport_chapter_path_for_ctx(ctx) {
+        if crate::playback_entity::PlaybackEntity::resolve(&ch).has_unified_timeline() {
+            return crate::dvd_vob_timeline::clamp_vob_duration(d);
+        }
+    }
+    d
+}
+
 fn dispatch_event(ctx: &Rc<TransportCtx>, ev: TransportEv) {
-    let w = &ctx.widgets;
     if std::env::var_os("RHINO_TRANSPORT_TRACE").is_some() {
         eprintln!("[rhino] transport ev: {ev:?}");
     }
     match ev {
-        TransportEv::Pause(p) => {
-            ctx.cache.borrow_mut().pause = p;
-            refresh_play_button(ctx);
-            sync_smooth_vf_on_pause_transition(ctx, p);
-            ctx.blackout.sync();
-        }
         TransportEv::Duration(d) => dispatch_duration_event(ctx, d),
-        TransportEv::Volume(v) => sync_volume(w, v),
-        TransportEv::Mute(m) => sync_mute(w, m),
-        TransportEv::VolumeMax(vmax) => sync_volume_max(w, vmax),
         TransportEv::FileLoaded => dispatch_file_loaded(ctx),
-        TransportEv::VideoReconfig => {
-            sync_window_aspect_from_player(&ctx.player, &ctx.eof.win_aspect);
-            refresh_sibling_nav(ctx);
-            transport_tick(ctx);
-            sync_seek_chapters(ctx);
-            crate::video_fill::request_fill_resync();
-            schedule_smooth_60_resync_idle(ctx);
-        }
-        TransportEv::PathChanged => {
-            crate::video_fill::request_fill_reset();
-            crate::video_pref::forget_bundled_me_budget_vf_apply_on_new_media();
-            crate::video_pref::smooth_budget_reset_session_on_new_media(&ctx.smooth_budget_decoder);
-            refresh_dvd_bar_cache(ctx);
-            ctx.eof.sibling_seof.done.set(false);
-            ctx.eof.sibling_seof.reset_playback_span();
-            refresh_sibling_nav(ctx);
-            sync_window_title_from_context(ctx);
-            if !ctx.recent_visible.get() {
-                try_apply_pending_resume(ctx);
-            }
-            transport_tick(ctx);
-            schedule_smooth_60_resync_idle(ctx);
-            sync_seek_chapters(ctx);
-            if ctx.recent_visible.get() {
-                schedule_warm_path_settle(Rc::clone(&ctx.player));
-            }
-            sync_audio_tooltip(ctx);
-        }
-        TransportEv::ContainerFpsChanged => schedule_smooth_60_resync_idle(ctx),
         TransportEv::LoadFailed => dispatch_load_failed(ctx),
+        other => dispatch_simple_transport_ev(ctx, other),
     }
     mpris_enqueue_snapshot(ctx);
 }
 
-
-fn dispatch_load_failed(ctx: &Rc<TransportCtx>) {
-    // Warm continue-grid preload: stay silent (hover may probe incomplete files).
-    if crate::app::browse_overlay_active(&ctx.eof.recent) && !ctx.eof.playback_focus.get() {
-        eprintln!("[rhino] load failed during browse warm preload");
-        return;
+/// Arms that need only `ctx` (plus widgets) — keeps [dispatch_event] a pure router.
+fn dispatch_simple_transport_ev(ctx: &Rc<TransportCtx>, ev: TransportEv) {
+    let w = &ctx.widgets;
+    match ev {
+        TransportEv::Pause(p) => on_pause_event(ctx, p),
+        TransportEv::Volume(v) => sync_volume(w, v),
+        TransportEv::Mute(m) => sync_mute(w, m),
+        TransportEv::VolumeMax(vmax) => sync_volume_max(w, vmax),
+        TransportEv::VideoReconfig => on_video_reconfig(ctx),
+        TransportEv::PathChanged => on_path_changed(ctx),
+        TransportEv::ContainerFpsChanged => schedule_smooth_60_resync_idle(ctx),
+        _ => {}
     }
-    let path = ctx.eof.last_path.borrow().clone().or_else(|| {
-        ctx.player.borrow().as_ref().and_then(|b| {
-            crate::media_probe::shell_media_path(
-                &b.mpv,
-                b.me_budget_shell_path.borrow().as_deref(),
-            )
-        })
-    });
-    let msg = crate::media_open_fail::message_for_demux_error(path.as_deref());
-    eprintln!(
-        "[rhino] load failed (EndFile error): {} ({})",
-        msg,
-        path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "?".into())
-    );
-    if let Some(p) = path.as_ref() {
-        remove_continue_entry(p);
-    }
-    if let Some(b) = ctx.player.borrow().as_ref() {
-        b.stop_playback();
-    }
-    *ctx.eof.last_path.borrow_mut() = None;
-    (ctx.eof.on_open_fail)(msg.to_string());
 }
+
+fn on_pause_event(ctx: &Rc<TransportCtx>, p: bool) {
+    ctx.cache.borrow_mut().pause = p;
+    refresh_play_button(ctx);
+    sync_smooth_vf_on_pause_transition(ctx, p);
+    ctx.blackout.sync();
+}
+
+include!("dispatch_sync_ui_pause_smooth.rs");
+include!("dispatch_sync_ui_media_change.rs");
 
 fn refresh_sibling_nav(ctx: &Rc<TransportCtx>) {
     let cur = ctx.eof.last_path.borrow().clone();

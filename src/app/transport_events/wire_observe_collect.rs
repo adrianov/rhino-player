@@ -42,85 +42,6 @@ enum TransportEv {
     LoadFailed,
 }
 
-struct TransportWidgets {
-    play_pause: gtk::Button,
-    seek: gtk::Scale,
-    seek_adj: gtk::Adjustment,
-    seek_sync: Rc<Cell<bool>>,
-    /// True while the user is pressing the seek thumb (mouse / touch). The 1 Hz tick skips
-    /// programmatic position writes so dragging the thumb is not interrupted.
-    seek_grabbed: Rc<Cell<bool>>,
-    time_left: gtk::Label,
-    time_right: gtk::Label,
-    speed_menu: gtk::MenuButton,
-    speed_readout: gtk::Label,
-    vol_menu: gtk::MenuButton,
-    vol_header_img: gtk::Image,
-    vol_readout: gtk::Label,
-    vol_adj: gtk::Adjustment,
-    vol_mute: gtk::ToggleButton,
-    vol_sync: Rc<Cell<bool>>,
-    sub_readout: gtk::Label,
-    smooth_toolbar_btn: gtk::Button,
-    smooth_toolbar_status: gtk::Label,
-}
-
-#[derive(Default)]
-struct TransportCache {
-    duration: f64,
-    pause: bool,
-    pos: f64,
-    /// True when mpv playback core is not progressing (EOF with `keep-open=yes`, buffering, seeking, stalled).
-    core_idle: bool,
-}
-
-struct TransportEofCtx {
-    app: adw::Application,
-    sub_pref: Rc<RefCell<db::SubPrefs>>,
-    win: adw::ApplicationWindow,
-    gl: gtk::GLArea,
-    recent: gtk::Box,
-    last_path: Rc<RefCell<Option<PathBuf>>>,
-    sibling_seof: Rc<SiblingEofState>,
-    exit_after_current: Rc<Cell<bool>>,
-    win_aspect: Rc<WinAspectCell>,
-    idle_inhib: Rc<RefCell<Option<crate::idle_inhibit::Held>>>,
-    mpv_teardown_after_draw: Rc<Cell<bool>>,
-    on_video_chrome: Rc<dyn Fn()>,
-    on_file_loaded: Rc<dyn Fn()>,
-    reapply_60: VideoReapply60,
-    hdr_title_mirror: Option<Rc<gtk::Label>>,
-    playback_focus: Rc<Cell<bool>>,
-    on_open_fail: Rc<dyn Fn(String)>,
-}
-
-struct TransportCtx {
-    player: Rc<RefCell<Option<MpvBundle>>>,
-    widgets: TransportWidgets,
-    eof: TransportEofCtx,
-    video_pref: Rc<RefCell<db::VideoPrefs>>,
-    smooth_budget_decoder: Rc<RefCell<crate::video_pref::SmoothBudgetDecoderState>>,
-    /// Bottom-bar visibility flag; transient seek-slider redraws are skipped while it is `false`
-    /// to avoid invalidating chrome that is animating in / out (the cause of fullscreen flicker).
-    bar_show: Rc<Cell<bool>>,
-    /// Toggled to keep the recent grid path in sync; if `recent` is visible the seek bar is hidden too.
-    recent_visible: Rc<Cell<bool>>,
-    sibling_nav: SiblingNavUi,
-    /// Coalesce [glib::idle_add_local_once] resyncs on `FileLoaded` / `path` churn.
-    idle_resync_pending: Rc<Cell<bool>>,
-    /// Debounced [glib::timeout_add_local] after `FileLoaded` / `VideoReconfig` / `path` / `container-fps`
-    /// so one [smooth_60_full_resync_after_media_change] runs when the burst settles.
-    smooth_60_resync_debounce: Rc<RefCell<Option<glib::SourceId>>>,
-    /// 1 Hz timer source id (kept so it can be replaced if observers re-install).
-    tick: Rc<RefCell<Option<glib::SourceId>>>,
-    cache: Rc<RefCell<TransportCache>>,
-    continue_grid_cache: crate::media_probe::ContinueGridCache,
-    seek_chapters: Rc<RefCell<Vec<(f64, String)>>>,
-    /// Stable DVD title bar range (SQLite chapter lengths); not recomputed every transport tick.
-    dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
-    blackout: Rc<crate::screen_blackout::BlackoutSync>,
-}
-
 /// All wiring inputs for [wire_transport_events]. Grouped to keep the call site narrow and
 /// to keep ownership / cloning explicit at the boundary.
 struct TransportSetup {
@@ -155,44 +76,7 @@ struct TransportSetup {
 }
 
 fn wire_transport_events(s: TransportSetup) {
-    let ctx = Rc::new(TransportCtx {
-        player: s.player.clone(),
-        widgets: s.widgets,
-        eof: TransportEofCtx {
-            app: s.app,
-            sub_pref: s.sub_pref,
-            win: s.win,
-            gl: s.gl,
-            recent: s.recent,
-            last_path: s.last_path,
-            sibling_seof: s.sibling_seof,
-            exit_after_current: s.exit_after_current,
-            win_aspect: Rc::clone(&s.win_aspect),
-            idle_inhib: s.idle_inhib,
-            mpv_teardown_after_draw: s.mpv_teardown_after_draw,
-            on_video_chrome: s.on_video_chrome,
-            on_file_loaded: s.on_file_loaded,
-            reapply_60: s.reapply_60,
-            hdr_title_mirror: s.hdr_title_mirror.clone(),
-            playback_focus: Rc::clone(&s.playback_focus),
-            on_open_fail: Rc::clone(&s.on_open_fail),
-        },
-        video_pref: s.video_pref.clone(),
-        smooth_budget_decoder: Rc::new(RefCell::new(
-            crate::video_pref::SmoothBudgetDecoderState::default(),
-        )),
-        bar_show: s.bar_show,
-        recent_visible: s.recent_visible,
-        sibling_nav: s.sibling_nav,
-        idle_resync_pending: Rc::new(Cell::new(false)),
-        smooth_60_resync_debounce: Rc::new(RefCell::new(None)),
-        tick: Rc::new(RefCell::new(None)),
-        cache: Rc::new(RefCell::new(TransportCache::default())),
-        continue_grid_cache: s.continue_grid_cache,
-        seek_chapters: s.seek_chapters.clone(),
-        dvd_bar: s.dvd_bar.clone(),
-        blackout: s.blackout.clone(),
-    });
+    let ctx = build_transport_ctx(s);
 
     let ctx_drain = Rc::clone(&ctx);
     TRANSPORT_DRAIN.with(|slot| {
@@ -200,39 +84,62 @@ fn wire_transport_events(s: TransportSetup) {
             drain_into_main(&ctx_drain);
         }));
     });
-    let ctx_tick = Rc::clone(&ctx);
+    register_transport_tick_slot(&ctx);
+    register_warm_browse_slot(&ctx);
+    register_smooth_resync_slots(&ctx);
+    arm_transport_install(&ctx);
+}
+
+fn register_transport_tick_slot(ctx: &Rc<TransportCtx>) {
+    let ctx_tick = Rc::clone(ctx);
     TRANSPORT_TICK.with(|slot| {
         *slot.borrow_mut() = Some(Rc::new(move || {
             transport_tick(&ctx_tick);
             schedule_transport_resync_on_idle(&ctx_tick);
         }));
     });
-    let ctx_browse = Rc::clone(&ctx);
+}
+
+fn register_warm_browse_slot(ctx: &Rc<TransportCtx>) {
+    let ctx_browse = Rc::clone(ctx);
     WARM_BROWSE_SYNC.with(|slot| {
         *slot.borrow_mut() = Some(Rc::new(move |path: PathBuf| {
-            *ctx_browse.eof.last_path.borrow_mut() = Some(path.clone());
-            if !crate::playback_entity::PlaybackEntity::resolve(&path).uses_dvd_bar_cache() {
-                *ctx_browse.dvd_bar.borrow_mut() = None;
-            }
-            refresh_sibling_nav(&ctx_browse);
-            transport_tick(&ctx_browse);
+            warm_browse_sync_tick(&ctx_browse, path);
         }));
     });
+}
 
-    let ctx_smooth = Rc::clone(&ctx);
+/// Continue-grid hover / warm `loadfile` start: DB resume + duration, prev/next from [last_path].
+fn warm_browse_sync_tick(ctx: &Rc<TransportCtx>, path: PathBuf) {
+    *ctx.eof.last_path.borrow_mut() = Some(path.clone());
+    if !crate::playback_entity::PlaybackEntity::resolve(&path).uses_dvd_bar_cache() {
+        *ctx.dvd_bar.borrow_mut() = None;
+    }
+    refresh_sibling_nav(ctx);
+    transport_tick(ctx);
+}
+
+fn register_smooth_resync_slots(ctx: &Rc<TransportCtx>) {
+    let ctx_smooth = Rc::clone(ctx);
     let smooth_resync: Rc<dyn Fn()> = Rc::new(move || {
         schedule_smooth_60_resync_idle(&ctx_smooth);
     });
     REQUEST_SMOOTH_60_RESYNC.with(|slot| {
         *slot.borrow_mut() = Some(Rc::clone(&smooth_resync));
     });
-    crate::video_pref::register_vf_swap_smooth_resync(Rc::clone(&smooth_resync));
-    let ctx_cancel = Rc::clone(&ctx);
+    crate::video_pref::register_vf_swap_smooth_resync(smooth_resync);
+    register_cancel_smooth_resync_slot(ctx);
+}
+
+fn register_cancel_smooth_resync_slot(ctx: &Rc<TransportCtx>) {
+    let ctx_cancel = Rc::clone(ctx);
     CANCEL_SMOOTH_60_RESYNC.with(|slot| {
         *slot.borrow_mut() = Some(Rc::new(move || cancel_smooth_60_resync_idle(&ctx_cancel)));
     });
+}
 
-    if !install_observers_when_ready(&ctx) {
+fn arm_transport_install(ctx: &Rc<TransportCtx>) {
+    if !install_observers_when_ready(ctx) {
         let ctx2 = ctx.clone();
         TRANSPORT_INSTALL.with(|s| {
             *s.borrow_mut() = Some(Box::new(move || {
@@ -242,112 +149,7 @@ fn wire_transport_events(s: TransportSetup) {
     }
 }
 
-thread_local! {
-    /// Set by [wire_transport_events] when the mpv bundle is not ready yet.
-    /// Invoked by [trigger_transport_install] from the GLArea realize path once the bundle exists.
-    static TRANSPORT_INSTALL: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
-}
-
-thread_local! {
-    /// [try_load] calls this after `loadfile` so `FileLoaded` / `path` / `duration` reach the transport
-    /// UI without waiting for the next libmpv wakeup (continue grid + **Previous** could otherwise leave
-    /// the clock and seek bar on the old title until user interaction).
-    static TRANSPORT_DRAIN: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
-}
-
-thread_local! {
-    /// Set by [wire_transport_events]. Seek / keyframe tails and **unpause** schedule the same debounced
-    /// [schedule_smooth_60_resync_idle] as `FileLoaded` so Smooth is not applied twice in one interaction.
-    static REQUEST_SMOOTH_60_RESYNC: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
-    static CANCEL_SMOOTH_60_RESYNC: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
-}
-
-/// Coalesce Smooth 60 / VapourSynth rebuild with transport (same timer as `FileLoaded` / `path` churn).
-pub(crate) fn request_smooth_60_transport_resync() {
-    REQUEST_SMOOTH_60_RESYNC.with(|slot| {
-        if let Some(f) = slot.borrow().as_ref() {
-            f();
-        }
-    });
-}
-
-/// Cancel a pending debounced Smooth rebuild (call before a direct **`apply_mpv_video`** from the menu).
-pub(crate) fn cancel_smooth_60_transport_resync() {
-    CANCEL_SMOOTH_60_RESYNC.with(|slot| {
-        if let Some(f) = slot.borrow().as_ref() {
-            f();
-        }
-    });
-}
-
-/// Drain libmpv events into [dispatch_event] immediately. Safe no-op before the GL realize hook runs.
-pub(crate) fn transport_drain_after_loadfile() {
-    TRANSPORT_DRAIN.with(|slot| {
-        if let Some(f) = slot.borrow().as_ref() {
-            f();
-        }
-    });
-}
-
-/// Next main-loop turn — use after cross-chapter `loadfile` so `FileLoaded` is for the new VOB.
-pub(crate) fn transport_drain_after_loadfile_idle() {
-    let _ = glib::idle_add_local_once(transport_drain_after_loadfile);
-}
-
-thread_local! {
-    /// One-shot [transport_tick] after warm resume / warm-hit open.
-    static TRANSPORT_TICK: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
-}
-
-thread_local! {
-    /// Continue-grid hover / warm `loadfile` start: DB resume + duration, prev/next from [last_path].
-    static WARM_BROWSE_SYNC: RefCell<Option<Rc<dyn Fn(PathBuf)>>> = const { RefCell::new(None) };
-}
-
-thread_local! {
-    /// After warm `FileLoaded` + resume idle — release [WarmPreloadGate] for the queued hover target.
-    static WARM_PRELOAD_LOADED: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
-}
-
-/// Refresh seek bar + clocks from mpv (and SQLite fallbacks on the continue grid).
-pub(crate) fn transport_nudge_tick() {
-    TRANSPORT_TICK.with(|slot| {
-        if let Some(f) = slot.borrow().as_ref() {
-            f();
-        }
-    });
-}
-
-pub(crate) fn transport_sync_warm_browse(path: &Path) {
-    let Some(canon) = std::fs::canonicalize(path).ok() else {
-        return;
-    };
-    WARM_BROWSE_SYNC.with(|slot| {
-        if let Some(f) = slot.borrow().as_ref() {
-            f(canon);
-        }
-    });
-}
-
-pub(crate) fn register_warm_preload_loaded(done: Rc<dyn Fn()>) {
-    WARM_PRELOAD_LOADED.with(|slot| *slot.borrow_mut() = Some(done));
-}
-
-pub(crate) fn warm_preload_notify_loaded() {
-    disarm_warm_path_settle();
-    let done = WARM_PRELOAD_LOADED.with(|slot| slot.borrow().clone());
-    if let Some(f) = done {
-        let _ = glib::idle_add_local_once(move || f());
-    }
-}
-
-/// Called from `wire_mpv_realize` right after the mpv bundle is created, so transport-event
-/// observers attach without polling. No-op if observers were already installed.
-fn trigger_transport_install() {
-    let cb = TRANSPORT_INSTALL.with(|s| s.borrow_mut().take());
-    if let Some(cb) = cb {
-        cb();
-    }
-}
-
+include!("transport_ctx.rs");
+include!("transport_ctx_build.rs");
+include!("transport_slots.rs");
 include!("transport_observe_install.rs");

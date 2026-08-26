@@ -56,12 +56,11 @@ fn choose_pixel_format(profile: CGLOpenGLProfile) -> Result<CGLPixelFormatObj, S
         CGLPixelFormatAttribute(0),
     ];
     let mut pix: CGLPixelFormatObj = std::ptr::null_mut();
-    let mut npix: c_int = 0;
     let err = unsafe {
         CGLChoosePixelFormat(
             NonNull::new_unchecked(attrs.as_ptr() as *mut _),
             NonNull::from(&mut pix),
-            NonNull::from(&mut npix),
+            NonNull::from(&mut 0),
         )
     };
     if err != CGLError::NoError || pix.is_null() {
@@ -76,12 +75,11 @@ fn create_context(pix: CGLPixelFormatObj) -> Result<CGLContextObj, String> {
     if err != CGLError::NoError || ctx.is_null() {
         return Err(format!("CGLCreateContext failed: {}", err.0));
     }
-    let one: c_int = 1;
     unsafe {
         let _ = CGLSetParameter(
             ctx,
             CGLContextParameter::CGLCPSwapInterval,
-            NonNull::from(&one),
+            NonNull::from(&mut 1),
         );
         let _ = CGLEnable(ctx, CGLContextEnable::CGLCEMPEngine);
         let _ = CGLSetCurrentContext(ctx);

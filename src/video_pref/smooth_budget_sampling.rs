@@ -1,25 +1,32 @@
 fn playback_fps_for_decode_budget(mpv: &Mpv) -> f64 {
     const LO: f64 = 0.05;
     const HI: f64 = 960.0;
-    let spd_raw = mpv.get_property::<f64>("speed").unwrap_or(1.0);
-    let spd = if spd_raw.is_finite() && (0.01..=8.0).contains(&spd_raw) {
-        spd_raw.max(LO)
-    } else {
-        1.0
-    };
+    let spd = decode_budget_speed(mpv, LO);
     let nominal = mpv.get_property::<f64>("container-fps").unwrap_or(0.0);
     let base_fps = if nominal.is_finite() && nominal > LO && nominal < HI {
         nominal * spd
-    } else if let Ok(e) = mpv.get_property::<f64>("estimated-vf-fps") {
-        if e.is_finite() && e > LO && e < HI {
-            e
-        } else {
-            (24.0_f64 * spd).min(HI)
-        }
     } else {
-        (24.0_f64 * spd).min(HI)
+        estimated_or_default_fps(mpv, spd, LO, HI)
     };
     base_fps.min(HI)
+}
+
+/// mpv `speed` clamped to the UI range; sane values keep their floor, anything odd reads as 1.0.
+fn decode_budget_speed(mpv: &Mpv, lo: f64) -> f64 {
+    let spd_raw = mpv.get_property::<f64>("speed").unwrap_or(1.0);
+    if spd_raw.is_finite() && (0.01..=8.0).contains(&spd_raw) {
+        spd_raw.max(lo)
+    } else {
+        1.0
+    }
+}
+
+/// `estimated-vf-fps` when plausible, else a 24 Hz × speed default capped to [hi].
+fn estimated_or_default_fps(mpv: &Mpv, spd: f64, lo: f64, hi: f64) -> f64 {
+    match mpv.get_property::<f64>("estimated-vf-fps") {
+        Ok(e) if e.is_finite() && e > lo && e < hi => e,
+        _ => (24.0_f64 * spd).min(hi),
+    }
 }
 
 fn decoder_frame_drop_total_u64(mpv: &Mpv) -> Option<u64> {
@@ -33,7 +40,9 @@ fn vo_frame_drop_total_u64(mpv: &Mpv) -> Option<u64> {
 }
 
 fn mistimed_frame_count_u64(mpv: &Mpv) -> Option<u64> {
-    mpv.get_property::<i64>("mistimed-frame-count").ok().map(|n| n.max(0) as u64)
+    mpv.get_property::<i64>("mistimed-frame-count")
+        .ok()
+        .map(|n| n.max(0) as u64)
 }
 
 /// What drives **`smooth_budget`** overload / recovery (first property that **mpv** exposes wins).
@@ -59,7 +68,9 @@ pub(crate) fn budget_signal_hz_for_comparison(decode_fps: f64, src: SmoothBudget
     const MIN_VO: f64 = 60.0;
     match src {
         SmoothBudgetSignalSrc::DecoderDrop => decode_fps.clamp(0.1_f64, 960.0),
-        SmoothBudgetSignalSrc::Mistimed | SmoothBudgetSignalSrc::VoDrop => decode_fps.max(MIN_VO).clamp(MIN_VO, 960.0),
+        SmoothBudgetSignalSrc::Mistimed | SmoothBudgetSignalSrc::VoDrop => {
+            decode_fps.max(MIN_VO).clamp(MIN_VO, 960.0)
+        }
     }
 }
 
@@ -140,5 +151,9 @@ fn strain_rate_since_deque_front(
         return None;
     }
     let hz = budget_signal_hz_for_comparison(fps, signal_src);
-    Some(budget_signal_rate_in_window(cur_count.saturating_sub(c_old), elapsed, hz))
+    Some(budget_signal_rate_in_window(
+        cur_count.saturating_sub(c_old),
+        elapsed,
+        hz,
+    ))
 }

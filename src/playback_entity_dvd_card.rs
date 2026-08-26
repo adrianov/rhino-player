@@ -25,9 +25,8 @@ fn entity_media_keys(entity: &Path) -> Vec<String> {
 fn chapter_media_keys(chapter: &Path) -> Vec<String> {
     let mut keys = entity_media_keys(chapter);
     if let Some(s) = chapter.to_str() {
-        let owned = s.to_owned();
-        if !keys.iter().any(|k| k == &owned) {
-            keys.push(owned);
+        if !keys.iter().any(|k| k == s) {
+            keys.push(s.to_owned());
         }
     }
     keys
@@ -46,20 +45,15 @@ fn migrate_dvd_from_chapter_rows(
     durs: &HashMap<String, f64>,
     tpos: &HashMap<String, f64>,
 ) -> Option<(f64, f64)> {
-    let PlaybackEntityKind::DvdTitle { chapters, db_key } = &ent.kind else {
+    let PlaybackEntityKind::DvdTitle { chapters, .. } = &ent.kind else {
         return None;
     };
     for ch in chapters {
-        let Some(loc_st) = chapter_media_keys(ch)
-            .iter()
-            .find_map(|k| tpos.get(k).copied())
-        else {
+        let keys = chapter_media_keys(ch);
+        let Some(loc_st) = keys.iter().find_map(|k| tpos.get(k).copied()) else {
             continue;
         };
-        let Some(loc_dur) = chapter_media_keys(ch)
-            .iter()
-            .find_map(|k| durs.get(k).copied())
-        else {
+        let Some(loc_dur) = keys.iter().find_map(|k| durs.get(k).copied()) else {
             continue;
         };
         let Some((total, global)) =
@@ -70,13 +64,14 @@ fn migrate_dvd_from_chapter_rows(
         ent.save_global_resume(total, global);
         return Some((global, total));
     }
-    let _ = db_key;
     None
 }
 
 /// Read `(global_sec, total_sec)` from the entity row only — resume and duration from the same key.
 fn title_total_for_entity(entity: &Path, durs: &HashMap<String, f64>) -> Option<f64> {
-    let ch = crate::dvd_entity::timeline_chapter_paths(entity)?.into_iter().next()?;
+    let ch = crate::dvd_entity::timeline_chapter_paths(entity)?
+        .into_iter()
+        .next()?;
     let live = chapter_live_dur(&ch, durs);
     crate::dvd_entity::build_title_timeline_with(
         &ch,
@@ -131,7 +126,11 @@ impl PlaybackEntity {
         if !self.has_unified_timeline() {
             return;
         }
-        if !(total_sec.is_finite() && total_sec > 0.0 && global_sec.is_finite() && global_sec >= 0.0) {
+        if !(total_sec.is_finite()
+            && total_sec > 0.0
+            && global_sec.is_finite()
+            && global_sec >= 0.0)
+        {
             return;
         }
         let global = global_sec.min(total_sec);
@@ -159,6 +158,28 @@ impl PlaybackEntity {
     }
 }
 
+fn unified_card_resume(
+    ent: &PlaybackEntity,
+    durs: &HashMap<String, f64>,
+    tpos: &HashMap<String, f64>,
+) -> (f64, f64) {
+    let entity = ent.db_path();
+    entity_global_playback(&entity, durs, tpos)
+        .or_else(|| migrate_dvd_from_chapter_rows(ent, durs, tpos))
+        .unwrap_or((0.0, 0.0))
+}
+
+fn plain_card_resume(
+    entity: &Path,
+    durs: &HashMap<String, f64>,
+    tpos: &HashMap<String, f64>,
+) -> (f64, f64) {
+    let keys = entity_media_keys(entity);
+    let resume = keys.iter().find_map(|k| tpos.get(k).copied());
+    let duration = keys.iter().find_map(|k| durs.get(k).copied());
+    (resume.unwrap_or(0.0), duration.unwrap_or(0.0))
+}
+
 /// Whole-title resume + duration for the continue grid (entity row: global seconds on unified timeline).
 #[must_use]
 pub fn card_resume_duration(
@@ -168,19 +189,9 @@ pub fn card_resume_duration(
 ) -> (f64, f64) {
     let ent = PlaybackEntity::resolve(probe);
     if ent.has_unified_timeline() {
-        let entity = ent.db_path();
-        if let Some((g, t)) = entity_global_playback(&entity, durs, tpos) {
-            return (g, t);
-        }
-        if let Some((g, t)) = migrate_dvd_from_chapter_rows(&ent, durs, tpos) {
-            return (g, t);
-        }
-        return (0.0, 0.0);
+        return unified_card_resume(&ent, durs, tpos);
     }
-    let keys = entity_media_keys(&ent.db_path());
-    let resume = keys.iter().find_map(|k| tpos.get(k).copied());
-    let duration = keys.iter().find_map(|k| durs.get(k).copied());
-    (resume.unwrap_or(0.0), duration.unwrap_or(0.0))
+    plain_card_resume(&ent.db_path(), durs, tpos)
 }
 
 #[cfg(test)]
@@ -188,31 +199,54 @@ mod card_tests {
     use super::*;
     use std::collections::HashMap;
     use std::fs;
+    use std::path::{Path, PathBuf};
 
-    #[test]
-    fn entity_global_playback_keeps_stored_global() {
+    /// Fresh DVD folder fixture with two 1-byte VOBs; returns `(base, second vob)`.
+    fn global_fixture() -> (PathBuf, PathBuf) {
         let base = std::env::temp_dir().join(format!("rhino-pe-global-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let vts = base.join("VIDEO_TS");
         fs::create_dir_all(&vts).expect("mkdir");
         fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
         fs::write(vts.join("VTS_02_1.VOB"), b"a").expect("vob1");
-        fs::write(vts.join("VTS_02_2.VOB"), b"b").expect("vob2");
-        let entity = crate::playback_entity::db_path_for(&base);
-        let ek = entity.to_string_lossy().into_owned();
+        let p2 = vts.join("VTS_02_2.VOB");
+        fs::write(&p2, b"b").expect("vob2");
+        (base, p2)
+    }
+
+    fn media_key(p: &Path) -> String {
+        p.to_string_lossy().into_owned()
+    }
+
+    fn seeded_global_maps(ek: String, p2k: String) -> (HashMap<String, f64>, HashMap<String, f64>) {
         let mut durs = HashMap::new();
         let mut tpos = HashMap::new();
         durs.insert(ek.clone(), 7289.0);
-        tpos.insert(ek.clone(), 1746.5);
-        let p2 = vts.join("VTS_02_2.VOB");
-        durs.insert(p2.to_string_lossy().into_owned(), 1265.75);
-        tpos.insert(p2.to_string_lossy().into_owned(), 1266.45);
+        tpos.insert(ek, 1746.5);
+        durs.insert(p2k.clone(), 1265.75);
+        tpos.insert(p2k, 1266.45);
+        (durs, tpos)
+    }
+
+    fn assert_close(actual: f64, expected: f64, label: &str) {
+        assert!((actual - expected).abs() < 0.1, "{label}={actual}");
+    }
+
+    fn assert_card_matches(probe: &Path, durs: &HashMap<String, f64>, tpos: &HashMap<String, f64>) {
+        let (resume, duration) = card_resume_duration(probe, durs, tpos);
+        assert_close(resume, 1746.5, "resume");
+        assert_close(duration, 7289.0, "duration");
+    }
+
+    #[test]
+    fn entity_global_playback_keeps_stored_global() {
+        let (base, p2) = global_fixture();
+        let entity = crate::playback_entity::db_path_for(&base);
+        let (durs, tpos) = seeded_global_maps(media_key(&entity), media_key(&p2));
         let (g, t) = entity_global_playback(&entity, &durs, &tpos).expect("entity row");
-        assert!((g - 1746.5).abs() < 0.1, "global={g}");
-        assert!((t - 7289.0).abs() < 0.1, "total={t}");
-        let (resume, duration) = card_resume_duration(&base, &durs, &tpos);
-        assert!((resume - 1746.5).abs() < 0.1, "resume={resume}");
-        assert!((duration - 7289.0).abs() < 0.1, "duration={duration}");
+        assert_close(g, 1746.5, "global");
+        assert_close(t, 7289.0, "total");
+        assert_card_matches(&base, &durs, &tpos);
         let _ = fs::remove_dir_all(&base);
     }
 }

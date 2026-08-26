@@ -55,14 +55,22 @@ pub(crate) fn log_popdown(reason: &str, menus: &[gtk::MenuButton]) {
 }
 
 /// Show / hide / active transitions for one header menu control.
-pub(crate) fn wire_header_menu_trace(name: &'static str, btn: &gtk::MenuButton, pop: &gtk::Popover) {
+pub(crate) fn wire_header_menu_trace(
+    name: &'static str,
+    btn: &gtk::MenuButton,
+    pop: &gtk::Popover,
+) {
     if !enabled() {
         return;
     }
-    let btn_act = btn.clone();
     btn.connect_active_notify(move |b| {
         log_event(name, "active_notify", &menu_state(b));
     });
+    trace_popover_events(name, pop, btn);
+}
+
+/// Show / map / closed transitions of the popover surface for one header menu.
+fn trace_popover_events(name: &'static str, pop: &gtk::Popover, btn: &gtk::MenuButton) {
     let pop_show = pop.clone();
     pop_show.connect_show(move |p| {
         log_event(
@@ -73,10 +81,18 @@ pub(crate) fn wire_header_menu_trace(name: &'static str, btn: &gtk::MenuButton, 
     });
     let pop_map = pop.clone();
     pop_map.connect_map(move |p| {
-        log_event(name, "open", &format!("popover_map visible={}", p.is_visible()));
+        log_event(
+            name,
+            "open",
+            &format!("popover_map visible={}", p.is_visible()),
+        );
     });
-    let btn_cls = btn_act.clone();
+    let btn_cls = btn.clone();
     pop.connect_closed(move |_| {
-        log_event(name, "close", &format!("popover_closed {}", menu_state(&btn_cls)));
+        log_event(
+            name,
+            "close",
+            &format!("popover_closed {}", menu_state(&btn_cls)),
+        );
     });
 }

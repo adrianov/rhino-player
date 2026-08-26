@@ -39,6 +39,26 @@ fn channel_order(fmt: &str) -> (usize, usize, usize) {
 
 /// Mostly near-black samples: a real dark scene or an undecoded / empty VO buffer.
 /// The caller decides via poll stability ([DARK_STABLE_POLLS]).
+/// Offsets of the 8x8-grid sample pixels that fit inside `data` (shared by the dark/flat samplers).
+fn packed_sample_offsets(
+    w: usize,
+    h: usize,
+    row_stride: usize,
+    bpp: usize,
+    last_channel: usize,
+    data: &[u8],
+) -> impl Iterator<Item = usize> + '_ {
+    let step_y = (h / 8).max(1);
+    let step_x = (w / 8).max(1);
+    (0..h)
+        .step_by(step_y)
+        .flat_map(move |y| {
+            let row = y * row_stride;
+            (0..w).step_by(step_x).map(move |x| row + x * bpp)
+        })
+        .filter(move |&i| i + last_channel < data.len())
+}
+
 fn packed_frame_mostly_black(
     w: usize,
     h: usize,
@@ -48,24 +68,12 @@ fn packed_frame_mostly_black(
     data: &[u8],
 ) -> bool {
     let (ri, gi, bi) = channel_order(fmt);
-    let step_y = (h / 8).max(1);
-    let step_x = (w / 8).max(1);
     let mut samples = 0u32;
     let mut bright = 0u32;
-    for y in (0..h).step_by(step_y) {
-        let row = y * row_stride;
-        for x in (0..w).step_by(step_x) {
-            let i = row + x * bpp;
-            if i + bi >= data.len() {
-                continue;
-            }
-            samples += 1;
-            let r = data[i + ri];
-            let g = data[i + gi];
-            let b = data[i + bi];
-            if r.max(g).max(b) > 12 {
-                bright += 1;
-            }
+    for i in packed_sample_offsets(w, h, row_stride, bpp, bi, data) {
+        samples += 1;
+        if data[i + ri].max(data[i + gi]).max(data[i + bi]) > 12 {
+            bright += 1;
         }
     }
     samples > 0 && bright * 20 < samples
@@ -81,21 +89,9 @@ fn packed_frame_mostly_flat(
     data: &[u8],
 ) -> bool {
     let (ri, gi, bi) = channel_order(fmt);
-    let step_y = (h / 8).max(1);
-    let step_x = (w / 8).max(1);
     let mut buckets = std::collections::HashSet::new();
-    for y in (0..h).step_by(step_y) {
-        let row = y * row_stride;
-        for x in (0..w).step_by(step_x) {
-            let i = row + x * bpp;
-            if i + bi >= data.len() {
-                continue;
-            }
-            let r = data[i + ri] / 16;
-            let g = data[i + gi] / 16;
-            let b = data[i + bi] / 16;
-            buckets.insert((r, g, b));
-        }
+    for i in packed_sample_offsets(w, h, row_stride, bpp, bi, data) {
+        buckets.insert((data[i + ri] / 16, data[i + gi] / 16, data[i + bi] / 16));
     }
     buckets.len() < 8
 }

@@ -3,6 +3,13 @@ use super::*;
 use std::fs;
 use std::path::Path;
 
+mod dvd_fixtures;
+
+use dvd_fixtures::{
+    assert_broadcast_fps_table, assert_explicit_chapter_wins, assert_resolve_prefers_main_title,
+    assert_sibling_file_not_dvd, make_video_ts, put_bytes, put_vob, scratch, write_two_title_set,
+};
+
 #[test]
 fn bluray_root_from_disc_and_bdmv_package() {
     let base = std::env::temp_dir().join(format!("rhino-bluray-{}", std::process::id()));
@@ -22,18 +29,13 @@ fn bluray_root_from_disc_and_bdmv_package() {
 
 #[test]
 fn dvd_root_from_disc_and_video_ts_folder() {
-    let base = std::env::temp_dir().join(format!("rhino-dvd-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&base);
+    let base = scratch("dvd");
     let disc = base.join("DVD1");
-    let vts = disc.join("VIDEO_TS");
-    fs::create_dir_all(&vts).expect("mkdir");
-    fs::write(vts.join("VIDEO_TS.IFO"), b"DVDVIDEO").expect("write");
+    let vts = make_video_ts(&disc.join("VIDEO_TS"));
     assert_eq!(dvd_disc_root(&disc).as_deref(), Some(disc.as_path()));
     assert_eq!(dvd_disc_root(&vts).as_deref(), Some(disc.as_path()));
     let mixed = base.join("Mgnoveniy");
-    let vts2 = mixed.join("Video_ts");
-    fs::create_dir_all(&vts2).expect("mkdir");
-    fs::write(vts2.join("VIDEO_TS.IFO"), b"IFO").expect("write");
+    let vts2 = make_video_ts(&mixed.join("Video_ts"));
     assert_eq!(dvd_disc_root(&mixed).as_deref(), Some(mixed.as_path()));
     assert_eq!(dvd_disc_root(&vts2).as_deref(), Some(mixed.as_path()));
     let _ = fs::remove_dir_all(&base);
@@ -41,13 +43,10 @@ fn dvd_root_from_disc_and_video_ts_folder() {
 
 #[test]
 fn pick_main_prefers_largest_title_by_bytes() {
-    let base = std::env::temp_dir().join(format!("rhino-dvd-tie-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&base);
-    let vts = base.join("VIDEO_TS");
-    fs::create_dir_all(&vts).expect("mkdir");
-    fs::write(vts.join("VIDEO_TS.IFO"), b"IFO").expect("write");
-    fs::write(vts.join("VTS_02_4.VOB"), vec![0u8; 1000]).expect("write");
-    fs::write(vts.join("VTS_03_1.VOB"), vec![0u8; 500_000]).expect("write");
+    let base = scratch("dvd-tie");
+    let vts = make_video_ts(&base.join("VIDEO_TS"));
+    put_vob(&vts.join("VTS_02_4.VOB"), 1000);
+    put_vob(&vts.join("VTS_03_1.VOB"), 500_000);
     assert_eq!(
         pick_main_dvd_vob(&vts).as_deref(),
         Some(vts.join("VTS_03_1.VOB").as_path())
@@ -73,58 +72,24 @@ fn fritt_dvd9_opens_main_vts01() {
 
 #[test]
 fn ordinary_file_beside_video_ts_is_not_dvd() {
-    let base = std::env::temp_dir().join(format!("rhino-dvd-sib-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&base);
+    let base = scratch("dvd-sib");
     let dump = base.join("Torrents");
-    let vts = dump.join("VIDEO_TS");
-    fs::create_dir_all(&vts).expect("mkdir");
-    fs::write(vts.join("VIDEO_TS.IFO"), b"DVDVIDEO").expect("ifo");
-    fs::write(vts.join("VTS_01_1.VOB"), vec![0u8; 4096]).expect("vob");
+    let vts = make_video_ts(&dump.join("VIDEO_TS"));
+    put_vob(&vts.join("VTS_01_1.VOB"), 4096);
     let mkv = dump.join("clip.mkv");
-    fs::write(&mkv, b"x").expect("mkv");
-    assert_eq!(dvd_disc_root(&mkv), None);
-    assert_eq!(resolve_open_media_path(&mkv), mkv);
-    assert!(!is_dvd_disc_path(&mkv));
-    assert!(!is_optical_disc_path(&mkv));
-    assert_eq!(dvd_disc_root(&dump).as_deref(), Some(dump.as_path()));
-    assert_eq!(dvd_disc_root(&vts).as_deref(), Some(dump.as_path()));
-    assert_eq!(
-        dvd_disc_root(&vts.join("VTS_01_1.VOB")).as_deref(),
-        Some(dump.as_path())
-    );
+    put_bytes(&mkv, b"x");
+    assert_sibling_file_not_dvd(&dump, &vts, &mkv);
     let _ = fs::remove_dir_all(&base);
 }
 
 #[test]
 fn dvd_resolve_opens_main_title_first_chapter() {
-    let base = std::env::temp_dir().join(format!("rhino-dvd-vob-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&base);
+    let base = scratch("dvd-vob");
     let disc = base.join("DVD1");
-    let vts = disc.join("VIDEO_TS");
-    fs::create_dir_all(&vts).expect("mkdir");
-    fs::write(vts.join("VIDEO_TS.IFO"), b"IFO").expect("write");
-    fs::write(vts.join("VIDEO_TS.VOB"), vec![0u8; 64]).expect("write");
-    fs::write(vts.join("VTS_01_0.VOB"), vec![0u8; 128]).expect("write");
-    fs::write(vts.join("VTS_01_1.VOB"), vec![0u8; 4096]).expect("write");
-    fs::write(vts.join("VTS_01_2.VOB"), vec![0u8; 2048]).expect("write");
-    fs::write(vts.join("VTS_02_1.VOB"), vec![0u8; 50_000]).expect("write");
-    fs::write(vts.join("VTS_02_2.VOB"), vec![0u8; 50_000]).expect("write");
-    assert_eq!(resolve_open_media_path(&disc), vts.join("VTS_02_1.VOB"));
-    assert_eq!(
-        dvd_first_playable_vob(&disc).as_deref(),
-        Some(vts.join("VTS_02_1.VOB").as_path())
-    );
-    let p21 = vts.join("VTS_02_1.VOB");
-    let title = crate::dvd_entity::vob_title_id(&p21);
-    let title_vobs: Vec<_> = crate::dvd_entity::list_feature_vobs(&p21)
-        .into_iter()
-        .filter(|p| crate::dvd_entity::vob_title_id(p) == title)
-        .collect();
-    assert_eq!(title_vobs.len(), 2);
-    assert_eq!(title_vobs[1], vts.join("VTS_02_2.VOB"));
-    let ch2 = vts.join("VTS_01_2.VOB");
-    assert_eq!(resolve_open_media_path(&disc), vts.join("VTS_02_1.VOB"));
-    assert_eq!(resolve_open_media_path(&ch2), ch2);
+    let vts = make_video_ts(&disc.join("VIDEO_TS"));
+    write_two_title_set(&vts);
+    assert_resolve_prefers_main_title(&disc, &vts);
+    assert_explicit_chapter_wins(&disc, &vts);
     let _ = fs::remove_dir_all(&base);
 }
 
@@ -139,29 +104,24 @@ fn paths_same_file_ignores_video_ts_casing_without_canonicalize() {
 
 #[test]
 fn dvd_vob_path_and_broadcast_fps() {
-    let base = std::env::temp_dir().join(format!("rhino-dvd-fps-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&base);
+    let base = scratch("dvd-fps");
     let vts = base.join("Video_ts");
     fs::create_dir_all(&vts).expect("mkdir");
     let ch = vts.join("VTS_02_1.VOB");
-    fs::write(&ch, b"x").expect("write");
+    put_bytes(&ch, b"x");
     assert!(is_dvd_vob_path(&ch));
     assert!(!is_dvd_vob_path(&base.join("clip.mkv")));
-    assert_eq!(dvd_vob_broadcast_fps(Some((768, 576))), Some(25.0));
-    assert_eq!(dvd_vob_broadcast_fps(Some((720, 576))), Some(25.0));
-    assert!((dvd_vob_broadcast_fps(Some((720, 480))).unwrap() - 30000.0 / 1001.0).abs() < 1e-6);
-    assert!(dvd_vob_broadcast_fps(Some((1280, 720))).is_none());
+    assert_broadcast_fps_table();
     let _ = fs::remove_dir_all(&base);
 }
 
 #[test]
 fn ordinary_folder_opens_first_video_without_resume() {
-    let base = std::env::temp_dir().join(format!("rhino-folder-open-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&base);
+    let base = scratch("folder-open");
     fs::create_dir_all(&base).expect("mkdir");
-    fs::write(base.join("ep2.mkv"), b"x").expect("write");
-    fs::write(base.join("ep10.mkv"), b"x").expect("write");
-    fs::write(base.join("ep1.mkv"), b"x").expect("write");
+    put_bytes(&base.join("ep2.mkv"), b"x");
+    put_bytes(&base.join("ep10.mkv"), b"x");
+    put_bytes(&base.join("ep1.mkv"), b"x");
     assert!(is_openable_media_path(&base));
     assert_eq!(
         resolve_open_media_path(&base)

@@ -48,20 +48,26 @@ fn contiguous_substantial_title_run(vts_dir: &Path, open_tid: u32) -> Option<Vec
     let Some(pos) = substantial.iter().position(|&id| id == open_tid) else {
         return Some(vec![open_tid]);
     };
+    Some(contiguous_run_around(&substantial, pos))
+}
+
+/// Maximal run of consecutive ids in `ids` containing `pos`.
+fn contiguous_run_around(ids: &[u32], pos: usize) -> Vec<u32> {
     let mut start = pos;
     let mut end = pos;
-    while start > 0 && substantial[start] == substantial[start - 1] + 1 {
+    while start > 0 && ids[start] == ids[start - 1] + 1 {
         start -= 1;
     }
-    while end + 1 < substantial.len() && substantial[end + 1] == substantial[end] + 1 {
+    while end + 1 < ids.len() && ids[end + 1] == ids[end] + 1 {
         end += 1;
     }
-    Some(substantial[start..=end].to_vec())
+    ids[start..=end].to_vec()
 }
 
 fn contiguous_title_id_run(vts_dir: &Path, open_tid: u32) -> Option<Vec<u32>> {
     let ids = title_ids_on_disc(vts_dir);
     let pos = ids.iter().position(|&id| id == open_tid)?;
+    // Forward only: the open title never claims earlier, already-watched sets.
     let mut end = pos;
     while end + 1 < ids.len() && ids[end + 1] == ids[end] + 1 {
         end += 1;

@@ -26,24 +26,24 @@ fn mvtools_in_vapoursynth_plugins(lib_root: &Path) -> Option<PathBuf> {
     }
     let py_dirs = std::fs::read_dir(lib_root).ok()?;
     for py in py_dirs.flatten() {
-        if !py
-            .file_name()
-            .to_string_lossy()
-            .starts_with("python")
-        {
+        if !py.file_name().to_string_lossy().starts_with("python") {
             continue;
         }
-        let plugins = py
-            .path()
-            .join("site-packages/vapoursynth/plugins");
-        for name in MVTOOLS_PLUGIN_NAMES {
-            let p = plugins.join(name);
-            if p.is_file() {
-                return Some(canon_mvtools(p));
-            }
+        if let Some(p) = mvtools_plugins_in_python_dir(&py.path()) {
+            return Some(p);
         }
     }
     None
+}
+
+/// First MVTools dylib under `<python-dir>/site-packages/vapoursynth/plugins/`.
+#[cfg(target_os = "macos")]
+fn mvtools_plugins_in_python_dir(py: &Path) -> Option<PathBuf> {
+    let plugins = py.join("site-packages/vapoursynth/plugins");
+    MVTOOLS_PLUGIN_NAMES.iter().find_map(|name| {
+        let p = plugins.join(name);
+        p.is_file().then(|| canon_mvtools(p))
+    })
 }
 
 /// `Contents/Resources/lib/vapoursynth/plugins/mvtools.dylib` inside a running `.app`.
@@ -74,16 +74,20 @@ fn macos_homebrew_mvtools() -> Option<PathBuf> {
         if let Some(p) = mvtools_in_vapoursynth_plugins(&opt_lib) {
             return Some(p);
         }
-        let cellar = Path::new(prefix).join("Cellar/vapoursynth-mvtools");
-        if let Ok(vers) = std::fs::read_dir(&cellar) {
-            for ver in vers.flatten() {
-                if let Some(p) = mvtools_in_vapoursynth_plugins(&ver.path().join("lib")) {
-                    return Some(p);
-                }
-            }
+        if let Some(p) = homebrew_cellar_mvtools(prefix) {
+            return Some(p);
         }
     }
     None
+}
+
+/// Versioned `Cellar/vapoursynth-mvtools/<ver>/lib` layout.
+#[cfg(target_os = "macos")]
+fn homebrew_cellar_mvtools(prefix: &str) -> Option<PathBuf> {
+    let cellar = Path::new(prefix).join("Cellar/vapoursynth-mvtools");
+    let vers = std::fs::read_dir(cellar).ok()?;
+    vers.flatten()
+        .find_map(|ver| mvtools_in_vapoursynth_plugins(&ver.path().join("lib")))
 }
 
 /// Copy Homebrew MVTools into the user config tree (Homebrew-path-free `@loader_path` deps).
@@ -101,7 +105,14 @@ fn macos_seed_config_mvtools() -> Option<PathBuf> {
         );
         return None;
     }
-    let status = Command::new(&script).arg(&dest).status();
+    seed_status_result(Command::new(&script).arg(&dest).status(), &dest)
+}
+
+#[cfg(target_os = "macos")]
+fn seed_status_result(
+    status: std::io::Result<std::process::ExitStatus>,
+    dest: &Path,
+) -> Option<PathBuf> {
     match status {
         Ok(s) if s.success() => macos_config_mvtools().or_else(|| {
             eprintln!(

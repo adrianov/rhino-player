@@ -67,10 +67,7 @@ impl DvdBarState {
     }
 }
 
-pub(crate) fn dur_from_map(
-    map: &std::collections::HashMap<String, f64>,
-    path: &Path,
-) -> f64 {
+pub(crate) fn dur_from_map(map: &std::collections::HashMap<String, f64>, path: &Path) -> f64 {
     let mut keys = vec![path.to_string_lossy().into_owned()];
     if let Ok(c) = std::fs::canonicalize(path) {
         keys.push(c.to_string_lossy().into_owned());
@@ -112,7 +109,6 @@ pub(crate) fn bar_cache_stale(
         || open.is_some_and(|p| bar.tl.index_of(p).is_none())
 }
 
-/// Rebuild when the bar is missing or still capped at the open `.vob` mpv `duration`.
 pub fn maybe_refresh_dvd_bar(
     slot: &std::rc::Rc<std::cell::RefCell<Option<DvdBarState>>>,
     mpv: &libmpv2::Mpv,
@@ -127,149 +123,28 @@ pub fn maybe_refresh_dvd_bar(
     if vobs.len() <= 1 {
         return;
     }
-    let live = mpv
-        .get_property::<f64>("duration")
-        .ok()
-        .map(crate::dvd_vob_timeline::clamp_vob_duration)
-        .unwrap_or(0.0);
+    let live = live_vob_duration(mpv);
     let on_disk_n = vobs.len();
     let open = open_dvd_chapter_path(mpv, shell);
-    let stale = slot
-        .borrow()
-        .as_ref()
-        .is_none_or(|b| bar_cache_stale(b, live, on_disk_n, open.as_deref()));
-    if stale {
-        refresh_dvd_bar(slot, mpv, shell);
-    }
-}
-
-/// Before `.vob` EOF advance: rebuild when the bar still looks like a single-file title.
-pub fn refresh_dvd_bar_at_chapter_eof(
-    slot: &std::rc::Rc<std::cell::RefCell<Option<DvdBarState>>>,
-    mpv: &libmpv2::Mpv,
-    shell: Option<&Path>,
-) {
-    let Some(chapter) = open_dvd_chapter_path(mpv, shell) else {
-        return;
-    };
-    let at_eof = {
-        let guard = slot.borrow();
-        let tl = guard.as_ref().map(|b| &b.tl);
-        chapter_local_at_eof_for(mpv, Some(chapter.as_path()), tl)
-    };
-    if !at_eof {
-        return;
-    }
-    let on_disk_n = crate::dvd_entity::timeline_chapter_paths(&chapter)
-        .map(|c| c.len())
-        .unwrap_or(0);
-    if on_disk_n <= 1 {
-        return;
-    }
-    let stale = slot.borrow().as_ref().is_none_or(|b| {
-        b.tl.vobs.len() < on_disk_n
-            || b.tl.next_chapter_after(&chapter).is_none()
-            || (b.mpv_chapter_duration(mpv).is_some_and(|live| {
-                live > 0.0 && b.total_sec() <= live * 1.05
-            }))
-            || b.mpv_chapter_duration(mpv).is_some_and(|live| {
-                b.tl
-                    .index_of(&chapter)
-                    .is_some_and(|i| live + 0.5 < b.tl.chapter_dur_at(i))
-            })
+    let stale = slot.borrow().as_ref().map_or(true, |b| {
+        bar_cache_stale(b, live, on_disk_n, open.as_deref())
     });
     if stale {
         refresh_dvd_bar(slot, mpv, shell);
     }
 }
 
-include!("dvd_sibling_eof_advance.rs");
-
-/// Rebuild cached bar state after `FileLoaded` / path change (not on every transport tick).
-pub fn refresh_dvd_bar(
-    slot: &std::rc::Rc<std::cell::RefCell<Option<DvdBarState>>>,
-    mpv: &libmpv2::Mpv,
-    shell: Option<&Path>,
-) {
-    let Some(chapter) = open_dvd_chapter_path(mpv, shell) else {
-        *slot.borrow_mut() = None;
-        return;
-    };
-    if !crate::playback_entity::PlaybackEntity::resolve(&chapter).uses_dvd_bar_cache() {
-        *slot.borrow_mut() = None;
-        return;
-    }
-    let live = mpv
-        .get_property::<f64>("duration")
+/// Live open-chapter length clamped into VOB range; `0.0` when mpv reports none.
+fn live_vob_duration(mpv: &libmpv2::Mpv) -> f64 {
+    mpv.get_property::<f64>("duration")
         .ok()
         .map(crate::dvd_vob_timeline::clamp_vob_duration)
-        .unwrap_or(0.0);
-    crate::dvd_entity::sanitize_stale_entity_playback(&chapter, live);
-    let on_disk_n = crate::dvd_entity::timeline_chapter_paths(&chapter)
-        .map(|c| c.len())
-        .unwrap_or(0);
-    let mut map = crate::db::load_duration_map();
-    let ifo_bar = ifo_timeline_authoritative(&chapter);
-    let prior_meta = {
-        let guard = slot.borrow();
-        if let Some(old) = guard.as_ref() {
-            let meta = (old.total_sec(), old.tl.vobs.len());
-            if crate::dvd_entity::bar_total_plausible(meta.0, on_disk_n) && !ifo_bar {
-                merge_prior_durs(&mut map, old);
-            }
-            Some(meta)
-        } else {
-            None
-        }
-    };
-    let mut bar = DvdBarState::build_with_map(&chapter, live, &map);
-    if bar.as_ref().is_some_and(|b| !crate::dvd_entity::bar_total_plausible(b.total_sec(), on_disk_n))
-    {
-        crate::dvd_entity::clear_title_probe_cache(&chapter);
-        map = crate::db::load_duration_map();
-        bar = DvdBarState::build_with_map(&chapter, live, &map);
-        if bar.as_ref().is_some_and(|b| !crate::dvd_entity::bar_total_plausible(b.total_sec(), on_disk_n))
-        {
-            eprintln!(
-                "[rhino] load: dvd_bar_sanitize rebuild live_only was={:.1}s vobs={on_disk_n}",
-                bar.as_ref().map(DvdBarState::total_sec).unwrap_or(0.0)
-            );
-            bar = DvdBarState::build_with_map(&chapter, live, &std::collections::HashMap::new());
-        }
-    }
-    if live == 0.0 {
-        if let (Some(ref new_b), Some((old_total, old_n))) = (&bar, prior_meta) {
-            if new_b.tl.vobs.len() == old_n
-                && old_total > 60.0
-                && new_b.total_sec() > old_total * 1.5
-            {
-                crate::dvd_vob_log::dvd_seek_log(format!(
-                    "refresh_dvd_bar: keep prior total={old_total:.1}s (new={:.1}s live=0)",
-                    new_b.total_sec()
-                ));
-                return;
-            }
-        }
-    }
-    if let Some(ref b) = bar {
-        crate::dvd_vob_log::dvd_seek_log(format!(
-            "refresh_dvd_bar: total={:.1}s vobs={} on_disk={on_disk_n} file={}",
-            b.total_sec(),
-            b.tl.vobs.len(),
-            chapter.file_name().and_then(|n| n.to_str()).unwrap_or("?")
-        ));
-    } else {
-        crate::dvd_vob_log::dvd_seek_log(format!(
-            "refresh_dvd_bar: build failed for {}",
-            chapter.display()
-        ));
-    }
-    let need_probe_tail = bar.as_ref().is_none_or(|b| b.tl.missing_dur_count() > 0) && !ifo_bar;
-    *slot.borrow_mut() = bar;
-    if need_probe_tail {
-        schedule_dvd_bar_probe_tail(std::rc::Rc::clone(slot), chapter, live);
-    }
+        .unwrap_or(0.0)
 }
+
+include!("dvd_sibling_eof_advance.rs");
+
+include!("dvd_vob_bar_refresh.rs");
 
 include!("dvd_vob_probe_tail.rs");
 

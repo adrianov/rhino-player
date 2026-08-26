@@ -24,16 +24,29 @@ pub fn preflight_user_message(path: &Path) -> Option<&'static str> {
     if crate::video_ext::is_optical_disc_path(path) {
         return None;
     }
+    if let Some(m) = missing_media_message(path) {
+        return Some(m);
+    }
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    empty_or_hollow_message(path, &meta)
+}
+
+/// Path-level rejections before any stat: missing path or a directory.
+fn missing_media_message(path: &Path) -> Option<&'static str> {
     if !path.exists() {
         return Some(msg::MISSING);
     }
     if path.is_dir() {
         return Some(msg::UNREADABLE_MEDIA);
     }
-    let meta = std::fs::metadata(path).ok()?;
-    if !meta.is_file() {
-        return None;
-    }
+    None
+}
+
+/// Zero-length or zero-filled-prefix regular files look like incomplete downloads.
+fn empty_or_hollow_message(path: &Path, meta: &std::fs::Metadata) -> Option<&'static str> {
     if meta.len() == 0 {
         return Some(msg::EMPTY_OR_INCOMPLETE);
     }

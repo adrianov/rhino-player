@@ -18,18 +18,36 @@ fn wire_focus_return_repaint(
         if !w.is_fullscreen() {
             return;
         }
-        tch(w);
-        if let Some(surf) = w.native().and_then(|n| n.surface()) {
-            surf.queue_render();
-        }
-        root_ia.queue_allocate();
-        vh_ia.queue_draw();
-        let tch2 = Rc::clone(&tch);
-        let w2 = w.clone();
-        let _ = glib::source::idle_add_local_once(move || {
-            tch2(&w2);
-            #[cfg(target_os = "macos")]
-            crate::macos_window::invalidate_window_layers(&w2);
-        });
+        repaint_fullscreen_surface(&tch, &root_ia, &vh_ia, w);
+    });
+}
+
+/// Immediate chrome + surface repaint before the deferred second pass.
+fn repaint_fullscreen_surface(
+    tch: &Rc<dyn Fn(&adw::ApplicationWindow)>,
+    root: &adw::ToolbarView,
+    vh: &gtk::WindowHandle,
+    w: &adw::ApplicationWindow,
+) {
+    tch(w);
+    if let Some(surf) = w.native().and_then(|n| n.surface()) {
+        surf.queue_render();
+    }
+    root.queue_allocate();
+    vh.queue_draw();
+    schedule_focus_repaint_refresh(tch, w);
+}
+
+/// Second chrome pass one turn later, after AppKit settles the foreground transition.
+fn schedule_focus_repaint_refresh(
+    tch: &Rc<dyn Fn(&adw::ApplicationWindow)>,
+    w: &adw::ApplicationWindow,
+) {
+    let tch2 = Rc::clone(tch);
+    let w2 = w.clone();
+    let _ = glib::source::idle_add_local_once(move || {
+        tch2(&w2);
+        #[cfg(target_os = "macos")]
+        crate::macos_window::invalidate_window_layers(&w2);
     });
 }

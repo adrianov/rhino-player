@@ -43,6 +43,10 @@ fn add_cell_to_files(durs: &mut [f64], bounds: &[u64], cell: &TitleCell) {
     if span == 0 {
         return;
     }
+    spread_overlap(durs, bounds, first, last, span, dur);
+}
+
+fn spread_overlap(durs: &mut [f64], bounds: &[u64], first: u64, last: u64, span: u64, dur: f64) {
     for (fi, slot) in durs.iter_mut().enumerate() {
         let lo = bounds[fi];
         let hi = bounds[fi + 1];

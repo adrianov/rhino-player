@@ -43,6 +43,10 @@ fn try_load_sibling_pick(
     r.sibling_seof.done.set(false);
     r.sibling_seof.reset_playback_span();
     drop(g);
+    load_sibling_pick(np, log_tag, r);
+}
+
+fn load_sibling_pick(np: PathBuf, log_tag: &'static str, r: &SiblingNavTryRefs) {
     let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
         video_pref: Rc::clone(&r.video_pref),
         last_path: Rc::clone(&r.last_path),

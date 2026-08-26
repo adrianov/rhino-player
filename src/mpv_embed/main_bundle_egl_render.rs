@@ -1,10 +1,9 @@
-
 use glib::prelude::Cast;
 use glib::translate::from_glib_borrow;
 use gtk::prelude::*;
 pub use libmpv2::events::{Event, PropertyData};
-pub use libmpv2::Format;
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
+pub use libmpv2::Format;
 use libmpv2::Mpv;
 use std::path::Path;
 
@@ -16,7 +15,7 @@ use gl_platform::GlDynLib;
 
 // EGL helper types (`EglState`, `egl_proc`, `GL_FRAMEBUFFER_BINDING`) live in
 // `mpv_embed/linux_egl_helpers.rs` and are included into the same module.
-
+// The Linux EGL render pipeline lives in `mpv_bundle_egl_linux.rs`.
 
 fn wait_event_err_is_load_fail(err: &libmpv2::Error) -> bool {
     match err {
@@ -29,7 +28,31 @@ fn wait_event_err_is_load_fail(err: &libmpv2::Error) -> bool {
         _ => false,
     }
 }
-
+/// `MpvBundle` cell initializers shared verbatim by both platform constructors. Expands to a
+/// whole `Self { … }`; `$($platform_fields:tt)*` appends the platform-specific fields.
+macro_rules! mpv_bundle_self {
+    ($mpv:ident, $($platform_fields:tt)*) => {
+        Self {
+            mpv: $mpv,
+            me_budget_shell_path: std::cell::RefCell::new(None),
+            pending_resume: std::cell::Cell::new(None),
+            skip_media_persist: std::cell::Cell::new(false),
+            warm_file_gen: std::cell::Cell::new(0),
+            dvd_hold_global: std::cell::Cell::new(None),
+            dvd_chain_bar_sync: std::cell::Cell::new(None),
+            transport_bar_total: std::cell::Cell::new(None),
+            transport_bar_global: std::cell::Cell::new(None),
+            chapter_eof_load: std::cell::Cell::new(false),
+            chapter_scrub_resume: std::cell::Cell::new(false),
+            chapter_scrub_hold_pause: std::cell::Cell::new(false),
+            chapter_scrub_unpause_after: std::cell::Cell::new(false),
+            smooth_vf_attach_pending: std::cell::Cell::new(false),
+            smooth_vf_stripped_this_open: std::cell::Cell::new(false),
+            smooth_vf_reload_attempted: std::cell::Cell::new(false),
+            $($platform_fields)*
+        }
+    };
+}
 
 /// Owns loaded GL/EGL (Linux) or a native [`CAOpenGLLayer`] surface (macOS).
 pub struct MpvBundle {
@@ -47,7 +70,8 @@ pub struct MpvBundle {
     /// Pinned virtual DVD position until cross-chapter scrub resume is applied.
     pub(crate) dvd_hold_global: std::cell::Cell<Option<f64>>,
     /// Chain-head `.vob`: mpv `time-pos` offset vs title-wide bar (see [crate::dvd_vob_timeline::DvdChainBarSync]).
-    pub(crate) dvd_chain_bar_sync: std::cell::Cell<Option<crate::dvd_vob_timeline::DvdChainBarSync>>,
+    pub(crate) dvd_chain_bar_sync:
+        std::cell::Cell<Option<crate::dvd_vob_timeline::DvdChainBarSync>>,
     /// Last title-wide bar `(total, global)` from [crate::app::transport_events] — used when persisting DVD entity rows.
     transport_bar_total: std::cell::Cell<Option<f64>>,
     transport_bar_global: std::cell::Cell<Option<f64>>,
@@ -87,23 +111,7 @@ impl MpvBundle {
     /// [VideoPrefs] (optional VapourSynth 60 fps `vf`) from SQLite; see [apply_mpv_video].
     /// The `bool` is `true` when **Smooth Video (60 FPS)** was auto-disabled.
     pub fn new(gl_area: &gtk::GLArea, video: &mut VideoPrefs) -> Result<(Self, bool), String> {
-        let mpv = Mpv::with_initializer(|init| {
-            init.set_option("vo", "libmpv")?;
-            init.set_option("osc", "no")?;
-            // 0 = auto: libavcodec can use multiple CPU threads for software decode
-            // (independent of heavy single-threaded sections in some filters / MVTools).
-            let _ = init.set_option("vd-lavc-threads", "0");
-            let _ = init.set_option("ao", gl_platform::mpv_default_audio_output());
-            let _ = init.set_option("keep-open", "yes");
-            // Resume position is owned by SQLite (`db::resume_pos` → `loadfile … start=`); mpv's
-            // watch_later mechanism is disabled to avoid double-bookkeeping and to keep `speed` /
-            // `pause` from leaking across sessions.
-            let _ = init.set_option("save-position-on-quit", "no");
-            let _ = init.set_option("resume-playback", "no");
-            // Plain **`display-resample`** + **`report_swap`** via [apply_mpv_video_init] when Smooth off (Linux + macOS).
-            Ok(())
-        })
-        .map_err(|e| format!("{e:?}"))?;
+        let mpv = Mpv::with_initializer(Self::mpv_init_options).map_err(|e| format!("{e:?}"))?;
 
         let auto_off = apply_mpv_video_init(&mpv, video).smooth_auto_off;
         // Thumbnails: prefer JPEG (fast); PNG path uses minimum compression.
@@ -114,139 +122,36 @@ impl MpvBundle {
         Self::finish_new(mpv, gl_area, auto_off)
     }
 
-    #[cfg(not(target_os = "macos"))]
-    fn finish_new(mut mpv: Mpv, gl_area: &gtk::GLArea, auto_off: bool) -> Result<(Self, bool), String> {
-        let gl_libs = GlDynLib::load()?;
-        let egl_state = EglState { get: gl_libs.get_proc };
-
-        let params: Vec<RenderParam<EglState>> = vec![
-            RenderParam::ApiType(RenderParamApiType::OpenGl),
-            RenderParam::InitParams(OpenGLInitParams {
-                get_proc_address: egl_proc,
-                ctx: egl_state,
-            }),
-        ];
-
-        let mut render = RenderContext::new(unsafe { mpv.ctx.as_mut() }, params)
-            .map_err(|e| format!("render context: {e:?}"))?;
-
-        let gl_ptr = gl_area.upcast_ref::<glib::Object>().as_ptr() as usize;
-        let mctx = glib::MainContext::default();
-        render.set_update_callback(move || {
-            let p = gl_ptr;
-            mctx.clone().invoke(move || {
-                let gl = unsafe {
-                    from_glib_borrow::<*mut gtk::ffi::GtkGLArea, gtk::GLArea>(
-                        p as *mut gtk::ffi::GtkGLArea,
-                    )
-                };
-                gl.queue_render();
-            });
-        });
-
-        Ok((
-            Self {
-                mpv,
-                me_budget_shell_path: std::cell::RefCell::new(None),
-                _gl: gl_libs,
-                render,
-                gl_ptr,
-                pending_resume: std::cell::Cell::new(None),
-                skip_media_persist: std::cell::Cell::new(false),
-                warm_file_gen: std::cell::Cell::new(0),
-                dvd_hold_global: std::cell::Cell::new(None),
-                dvd_chain_bar_sync: std::cell::Cell::new(None),
-                transport_bar_total: std::cell::Cell::new(None),
-                transport_bar_global: std::cell::Cell::new(None),
-                chapter_eof_load: std::cell::Cell::new(false),
-                chapter_scrub_resume: std::cell::Cell::new(false),
-                chapter_scrub_hold_pause: std::cell::Cell::new(false),
-                chapter_scrub_unpause_after: std::cell::Cell::new(false),
-                smooth_vf_attach_pending: std::cell::Cell::new(false),
-                smooth_vf_stripped_this_open: std::cell::Cell::new(false),
-                smooth_vf_reload_attempted: std::cell::Cell::new(false),
-            },
-            auto_off,
-        ))
+    /// Player-wide options applied during mpv core initialization (shared by both platforms).
+    fn mpv_init_options(init: libmpv2::MpvInitializer) -> Result<(), libmpv2::Error> {
+        init.set_option("vo", "libmpv")?;
+        init.set_option("osc", "no")?;
+        // 0 = auto: libavcodec can use multiple CPU threads for software decode
+        // (independent of heavy single-threaded sections in some filters / MVTools).
+        let _ = init.set_option("vd-lavc-threads", "0");
+        let _ = init.set_option("ao", gl_platform::mpv_default_audio_output());
+        let _ = init.set_option("keep-open", "yes");
+        // Resume position is owned by SQLite (`db::resume_pos` → `loadfile … start=`); mpv's
+        // watch_later mechanism is disabled to avoid double-bookkeeping and to keep `speed` /
+        // `pause` from leaking across sessions.
+        let _ = init.set_option("save-position-on-quit", "no");
+        let _ = init.set_option("resume-playback", "no");
+        // Plain **`display-resample`** + **`report_swap`** via [apply_mpv_video_init] when Smooth off (Linux + macOS).
+        Ok(())
     }
 
     #[cfg(target_os = "macos")]
-    fn finish_new(mut mpv: Mpv, gl_area: &gtk::GLArea, auto_off: bool) -> Result<(Self, bool), String> {
+    fn finish_new(
+        mut mpv: Mpv,
+        gl_area: &gtk::GLArea,
+        auto_off: bool,
+    ) -> Result<(Self, bool), String> {
         let macos = crate::mpv_embed::macos_video_bundle::MacosRender::install(&mut mpv, gl_area)?;
-        Ok((
-            Self {
-                mpv,
-                me_budget_shell_path: std::cell::RefCell::new(None),
-                pending_resume: std::cell::Cell::new(None),
-                skip_media_persist: std::cell::Cell::new(false),
-                warm_file_gen: std::cell::Cell::new(0),
-                dvd_hold_global: std::cell::Cell::new(None),
-                dvd_chain_bar_sync: std::cell::Cell::new(None),
-                transport_bar_total: std::cell::Cell::new(None),
-                transport_bar_global: std::cell::Cell::new(None),
-                chapter_eof_load: std::cell::Cell::new(false),
-                chapter_scrub_resume: std::cell::Cell::new(false),
-                chapter_scrub_hold_pause: std::cell::Cell::new(false),
-                chapter_scrub_unpause_after: std::cell::Cell::new(false),
-                smooth_vf_attach_pending: std::cell::Cell::new(false),
-                smooth_vf_stripped_this_open: std::cell::Cell::new(false),
-                smooth_vf_reload_attempted: std::cell::Cell::new(false),
-                macos: Some(macos),
-            },
-            auto_off,
-        ))
+        Ok((mpv_bundle_self!(mpv, macos: Some(macos)), auto_off))
     }
 
     mpv_bundle_macos_vf_methods!();
-
-    #[cfg(not(target_os = "macos"))]
-    pub(crate) fn linux_ping_render_context(&self) {
-        let _ = self.render.update();
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    fn draw_impl(&self, area: &gtk::GLArea) -> bool {
-        if area.upcast_ref::<glib::Object>().as_ptr() as usize != self.gl_ptr {
-            return false;
-        }
-        let scale = area.scale_factor();
-        let w = area.width() * scale;
-        let h = area.height() * scale;
-        if w <= 0 || h <= 0 {
-            return false;
-        }
-        let mut fbo: i32 = 0;
-        unsafe { (self._gl.gl_get_integerv)(GL_FRAMEBUFFER_BINDING, &mut fbo) };
-        let ok = self.render.render::<EglState>(fbo, w, h, true).is_ok();
-        if ok && crate::video_pref::smooth_vf_timing_report_active() {
-            self.render.report_swap();
-        }
-        ok
-    }
-
-    /// Linux: render through the GLArea on the GTK frame clock. macOS: not used — the
-    /// CAOpenGLLayer drives drawing from the displayLink, independent of GTK. The
-    /// macOS render callback clears the GLArea with alpha=0 instead (see
-    /// `macos_video_bundle::clear_glarea_transparent`).
-    #[cfg(not(target_os = "macos"))]
-    pub fn draw(&self, area: &gtk::GLArea) {
-        let _ = self.draw_impl(area);
-    }
-
-    /// Final paint before dropping [`MpvBundle`]: render, swap report on success, then render-context update.
-    /// Call only with GTK GL current on `area` (e.g. inside `GLArea::render`). Needed so libmpv can tear
-    /// down the VO before `mpv_render_context_free`; skipping this triggers aborts on macOS GTK.
-    pub fn teardown_gl_paint(&self, area: &gtk::GLArea) {
-        #[cfg(not(target_os = "macos"))]
-        {
-            // `draw_impl` already calls `report_swap` when Smooth vf requests it; an unconditional
-            // swap here confused VO timing after Smooth toggles / plain playback.
-            let _ = self.draw_impl(area);
-            let _ = self.render.update();
-        }
-        #[cfg(target_os = "macos")]
-        let _ = area;
-    }
 }
 
+include!("mpv_bundle_egl_linux.rs");
 include!("mpv_bundle_drain_layout.rs");

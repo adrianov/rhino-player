@@ -1,5 +1,5 @@
-use super::*;
 use super::time::dvdtime_to_sec;
+use super::*;
 use std::path::Path;
 
 #[test]

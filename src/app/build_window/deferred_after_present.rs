@@ -1,3 +1,11 @@
+include!("deferred_after_present/seek_preview_and_control.rs");
+include!("deferred_after_present/input_and_remote.rs");
+include!("deferred_after_present/macos_remote.rs");
+include!("deferred_after_present/mpris_volume.rs");
+include!("deferred_after_present/transport_wire.rs");
+include!("deferred_after_present/final_actions_wire.rs");
+include!("deferred_after_present/warm_preload_register.rs");
+
 thread_local! {
     /// Set before [present]; consumed when the mpv GL bundle is created (same idle turn).
     static AFTER_PRESENT_ARGS: RefCell<Option<WindowAfterPresentArgs>> = const { RefCell::new(None) };
@@ -15,321 +23,26 @@ fn run_stashed_after_present_wire() {
 }
 
 /// Input / transport / menus — runs once the mpv bundle exists (from the realize idle).
+/// Each wiring concern lives in one step fn; see `deferred_after_present/*`.
 fn wire_window_after_present(args: WindowAfterPresentArgs) {
-    let WindowAfterPresentArgs {
-        app,
-        w,
-        player,
-        video_pref,
-        sub_pref,
-        seek_chapters,
-        dvd_bar,
-        seek_bar_on,
-        last_path,
-        bar_show,
-        nav_t,
-        cur_t,
-        ptr_in_gl,
-        motion_squelch,
-        last_cap_xy,
-        last_gl_xy,
-        fs_restore,
-        fs_pause_stash,
-        fs_transition_busy,
-        fs_transition_settle,
-        skip_max_to_fs,
-        last_unmax,
-        ch_hide,
-        hdr_csd_baseline,
-        on_browse_back,
-        on_video_chrome,
-        on_file_loaded,
-        win_aspect,
-        sibling_seof,
-        playback_focus,
-        play_ctx,
-        seek_sync,
-        seek_grabbed,
-        smooth_seek_debounce,
-        resume_after_seek_idle,
-        idle_inhib,
-        exit_after_current,
-        mpv_teardown_after_draw,
-        reapply_60,
-        recent_visible,
-        hdr_title_mirror,
-        vol_sync,
-        aspect_resize_end_deb,
-        aspect_resize_wired,
-        file_boot,
-        warm_preload,
-        continue_grid_cache,
-        on_open_fail,
-    } = args;
-
-    // Same as continue-strip launch (`file_boot` none); do not use `recent_visible.get()`
-    // here — it may still be false before the window is mapped.
-    let want_warm_preload =
-        file_boot.borrow().is_none() && last_path.borrow().is_none();
-
-    let (preview_hover_t, preview_player) = if seek_bar_on.get() {
-        let seek_preview = seek_bar_preview::connect(
-            &w.seek,
-            &w.seek_adj,
-            Rc::clone(&player),
-            Rc::clone(&last_path),
-            Rc::clone(&seek_bar_on),
-            Rc::clone(&seek_chapters),
-            Rc::clone(&dvd_bar),
-            seek_bar_preview::SeekPreviewCtx {
-                ovl: w.outer_ovl.clone(),
-                // Lift above the chrome that is actually in the toolbar (shell on macOS).
-                #[cfg(target_os = "macos")]
-                bottom: w.bottom_shell.clone(),
-                #[cfg(not(target_os = "macos"))]
-                bottom: w.bottom.clone(),
-            },
-        );
-        w.outer_ovl.add_overlay(&seek_preview.container);
-        (
-            Rc::clone(&seek_preview.hover_t),
-            Rc::clone(&seek_preview.preview),
-        )
-    } else {
-        (
-            Rc::new(Cell::new(0.0)),
-            Rc::new(RefCell::new(None)),
-        )
-    };
-
-    let fs_clock_tick = Rc::new(RefCell::new(None::<glib::SourceId>));
-    wire_window_input(WindowInputCtx {
-        shell: WindowInputShell {
-            win: w.win.clone(),
-            root: w.root.clone(),
-            header: w.header.clone(),
-            outer_ovl: w.outer_ovl.clone(),
-            video_handle: w.video_handle.clone(),
-            bottom: w.bottom.clone(),
-            #[cfg(target_os = "macos")]
-            bottom_shell: w.bottom_shell.clone(),
-            gl: w.gl_area.clone(),
-            recent: w.recent_scrl.clone(),
-        },
-        app: app.clone(),
-        player: player.clone(),
-        video_pref: Rc::clone(&video_pref),
-        bar_show: bar_show.clone(),
-        nav_t: nav_t.clone(),
-        cur_t: cur_t.clone(),
-        ptr_in_gl: ptr_in_gl.clone(),
-        motion_squelch: motion_squelch.clone(),
-        last_cap_xy: last_cap_xy.clone(),
-        last_gl_xy: last_gl_xy.clone(),
-        fs_restore: fs_restore.clone(),
-        fs_pause_stash: fs_pause_stash.clone(),
-        fs_transition_busy: fs_transition_busy.clone(),
-        fs_transition_settle: fs_transition_settle.clone(),
-        skip_max_to_fs: skip_max_to_fs.clone(),
-        last_unmax: last_unmax.clone(),
-        ch_hide: Rc::clone(&ch_hide),
-        hdr_csd_baseline: Rc::clone(&hdr_csd_baseline),
-        on_browse_back: on_browse_back.clone(),
-        on_video_chrome: on_video_chrome.clone(),
-        on_file_loaded: Rc::clone(&on_file_loaded),
-        last_path: last_path.clone(),
-        win_aspect: win_aspect.clone(),
-        sibling_seof: sibling_seof.clone(),
-        playback_focus: Rc::clone(&playback_focus),
-        on_open_fail: Rc::clone(&on_open_fail),
-        play_pause: w.play_pause.clone(),
-        seek: w.seek.clone(),
-        seek_sync: seek_sync.clone(),
-        time_left: w.time_left.clone(),
-        fs_clock: w.fs_clock.clone(),
-        fs_clock_tick,
-        smooth_seek_debounce: smooth_seek_debounce.clone(),
-        resume_after_seek_idle: resume_after_seek_idle.clone(),
-        play_toggle: play_ctx.clone(),
-        dvd_bar: Rc::clone(&dvd_bar),
-        hdr_title_mirror: hdr_title_mirror.clone(),
-        speed_sync: w.speed_sync.clone(),
-        speed_menu: w.speed_mbtn.clone(),
-        speed_list: w.speed_list.clone(),
-        speed_readout: w.speed_readout.clone(),
-    });
-
+    let (preview_hover_t, preview_player) = connect_seek_preview_after_present(&args);
+    wire_window_input_step(&args);
     #[cfg(target_os = "macos")]
-    {
-        let nav = SiblingNavCtx {
-            btn_prev: w.sibling_nav.prev_btn.clone(),
-            btn_next: w.sibling_nav.next_btn.clone(),
-            win: w.win.clone(),
-            gl: w.gl_area.clone(),
-            recent: w.recent_scrl.clone(),
-            player: player.clone(),
-            last_path: last_path.clone(),
-            video_pref: Rc::clone(&video_pref),
-            on_video_chrome: on_video_chrome.clone(),
-            win_aspect: win_aspect.clone(),
-            sibling_seof: sibling_seof.clone(),
-            on_file_loaded: Rc::clone(&on_file_loaded),
-            hdr_title_mirror: hdr_title_mirror.clone(),
-            playback_focus: Rc::clone(&playback_focus),
-        on_open_fail: Rc::clone(&on_open_fail),
-        };
-        wire_macos_now_playing_remote(play_ctx.clone(), nav);
-    }
-
-    wire_seek_control(&w.seek, SeekControlDeps {
-        player: player.clone(),
-        preview_player: preview_player.clone(),
-        gl: w.gl_area.clone(),
-        seek_sync: seek_sync.clone(),
-        seek_grabbed: seek_grabbed.clone(),
-        seek_preview_on: Rc::clone(&seek_bar_on),
-        time_left: w.time_left.clone(),
-        preview_hover_t: preview_hover_t.clone(),
-        smooth_seek_debounce: smooth_seek_debounce.clone(),
-        resume_after_seek_idle: resume_after_seek_idle.clone(),
-        play_toggle: play_ctx.clone(),
-        dvd_bar: Rc::clone(&dvd_bar),
-    });
-
+    wire_macos_now_playing_step(&args);
+    wire_seek_control_step(&args, preview_hover_t, preview_player);
     #[cfg(target_os = "linux")]
-    wire_mpris_linux_after_seek(MprisLinuxWireCtx {
-        app: &app,
-        win: w.win.clone(),
-        gl_area: w.gl_area.clone(),
-        recent_scrl: w.recent_scrl.clone(),
-        player: &player,
-        play_ctx: &play_ctx,
-        last_path: &last_path,
-        win_aspect: &win_aspect,
-        sibling_seof: &sibling_seof,
-        video_pref: Rc::clone(&play_ctx.video_pref),
-        smooth_seek_debounce: smooth_seek_debounce.clone(),
-        resume_after_seek_idle: resume_after_seek_idle.clone(),
-        dvd_bar: Rc::clone(&dvd_bar),
-        on_file_loaded: &on_file_loaded,
-        on_video_chrome: &on_video_chrome,
-        hdr_title_mirror: hdr_title_mirror.clone(),
-        playback_focus: &playback_focus,
-        on_open_fail: &on_open_fail,
-    });
-
-    wire_volume_controls(VolumeCtx {
-        player: player.clone(),
-        recent: w.recent_scrl.clone(),
-        gl: w.gl_area.clone(),
-        vol_header_img: w.vol_header_img.clone(),
-        vol_readout: w.vol_readout.clone(),
-        vol_adj: w.vol_adj.clone(),
-        vol_mute_btn: w.vol_mute_btn.clone(),
-        vol_sync: vol_sync.clone(),
-    });
-
+    wire_mpris_linux_step(&args);
+    wire_volume_controls_step(&args);
     wire_aspect_resize_on_map(
-        &w.win, &w.recent_scrl, &win_aspect, &aspect_resize_end_deb, &aspect_resize_wired,
+        &args.w.win,
+        &args.w.recent_scrl,
+        &args.win_aspect,
+        &args.aspect_resize_end_deb,
+        &args.aspect_resize_wired,
     );
-
-    wire_transport_events(TransportSetup {
-        continue_grid_cache: Rc::clone(&continue_grid_cache),
-        app: app.clone(),
-        player: player.clone(),
-        video_pref: Rc::clone(&video_pref),
-        sub_pref: sub_pref.clone(),
-        win: w.win.clone(),
-        gl: w.gl_area.clone(),
-        recent: w.recent_scrl.clone(),
-        recent_visible: Rc::clone(&recent_visible),
-        playback_focus: Rc::clone(&playback_focus),
-        last_path: last_path.clone(),
-        sibling_seof: sibling_seof.clone(),
-        sibling_nav: w.sibling_nav.clone(),
-        exit_after_current: exit_after_current.clone(),
-        win_aspect: win_aspect.clone(),
-        idle_inhib: Rc::clone(&idle_inhib),
-        mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
-        on_video_chrome: on_video_chrome.clone(),
-        on_file_loaded: Rc::clone(&on_file_loaded),
-        reapply_60: reapply_60.clone(),
-        bar_show: bar_show.clone(),
-        hdr_title_mirror: hdr_title_mirror.clone(),
-        seek_chapters: Rc::clone(&seek_chapters),
-        dvd_bar: Rc::clone(&dvd_bar),
-        blackout: Rc::clone(&w.blackout_sync),
-        on_open_fail: Rc::clone(&on_open_fail),
-        widgets: TransportWidgets {
-            play_pause: w.play_pause.clone(),
-            seek: w.seek.clone(),
-            seek_adj: w.seek_adj.clone(),
-            seek_sync: seek_sync.clone(),
-            seek_grabbed: seek_grabbed.clone(),
-            time_left: w.time_left.clone(),
-            time_right: w.time_right.clone(),
-            speed_menu: w.speed_mbtn.clone(),
-            speed_readout: w.speed_readout.clone(),
-            vol_menu: w.vol_menu.clone(),
-            vol_header_img: w.vol_header_img.clone(),
-            vol_readout: w.vol_readout.clone(),
-            vol_adj: w.vol_adj.clone(),
-            vol_mute: w.vol_mute_btn.clone(),
-            vol_sync: vol_sync.clone(),
-            sub_readout: w.sub_readout.clone(),
-            smooth_toolbar_btn: w.smooth_btn.clone(),
-            smooth_toolbar_status: w.smooth_status.clone(),
-        },
-    });
-
-    wire_final_actions(FinalActionCtx {
-        app: app.clone(),
-        win: w.win.clone(),
-        fs_restore: Rc::clone(&fs_restore),
-        fs_transition_busy: Rc::clone(&fs_transition_busy),
-        last_unmax: Rc::clone(&last_unmax),
-        skip_max_to_fs: Rc::clone(&skip_max_to_fs),
-        root: w.root.clone(),
-        header: w.header.clone(),
-        gl: w.gl_area.clone(),
-        recent: w.recent_scrl.clone(),
-        bottom: w.bottom.clone(),
-        player: player.clone(),
-        sub_pref: sub_pref.clone(),
-        video_pref: Rc::clone(&video_pref),
-        playback_focus: Rc::clone(&playback_focus),
-        #[cfg(target_os = "macos")]
-        main_menu: w.main_menu.clone(),
-        pref_menu: w.pref_menu.clone(),
-        seek_bar_on: Rc::clone(&seek_bar_on),
-        last_path: last_path.clone(),
-        on_video_chrome: on_video_chrome.clone(),
-        on_file_loaded: Rc::clone(&on_file_loaded),
-        win_aspect: Rc::clone(&win_aspect),
-        bar_show: bar_show.clone(),
-        idle_inhib: Rc::clone(&idle_inhib),
-        exit_after_current: exit_after_current.clone(),
-        mpv_teardown_after_draw: Rc::clone(&mpv_teardown_after_draw),
-        hdr_csd_baseline: Rc::clone(&hdr_csd_baseline),
-        hdr_title_mirror,
-        smooth_toolbar_btn: w.smooth_btn.clone(),
-        smooth_toolbar_status: w.smooth_status.clone(),
-        on_open_fail: Rc::clone(&on_open_fail),
-    });
-
-    if let Some(ctx) = warm_preload {
-        register_warm_preload_ctx(Rc::clone(&ctx));
-        let done_ctx = Rc::clone(&ctx);
-        register_warm_preload_loaded(Rc::new(move || {
-            let run = Rc::clone(&done_ctx);
-            let gate = Rc::clone(&done_ctx.gate);
-            gate.complete(move |p| WarmPreloadCtx::run_path(&run, p));
-        }));
-        if want_warm_preload {
-            let ctx = Rc::clone(&ctx);
-            let _ = glib::idle_add_local_once(move || run_continue_warm_preload(&ctx, false));
-        }
-    }
+    wire_transport_events_step(&args);
+    wire_final_actions_step(&args);
+    register_warm_preload_step(args);
 }
 
 struct WindowAfterPresentArgs {
@@ -382,4 +95,3 @@ struct WindowAfterPresentArgs {
     continue_grid_cache: crate::media_probe::ContinueGridCache,
     on_open_fail: Rc<dyn Fn(String)>,
 }
-

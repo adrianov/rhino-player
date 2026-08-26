@@ -1,5 +1,7 @@
 include!("browse_chrome_hover.rs");
 
+include!("continue_browse_finish.rs");
+
 /// Continue-grid session: open-fail toast, warm hover, undo snackbar, Escape back-to-browse.
 struct ContinueBrowse {
     on_open_fail: Rc<dyn Fn(String)>,
@@ -13,9 +15,11 @@ struct ContinueBrowse {
     do_commit: Rc<dyn Fn()>,
 }
 
+type BrowseBackSlot = Rc<RefCell<Option<Rc<dyn Fn(bool)>>>>;
+
 struct ContinueBrowsePrep {
     on_open_fail: Rc<dyn Fn(String)>,
-    browse_back_slot: Rc<RefCell<Option<Rc<dyn Fn(bool)>>>>,
+    browse_back_slot: BrowseBackSlot,
 }
 
 struct ContinueBrowseFinish<'a> {
@@ -41,7 +45,7 @@ impl ContinueBrowsePrep {
         recent: gtk::Box,
         playback_focus: Rc<Cell<bool>>,
     ) -> Self {
-        let browse_back_slot: Rc<RefCell<Option<Rc<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
+        let browse_back_slot: BrowseBackSlot = Rc::new(RefCell::new(None));
         let on_open_fail: Rc<dyn Fn(String)> = {
             let notice = Rc::clone(&notice);
             let recent = recent.clone();
@@ -61,11 +65,7 @@ impl ContinueBrowsePrep {
         }
     }
 
-    fn return_to_browse(
-        slot: &RefCell<Option<Rc<dyn Fn(bool)>>>,
-        recent: &gtk::Box,
-        playback_focus: &Cell<bool>,
-    ) {
+    fn return_to_browse(slot: &BrowseBackSlot, recent: &gtk::Box, playback_focus: &Cell<bool>) {
         if let Some(bb) = slot.borrow().as_ref() {
             bb(false);
         }
@@ -74,83 +74,17 @@ impl ContinueBrowsePrep {
     }
 
     fn finish(self, f: ContinueBrowseFinish<'_>) -> ContinueBrowse {
-        let browse_chrome = rc_on_browse_chrome(BrowseChromeRefs {
-            hdr_csd: Rc::clone(&f.hdr_csd_baseline),
-            nav_t: f.nav_t.clone(),
-            win: f.w.win.clone(),
-            root: f.w.root.clone(),
-            gl: f.w.gl_area.clone(),
-            bar_show: f.bar_show.clone(),
-            recent: f.w.recent_scrl.clone(),
-            bottom: f.w.bottom.clone(),
-            player: f.player.clone(),
-            header: f.w.header.clone(),
-        });
-        let warm_preload = f.want_recent.then(|| {
-            WarmPreloadCtx::new(
-                f.player.clone(),
-                Rc::clone(f.video_pref),
-                f.w.recent_scrl.clone(),
-                f.w.gl_area.clone(),
-                f.last_path.clone(),
-            )
-        });
-        let warm_hover = warm_preload
-            .as_ref()
-            .map(|ctx| warm_hover_hooks(Rc::clone(ctx)));
-        let continue_grid_cache = Rc::new(RefCell::new(std::collections::HashMap::new()));
-        crate::media_probe::continue_grid_cache_attach(Rc::clone(&continue_grid_cache));
-        let recent_wiring = wire_recent_undo(RecentUndoCtx {
-            player: f.player.clone(),
-            recent: f.w.recent_scrl.clone(),
-            flow: f.w.flow_recent.clone(),
-            undo_shell: f.w.undo_bar.shell.clone(),
-            undo_label: f.w.undo_bar.label.clone(),
-            undo_btn: f.w.undo_bar.undo.clone(),
-            undo_close: f.w.undo_bar.close.clone(),
-            on_open: f.on_open.clone(),
-            want_recent: f.want_recent,
-            warm_hover: warm_hover.clone(),
-            continue_grid_cache: Rc::clone(&continue_grid_cache),
-        });
-        // `is_visible()` is false until the window is mapped; use `want_recent` so transport
-        // and warm-preload see the continue strip on empty launch before `present`.
-        let recent_visible = Rc::new(Cell::new(f.want_recent));
-        {
-            let rv = Rc::clone(&recent_visible);
-            f.w.recent_scrl
-                .connect_notify_local(Some("visible"), move |r, _| rv.set(r.is_visible()));
-        }
-        let on_browse_back = make_browse_back(
-            BackToBrowseCtx {
-                player: f.player.clone(),
-                close_video_btn: f.w.close_video_btn.clone(),
-                close_action_cell: Rc::clone(&f.close_action_cell),
-                on_open: f.on_open.clone(),
-                on_remove: recent_wiring.on_remove.clone(),
-                on_trash: recent_wiring.on_trash.clone(),
-                recent_backfill: recent_wiring.recent_backfill.clone(),
-                last_path: f.last_path.clone(),
-                sibling_seof: f.sibling_seof.clone(),
-                sibling_nav: f.w.sibling_nav.clone(),
-                win_aspect: f.win_aspect.clone(),
-                on_browse: browse_chrome,
-                undo_shell: f.w.undo_bar.shell.clone(),
-                undo_label: f.w.undo_bar.label.clone(),
-                undo_btn: f.w.undo_bar.undo.clone(),
-                undo_timer: recent_wiring.undo_timer.clone(),
-                undo_remove_stack: recent_wiring.undo_remove_stack.clone(),
-                recent_visible: Rc::clone(&recent_visible),
-                playback_focus: Rc::clone(f.playback_focus),
-                browse_has_strip: true,
-                hdr_title_mirror: f.w.hdr_title_mirror.clone(),
-                continue_grid_cache: Rc::clone(&continue_grid_cache),
-                dvd_bar: Rc::clone(f.dvd_bar),
-            },
-            f.w.win.clone(),
-            f.w.gl_area.clone(),
-            f.w.recent_scrl.clone(),
-            f.w.flow_recent.clone(),
+        let browse_chrome = finish_browse_chrome(&f);
+        let (warm_preload, warm_hover) = finish_warm_preload(&f);
+        let continue_grid_cache = new_continue_grid_cache();
+        let recent_wiring = finish_recent_undo_wiring(&f, warm_hover, &continue_grid_cache);
+        let recent_visible = finish_track_recent_visible(&f);
+        let on_browse_back = finish_on_browse_back(
+            &f,
+            browse_chrome,
+            &recent_wiring,
+            &recent_visible,
+            &continue_grid_cache,
         );
         *self.browse_back_slot.borrow_mut() = Some(Rc::clone(&on_browse_back));
         ContinueBrowse {

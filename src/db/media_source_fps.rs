@@ -3,13 +3,7 @@
 const FPS_SAVE_EPS: f64 = 0.02;
 const SNAP_TOL: f64 = 0.035;
 
-const CANONICAL_FPS: [f64; 5] = [
-    24000.0 / 1001.0,
-    24.0,
-    25.0,
-    30000.0 / 1001.0,
-    30.0,
-];
+const CANONICAL_FPS: [f64; 5] = [24000.0 / 1001.0, 24.0, 25.0, 30000.0 / 1001.0, 30.0];
 
 #[must_use]
 fn plausible_source_fps_hz(f: f64) -> bool {
@@ -41,18 +35,18 @@ pub(crate) fn snap_broadcast_fps_hz(f: f64) -> Option<f64> {
 #[must_use]
 pub(crate) fn media_source_fps(path: &std::path::Path) -> Option<f64> {
     let key = history_key(path)?;
-    with_conn(|c| {
-        let fps: Option<f64> = c
-            .query_row(
-                "SELECT source_fps_hz FROM media WHERE path = ?1",
-                params![&key],
-                |row| row.get(0),
-            )
-            .optional()?
-            .flatten();
-        Ok(fps.and_then(snap_broadcast_fps_hz))
-    })
-    .flatten()
+    with_conn(|c| Ok(stored_source_fps(c, &key)?.and_then(snap_broadcast_fps_hz))).flatten()
+}
+
+/// Raw cached `source_fps_hz` for one path key (`None` when absent).
+fn stored_source_fps(c: &rusqlite::Connection, key: &str) -> rusqlite::Result<Option<f64>> {
+    Ok(c.query_row(
+        "SELECT source_fps_hz FROM media WHERE path = ?1",
+        params![key],
+        |row| row.get(0),
+    )
+    .optional()?
+    .flatten())
 }
 
 /// Persist source fps once mpv (or DVD heuristics) reports a plausible broadcast rate.
@@ -64,15 +58,7 @@ pub(crate) fn media_save_source_fps(path: &std::path::Path, fps: f64) {
         return;
     };
     let _ = with_conn(|c| {
-        let prior: Option<f64> = c
-            .query_row(
-                "SELECT source_fps_hz FROM media WHERE path = ?1",
-                params![&key],
-                |row| row.get(0),
-            )
-            .optional()?
-            .flatten();
-        if prior.is_some_and(|p| (p - fps).abs() < FPS_SAVE_EPS) {
+        if stored_source_fps(c, &key)?.is_some_and(|p| (p - fps).abs() < FPS_SAVE_EPS) {
             return Ok(());
         }
         c.execute(

@@ -1,60 +1,126 @@
-/// Hover **Remove** / **Move to Trash** — shared flat circular chrome (`rp-recent-action`).
-fn card_action_btn(icon: &str, tooltip: &str) -> gtk::Button {
-    let btn = gtk::Button::from_icon_name(icon);
-    btn.set_visible(false);
-    btn.set_tooltip_text(Some(tooltip));
-    btn.add_css_class("flat");
-    btn.add_css_class("circular");
-    btn.add_css_class("rp-recent-action");
-    btn.set_cursor_from_name(Some("pointer"));
-    btn
-}
-
-struct HistoryCardHandlers<'a> {
-    on_open: Rc<dyn Fn(&Path)>,
-    on_remove: Rc<dyn Fn(&Path)>,
-    on_trash: Rc<dyn Fn(&Path)>,
-    warm_hover: Option<&'a WarmHoverHooks>,
-}
-
-fn card_background(d: &CardData, miss: bool) -> gtk::Widget {
-    if miss {
-        return full_bleed_icon("image-missing-symbolic");
-    }
-    if let Some(ref bytes) = d.thumb {
-        let key = crate::db::history_key(&d.path).unwrap_or_default();
-        if let Some(tex) = crate::thumb_texture::texture_from_thumb_cached(&key, bytes.as_slice()) {
-            let pic = gtk::Picture::for_paintable(&tex);
-            pic.set_content_fit(gtk::ContentFit::Cover);
-            pic.set_can_shrink(true);
-            pic.set_vexpand(true);
-            pic.set_hexpand(true);
-            pic.set_halign(gtk::Align::Fill);
-            pic.set_valign(gtk::Align::Fill);
-            no_target(&pic);
-            pic.add_css_class("rp-recent-bg");
-            return pic.upcast();
-        }
-    }
-    full_bleed_icon("video-x-generic")
-}
-
-fn append_history_card(
-    row: &gtk::Box,
-    cards: &Rc<RefCell<Vec<gtk::Overlay>>>,
-    d: CardData,
-    h: &HistoryCardHandlers<'_>,
+/// Logs the continue-strip verb, then runs [act].
+fn wire_logged_action(
+    btn: &gtk::Button,
+    path: std::path::PathBuf,
+    act: Rc<dyn Fn(&Path)>,
+    verb: &'static str,
 ) {
-    let c = d.path.clone();
-    let miss = d.missing;
-    let p = d.percent;
-    let name = c
+    btn.connect_clicked(move |_| {
+        crate::user_action_log::act(format!("continue {verb} {}", path.display()));
+        act(&path);
+    });
+}
+
+/// Top-right overlay buttons: Remove always; Move to Trash only for present media files.
+/// Returns the overlay box plus the buttons that toggle with hover.
+fn top_action_buttons(
+    c: &Path,
+    h: &HistoryCardHandlers<'_>,
+    miss: bool,
+) -> (gtk::Box, Vec<gtk::Button>) {
+    let top_actions = action_overlay_box();
+    let hover_btns: Vec<gtk::Button> = if !miss && c.is_file() {
+        trash_and_remove_buttons(c, h, &top_actions)
+    } else {
+        remove_only_buttons(c, h, &top_actions)
+    };
+    (top_actions, hover_btns)
+}
+
+/// Top-right overlay container for the action buttons.
+fn action_overlay_box() -> gtk::Box {
+    let top_actions = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    top_actions.set_spacing(2);
+    top_actions.set_halign(gtk::Align::End);
+    top_actions.set_valign(gtk::Align::Start);
+    top_actions.set_margin_top(2);
+    top_actions.set_margin_end(2);
+    top_actions
+}
+
+/// Trash + Remove pair for present media files.
+fn trash_and_remove_buttons(
+    c: &Path,
+    h: &HistoryCardHandlers<'_>,
+    top_actions: &gtk::Box,
+) -> Vec<gtk::Button> {
+    let trash = card_action_btn("user-trash-symbolic", "Move to Trash");
+    wire_logged_action(&trash, c.to_path_buf(), h.on_trash.clone(), "trash");
+    let remove = remove_button(c, h);
+    top_actions.append(&trash);
+    top_actions.append(&remove);
+    vec![trash, remove]
+}
+
+/// Remove-only row (stale entries or vanished files).
+fn remove_only_buttons(
+    c: &Path,
+    h: &HistoryCardHandlers<'_>,
+    top_actions: &gtk::Box,
+) -> Vec<gtk::Button> {
+    let remove = remove_button(c, h);
+    top_actions.append(&remove);
+    vec![remove.clone()]
+}
+
+fn remove_button(c: &Path, h: &HistoryCardHandlers<'_>) -> gtk::Button {
+    let remove = card_action_btn("window-close-symbolic", "Remove from list");
+    wire_logged_action(&remove, c.to_path_buf(), h.on_remove.clone(), "remove");
+    remove
+}
+
+/// Whole-card click: Remove on stale cards, Open otherwise.
+fn attach_card_activation(
+    card: &gtk::Overlay,
+    c: &Path,
+    h: &HistoryCardHandlers<'_>,
+    miss: bool,
+    card_warm: Option<&WarmHoverHooks>,
+    hover_btns: &[gtk::Button],
+) {
+    if miss {
+        let path = c.to_path_buf();
+        let rem = h.on_remove.clone();
+        add_click_and_pointer(
+            card,
+            c,
+            Rc::new(move |()| {
+                crate::user_action_log::act(format!("continue remove {}", path.display()));
+                rem(&path);
+            }),
+            hover_btns,
+            card_warm,
+        );
+    } else {
+        let path = c.to_path_buf();
+        let op = h.on_open.clone();
+        add_click_and_pointer(
+            card,
+            c,
+            Rc::new(move |()| {
+                crate::user_action_log::act(format!("continue open {}", path.display()));
+                op(&path);
+            }),
+            hover_btns,
+            card_warm,
+        );
+    }
+}
+
+/// Title / accessibility strings and progress for a history card.
+fn history_card_texts(d: &CardData) -> (std::path::PathBuf, String, String) {
+    let name = d
+        .path
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
     let label_txt = crate::human_media_title::human_media_title(&name);
-    let a11y = format!("{label_txt}, {p:.0} percent played");
+    let a11y = format!("{label_txt}, {:.0} percent played", d.percent);
+    (d.path.clone(), label_txt, a11y)
+}
 
+/// Card chrome: overlay, stale styling, tooltip, full-bleed background.
+fn fresh_history_card(d: &CardData, miss: bool, tip: &str) -> gtk::Overlay {
     let card = gtk::Overlay::new();
     card.set_vexpand(false);
     card.set_hexpand(false);
@@ -63,131 +129,59 @@ fn append_history_card(
     if miss {
         card.add_css_class("rp-stale");
     }
-    let tip = if miss {
-        format!(
-            "{}\n{} — file missing, click to remove from list",
-            c.display(),
-            a11y
-        )
-    } else {
-        format!("{}\n{a11y}", c.display(), a11y = a11y)
-    };
-    card.set_tooltip_text(Some(tip.as_str()));
-    card.set_child(Some(&card_background(&d, miss)));
+    card.set_tooltip_text(Some(tip));
+    card.set_child(Some(&card_background(d, miss)));
+    card
+}
 
+/// Bottom overlay: wrapped title above the progress row.
+fn history_footer(label_txt: &str, c: &Path, p: f64) -> gtk::Box {
     let footer = gtk::Box::new(gtk::Orientation::Vertical, 6);
     footer.set_halign(gtk::Align::Fill);
     footer.set_valign(gtk::Align::End);
     footer.set_hexpand(true);
     no_target(&footer);
     footer.add_css_class("rp-recent-card-footer");
+    footer.append(&card_title_label(label_txt, c));
+    footer.append(&progress_row(p));
+    footer
+}
 
-    let label = gtk::Label::new(Some(&label_txt));
-    no_target(&label);
-    label.add_css_class("rp-recent-card-title");
-    label.set_ellipsize(gtk::pango::EllipsizeMode::None);
-    label.set_max_width_chars(-1);
-    label.set_wrap(true);
-    label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-    label.set_natural_wrap_mode(gtk::NaturalWrapMode::Word);
-    label.set_tooltip_text(c.to_str());
-    label.set_halign(gtk::Align::Fill);
-    label.set_hexpand(true);
-    label.set_xalign(0.0);
-
-    let pro = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-    no_target(&pro);
-    pro.add_css_class("rp-recent-progress-row");
-    pro.set_hexpand(true);
-    let bar = gtk::ProgressBar::new();
-    no_target(&bar);
-    bar.set_fraction(p / 100.0);
-    bar.set_show_text(false);
-    bar.set_hexpand(true);
-    bar.set_hexpand_set(true);
-    bar.add_css_class("rp-recent-bar");
-    let lp = gtk::Label::new(Some(&format!("{p:.0}%")));
-    no_target(&lp);
-    lp.add_css_class("rp-recent-percent");
-    lp.set_hexpand(false);
-    pro.append(&bar);
-    pro.append(&lp);
-
-    footer.append(&label);
-    footer.append(&pro);
-    card.add_overlay(&footer);
-
-    let top_actions = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    top_actions.set_spacing(2);
-    top_actions.set_halign(gtk::Align::End);
-    top_actions.set_valign(gtk::Align::Start);
-    top_actions.set_margin_top(2);
-    top_actions.set_margin_end(2);
-
-    let remove = card_action_btn("window-close-symbolic", "Remove from list");
-    {
-        let path = c.clone();
-        let rem = h.on_remove.clone();
-        remove.connect_clicked(move |_| {
-            crate::user_action_log::act(format!("continue remove {}", path.display()));
-            rem(&path);
-        });
-    }
-
-    let hover_btns: Vec<gtk::Button> = if !miss && c.is_file() {
-        let trash = card_action_btn("user-trash-symbolic", "Move to Trash");
-        {
-            let path = c.clone();
-            let tr = h.on_trash.clone();
-            trash.connect_clicked(move |_| {
-                crate::user_action_log::act(format!("continue trash {}", path.display()));
-                tr(&path);
-            });
-        }
-        top_actions.append(&trash);
-        top_actions.append(&remove);
-        vec![trash, remove]
-    } else {
-        top_actions.append(&remove);
-        vec![remove.clone()]
-    };
-    card.add_overlay(&top_actions);
-
-    let card_warm = if miss { None } else { h.warm_hover };
-    if miss {
-        let path = c.clone();
-        let rem = h.on_remove.clone();
-        add_click_and_pointer(
-            &card,
-            &c,
-            Rc::new(move |()| {
-                crate::user_action_log::act(format!("continue remove {}", path.display()));
-                rem(&path);
-            }),
-            &hover_btns,
-            card_warm,
-        );
-    } else {
-        let path = c.clone();
-        let op = h.on_open.clone();
-        add_click_and_pointer(
-            &card,
-            &c,
-            Rc::new(move |()| {
-                crate::user_action_log::act(format!("continue open {}", path.display()));
-                op(&path);
-            }),
-            &hover_btns,
-            card_warm,
-        );
-    }
-
+/// Default dims, clamp wrapper, registry push, and insertion into the strip.
+fn finish_history_card(
+    row: &gtk::Box,
+    cards: &Rc<RefCell<Vec<gtk::Overlay>>>,
+    card: &gtk::Overlay,
+) {
     let (w, h) = default_card_dims();
-    apply_card_dims(&card, w, h);
+    apply_card_dims(card, w, h);
 
     let wrap = adw::Clamp::new();
     wrap.set_maximum_size(CARD_MAX_W);
-    wrap.set_child(Some(&card));
+    wrap.set_child(Some(card));
     cards.borrow_mut().push(card.clone());
     row.append(&wrap);
 }
+
+fn append_history_card(
+    row: &gtk::Box,
+    cards: &Rc<RefCell<Vec<gtk::Overlay>>>,
+    d: CardData,
+    h: &HistoryCardHandlers<'_>,
+) {
+    let (c, label_txt, a11y) = history_card_texts(&d);
+    let p = d.percent;
+    let miss = d.missing;
+    let tip = history_card_tooltip(&c, &a11y, miss);
+    let card = fresh_history_card(&d, miss, &tip);
+    card.add_overlay(&history_footer(&label_txt, &c, p));
+
+    let (top_actions, hover_btns) = top_action_buttons(&c, h, miss);
+    card.add_overlay(&top_actions);
+
+    let card_warm = if miss { None } else { h.warm_hover };
+    attach_card_activation(&card, &c, h, miss, card_warm, &hover_btns);
+    finish_history_card(row, cards, &card);
+}
+
+include!("fill_history_card/history_card_widgets.rs");

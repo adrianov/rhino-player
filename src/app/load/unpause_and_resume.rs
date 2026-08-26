@@ -12,27 +12,32 @@ fn schedule_resume_after_unpause(player: Rc<RefCell<Option<MpvBundle>>>) {
     for &ms in RESUME_AFTER_UNPAUSE_MS {
         let p = Rc::clone(&player);
         let _ = glib::timeout_add_local_once(Duration::from_millis(ms), move || {
-            let g = p.borrow();
-            let Some(b) = g.as_ref() else {
-                return;
-            };
-            // Later retries only run while a stashed seek is still pending; ms=0 may still warm-open from DB.
-            if ms > 0 && !b.resume_seek_pending() {
-                return;
-            }
-            let r = b.ensure_resume_before_unpause();
-            if ms == 0 || ms >= 200 {
-                crate::dvd_vob_log::resume_open_log(format!(
-                    "unpause retry ms={ms} result={}",
-                    r.map(|t| format!("{t:.2}"))
-                        .unwrap_or_else(|| "none".into())
-                ));
-            }
-            if !b.resume_seek_pending() {
-                request_smooth_60_transport_resync();
-                return;
-            }
-            transport_nudge_tick();
+            resume_retry_tick(&p, ms);
         });
     }
+}
+
+/// One retry attempt at `ms` after unpause; later retries only run while a seek is still pending.
+fn resume_retry_tick(p: &Rc<RefCell<Option<MpvBundle>>>, ms: u64) {
+    let g = p.borrow();
+    let Some(b) = g.as_ref() else {
+        return;
+    };
+    // Later retries only run while a stashed seek is still pending; ms=0 may still warm-open from DB.
+    if ms > 0 && !b.resume_seek_pending() {
+        return;
+    }
+    let r = b.ensure_resume_before_unpause();
+    if ms == 0 || ms >= 200 {
+        crate::dvd_vob_log::resume_open_log(format!(
+            "unpause retry ms={ms} result={}",
+            r.map(|t| format!("{t:.2}"))
+                .unwrap_or_else(|| "none".into())
+        ));
+    }
+    if !b.resume_seek_pending() {
+        request_smooth_60_transport_resync();
+        return;
+    }
+    transport_nudge_tick();
 }

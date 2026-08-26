@@ -1,3 +1,5 @@
+include!("vf_diagnostics.rs");
+
 fn post_smooth_60_state(mpv: &Mpv, v: &VideoPrefs, want_60: bool, disabled_60: bool, vlog: bool) {
     if want_60 && !v.smooth_60 {
         if let Err(e) = mpv.set_property("hwdec", "auto") {
@@ -51,7 +53,10 @@ fn remove_vapoursynth_vf(mpv: &Mpv, vlog: bool) -> bool {
                     }
                 }
                 Err(e) => {
-                    eprintln!("[rhino] video: vf remove {spec} failed (attempt {}): {e:?}", attempt + 1);
+                    eprintln!(
+                        "[rhino] video: vf remove {spec} failed (attempt {}): {e:?}",
+                        attempt + 1
+                    );
                 }
             }
         }
@@ -98,38 +103,39 @@ fn apply_smooth_vf_present_opts(mpv: &Mpv) {
     smooth_vf_swap_timing_set(true);
 }
 
+fn clear_non_vs_chain(mpv: &Mpv, had_vapoursynth: bool, vlog: bool) {
+    if had_vapoursynth {
+        remove_vapoursynth_vf(mpv, vlog);
+    } else if mpv
+        .get_property::<String>("vf")
+        .is_ok_and(|s| !s.trim().is_empty())
+    {
+        if let Err(e) = mpv.command("vf", &["clr", ""]) {
+            eprintln!("[rhino] video: vf clr failed: {e:?}");
+        } else if vlog {
+            eprintln!("[rhino] video: vf clr ok (non-vapoursynth chain)");
+        }
+    }
+    restore_non_smooth_present_opts(mpv);
+}
+
 fn clear_vf(mpv: &Mpv, bundle: Option<&MpvBundle>, vlog: bool) {
     let had_vapoursynth = vf_chain_has_vapoursynth(mpv);
-    let inner = || {
-        if had_vapoursynth {
-            remove_vapoursynth_vf(mpv, vlog);
-        } else if mpv
-            .get_property::<String>("vf")
-            .is_ok_and(|s| !s.trim().is_empty())
-        {
-            if let Err(e) = mpv.command("vf", &["clr", ""]) {
-                eprintln!("[rhino] video: vf clr failed: {e:?}");
-            } else if vlog {
-                eprintln!("[rhino] video: vf clr ok (non-vapoursynth chain)");
-            }
-        }
-        restore_non_smooth_present_opts(mpv);
-    };
     #[cfg(target_os = "macos")]
     {
         if let Some(b) = bundle {
-            b.with_macos_vf_teardown(inner);
+            b.with_macos_vf_teardown(|| clear_non_vs_chain(mpv, had_vapoursynth, vlog));
             sync_bluray_deinterlace_mpv(mpv, Some(b));
             b.macos_ping_render_context();
             b.macos_mark_display_pending();
         } else {
-            inner();
+            clear_non_vs_chain(mpv, had_vapoursynth, vlog);
             sync_bluray_deinterlace_mpv(mpv, None);
         }
     }
     #[cfg(not(target_os = "macos"))]
     {
-        inner();
+        clear_non_vs_chain(mpv, had_vapoursynth, vlog);
         sync_bluray_deinterlace_mpv(mpv, bundle);
     }
     if had_vapoursynth {
@@ -146,27 +152,6 @@ pub fn strip_vapoursynth_before_replace_media(b: &MpvBundle) {
         return;
     }
     clear_vf(&b.mpv, Some(b), video_log());
-}
-
-fn log_vf_diagnostics(mpv: &Mpv, vlog: bool) {
-    use std::sync::Mutex;
-    static LAST_VF_LOG: Mutex<Option<String>> = Mutex::new(None);
-    let line = match mpv.get_property::<String>("vf") {
-        Ok(s) if !s.is_empty() => format!("[rhino] video: mpv property `vf` = {s:?}"),
-        Ok(_) => "[rhino] video: mpv property `vf` is empty (no file, or not applied yet)".to_string(),
-        Err(e) => format!("[rhino] video: could not read mpv property `vf`: {e:?}"),
-    };
-    let mut last = LAST_VF_LOG.lock().unwrap_or_else(|e| e.into_inner());
-    if !vlog && *last == Some(line.clone()) {
-        return;
-    }
-    *last = Some(line.clone());
-    eprintln!("{line}");
-    if vlog {
-        if let Ok(s) = mpv.get_property::<String>("video-sync") {
-            eprintln!("[rhino] video: (verbose) video-sync = {s:?}");
-        }
-    }
 }
 
 /// Drop vapoursynth before a seek so mpv does not paint the filter's black placeholder on restart.

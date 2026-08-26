@@ -42,6 +42,27 @@ fn toggle_fullscreen(
 }
 
 #[cfg(not(target_os = "macos"))]
+fn maximize_then_fullscreen_later(
+    win: &adw::ApplicationWindow,
+    fs_restore: &RefCell<Option<(i32, i32)>>,
+) {
+    *fs_restore.borrow_mut() = Some(win_normal_size(win));
+    win.maximize();
+}
+
+#[cfg(not(target_os = "macos"))]
+fn fullscreen_from_maximized(
+    win: &adw::ApplicationWindow,
+    fs_restore: &RefCell<Option<(i32, i32)>>,
+    last_unmax: &RefCell<(i32, i32)>,
+) {
+    if fs_restore.borrow().is_none() {
+        *fs_restore.borrow_mut() = Some(*last_unmax.borrow());
+    }
+    win.fullscreen();
+}
+
+#[cfg(not(target_os = "macos"))]
 fn toggle_fullscreen(
     win: &adw::ApplicationWindow,
     fs_restore: &RefCell<Option<(i32, i32)>>,
@@ -56,13 +77,9 @@ fn toggle_fullscreen(
         skip_max_to_fs.set(true);
         unfullscreen_safe_inner(win);
     } else if !win.is_maximized() {
-        *fs_restore.borrow_mut() = Some(win_normal_size(win));
-        win.maximize();
+        maximize_then_fullscreen_later(win, fs_restore);
     } else {
-        if fs_restore.borrow().is_none() {
-            *fs_restore.borrow_mut() = Some(*last_unmax.borrow());
-        }
-        win.fullscreen();
+        fullscreen_from_maximized(win, fs_restore, last_unmax);
     }
 }
 
@@ -119,6 +136,8 @@ include!("chrome_shell_layout.rs");
 include!("chrome_window_video_fit.rs");
 include!("chrome_menu_wire.rs");
 
+include!("chrome_subtitle_button_scan.rs");
+
 fn schedule_or_defer_recent_backfill(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     pending: &Rc<RefCell<Option<RecentBackfillJob>>>,
@@ -136,31 +155,4 @@ fn drain_recent_backfill(pending: &Rc<RefCell<Option<RecentBackfillJob>>>) {
     if let Some((ctx, paths)) = pending.borrow_mut().take() {
         recent_view::schedule_thumb_backfill(ctx, paths);
     }
-}
-
-fn schedule_sub_button_scan(player: Rc<RefCell<Option<MpvBundle>>>, button: gtk::MenuButton) {
-    button.set_visible(false);
-    let tries = Rc::new(Cell::new(0u8));
-    let _ = glib::timeout_add_local(Duration::from_millis(SUB_SCAN_MS), move || {
-        let has_subs = player.borrow().as_ref().is_some_and(|b| {
-            let shell = b.me_budget_shell_path.borrow();
-            sub_tracks::has_subtitle_tracks(&b.mpv, shell.as_deref())
-        });
-        button.set_visible(has_subs);
-        if has_subs {
-            if let Some(b) = player.borrow().as_ref() {
-                let pr = crate::db::load_sub();
-                let shell = b.me_budget_shell_path.borrow();
-                sub_tracks::reapply_saved_or_autopick(&b.mpv, &pr, shell.as_deref());
-            }
-            return glib::ControlFlow::Break;
-        }
-        let next = tries.get().saturating_add(1);
-        tries.set(next);
-        if next >= SUB_SCAN_TICKS {
-            glib::ControlFlow::Break
-        } else {
-            glib::ControlFlow::Continue
-        }
-    });
 }

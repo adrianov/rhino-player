@@ -65,6 +65,40 @@ fn sync_trash_action(
     a.set_enabled(ok);
 }
 
+/// Cloned teardown inputs for the deferred quit persistence chain (keeps Clippy arity down).
+struct QuitPersistStep {
+    player: Rc<RefCell<Option<MpvBundle>>>,
+    app: adw::Application,
+    win: adw::ApplicationWindow,
+    sub: Rc<RefCell<db::SubPrefs>>,
+    idle_inhib: Rc<RefCell<Option<crate::idle_inhibit::Held>>>,
+    gl: gtk::GLArea,
+    teardown_after_draw: Rc<Cell<bool>>,
+}
+
+/// One pass of [schedule_quit_persist]'s idle: save state, realize, request the final paint.
+fn run_quit_persist_step(q: &QuitPersistStep) {
+    idle_inhibit::clear(&q.app, &q.idle_inhib);
+    #[cfg(target_os = "macos")]
+    crate::macos_window::show_system_cursor();
+    if let Some(b) = q.player.borrow().as_ref() {
+        save_mpv_state(&b.mpv, &q.sub);
+        b.commit_quit();
+    }
+    // Map once if needed (`queue_render` no-ops until realized). Calling `present`/`realize`
+    // redundantly on macOS can disturb CvDisplayLink while tearing down during quit-from-pause.
+    if !q.win.is_visible() {
+        q.win.present();
+    }
+    if !q.gl.is_realized() {
+        q.gl.realize();
+    }
+    q.teardown_after_draw.set(true);
+    q.gl.queue_render();
+    #[cfg(not(target_os = "macos"))]
+    q.gl.queue_draw();
+}
+
 /// Saves DB resume and stops playback from an idle, then runs [`MpvBundle::teardown_gl_paint`] on the
 /// next [`gtk::GLArea::render`] after [`gtk::GLArea::queue_render`], then an idle that **binds that
 /// `GLArea`’s GL context** before [`MpvBundle::dispose_for_quit`] (frees render context + `mpv_terminate_destroy`).
@@ -80,33 +114,17 @@ fn schedule_quit_persist(
     idle_inhib: &Rc<RefCell<Option<crate::idle_inhibit::Held>>>,
     teardown_after_draw: &Rc<Cell<bool>>,
 ) {
-    let p = player.clone();
-    let a = app.clone();
-    let w = win.clone();
-    let sp = Rc::clone(sub);
-    let ic = Rc::clone(idle_inhib);
-    let gl = gl.clone();
-    let td = Rc::clone(teardown_after_draw);
+    let q = QuitPersistStep {
+        player: player.clone(),
+        app: app.clone(),
+        win: win.clone(),
+        sub: Rc::clone(sub),
+        idle_inhib: Rc::clone(idle_inhib),
+        gl: gl.clone(),
+        teardown_after_draw: Rc::clone(teardown_after_draw),
+    };
     let _ = glib::idle_add_local(move || {
-        idle_inhibit::clear(&a, &ic);
-        #[cfg(target_os = "macos")]
-        crate::macos_window::show_system_cursor();
-        if let Some(b) = p.borrow().as_ref() {
-            save_mpv_state(&b.mpv, &sp);
-            b.commit_quit();
-        }
-        // Map once if needed (`queue_render` no-ops until realized). Calling `present`/`realize`
-        // redundantly on macOS can disturb CvDisplayLink while tearing down during quit-from-pause.
-        if !w.is_visible() {
-            w.present();
-        }
-        if !gl.is_realized() {
-            gl.realize();
-        }
-        td.set(true);
-        gl.queue_render();
-        #[cfg(not(target_os = "macos"))]
-        gl.queue_draw();
+        run_quit_persist_step(&q);
         glib::ControlFlow::Break
     });
 }

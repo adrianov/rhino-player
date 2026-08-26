@@ -28,7 +28,11 @@ pub fn window_title_for(path: &Path) -> String {
     let human = crate::human_media_title::human_media_title(&raw);
     let label = {
         let h = human.trim();
-        if h.is_empty() { raw.trim() } else { h }
+        if h.is_empty() {
+            raw.trim()
+        } else {
+            h
+        }
     };
     let label = label.trim();
     if label.is_empty() {
@@ -43,20 +47,23 @@ mod tests {
     use super::*;
     use std::fs;
 
-    #[test]
-    fn dvd_entity_title_uses_disc_folder_not_vob_stub() {
+    /// Fresh disc folder with one chapter VOB; returns `(disc, vob)`.
+    fn title_fixture() -> (std::path::PathBuf, std::path::PathBuf) {
         let disc = std::env::temp_dir().join(format!("rhino-pe-title-{}", std::process::id()));
         let _ = fs::remove_dir_all(&disc);
         let vts = disc.join("VIDEO_TS");
         fs::create_dir_all(&vts).expect("mkdir");
         fs::write(vts.join("VIDEO_TS.IFO"), b"DVD").expect("ifo");
-        fs::write(vts.join("VTS_02_1.VOB"), b"v").expect("vob");
         let vob = vts.join("VTS_02_1.VOB");
+        fs::write(&vob, b"v").expect("vob");
+        (disc, vob)
+    }
+
+    #[test]
+    fn dvd_entity_title_uses_disc_folder_not_vob_stub() {
+        let (disc, vob) = title_fixture();
         let t = window_title_for(&vob);
-        let folder = disc
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("disc");
+        let folder = disc.file_name().and_then(|n| n.to_str()).unwrap_or("disc");
         assert!(t.contains(folder), "title was {t:?}");
         assert!(!t.trim().is_empty());
         let _ = fs::remove_dir_all(&disc);

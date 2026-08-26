@@ -19,16 +19,9 @@ const SIBLING_PLAY_SPAN_MIN: f64 = 1.0;
 impl SiblingEofState {
     /// Prev/next button sensitivity for `cur`. Reuses cached fs work while the file path is unchanged.
     fn nav_sensitivity(&self, cur: &Path) -> (bool, bool) {
-        if !cur.is_file() {
+        let Some(can) = nav_canonical_key(cur) else {
             *self.nav_key.borrow_mut() = None;
             return (false, false);
-        }
-        let can = match std::fs::canonicalize(cur) {
-            Ok(p) => p,
-            Err(_) => {
-                *self.nav_key.borrow_mut() = None;
-                return (false, false);
-            }
         };
         {
             let k = self.nav_key.borrow();
@@ -36,8 +29,7 @@ impl SiblingEofState {
                 return (self.nav_can_prev.get(), self.nav_can_next.get());
             }
         }
-        let cp = sibling_advance::prev_before_current(cur).is_some();
-        let cn = sibling_advance::next_after_eof(cur).is_some();
+        let (cp, cn) = sibling_nav_flags(cur);
         *self.nav_key.borrow_mut() = Some(can);
         self.nav_can_prev.set(cp);
         self.nav_can_next.set(cn);
@@ -82,6 +74,23 @@ impl SiblingEofState {
             return false;
         }
         let tail = (dur - crate::media_probe::NEAR_END_SEC).max(0.0);
-        self.pos_max.get() - self.pos_min.get() > SIBLING_PLAY_SPAN_MIN && self.pos_max.get() >= tail
+        self.pos_max.get() - self.pos_min.get() > SIBLING_PLAY_SPAN_MIN
+            && self.pos_max.get() >= tail
     }
+}
+
+/// Canonical cache key for sibling-nav state: `None` when `cur` is not a plain existing file.
+fn nav_canonical_key(cur: &Path) -> Option<PathBuf> {
+    if !cur.is_file() {
+        return None;
+    }
+    std::fs::canonicalize(cur).ok()
+}
+
+/// Fresh fs walk for prev/next availability in folder/sibling order.
+fn sibling_nav_flags(cur: &Path) -> (bool, bool) {
+    (
+        sibling_advance::prev_before_current(cur).is_some(),
+        sibling_advance::next_after_eof(cur).is_some(),
+    )
 }

@@ -75,7 +75,7 @@ fn sync_header_window_controls_macos(
 }
 
 #[cfg(not(target_os = "macos"))]
-fn sync_header_window_controls_linux(
+fn capture_linux_baseline(
     hdr: &adw::HeaderBar,
     baseline: &Rc<Cell<Option<(bool, bool)>>>,
     show_chrome: bool,
@@ -89,12 +89,11 @@ fn sync_header_window_controls_linux(
             baseline.set(Some((s, e)));
         }
     }
+}
 
-    let (s_on, e_on) = baseline
-        .get()
-        .filter(|&(s, e)| s || e)
-        .unwrap_or((true, true));
-
+/// Apply the captured baseline (or GTK defaults) to both title-button sides.
+#[cfg(not(target_os = "macos"))]
+fn apply_linux_title_buttons(hdr: &adw::HeaderBar, s_on: bool, e_on: bool, show_chrome: bool) {
     if show_chrome {
         hdr.set_show_start_title_buttons(s_on);
         hdr.set_show_end_title_buttons(e_on);
@@ -102,5 +101,20 @@ fn sync_header_window_controls_linux(
         hdr.set_show_start_title_buttons(false);
         hdr.set_show_end_title_buttons(false);
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn sync_header_window_controls_linux(
+    hdr: &adw::HeaderBar,
+    baseline: &Rc<Cell<Option<(bool, bool)>>>,
+    show_chrome: bool,
+) {
+    capture_linux_baseline(hdr, baseline, show_chrome);
+
+    let (s_on, e_on) = baseline
+        .get()
+        .filter(|&(s, e)| s || e)
+        .unwrap_or((true, true));
+    apply_linux_title_buttons(hdr, s_on, e_on, show_chrome);
     hdr.queue_allocate();
 }

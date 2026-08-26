@@ -41,34 +41,74 @@ pub(crate) fn pin_vsscript_python() {
 
 fn pin_once() -> Result<&'static str, String> {
     for name in VSSCRIPT_LIB_NAMES {
-        let Ok(cname) = std::ffi::CString::new(*name) else {
-            continue;
-        };
-        let handle = unsafe { libc::dlopen(cname.as_ptr(), libc::RTLD_NOW | libc::RTLD_GLOBAL) };
-        if handle.is_null() {
-            continue;
+        // Err aborts the search (API answered but failed); Ok(None) skips to the next candidate.
+        match try_pin_via_lib(name) {
+            Ok(Some(pinned)) => return Ok(pinned),
+            Ok(None) => continue,
+            Err(e) => return Err(e),
         }
-        let sym = unsafe { libc::dlsym(handle, c"getVSScriptAPI".as_ptr()) };
-        if sym.is_null() {
-            continue;
-        }
-        let get_api: unsafe extern "C" fn(libc::c_int) -> *const VsScriptApi =
-            unsafe { std::mem::transmute(sym) };
-        let api = unsafe { get_api(VSSCRIPT_API_4_1) };
-        if api.is_null() {
-            return Err(format!(
-                "getVSScriptAPI(4.1) returned NULL via {name}{}",
-                vsscript_last_error(handle)
-            ));
-        }
-        // Intentionally leaked: this environment is the pin that keeps Python initialized.
-        let script = unsafe { ((*api).create_script)(std::ptr::null_mut()) };
-        if script.is_null() {
-            return Err(format!("createScript failed via {name}"));
-        }
-        return Ok(name);
     }
     Err("no VSScript library with getVSScriptAPI found via dlopen".into())
+}
+
+/// Try one candidate library: `dlopen` → `getVSScriptAPI(4.1)` → leak one script environment.
+/// `Ok(Some(name))` = pinned; `Ok(None)` = unusable candidate, try the next; `Err` = hard failure.
+fn try_pin_via_lib(name: &&'static str) -> Result<Option<&'static str>, String> {
+    match probe_vsscript_api(name) {
+        VsscriptProbe::Skip => Ok(None),
+        VsscriptProbe::ApiNull(handle) => Err(format!(
+            "getVSScriptAPI(4.1) returned NULL via {name}{}",
+            vsscript_last_error(handle)
+        )),
+        VsscriptProbe::Api(api) => create_pin_script(api, name),
+    }
+}
+
+/// Outcome of resolving one candidate library.
+enum VsscriptProbe {
+    /// Unusable candidate — try the next library name.
+    Skip,
+    /// `getVSScriptAPI` answered `NULL`; carries the handle for last-error detail.
+    ApiNull(*mut libc::c_void),
+    /// API4.1 table resolved.
+    Api(*const VsScriptApi),
+}
+
+/// `dlopen` the candidate and resolve `getVSScriptAPI(VSSCRIPT_API_4_1)`.
+fn probe_vsscript_api(name: &&'static str) -> VsscriptProbe {
+    let Ok(cname) = std::ffi::CString::new(*name) else {
+        return VsscriptProbe::Skip;
+    };
+    unsafe {
+        let handle = libc::dlopen(cname.as_ptr(), libc::RTLD_NOW | libc::RTLD_GLOBAL);
+        if handle.is_null() {
+            return VsscriptProbe::Skip;
+        }
+        let sym = libc::dlsym(handle, c"getVSScriptAPI".as_ptr());
+        if sym.is_null() {
+            return VsscriptProbe::Skip;
+        }
+        let get_api: unsafe extern "C" fn(libc::c_int) -> *const VsScriptApi =
+            std::mem::transmute(sym);
+        let api = get_api(VSSCRIPT_API_4_1);
+        if api.is_null() {
+            VsscriptProbe::ApiNull(handle)
+        } else {
+            VsscriptProbe::Api(api)
+        }
+    }
+}
+
+/// Create (and intentionally leak) one script environment — the pin that keeps Python alive.
+fn create_pin_script(
+    api: *const VsScriptApi,
+    name: &&'static str,
+) -> Result<Option<&'static str>, String> {
+    let script = unsafe { ((*api).create_script)(std::ptr::null_mut()) };
+    if script.is_null() {
+        return Err(format!("createScript failed via {name}"));
+    }
+    Ok(Some(name))
 }
 
 /// Best-effort detail from `getVSScriptAPILastError` (VSScript API 4.3+).

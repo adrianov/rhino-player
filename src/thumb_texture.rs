@@ -59,20 +59,28 @@ pub fn thumb_webp_is_flat_fill(bytes: &[u8]) -> bool {
     if w == 0 || h == 0 || rgb.len() < w * h * 3 {
         return true;
     }
+    sampled_color_bucket_count(&rgb, w, h) < 8
+}
+
+/// Number of distinct 16-level color buckets among an ~8×8 grid of samples.
+fn sampled_color_bucket_count(rgb: &[u8], w: usize, h: usize) -> usize {
     let step_y = (h / 8).max(1);
     let step_x = (w / 8).max(1);
     let mut buckets = std::collections::HashSet::new();
     for y in (0..h).step_by(step_y) {
-        let row = y * w * 3;
         for x in (0..w).step_by(step_x) {
-            let i = row + x * 3;
-            if i + 2 >= rgb.len() {
-                continue;
-            }
-            buckets.insert((rgb[i] / 16, rgb[i + 1] / 16, rgb[i + 2] / 16));
+            sample_bucket(&mut buckets, rgb, y * w * 3 + x * 3);
         }
     }
-    buckets.len() < 8
+    buckets.len()
+}
+
+/// Adds the 16-level bucket of the pixel starting at [i]; out-of-range samples are ignored.
+fn sample_bucket(buckets: &mut std::collections::HashSet<(u8, u8, u8)>, rgb: &[u8], i: usize) {
+    if i + 2 >= rgb.len() {
+        return;
+    }
+    buckets.insert((rgb[i] / 16, rgb[i + 1] / 16, rgb[i + 2] / 16));
 }
 
 thread_local! {
@@ -149,8 +157,7 @@ mod tests {
             px[2] = 250;
             px[3] = 255;
         }
-        let webp =
-            encode_packed_webp(&bgra, w, h, w as usize, PixelLayout::Bgra8).expect("encode");
+        let webp = encode_packed_webp(&bgra, w, h, w as usize, PixelLayout::Bgra8).expect("encode");
         assert!(thumb_webp_is_flat_fill(&webp));
     }
 
@@ -159,15 +166,20 @@ mod tests {
         let w = 4u32;
         let h = 3u32;
         let mut bgra: Vec<u8> = Vec::with_capacity(w as usize * h as usize * 4);
-        for i in 0..(w * h) {
-            let v = (i % 251) as u8;
-            bgra.extend_from_slice(&[v.wrapping_add(2), v.wrapping_add(1), v, 255]);
-        }
+        fill_bgra_ramp(&mut bgra, w * h);
         let webp = encode_packed_webp(&bgra, w, h, w as usize, PixelLayout::Bgra8).expect("encode");
         assert!(thumb_webp_valid(&webp));
         let (rgb, dw, dh) = zenwebp::oneshot::decode_rgb(&webp).expect("decode");
         assert_eq!((dw, dh), (w, h));
         assert_eq!(rgb.len(), w as usize * h as usize * 3);
         assert!(rgb.iter().any(|&b| b > 0));
+    }
+
+    /// Deterministic non-uniform BGRA pixel ramp used by roundtrip tests.
+    fn fill_bgra_ramp(bgra: &mut Vec<u8>, pixels: u32) {
+        for i in 0..pixels {
+            let v = (i % 251) as u8;
+            bgra.extend_from_slice(&[v.wrapping_add(2), v.wrapping_add(1), v, 255]);
+        }
     }
 }

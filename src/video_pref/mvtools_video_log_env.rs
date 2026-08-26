@@ -4,9 +4,7 @@ use std::sync::Mutex;
 
 pub(crate) fn mpv_path_is_disc(path: &str) -> bool {
     let p = path.trim().to_ascii_lowercase();
-    p.starts_with("bd://")
-        || p.starts_with("bluray://")
-        || p.starts_with("dvd://")
+    p.starts_with("bd://") || p.starts_with("bluray://") || p.starts_with("dvd://")
 }
 
 fn path_str_is_dvd_vob(path: Option<&str>) -> bool {
@@ -18,10 +16,7 @@ fn shell_path_is_dvd_vob(shell: Option<&std::path::Path>) -> bool {
     shell.is_some_and(crate::video_ext::is_dvd_vob_path)
 }
 
-fn media_is_dvd_vob(
-    mpv: &libmpv2::Mpv,
-    bundle: Option<&crate::mpv_embed::MpvBundle>,
-) -> bool {
+fn media_is_dvd_vob(mpv: &libmpv2::Mpv, bundle: Option<&crate::mpv_embed::MpvBundle>) -> bool {
     crate::video_pref::me_budget_local_path(mpv, bundle)
         .is_some_and(|p| crate::video_ext::is_dvd_vob_path(&p))
 }
@@ -53,81 +48,30 @@ pub(super) fn source_fps_from_mpv(
     bundle: Option<&crate::mpv_embed::MpvBundle>,
 ) -> Option<f64> {
     let shell_media = crate::video_pref::me_budget_local_path(mpv, bundle);
-    let cfps = mpv
-        .get_property::<f64>("container-fps")
-        .ok()
-        .filter(|v| v.is_finite() && *v > 0.0);
-    let est = mpv
-        .get_property::<f64>("estimated-vf-fps")
-        .ok()
-        .filter(|v| v.is_finite() && *v > 0.0);
-    let path_now = mpv
-        .get_property::<String>("path")
-        .ok()
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty());
+    let (cfps, est_raw, path_now) = read_source_fps_props(mpv);
     let mut gate = FPS_PICK_GATE.lock().unwrap_or_else(|e| e.into_inner());
-    let est = mask_est_for_path_change_with_state(
+    let (picked, mpv_pick, dvd_pick) = pick_cadence_candidate(
+        mpv,
+        bundle,
+        cfps,
+        est_raw,
         path_now.clone(),
-        est,
-        &mut gate,
         shell_media.as_deref(),
+        &mut gate,
     );
-    let est = if ignore_est_for_source_pick(path_now.as_deref(), mpv, shell_media.as_deref()) {
-        None
-    } else {
-        est
-    };
-    // `estimated-vf-fps` tracks vf output (~60 Hz) or display-resample — not source cadence.
-    let est = est.filter(|e| is_plausible_broadcast_fps(*e));
-    let mut picked = source_fps_from_container_and_estimated(cfps, est);
-    let mpv_pick = picked;
-    picked = stabilize_disc_source_fps(
+    finalize_source_fps_pick(
+        &mut gate,
+        picked,
+        mpv_pick,
+        dvd_pick,
         path_now.as_deref(),
         shell_media.as_deref(),
-        picked,
-        &mut gate,
-    );
-    let mut dvd_pick = None;
-    if media_is_dvd_vob(mpv, bundle) {
-        let fps =
-            crate::video_ext::dvd_vob_broadcast_fps(crate::video_pref::decode_wh_from_mpv(mpv))
-                .or(Some(25.0));
-        picked = fps;
-        dvd_pick = fps;
-        gate.interleaved_smooth = false;
-        gate.stable_streak = CADENCE_STABLE_READS;
-        gate.last_stable_fps = fps;
-    }
-    if picked.is_none()
-        && !path_now.as_deref().is_some_and(mpv_path_is_disc)
-        && !media_is_dvd_vob(mpv, bundle)
-    {
-        picked = shell_media
-            .as_deref()
-            .and_then(crate::db::media_source_fps)
-            .or_else(|| sticky_local_source_fps(&gate));
-    }
-    let picked = update_interleaved_cadence_gate(
-        path_now.as_deref(),
-        shell_media.as_deref(),
-        picked,
-        &mut gate,
-    );
-    let picked = picked.and_then(crate::db::snap_broadcast_fps_hz);
-    if let Some(path) = shell_media.as_deref() {
-        if let Some(fps) = mpv_pick.and_then(crate::db::snap_broadcast_fps_hz) {
-            crate::db::media_save_source_fps(path, fps);
-        } else if let Some(fps) = dvd_pick.and_then(crate::db::snap_broadcast_fps_hz) {
-            crate::db::media_save_source_fps(path, fps);
-        }
-    }
-    picked
+    )
 }
 
+include!("source_fps_pick_steps.rs");
 include!("source_fps_sticky.rs");
 
-/// Gate-only cadence pick for [super::apply_mpv_video]; publish env via [apply_source_fps_env] once.
 pub(super) fn refresh_smooth_cadence_gate(
     mpv: &libmpv2::Mpv,
     bundle: Option<&crate::mpv_embed::MpvBundle>,
@@ -166,7 +110,11 @@ pub(super) fn apply_source_fps_env(fps: Option<f64>) {
     match fps.and_then(crate::db::snap_broadcast_fps_hz) {
         Some(fps) => {
             let s = format!("{fps:.6}");
-            if std::env::var(crate::paths::RHINO_SOURCE_FPS_VAR).ok().as_deref() == Some(s.as_str()) {
+            if std::env::var(crate::paths::RHINO_SOURCE_FPS_VAR)
+                .ok()
+                .as_deref()
+                == Some(s.as_str())
+            {
                 return;
             }
             std::env::set_var(crate::paths::RHINO_SOURCE_FPS_VAR, &s);

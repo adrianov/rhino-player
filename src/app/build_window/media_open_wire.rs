@@ -21,7 +21,17 @@ struct MediaOpenParts<'a> {
 
 impl MediaOpenWire {
     fn attach(p: MediaOpenParts<'_>) -> Self {
-        let play_ctx = PlayToggleCtx {
+        let play_ctx = Self::make_play_ctx(&p);
+        wire_play_toggles(&p.w.play_pause, play_ctx.clone());
+        let on_open = Self::make_on_open(&p);
+        *p.on_open_slot.borrow_mut() = Some(on_open.clone());
+        wire_window_drop_targets(&p.w.win, p.player, &p.w.sub_menu, &on_open);
+        wire_sibling_navigation(Self::make_nav_ctx(&p));
+        Self { play_ctx, on_open }
+    }
+
+    fn make_play_ctx(p: &MediaOpenParts<'_>) -> PlayToggleCtx {
+        PlayToggleCtx {
             app: p.app.clone(),
             player: p.player.clone(),
             video_pref: Rc::clone(p.video_pref),
@@ -38,9 +48,11 @@ impl MediaOpenWire {
             hdr_title_mirror: p.w.hdr_title_mirror.clone(),
             playback_focus: Rc::clone(p.playback_focus),
             incomplete_hold: Rc::clone(&p.sibling_seof.incomplete_hold),
-        };
-        wire_play_toggles(&p.w.play_pause, play_ctx.clone());
-        let on_open = make_on_open_handler(OpenHandlerCtx {
+        }
+    }
+
+    fn make_on_open(p: &MediaOpenParts<'_>) -> RcPathFn {
+        make_on_open_handler(OpenHandlerCtx {
             player: p.player.clone(),
             win: p.w.win.clone(),
             gl: p.w.gl_area.clone(),
@@ -54,10 +66,11 @@ impl MediaOpenWire {
             hdr_title_mirror: p.w.hdr_title_mirror.clone(),
             playback_focus: Rc::clone(p.playback_focus),
             on_open_fail: Rc::clone(&p.on_open_fail),
-        });
-        *p.on_open_slot.borrow_mut() = Some(on_open.clone());
-        wire_window_drop_targets(&p.w.win, p.player, &p.w.sub_menu, &on_open);
-        wire_sibling_navigation(SiblingNavCtx {
+        })
+    }
+
+    fn make_nav_ctx(p: &MediaOpenParts<'_>) -> SiblingNavCtx {
+        SiblingNavCtx {
             btn_prev: p.w.sibling_nav.prev_btn.clone(),
             btn_next: p.w.sibling_nav.next_btn.clone(),
             win: p.w.win.clone(),
@@ -73,7 +86,6 @@ impl MediaOpenWire {
             hdr_title_mirror: p.w.hdr_title_mirror.clone(),
             playback_focus: Rc::clone(p.playback_focus),
             on_open_fail: Rc::clone(&p.on_open_fail),
-        });
-        Self { play_ctx, on_open }
+        }
     }
 }

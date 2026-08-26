@@ -80,12 +80,7 @@ pub(crate) fn aspect_one_axis_deltas(ww: i32, hh: i32, vw: i64, vh: i64) -> (i32
     let target_h = height_for_width(ww, vw, vh);
     let dw = target_w - ww;
     let dh = target_h - hh;
-    (
-        dw.max(0),
-        (-dw).max(0),
-        dh.max(0),
-        (-dh).max(0),
-    )
+    (dw.max(0), (-dw).max(0), dh.max(0), (-dh).max(0))
 }
 
 fn size_ok(nw: i32, nh: i32) -> bool {
@@ -99,6 +94,42 @@ fn side_delta_ok(cur: i32, delta: i32) -> bool {
     f64::from(delta.unsigned_abs()) / f64::from(cur.max(1)) <= ASPECT_MAX_SIDE_DELTA_FRAC
 }
 
+/// Candidate new size for a one-axis nudge, validated against hard size limits.
+fn axis_new_size(ww: i32, hh: i32, axis: SnapAxis, mag: i32) -> Option<(i32, i32)> {
+    let (nw, nh) = match axis {
+        SnapAxis::PlusW => (ww + mag, hh),
+        SnapAxis::MinusW => (ww - mag, hh),
+        SnapAxis::PlusH => (ww, hh + mag),
+        SnapAxis::MinusH => (ww, hh - mag),
+    };
+    size_ok(nw, nh).then_some((nw, nh))
+}
+
+/// Per-side extent the nudge moves, paired with its absolute delta.
+fn axis_moved_side(nw: i32, nh: i32, ww: i32, hh: i32, axis: SnapAxis) -> (i32, i32) {
+    match axis {
+        SnapAxis::PlusW | SnapAxis::MinusW => (ww, (nw - ww).abs()),
+        SnapAxis::PlusH | SnapAxis::MinusH => (hh, (nh - hh).abs()),
+    }
+}
+
+/// Keep the candidate only when it nudges less than every axis seen so far.
+fn record_best_axis(
+    axis: SnapAxis,
+    nw: i32,
+    nh: i32,
+    mag: i32,
+    best: &mut Option<(SnapAxis, i32, i32, i32)>,
+) {
+    let replace = match *best {
+        None => true,
+        Some((_, _, _, bm)) => mag < bm,
+    };
+    if replace {
+        *best = Some((axis, nw, nh, mag));
+    }
+}
+
 fn try_axis(
     ww: i32,
     hh: i32,
@@ -109,44 +140,28 @@ fn try_axis(
     if mag == 0 {
         return;
     }
-    let (nw, nh) = match axis {
-        SnapAxis::PlusW => (ww + mag, hh),
-        SnapAxis::MinusW => (ww - mag, hh),
-        SnapAxis::PlusH => (ww, hh + mag),
-        SnapAxis::MinusH => (ww, hh - mag),
-    };
-    if !size_ok(nw, nh) {
+    let Some((nw, nh)) = axis_new_size(ww, hh, axis, mag) else {
         return;
-    }
-    let (cur, delta) = match axis {
-        SnapAxis::PlusW | SnapAxis::MinusW => (ww, (nw - ww).abs()),
-        SnapAxis::PlusH | SnapAxis::MinusH => (hh, (nh - hh).abs()),
     };
+    let (cur, delta) = axis_moved_side(nw, nh, ww, hh, axis);
     if !side_delta_ok(cur, delta) {
         return;
     }
-    let replace = match *best {
-        None => true,
-        Some((_, _, _, bm)) => mag < bm,
-    };
-    if replace {
-        *best = Some((axis, nw, nh, mag));
-    }
+    record_best_axis(axis, nw, nh, mag, best);
 }
 
-/// Smallest one-axis nudge (+W / −W / +H / −H) within the 50% per-side cap.
-pub(crate) fn snap_size_after_user_resize(
-    ww: i32,
-    hh: i32,
-    vw: i64,
-    vh: i64,
-) -> Option<(i32, i32)> {
-    if vw <= 0 || vh <= 0 || ww < 2 || hh < 2 {
-        return None;
-    }
-    if aspect_rel_err(ww, hh, vw, vh) <= ASPECT_ALREADY_REL || !snap_eligible(ww, hh, vw, vh) {
-        return None;
-    }
+/// Degenerate sizes or an already-aligned aspect need no nudge.
+fn snap_not_needed(ww: i32, hh: i32, vw: i64, vh: i64) -> bool {
+    vw <= 0
+        || vh <= 0
+        || ww < 2
+        || hh < 2
+        || aspect_rel_err(ww, hh, vw, vh) <= ASPECT_ALREADY_REL
+        || !snap_eligible(ww, hh, vw, vh)
+}
+
+/// Search all four one-axis nudges for the smallest that stays within limits.
+fn smallest_axis_nudge(ww: i32, hh: i32, vw: i64, vh: i64) -> Option<(i32, i32)> {
     let (plus_w, minus_w, plus_h, minus_h) = aspect_one_axis_deltas(ww, hh, vw, vh);
     if plus_w == 0 && minus_w == 0 && plus_h == 0 && minus_h == 0 {
         return None;
@@ -157,6 +172,19 @@ pub(crate) fn snap_size_after_user_resize(
     try_axis(ww, hh, SnapAxis::MinusH, minus_h, &mut best);
     try_axis(ww, hh, SnapAxis::PlusH, plus_h, &mut best);
     best.map(|(_, nw, nh, _)| (nw, nh))
+}
+
+/// Smallest one-axis nudge (+W / −W / +H / −H) within the 50% per-side cap.
+pub(crate) fn snap_size_after_user_resize(
+    ww: i32,
+    hh: i32,
+    vw: i64,
+    vh: i64,
+) -> Option<(i32, i32)> {
+    if snap_not_needed(ww, hh, vw, vh) {
+        return None;
+    }
+    smallest_axis_nudge(ww, hh, vw, vh)
 }
 
 #[cfg(test)]

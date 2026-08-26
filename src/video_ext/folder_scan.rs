@@ -8,19 +8,31 @@ use super::is_video_path;
 
 /// Sorted video **files** directly under `dir` (no canonicalize — works on exFAT / network volumes).
 pub(crate) fn list_videos_in_dir(dir: &Path) -> Option<Vec<PathBuf>> {
-    let mut v: Vec<PathBuf> = fs::read_dir(dir)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| is_video_path(p))
-        .collect();
+    let mut v = video_paths_in(dir)?;
+    sort_naturally(&mut v);
+    Some(v)
+}
+
+/// Video **files** directly under `dir` (no canonicalize — works on exFAT / network volumes).
+fn video_paths_in(dir: &Path) -> Option<Vec<PathBuf>> {
+    Some(
+        fs::read_dir(dir)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| is_video_path(p))
+            .collect(),
+    )
+}
+
+/// Natural (numeric-aware) order by file name.
+pub(super) fn sort_naturally(v: &mut [PathBuf]) {
     v.sort_by(|a, b| {
         natural_lexical_cmp(
             a.file_name().and_then(|n| n.to_str()).unwrap_or(""),
             b.file_name().and_then(|n| n.to_str()).unwrap_or(""),
         )
     });
-    Some(v)
 }
 
 pub(crate) fn dir_has_videos(dir: &Path) -> bool {

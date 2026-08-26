@@ -16,7 +16,14 @@ fn chapter_dur_for_still(
     dur_by_path: &HashMap<String, f64>,
 ) -> f64 {
     if let Some(b) = bar {
-        return crate::dvd_vob_timeline::preview_chapter_dur(b, global, idx, local, load, dur_by_path);
+        return crate::dvd_vob_timeline::preview_chapter_dur(
+            b,
+            global,
+            idx,
+            local,
+            load,
+            dur_by_path,
+        );
     }
     let mut dur = tl.chapter_dur_at(idx);
     let mapped = crate::dvd_vob_timeline::dur_from_map(dur_by_path, load);
@@ -38,23 +45,38 @@ pub(crate) fn still_at_global(
 ) -> Option<DvdStillTarget> {
     let live = chapter_dur_from_map(probe, dur_by_path);
     let built = build_title_timeline_with(probe, dur_by_path, live, TimelineBuildOpts::CACHE_ONLY);
-    let tl = bar.map(|b| &b.tl).or(built.as_ref())?;
-    let total = tl.total_sec;
-    if !(total > 0.0) {
-        return None;
-    }
-    let g = global_sec.clamp(0.0, total);
-    let (idx, mut local) = tl.resolve_global(g);
+    let tl = nonempty_still_timeline(bar, built.as_ref())?;
+    let g = global_sec.clamp(0.0, tl.total_sec);
+    let (idx, local) = tl.resolve_global(g);
     let load = tl.path_at(idx)?;
-    let mut chapter_dur = chapter_dur_for_still(tl, bar, g, idx, local, load, dur_by_path);
+    let chapter_dur = chapter_dur_for_still(tl, bar, g, idx, local, load, dur_by_path);
+    let (chapter_dur, local) = cap_still_to_open_chapter(load, local, chapter_dur, open_cap);
+    still_target_at_chapter(tl, idx, local, dur_by_path, Some(chapter_dur))
+}
+
+/// Prefer the bar's timeline when present; require a positive total.
+fn nonempty_still_timeline<'a>(
+    bar: Option<&'a crate::dvd_vob_timeline::DvdBarState>,
+    built: Option<&'a DvdVobTimeline>,
+) -> Option<&'a DvdVobTimeline> {
+    let tl = bar.map(|b| &b.tl).or(built)?;
+    (tl.total_sec > 0.0).then_some(tl)
+}
+
+/// When previewing the chapter mpv already has open, cap the seek to its decoded length.
+fn cap_still_to_open_chapter(
+    load: &Path,
+    local: f64,
+    chapter_dur: f64,
+    open_cap: Option<&StillOpenCap>,
+) -> (f64, f64) {
     if let Some(open) = open_cap {
         if crate::video_ext::paths_same_file(load, &open.chapter) {
             let cap = crate::dvd_vob_timeline::clamp_vob_duration(open.mpv_dur);
             if cap > 0.0 {
-                chapter_dur = chapter_dur.min(cap);
-                local = local.min((cap - 0.05).max(0.0));
+                return (chapter_dur.min(cap), local.min((cap - 0.05).max(0.0)));
             }
         }
     }
-    still_target_at_chapter(tl, idx, local, dur_by_path, Some(chapter_dur))
+    (chapter_dur, local)
 }

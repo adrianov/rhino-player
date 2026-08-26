@@ -19,14 +19,16 @@
 #![allow(deprecated)]
 
 use std::os::raw::c_void;
-use std::ptr::{self, NonNull};
+
+mod output_callback;
+
+use self::output_callback::{create_display_link, start_display_link};
+use std::ptr::{self};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use objc2::rc::Retained;
-use objc2_core_video::{
-    CVDisplayLink, CVDisplayLinkCreateWithActiveCGDisplays, CVReturn, CVTimeStamp,
-};
+use objc2_core_video::CVDisplayLink;
 
 use super::macos_video_layer::RhinoMpvGlLayer;
 
@@ -71,24 +73,9 @@ impl DisplayLinkDriver {
         layer: Retained<RhinoMpvGlLayer>,
     ) -> Result<(Self, Arc<DriverStateHandle>), String> {
         let state = DriverState::new(layer);
-        let mut link_ptr: *mut CVDisplayLink = ptr::null_mut();
-        let err = unsafe { CVDisplayLinkCreateWithActiveCGDisplays(NonNull::from(&mut link_ptr)) };
-        if err != 0 || link_ptr.is_null() {
-            return Err(format!(
-                "CVDisplayLinkCreateWithActiveCGDisplays failed: {err}"
-            ));
-        }
-        let link: Retained<CVDisplayLink> =
-            unsafe { Retained::from_raw(link_ptr).ok_or("displayLink retain failed")? };
+        let link = create_display_link()?;
         let user_info = state.as_ref() as *const DriverState as *mut c_void;
-        let err = unsafe { link.set_output_callback(Some(display_link_callback), user_info) };
-        if err != 0 {
-            return Err(format!("set_output_callback failed: {err}"));
-        }
-        let err = link.start();
-        if err != 0 {
-            return Err(format!("CVDisplayLinkStart failed: {err}"));
-        }
+        start_display_link(&link, user_info)?;
         let handle = Arc::new(DriverStateHandle {
             ptr: state.as_ref() as *const DriverState,
         });
@@ -182,29 +169,4 @@ impl DriverStateHandle {
                 .store(false, Ordering::Release);
         }
     }
-}
-
-/// CVDisplayLink output callback. Runs on the displayLink's dedicated kernel thread, so
-/// it keeps firing even when the GTK/AppKit main thread is parked in a modal tracking
-/// loop (menu / popover).
-unsafe extern "C-unwind" fn display_link_callback(
-    _link: ptr::NonNull<CVDisplayLink>,
-    _now: ptr::NonNull<CVTimeStamp>,
-    _output_time: ptr::NonNull<CVTimeStamp>,
-    _flags_in: u64,
-    _flags_out: ptr::NonNull<u64>,
-    user_info: *mut c_void,
-) -> CVReturn {
-    if user_info.is_null() {
-        return 0;
-    }
-    let state = unsafe { &*(user_info as *const DriverState) };
-    if state.vf_teardown_suppress.load(Ordering::Acquire) {
-        state.pending.store(false, Ordering::Release);
-        return 0;
-    }
-    if state.pending.swap(false, Ordering::AcqRel) {
-        state.layer.display_now();
-    }
-    0
 }

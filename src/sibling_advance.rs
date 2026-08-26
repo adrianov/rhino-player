@@ -46,6 +46,39 @@ mod dvd {
 }
 use dvd::{dvd_disc_sibling, is_dvd_queue_path};
 
+/// Sibling entries after `idx` (step > 0) or before it, reversed (step < 0); [None] for step 0.
+fn step_ordered(subs: &[PathBuf], idx: usize, step: isize) -> Option<Vec<&PathBuf>> {
+    match step.signum() {
+        1 => Some(subs.iter().skip(idx + 1).collect()),
+        -1 => Some(subs.iter().take(idx).rev().collect()),
+        _ => None,
+    }
+}
+
+/// First (forward) or last (backward) video in the adjacent sibling subfolder of `dir`,
+/// under the same enclosing directory. Skips siblings without videos.
+fn adjacent_sibling_dir_video(dir: &Path, step: isize) -> Option<PathBuf> {
+    let parent = dir.parent()?;
+    let my = dir.file_name()?;
+    let subs = child_dirs_sorted(parent);
+    let idx = subs.iter().position(|s| s.file_name() == Some(my))?;
+    for sdir in step_ordered(&subs, idx, step)? {
+        if let Some(f) = sibling_video(sdir, step) {
+            return Some(f);
+        }
+    }
+    None
+}
+
+/// First video (forward step) or last video (backward step) in [sdir].
+fn sibling_video(sdir: &Path, step: isize) -> Option<PathBuf> {
+    if step > 0 {
+        first_video_in_dir(sdir)
+    } else {
+        last_video_in_dir(sdir)
+    }
+}
+
 /// Local file that follows `current` in the same **sorted** folder, then—if that folder is
 /// exhausted—the first video in the next sibling directory under the **same** enclosing directory
 /// only (e.g. next season next to the current season). There is **no** walk further up the tree, so
@@ -69,16 +102,7 @@ pub(crate) fn next_after_eof(current: &Path) -> Option<PathBuf> {
         }
     }
 
-    let parent = dir.parent()?;
-    let my = dir.file_name()?;
-    let subs = child_dirs_sorted(parent);
-    let idx = subs.iter().position(|s| s.file_name() == Some(my))?;
-    for sdir in subs.iter().skip(idx + 1) {
-        if let Some(f) = first_video_in_dir(sdir) {
-            return Some(f);
-        }
-    }
-    None
+    adjacent_sibling_dir_video(dir, 1)
 }
 
 /// Symmetric to [next_after_eof]: the previous file in the same folder, or the **last** video in
@@ -105,19 +129,11 @@ pub(crate) fn prev_before_current(current: &Path) -> Option<PathBuf> {
         return None;
     }
 
-    let parent = dir.parent()?;
-    let my = dir.file_name()?;
-    let subs = child_dirs_sorted(parent);
-    let idx = subs.iter().position(|s| s.file_name() == Some(my))?;
-    for sdir in subs.iter().take(idx).rev() {
-        if let Some(f) = last_video_in_dir(sdir) {
-            return Some(f);
-        }
-    }
-    None
+    adjacent_sibling_dir_video(dir, -1)
 }
 
 #[cfg(test)]
 mod tests {
     include!("sibling_advance_tests.rs");
+    include!("sibling_advance_tests_dvd.rs");
 }

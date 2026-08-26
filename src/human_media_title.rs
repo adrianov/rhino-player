@@ -50,33 +50,55 @@ fn process_release_style(trimmed: &str) -> String {
     let had_glued = patterns().glued_dots.is_match(&title);
     let tail = parse_tail_strip_markers(&mut title);
 
-    strip_year_ellipsis(&mut title);
-    fix_paren_edges(&mut title);
-    insert_space_before_word_paren(&mut title);
-    strip_curly_groups(&mut title);
-    brackets_to_spaces(&mut title);
-    collapse_ws_inplace(&mut title);
-    merged_rip_spacing(&mut title);
-    strip_bluray(&mut title);
-    strip_extra_word_tags(&mut title);
-    strip_tech_tags(&mut title);
-    strip_resolution_tokens(&mut title);
-    strip_leftover_season_tokens(&mut title);
-    strip_dd_dot_dates(&mut title);
-    tidy_paren_commas(&mut title);
+    strip_structural_noise(&mut title);
+    strip_tag_tokens(&mut title);
 
-    if had_glued || (!title.contains(' ') && title.contains('.')) {
-        title = title.replace('.', " ");
-    }
-    normalize_hyphen_spaces(&mut title);
-    cleanup_dot_edges(&mut title);
-    strip_hd_sd_parens(&mut title);
-    trim_edges_inplace(&mut title);
+    title = split_dots_if_glued(title, had_glued);
+    polish_edges(&mut title);
 
     if title.is_empty() {
         title = naive_fallback(trimmed);
     }
     compose_tail(title, tail)
+}
+
+/// Glued filenames (`Foo.Bar.Baz`) keep their dots as word separators only when
+/// nothing spaced them out earlier.
+fn split_dots_if_glued(title: String, had_glued: bool) -> String {
+    if had_glued || (!title.contains(' ') && title.contains('.')) {
+        title.replace('.', " ")
+    } else {
+        title
+    }
+}
+
+/// Parenthesis / bracket / curly layout noise left behind after marker stripping.
+fn strip_structural_noise(s: &mut String) {
+    strip_year_ellipsis(s);
+    fix_paren_edges(s);
+    insert_space_before_word_paren(s);
+    strip_curly_groups(s);
+    brackets_to_spaces(s);
+    collapse_ws_inplace(s);
+}
+
+fn strip_tag_tokens(s: &mut String) {
+    merged_rip_spacing(s);
+    strip_bluray(s);
+    strip_extra_word_tags(s);
+    strip_tech_tags(s);
+    strip_resolution_tokens(s);
+    strip_leftover_season_tokens(s);
+    strip_dd_dot_dates(s);
+    tidy_paren_commas(s);
+}
+
+/// Final edge cleanup once the tag vocabulary is gone.
+fn polish_edges(s: &mut String) {
+    normalize_hyphen_spaces(s);
+    cleanup_dot_edges(s);
+    strip_hd_sd_parens(s);
+    trim_edges_inplace(s);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,30 +111,27 @@ enum Tail {
 
 fn parse_tail_strip_markers(work: &mut String) -> Tail {
     let p = patterns();
-    if let Some(c) = p.se.captures(work.as_str()) {
-        let s = c[1].parse().unwrap_or(0);
-        let e = c[2].parse().unwrap_or(0);
-        *work = p.se.replace_all(work, " ").into_owned();
-        return Tail::SeasonEp { s, e };
+    if let Some(n) = take_tail_nums(work, &p.se, 2) {
+        return Tail::SeasonEp { s: n[0], e: n[1] };
     }
-    if let Some(c) = p.season_range.captures(work.as_str()) {
-        let a = c[1].parse().unwrap_or(0);
-        let b = c[2].parse().unwrap_or(0);
-        *work = p.season_range.replace_all(work, " ").into_owned();
-        return Tail::SeasonRange { a, b };
+    if let Some(n) = take_tail_nums(work, &p.season_range, 2) {
+        return Tail::SeasonRange { a: n[0], b: n[1] };
     }
-    if let Some(c) = p.n_by_ep.captures(work.as_str()) {
-        let s = c[1].parse().unwrap_or(0);
-        let e = c[2].parse().unwrap_or(0);
-        *work = p.n_by_ep.replace_all(work, " ").into_owned();
-        return Tail::SeasonEp { s, e };
+    if let Some(n) = take_tail_nums(work, &p.n_by_ep, 2) {
+        return Tail::SeasonEp { s: n[0], e: n[1] };
     }
-    if let Some(c) = p.season_only.captures(work.as_str()) {
-        let s = c[1].parse().unwrap_or(0);
-        *work = p.season_only.replace_all(work, " ").into_owned();
-        return Tail::SeasonOnly(s);
+    if let Some(n) = take_tail_nums(work, &p.season_only, 1) {
+        return Tail::SeasonOnly(n[0]);
     }
     Tail::None
+}
+
+/// Capture `count` numeric groups from `re`'s first match, then blank every match out.
+fn take_tail_nums(work: &mut String, re: &Regex, count: usize) -> Option<Vec<u32>> {
+    let c = re.captures(work.as_str())?;
+    let nums = (1..=count).map(|i| c[i].parse().unwrap_or(0)).collect();
+    *work = re.replace_all(work.as_str(), " ").into_owned();
+    Some(nums)
 }
 
 fn compose_tail(mut base: String, tail: Tail) -> String {

@@ -1,3 +1,7 @@
+include!("undo_commit.rs");
+include!("undo_card_actions.rs");
+include!("undo_button.rs");
+
 fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
     let RecentUndoCtx {
         player,
@@ -14,269 +18,116 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
     } = ctx;
 
     let recent_backfill: Rc<RefCell<Option<Rc<RecentContext>>>> = Rc::new(RefCell::new(None));
-    let pending_recent_backfill: Rc<RefCell<Option<RecentBackfillJob>>> =
-        Rc::new(RefCell::new(None));
-    let recent_backfill_start: Rc<dyn Fn(Rc<RecentContext>, Vec<PathBuf>)> = {
-        let p = player.clone();
-        let pending = pending_recent_backfill.clone();
-        Rc::new(move |ctx, paths| schedule_or_defer_recent_backfill(&p, &pending, ctx, paths))
-    };
-    {
-        let rb = recent_backfill.clone();
-        let pending = pending_recent_backfill.clone();
-        recent_scrl.connect_destroy(move |_| {
-            pending.borrow_mut().take();
-            if let Some(ctx) = rb.borrow_mut().take() {
-                ctx.shutdown();
-            }
-        });
-    }
+    let (pending_recent_backfill, recent_backfill_start) =
+        wire_recent_backfill(&recent_backfill, &player, &recent_scrl);
 
-    let undo_remove_stack = Rc::new(RefCell::new(Vec::<ContinueBarUndo>::new()));
-    let undo_timer = Rc::new(RefCell::new(None::<glib::source::SourceId>));
-    type DismissTopRef = Rc<RefCell<Option<Weak<dyn Fn() + 'static>>>>;
-    let do_commit_weak: DismissTopRef = Rc::new(RefCell::new(None));
-    let ush_d = undo_shell.clone();
-    let ul_d = undo_label.clone();
-    let ub_d = undo_btn.clone();
-    let urs_d = undo_remove_stack.clone();
-    let uts_d = undo_timer.clone();
-    let wk_d = do_commit_weak.clone();
-    let do_commit: Rc<dyn Fn() + 'static> = Rc::new(move || {
-        cancel_undo_timer(uts_d.as_ref());
-        if urs_d.borrow_mut().pop().is_none() {
-            return;
-        }
-        sync_undo_bar(&ul_d, &ub_d, &ush_d, &urs_d);
-        if !urs_d.borrow().is_empty() {
-            if let Some(f) = wk_d.borrow().as_ref().and_then(|w| w.upgrade()) {
-                *uts_d.borrow_mut() = Some(glib::timeout_add_seconds_local(
-                    10,
-                    glib::clone!(
-                        #[strong]
-                        uts_d,
-                        move || {
-                            crate::glib_source_drop::finish_glib_source(uts_d.as_ref());
-                            f();
-                            glib::ControlFlow::Break
-                        }
-                    ),
-                ));
-            }
-        }
-    });
-    *do_commit_weak.borrow_mut() = Some(Rc::downgrade(&do_commit));
-    let on_remove_cell: Rc<RefCell<Option<RcPathFn>>> = Rc::new(RefCell::new(None));
-    let on_trash_slot: Rc<RefCell<Option<RcPathFn>>> = Rc::new(RefCell::new(None));
-    let fr_sl = flow_recent.clone();
-    let recent_rm = recent_scrl.clone();
-    let op_s = on_open.clone();
-    let rbf_rm = recent_backfill.clone();
-    let ur_stack = undo_remove_stack.clone();
-    let u_sh_rm = undo_shell.clone();
-    let undo_t_rm = undo_btn.clone();
-    let u_la_rm = undo_label.clone();
-    let ut_rm = undo_timer.clone();
-    let do_rm = do_commit.clone();
-    let cell_rm = on_remove_cell.clone();
-    let cell_t = on_trash_slot.clone();
-    let on_trash: RcPathFn = Rc::new({
-        let fr_t = fr_sl.clone();
-        let rec_t = recent_rm.clone();
-        let op_t = op_s.clone();
-        let rbf_t = rbf_rm.clone();
-        let ur_t = ur_stack.clone();
-        let u_la_t = u_la_rm.clone();
-        let undo_t_t = undo_t_rm.clone();
-        let u_sh_t = u_sh_rm.clone();
-        let do_t = do_rm.clone();
-        let ut_t = ut_rm.clone();
-        let cell_rm = cell_rm.clone();
-        let cell_t = cell_t.clone();
-        let cache_t = Rc::clone(&continue_grid_cache);
-        move |path: &Path| {
-            if !path.is_file() {
-                return;
-            }
-            let snap = capture_list_remove_undo(path);
-            let in_trash = match trash_xdg::trash_local_file_for_undo(path) {
-                Err(e) => {
-                    eprintln!("[rhino] move to trash (continue card): {e}");
-                    return;
-                }
-                Ok(loc) => {
-                    if loc.is_none() {
-                        eprintln!("[rhino] trash: could not locate trashed file for undo");
-                    }
-                    loc
-                }
-            };
-            remove_continue_entry(path);
-            if let Some(t) = in_trash {
-                ur_t.borrow_mut()
-                    .push(ContinueBarUndo::Trash { snap, in_trash: t });
-                sync_undo_bar(&u_la_t, &undo_t_t, &u_sh_t, &ur_t);
-                rearm_undo_dismiss(&do_t, &ut_t);
-            }
-            let f = cell_rm
-                .borrow()
-                .as_ref()
-                .expect("on_remove not wired")
-                .clone();
-            let t = cell_t
-                .borrow()
-                .as_ref()
-                .expect("on_trash not wired")
-                .clone();
-            reflow_continue_cards(&fr_t, &rec_t, op_t.clone(), f, t, &rbf_t, Rc::clone(&cache_t));
-        }
-    });
-    *on_trash_slot.borrow_mut() = Some(on_trash.clone());
-    let on_remove: RcPathFn = Rc::new({
-        let cell_rm = on_remove_cell.clone();
-        let tslot = on_trash_slot.clone();
-        let fr_sl = fr_sl;
-        let recent_rm = recent_rm;
-        let op_s = op_s;
-        let rbf_rm = rbf_rm;
-        let ur_stack = ur_stack.clone();
-        let u_la_rm = u_la_rm.clone();
-        let undo_t_rm = undo_t_rm.clone();
-        let u_sh_rm = u_sh_rm.clone();
-        let do_rm = do_rm.clone();
-        let ut_rm = ut_rm.clone();
-        let cache_rm = Rc::clone(&continue_grid_cache);
-        move |path: &Path| {
-            let u = capture_list_remove_undo(path);
-            remove_continue_entry(path);
-            ur_stack.borrow_mut().push(ContinueBarUndo::ListRemove(u));
-            sync_undo_bar(&u_la_rm, &undo_t_rm, &u_sh_rm, &ur_stack);
-            let f = cell_rm
-                .borrow()
-                .as_ref()
-                .expect("on_remove not wired")
-                .clone();
-            let t = tslot.borrow().as_ref().expect("on_trash not wired").clone();
-            reflow_continue_cards(
-                &fr_sl,
-                &recent_rm,
-                op_s.clone(),
-                f,
-                t,
-                &rbf_rm,
-                Rc::clone(&cache_rm),
-            );
-            rearm_undo_dismiss(&do_rm, &ut_rm);
-        }
-    });
-    *on_remove_cell.borrow_mut() = Some(on_remove.clone());
-
-    {
-        let fr_u = flow_recent.clone();
-        let rec_u = recent_scrl.clone();
-        let op_u = on_open.clone();
-        let rbf_u = recent_backfill.clone();
-        let ur_u = undo_remove_stack.clone();
-        let u_sh_u = undo_shell.clone();
-        let undo_t_u = undo_btn.clone();
-        let u_la_u = undo_label.clone();
-        let ut_u = undo_timer.clone();
-        let do_u = do_commit.clone();
-        let cell_u = on_remove_cell.clone();
-        let tslot_u = on_trash_slot.clone();
-        let cache_u = Rc::clone(&continue_grid_cache);
-        undo_btn.connect_clicked(glib::clone!(
-            #[strong]
-            cache_u,
-            #[strong]
-            fr_u,
-            #[strong]
-            rec_u,
-            #[strong]
-            op_u,
-            #[strong]
-            rbf_u,
-            #[strong]
-            ur_u,
-            #[strong]
-            u_sh_u,
-            #[strong]
-            undo_t_u,
-            #[strong]
-            u_la_u,
-            #[strong]
-            ut_u,
-            #[strong]
-            do_u,
-            #[strong]
-            cell_u,
-            #[strong]
-            tslot_u,
-            move |_| {
-                cancel_undo_timer(ut_u.as_ref());
-                let Some(undo) = ur_u.borrow_mut().pop() else {
-                    return;
-                };
-                if let Err(e) = apply_bar_undo(&undo) {
-                    eprintln!("[rhino] undo: {e}");
-                    ur_u.borrow_mut().push(undo);
-                    return;
-                }
-                history::record(undo.target_path());
-                sync_undo_bar(&u_la_u, &undo_t_u, &u_sh_u, &ur_u);
-                rec_u.set_visible(true);
-                let f = cell_u
-                    .borrow()
-                    .as_ref()
-                    .expect("on_remove not wired")
-                    .clone();
-                let t = tslot_u
-                    .borrow()
-                    .as_ref()
-                    .expect("on_trash not wired")
-                    .clone();
-                reflow_continue_cards(
-                    &fr_u, &rec_u, op_u.clone(), f, t, &rbf_u, Rc::clone(&cache_u),
-                );
-                if !ur_u.borrow().is_empty() {
-                    rearm_undo_dismiss(&do_u, &ut_u);
-                }
-            }
-        ));
-    }
-    {
-        let dc = do_commit.clone();
-        undo_close.connect_clicked(move |_| {
-            dc();
-        });
-    }
+    let mut h = wire_undo_handles(
+        undo_shell,
+        undo_label,
+        undo_btn,
+        flow_recent,
+        recent_scrl.clone(),
+        on_open,
+        continue_grid_cache,
+    );
+    h.rbf = recent_backfill.clone();
+    let do_commit = build_do_commit(&h);
+    let (on_remove, on_trash) = build_card_actions(&h, &do_commit);
+    wire_undo_button(&h, &do_commit);
+    arm_undo_close_button(&undo_close, &do_commit);
 
     if want_recent {
-        let paths5: Vec<PathBuf> = history::load()
-            .into_iter()
-            .take(crate::recent_view::CONTINUE_DISPLAY_MAX)
-            .collect();
-        recent_view::fill_continue_strip(
-            &flow_recent,
-            paths5,
-            on_open.clone(),
-            on_remove.clone(),
-            on_trash.clone(),
-            warm_hover.clone(),
-            Rc::clone(&continue_grid_cache),
-            recent_backfill.clone(),
-            recent_backfill_start.clone(),
+        fill_initial_continue_strip(
+            &h,
+            &on_remove,
+            &on_trash,
+            &warm_hover,
+            recent_backfill_start,
         );
     }
 
     RecentUndoWiring {
         recent_backfill,
         pending_recent_backfill,
-        undo_remove_stack,
-        undo_timer,
+        undo_remove_stack: h.stack.clone(),
+        undo_timer: h.timer.clone(),
         do_commit,
         on_remove,
         on_trash,
     }
 }
 
+type RecentBackfillChannel = (
+    Rc<RefCell<Option<RecentBackfillJob>>>,
+    Rc<dyn Fn(Rc<RecentContext>, Vec<PathBuf>)>,
+);
+
+/// Recent-backfill channel: deferred job slot + start hook; the grid destroy drops the pending
+/// job and shuts the backfill context down.
+fn wire_recent_backfill(
+    rbf: &Rc<RefCell<Option<Rc<RecentContext>>>>,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    recent_scrl: &gtk::Box,
+) -> RecentBackfillChannel {
+    let pending_recent_backfill: Rc<RefCell<Option<RecentBackfillJob>>> =
+        Rc::new(RefCell::new(None));
+    {
+        let rb = rbf.clone();
+        let pending = pending_recent_backfill.clone();
+        recent_scrl.connect_destroy(move |_| {
+            shutdown_recent_backfill(&rb, &pending);
+        });
+    }
+    let p = player.clone();
+    let pending = pending_recent_backfill.clone();
+    let start = Rc::new(move |ctx: Rc<RecentContext>, paths: Vec<PathBuf>| {
+        schedule_or_defer_recent_backfill(&p, &pending, ctx, paths)
+    });
+    (pending_recent_backfill, start)
+}
+
+/// Drop a queued backfill job and stop the running backfill context.
+fn shutdown_recent_backfill(
+    rb: &Rc<RefCell<Option<Rc<RecentContext>>>>,
+    pending: &Rc<RefCell<Option<RecentBackfillJob>>>,
+) {
+    pending.borrow_mut().take();
+    if let Some(ctx) = rb.borrow_mut().take() {
+        ctx.shutdown();
+    }
+}
+
+/// Dismiss (**×**) button commits the topmost step immediately.
+fn arm_undo_close_button(undo_close: &gtk::Button, do_commit: &Rc<dyn Fn()>) {
+    let dc = do_commit.clone();
+    undo_close.connect_clicked(move |_| {
+        dc();
+    });
+}
+
+/// Initial continue-strip paint when booting straight into the grid.
+fn fill_initial_continue_strip(
+    h: &UndoBarHandles,
+    on_remove: &RcPathFn,
+    on_trash: &RcPathFn,
+    warm_hover: &Option<recent_view::WarmHoverHooks>,
+    recent_backfill_start: Rc<dyn Fn(Rc<RecentContext>, Vec<PathBuf>)>,
+) {
+    let paths5: Vec<PathBuf> = history::load()
+        .into_iter()
+        .take(crate::recent_view::CONTINUE_DISPLAY_MAX)
+        .collect();
+    recent_view::fill_continue_strip(
+        &h.flow,
+        paths5,
+        recent_view::ContinueStripHooks {
+            on_open: h.on_open.clone(),
+            on_remove: on_remove.clone(),
+            on_trash: on_trash.clone(),
+            warm_hover: warm_hover.clone(),
+            chrome_cache: Rc::clone(&h.cache),
+        },
+        h.rbf.clone(),
+        recent_backfill_start,
+    );
+}

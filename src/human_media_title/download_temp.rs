@@ -81,7 +81,10 @@ mod tests {
 
     #[test]
     fn leaves_finished_names() {
-        assert_eq!(peel_download_temp("Movie.Name.2020.mkv"), "Movie.Name.2020.mkv");
+        assert_eq!(
+            peel_download_temp("Movie.Name.2020.mkv"),
+            "Movie.Name.2020.mkv"
+        );
     }
 
     #[test]
@@ -106,9 +109,11 @@ mod tests {
         ));
         fs::create_dir_all(&base).unwrap();
         let finished = base.join("clip.mkv");
-        let incomplete =
-            base.join("clip.mkv.RSRXEZ4AWN67MGBANBT6YLR32JW32GVZSZLYN2Y.dctmp");
-        fs::File::create(&finished).unwrap().write_all(b"x").unwrap();
+        let incomplete = base.join("clip.mkv.RSRXEZ4AWN67MGBANBT6YLR32JW32GVZSZLYN2Y.dctmp");
+        fs::File::create(&finished)
+            .unwrap()
+            .write_all(b"x")
+            .unwrap();
         assert_eq!(
             finished_download_path(&incomplete).as_deref(),
             Some(finished.as_path())
@@ -127,8 +132,7 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(&base).unwrap();
-        let incomplete =
-            base.join("clip.mkv.RSRXEZ4AWN67MGBANBT6YLR32JW32GVZSZLYN2Y.dctmp");
+        let incomplete = base.join("clip.mkv.RSRXEZ4AWN67MGBANBT6YLR32JW32GVZSZLYN2Y.dctmp");
         assert!(finished_download_path(&incomplete).is_none());
         assert!(finished_download_path(&base.join("clip.mkv")).is_none());
         let _ = fs::remove_dir_all(&base);

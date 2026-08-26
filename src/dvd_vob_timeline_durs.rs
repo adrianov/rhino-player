@@ -64,17 +64,9 @@ impl DvdVobTimeline {
 
     /// Fill missing segments from the median of known sibling chapter lengths.
     pub(crate) fn infer_missing_from_siblings(&mut self) -> bool {
-        let mut known: Vec<f64> = self
-            .durs
-            .iter()
-            .copied()
-            .filter(|d| *d > 0.0 && *d <= MAX_VOB_DUR_SEC)
-            .collect();
-        if known.len() < 2 {
+        let Some(median) = self.plausible_median_dur() else {
             return false;
-        }
-        known.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let median = known[known.len() / 2];
+        };
         let mut changed = false;
         for d in &mut self.durs {
             if *d <= 0.0 {
@@ -86,5 +78,20 @@ impl DvdVobTimeline {
             self.recompute_starts();
         }
         changed
+    }
+
+    /// Median of plausible known sibling lengths (needs at least two).
+    fn plausible_median_dur(&self) -> Option<f64> {
+        let mut known: Vec<f64> = self
+            .durs
+            .iter()
+            .copied()
+            .filter(|d| *d > 0.0 && *d <= MAX_VOB_DUR_SEC)
+            .collect();
+        if known.len() < 2 {
+            return None;
+        }
+        known.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        Some(known[known.len() / 2])
     }
 }

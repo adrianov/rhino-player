@@ -106,14 +106,32 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     let Some((pause, core_idle, dur, pos)) = read_transport_state(ctx) else {
         return;
     };
-    {
-        let mut c = ctx.cache.borrow_mut();
-        c.pause = pause;
-        c.core_idle = core_idle;
-        c.duration = dur;
-        c.pos = pos;
-    }
+    store_transport_cache(ctx, pause, core_idle, dur, pos);
     let bar_visible = ctx.bar_show.get() || ctx.recent_visible.get();
+    sync_transport_clocks(ctx, pos, dur, bar_visible);
+    sync_decode_size_on_tick(&ctx.player);
+    advance_or_run_sibling_eof(ctx, core_idle, dur, pos);
+    sync_sub_header_readout(&ctx.player, &ctx.widgets.sub_readout);
+    tick_smooth_budget(ctx, pause, core_idle);
+    // After budget / hold so the busy-system warning clears on the same tick as resume.
+    stamp_smooth_toolbar_readout(
+        Some(&ctx.widgets.smooth_toolbar_status),
+        Some(&ctx.widgets.smooth_toolbar_btn),
+        &ctx.player,
+    );
+    mpris_enqueue_snapshot(ctx);
+    maybe_dvd_transport_periodic_log(ctx, pos, dur);
+}
+
+fn store_transport_cache(ctx: &Rc<TransportCtx>, pause: bool, core_idle: bool, dur: f64, pos: f64) {
+    let mut c = ctx.cache.borrow_mut();
+    c.pause = pause;
+    c.core_idle = core_idle;
+    c.duration = dur;
+    c.pos = pos;
+}
+
+fn sync_transport_clocks(ctx: &Rc<TransportCtx>, pos: f64, dur: f64, bar_visible: bool) {
     update_time_labels(&ctx.widgets, pos, dur);
     sync_duration_label(&ctx.widgets, dur);
     sync_seek_range(&ctx.widgets, dur);
@@ -122,7 +140,9 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     if bar_visible {
         sync_seek_pos(&ctx.widgets, pos, dur);
     }
-    sync_decode_size_on_tick(&ctx.player);
+}
+
+fn advance_or_run_sibling_eof(ctx: &Rc<TransportCtx>, core_idle: bool, dur: f64, pos: f64) {
     let browse = crate::app::browse_overlay_active(&ctx.eof.recent);
     hold_browse_pause(ctx, browse);
     // Mid-title DVD chapter EOF: detect local tail every tick — mpv often keeps `core-idle=false`
@@ -136,7 +156,9 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
     {
         run_sibling_eof(ctx);
     }
-    sync_sub_header_readout(&ctx.player, &ctx.widgets.sub_readout);
+}
+
+fn tick_smooth_budget(ctx: &Rc<TransportCtx>, pause: bool, core_idle: bool) {
     if smooth_budget_transport_window_ticks_count(&ctx.eof.win) {
         crate::video_pref::smooth_budget_on_transport_tick(
             &ctx.player,
@@ -149,14 +171,6 @@ fn transport_tick(ctx: &Rc<TransportCtx>) {
         // Background (unfocused / minimized): still restore Smooth after the busy-system pause.
         let _ = crate::video_pref::smooth_load_hold_on_tick(&ctx.player, &ctx.video_pref);
     }
-    // After budget / hold so the busy-system warning clears on the same tick as resume.
-    stamp_smooth_toolbar_readout(
-        Some(&ctx.widgets.smooth_toolbar_status),
-        Some(&ctx.widgets.smooth_toolbar_btn),
-        &ctx.player,
-    );
-    mpris_enqueue_snapshot(ctx);
-    maybe_dvd_transport_periodic_log(ctx, pos, dur);
 }
 
 include!("transport_read_state.rs");

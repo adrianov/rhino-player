@@ -30,8 +30,14 @@ pub(crate) fn playback_snapshot(
     dur_by_path: &HashMap<String, f64>,
 ) -> Option<(f64, f64)> {
     let live_dur = crate::dvd_vob_timeline::clamp_vob_duration(local_dur);
-    let tl = build_title_timeline_with(chapter, dur_by_path, live_dur, TimelineBuildOpts::CACHE_ONLY)?;
-    let local = crate::dvd_vob_timeline::timeline_local_from_mpv(&tl, chapter, local_pos, local_dur);
+    let tl = build_title_timeline_with(
+        chapter,
+        dur_by_path,
+        live_dur,
+        TimelineBuildOpts::CACHE_ONLY,
+    )?;
+    let local =
+        crate::dvd_vob_timeline::timeline_local_from_mpv(&tl, chapter, local_pos, local_dur);
     let global = tl.global_pos(chapter, local);
     let total = tl.total_sec.max(live_dur);
     Some((total, global))
@@ -88,7 +94,8 @@ pub(crate) fn resume_still_target_from_global(
 ) -> Option<DvdStillTarget> {
     let t0 = std::time::Instant::now();
     let live = chapter_dur_from_map(chapter, dur_by_path);
-    let Some(mut tl) = build_title_timeline_with(chapter, dur_by_path, live, TimelineBuildOpts::CACHE_ONLY)
+    let Some(mut tl) =
+        build_title_timeline_with(chapter, dur_by_path, live, TimelineBuildOpts::CACHE_ONLY)
     else {
         crate::dvd_vob_log::resume_open_log(format!(
             "resume_still no timeline chapter={}",
@@ -103,6 +110,13 @@ pub(crate) fn resume_still_target_from_global(
     };
     tl.scrub_implausible_durs();
     tl.infer_missing_from_siblings();
+    log_resume_probe(t0, probed, global_sec, chapter);
+    let g = global_sec.clamp(0.0, tl.total_sec);
+    let (idx, local) = tl.resolve_global(g);
+    still_target_at_chapter(&tl, idx, local, dur_by_path, None)
+}
+
+fn log_resume_probe(t0: std::time::Instant, probed: usize, global_sec: f64, chapter: &Path) {
     let ms = t0.elapsed().as_millis();
     if probed > 0 || ms > 50 {
         eprintln!(
@@ -110,9 +124,6 @@ pub(crate) fn resume_still_target_from_global(
             chapter.file_name().and_then(|n| n.to_str()).unwrap_or("?")
         );
     }
-    let g = global_sec.clamp(0.0, tl.total_sec);
-    let (idx, local) = tl.resolve_global(g);
-    still_target_at_chapter(&tl, idx, local, dur_by_path, None)
 }
 
 /// Map stored global resume to `(vob path, local offset)` for `loadfile`.

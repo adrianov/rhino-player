@@ -27,6 +27,17 @@ pub(super) fn parse_pgcit(buf: &IfoBuf, sector: usize, block: usize) -> Option<P
     if srp_off + nr * 8 > buf.len() {
         return None;
     }
+    let pgcs = collect_pgcs(buf, base, srp_off, last, nr);
+    (!pgcs.is_empty()).then_some(Pgcit { pgcs })
+}
+
+fn collect_pgcs(
+    buf: &IfoBuf,
+    base: usize,
+    srp_off: usize,
+    last: usize,
+    nr: usize,
+) -> Vec<(u32, Pgc)> {
     let mut pgcs = Vec::new();
     for i in 0..nr {
         let o = srp_off + i * 8;
@@ -38,7 +49,7 @@ pub(super) fn parse_pgcit(buf: &IfoBuf, sector: usize, block: usize) -> Option<P
             pgcs.push((start, pgc));
         }
     }
-    (!pgcs.is_empty()).then_some(Pgcit { pgcs })
+    pgcs
 }
 
 fn read_pgc(buf: &IfoBuf, off: usize) -> Option<Pgc> {
@@ -48,39 +59,42 @@ fn read_pgc(buf: &IfoBuf, off: usize) -> Option<Pgc> {
     if nr_programs == 0 || nr_cells == 0 {
         return None;
     }
-    let pm_off = u16::from_be_bytes([raw[230], raw[231]]) as usize;
-    let cpb_off = u16::from_be_bytes([raw[232], raw[233]]) as usize;
-    let cpos_off = u16::from_be_bytes([raw[234], raw[235]]) as usize;
-    if pm_off == 0 || cpb_off == 0 || cpos_off == 0 {
-        return None;
-    }
-    let pm_base = off + pm_off;
-    let mut program_map = Vec::with_capacity(nr_programs as usize);
-    for i in 0..nr_programs as usize {
-        program_map.push(buf.byte(pm_base + i));
-    }
-    let cpb_base = off + cpb_off;
-    let mut cell_playback = Vec::with_capacity(nr_cells as usize);
-    for i in 0..nr_cells as usize {
-        let cell = buf.slice(cpb_base + i * CELL_PB_SIZE, CELL_PB_SIZE)?;
-        let mut c = [0u8; CELL_PB_SIZE];
-        c.copy_from_slice(cell);
-        cell_playback.push(c);
-    }
-    let cpos_base = off + cpos_off;
-    let mut cell_position = Vec::with_capacity(nr_cells as usize);
-    for i in 0..nr_cells as usize {
-        let cell = buf.slice(cpos_base + i * CELL_POS_SIZE, CELL_POS_SIZE)?;
-        let mut c = [0u8; CELL_POS_SIZE];
-        c.copy_from_slice(cell);
-        cell_position.push(c);
-    }
+    let (pm_off, cpb_off, cpos_off) = pgc_table_offsets(raw)?;
+    let program_map = read_program_map(buf, off + pm_off, nr_programs as usize);
+    let cell_playback = read_fixed_cells::<CELL_PB_SIZE>(buf, off + cpb_off, nr_cells as usize)?;
+    let cell_position = read_fixed_cells::<CELL_POS_SIZE>(buf, off + cpos_off, nr_cells as usize)?;
     Some(Pgc {
         nr_cells,
         program_map,
         cell_playback,
         cell_position,
     })
+}
+
+fn pgc_table_offsets(raw: &[u8]) -> Option<(usize, usize, usize)> {
+    let pm_off = u16::from_be_bytes([raw[230], raw[231]]) as usize;
+    let cpb_off = u16::from_be_bytes([raw[232], raw[233]]) as usize;
+    let cpos_off = u16::from_be_bytes([raw[234], raw[235]]) as usize;
+    (pm_off != 0 && cpb_off != 0 && cpos_off != 0).then_some((pm_off, cpb_off, cpos_off))
+}
+
+fn read_program_map(buf: &IfoBuf, pm_base: usize, nr_programs: usize) -> Vec<u8> {
+    (0..nr_programs).map(|i| buf.byte(pm_base + i)).collect()
+}
+
+fn read_fixed_cells<const N: usize>(
+    buf: &IfoBuf,
+    base: usize,
+    count: usize,
+) -> Option<Vec<[u8; N]>> {
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        let cell = buf.slice(base + i * N, N)?;
+        let mut c = [0u8; N];
+        c.copy_from_slice(cell);
+        out.push(c);
+    }
+    Some(out)
 }
 
 pub(super) fn title_pgc_cells(
@@ -154,20 +168,29 @@ pub(super) fn fill_ptt_marks(
     let mut cell = start_cell;
     let mut t = 0.0_f64;
     for (sj, &(sj_pgc, sj_pgn)) in ptt.iter().enumerate() {
-        if sj_pgc != pgc_id || sj_pgn == 0 {
+        if sj_pgc != pgc_id {
             break;
         }
-        if sj_pgn as usize > pgc.program_map.len() {
+        let Some(target) = chapter_target(pgc, sj_pgn) else {
             break;
-        }
-        let chapter_cell = pgc.program_map[sj_pgn as usize - 1] as usize;
-        let target = chapter_cell.saturating_sub(1);
-        while cell < target && cell <= end_cell {
-            t += dvdtime_to_sec(&pgc.cell_playback[cell][4..8]);
-            cell += 1;
-        }
+        };
+        advance_to_chapter(pgc, &mut cell, target, end_cell, &mut t);
         if sj > 0 && marks.len() < MAX_MARKS {
             marks.push(t);
         }
+    }
+}
+
+fn chapter_target(pgc: &Pgc, sj_pgn: u16) -> Option<usize> {
+    if sj_pgn == 0 || sj_pgn as usize > pgc.program_map.len() {
+        return None;
+    }
+    Some((pgc.program_map[sj_pgn as usize - 1] as usize).saturating_sub(1))
+}
+
+fn advance_to_chapter(pgc: &Pgc, cell: &mut usize, target: usize, end_cell: usize, t: &mut f64) {
+    while *cell < target && *cell <= end_cell {
+        *t += dvdtime_to_sec(&pgc.cell_playback[*cell][4..8]);
+        *cell += 1;
     }
 }

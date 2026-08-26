@@ -68,22 +68,22 @@ fn homebrew_opt_mpv_lib_dirs() -> Vec<PathBuf> {
 }
 
 fn homebrew_cellar_mpv_lib_dirs() -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    for cellar in ["/opt/homebrew/Cellar/mpv", "/usr/local/Cellar/mpv"] {
-        let Ok(read) = std::fs::read_dir(cellar) else {
-            continue;
-        };
-        let mut vers: Vec<PathBuf> = read
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.is_dir())
-            .collect();
-        vers.sort();
-        if let Some(lib) = vers.last().map(|p| p.join("lib")).filter(|p| p.is_dir()) {
-            out.push(lib);
-        }
-    }
-    out
+    ["/opt/homebrew/Cellar/mpv", "/usr/local/Cellar/mpv"]
+        .into_iter()
+        .filter_map(latest_cellar_mpv_lib)
+        .collect()
+}
+
+/// `lib` dir of the newest mpv version installed under one Cellar path, if any.
+fn latest_cellar_mpv_lib(cellar: &str) -> Option<PathBuf> {
+    let mut vers: Vec<PathBuf> = std::fs::read_dir(cellar)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    vers.sort();
+    vers.last().map(|p| p.join("lib")).filter(|p| p.is_dir())
 }
 
 fn homebrew_lib_roots() -> Vec<PathBuf> {

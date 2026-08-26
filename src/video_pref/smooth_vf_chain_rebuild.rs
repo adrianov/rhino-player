@@ -39,13 +39,7 @@ fn rebuild_smooth_vf_chain(
     vlog: bool,
 ) -> bool {
     if vf_swap_post_seek_attach_active() {
-        let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle, cadence_hz);
-        vf_swap_clear_post_seek_attach();
-        if !disabled_60 {
-            log_smooth_avsync(mpv);
-            vf_av_ping_render(bundle);
-        }
-        return disabled_60;
+        return rebuild_post_seek_attach(mpv, bundle, v, speed_hint, cadence_hz);
     }
     if vf_swap_defer_in_flight() {
         return false;
@@ -68,6 +62,40 @@ fn rebuild_smooth_vf_chain(
     false
 }
 
+/// Deferred attach armed for after a seek: add now and clear the pending flag.
+fn rebuild_post_seek_attach(
+    mpv: &Mpv,
+    bundle: Option<&MpvBundle>,
+    v: &mut VideoPrefs,
+    speed_hint: Option<f64>,
+    cadence_hz: Option<f64>,
+) -> bool {
+    let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle, cadence_hz);
+    vf_swap_clear_post_seek_attach();
+    if !disabled_60 {
+        log_smooth_avsync(mpv);
+        vf_av_ping_render(bundle);
+    }
+    disabled_60
+}
+
+/// Live graph no longer wanted: strip it (snap/pause, clear, auto decode) and refresh or unpause.
+fn strip_unwanted_smooth_vf(mpv: &Mpv, bundle: Option<&MpvBundle>, vlog: bool, want_60: bool) {
+    if let Some(b) = bundle {
+        b.set_smooth_vf_stripped_this_open(true);
+        b.clear_smooth_vf_reload_attempted();
+    }
+    let snap = vf_swap_snap(mpv, true);
+    clear_vf(mpv, bundle, vlog);
+    set_auto_decode(mpv, vlog);
+    if !want_60 {
+        smooth_off_refresh_playhead(mpv, bundle, &snap);
+    } else {
+        vf_swap_unpause(mpv, &snap);
+        vf_av_ping_render(bundle);
+    }
+}
+
 fn apply_mpv_video_without_mvtools(
     mpv: &Mpv,
     bundle: Option<&MpvBundle>,
@@ -83,20 +111,32 @@ fn apply_mpv_video_without_mvtools(
     let keep_vf = want_60 && smooth_wants_vapoursynth_vf(mpv, bundle, speed_hint);
     let stripped_vf = had_vapoursynth && !keep_vf;
     if stripped_vf {
-        if let Some(b) = bundle {
-            b.set_smooth_vf_stripped_this_open(true);
-            b.clear_smooth_vf_reload_attempted();
-        }
-        let snap = vf_swap_snap(mpv, true);
-        clear_vf(mpv, bundle, vlog);
-        set_auto_decode(mpv, vlog);
-        if !want_60 {
-            smooth_off_refresh_playhead(mpv, bundle, &snap);
-        } else {
-            vf_swap_unpause(mpv, &snap);
-            vf_av_ping_render(bundle);
-        }
+        strip_unwanted_smooth_vf(mpv, bundle, vlog, want_60);
     }
+    apply_non_smooth_present_mode(
+        mpv,
+        bundle,
+        vlog,
+        want_60,
+        eligible_1x,
+        display_only,
+        stripped_vf,
+    );
+    post_smooth_60_state(mpv, v, want_60, false, vlog);
+    MpvVideoApply::default()
+}
+
+/// Interleaved cadence → display-resample; Smooth off → Blu-ray deinterlace sync and
+/// present-opts restore (unless just stripped or a disc is playing).
+fn apply_non_smooth_present_mode(
+    mpv: &Mpv,
+    bundle: Option<&MpvBundle>,
+    vlog: bool,
+    want_60: bool,
+    eligible_1x: bool,
+    display_only: bool,
+    stripped_vf: bool,
+) {
     if want_60 && eligible_1x && display_only {
         apply_interleaved_display_resample(mpv, bundle, vlog);
     } else if !want_60 {
@@ -105,6 +145,4 @@ fn apply_mpv_video_without_mvtools(
             restore_non_smooth_present_opts(mpv);
         }
     }
-    post_smooth_60_state(mpv, v, want_60, false, vlog);
-    MpvVideoApply::default()
 }

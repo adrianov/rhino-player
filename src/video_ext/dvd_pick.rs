@@ -15,23 +15,27 @@ pub(super) fn pick_main_dvd_vob(vts: &Path) -> Option<PathBuf> {
     let Some(vts_dir) = dvd_video_ts_dir(&disc) else {
         return chapter_entry_for_title(vts, bytes_pick);
     };
-    let ifo_tid = crate::dvd_ifo_parse::main_title_from_disc(&disc);
+    pick_main_on_disc(&disc, &vts_dir, bytes_pick)
+}
+
+/// Disc layout confirmed: IFO title wins unless the byte-scan found a clearly larger set.
+fn pick_main_on_disc(disc: &Path, vts_dir: &Path, bytes_pick: Option<PathBuf>) -> Option<PathBuf> {
+    let ifo_tid = crate::dvd_ifo_parse::main_title_from_disc(disc);
     let Some(bytes_pick) = bytes_pick else {
         let (tid, _ttn) = ifo_tid?;
-        return crate::dvd_entity::first_chapter_vob(&vts_dir, tid);
+        return crate::dvd_entity::first_chapter_vob(vts_dir, tid);
     };
     let bytes_tid = crate::dvd_entity::vob_title_id(&bytes_pick)?;
     let (title_id, _ttn) = ifo_tid.unwrap_or((bytes_tid, 1));
-    let title_id = resolve_main_title_id(&vts_dir, Some(title_id), bytes_tid);
-    crate::dvd_entity::first_chapter_vob(&vts_dir, title_id)
+    let title_id = resolve_main_title_id(vts_dir, Some(title_id), bytes_tid);
+    crate::dvd_entity::first_chapter_vob(vts_dir, title_id)
         .or((title_id == bytes_tid).then_some(bytes_pick))
 }
 
 pub(super) fn chapter_entry_for_title(vts: &Path, part_one: Option<PathBuf>) -> Option<PathBuf> {
     let part_one = part_one?;
     let tid = crate::dvd_entity::vob_title_id(&part_one)?;
-    crate::dvd_entity::first_chapter_vob(vts, tid)
-        .or(Some(part_one))
+    crate::dvd_entity::first_chapter_vob(vts, tid).or(Some(part_one))
 }
 
 pub(super) fn resolve_main_title_id(vts_dir: &Path, ifo_tid: Option<u32>, bytes_tid: u32) -> u32 {
@@ -63,8 +67,13 @@ fn pick_main_dvd_vob_from_files(vts: &Path) -> Option<PathBuf> {
     if vobs.is_empty() {
         return None;
     }
+    pick_largest_title_path(&bytes_by_title(&vobs))
+}
+
+/// Total bytes per title; the part-one VOB is kept as the title's representative path.
+fn bytes_by_title(vobs: &[PathBuf]) -> HashMap<u32, (u64, PathBuf)> {
     let mut by_title: HashMap<u32, (u64, PathBuf)> = HashMap::new();
-    for p in &vobs {
+    for p in vobs {
         let Some(tid) = crate::dvd_entity::vob_title_id(p) else {
             continue;
         };
@@ -74,17 +83,15 @@ fn pick_main_dvd_vob_from_files(vts: &Path) -> Option<PathBuf> {
             e.1 = p.clone();
         }
     }
-    const MENU_TITLE_BYTES: u64 = 100_000_000;
-    let skip_vts1_menu = by_title.get(&1).is_some_and(|(b, _)| *b < MENU_TITLE_BYTES)
-        && by_title.keys().any(|&t| t >= 2);
-    let titles: Vec<(u32, u64, PathBuf)> = by_title
-        .into_iter()
-        .filter(|(t, _)| !skip_vts1_menu || *t != 1)
-        .map(|(t, (b, p))| (t, b, p))
-        .collect();
-    if titles.is_empty() {
-        return None;
-    }
+    by_title
+}
+
+const MENU_TITLE_BYTES: u64 = 100_000_000;
+
+/// Largest title set by bytes; ties → lowest `VTS_XX`. A tiny `VTS_01` (menu stub) is skipped
+/// when any real title set exists.
+fn pick_largest_title_path(by_title: &HashMap<u32, (u64, PathBuf)>) -> Option<PathBuf> {
+    let titles = candidate_titles(by_title);
     titles
         .into_iter()
         .max_by(|a, b| match a.1.cmp(&b.1) {
@@ -92,4 +99,16 @@ fn pick_main_dvd_vob_from_files(vts: &Path) -> Option<PathBuf> {
             other => other,
         })
         .map(|(_, _, path)| path)
+}
+
+/// Candidate `(title, bytes, part-one path)` triples; skips a tiny menu-only `VTS_01`
+/// when any real title set exists.
+fn candidate_titles(by_title: &HashMap<u32, (u64, PathBuf)>) -> Vec<(u32, u64, PathBuf)> {
+    let skip_vts1_menu = by_title.get(&1).is_some_and(|(b, _)| *b < MENU_TITLE_BYTES)
+        && by_title.keys().any(|&t| t >= 2);
+    by_title
+        .iter()
+        .filter(|(t, _)| !skip_vts1_menu || **t != 1)
+        .map(|(t, (b, p))| (*t, *b, p.clone()))
+        .collect()
 }

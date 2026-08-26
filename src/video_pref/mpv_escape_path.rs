@@ -2,16 +2,24 @@
 /// (`:`, `,`, `=`) or start a bracket string (`[`, `]`, space). Inside `[…]`, `\` and `]` are escaped
 /// per mpv’s string rules so a trailing `]` in a path does not truncate the filter.
 pub(crate) fn mpv_escape_path(p: &str) -> String {
-    let needs_brackets = p.contains(':')
+    if !needs_bracket_wrapping(p) {
+        return p.to_string();
+    }
+    escape_inside_brackets(p)
+}
+
+/// Characters that split sub-options or start an mpv bracket string.
+fn needs_bracket_wrapping(p: &str) -> bool {
+    p.contains(':')
         || p.contains(' ')
         || p.contains('[')
         || p.contains(']')
         || p.contains(',')
         || p.contains('=')
-        || p.contains('\\');
-    if !needs_brackets {
-        return p.to_string();
-    }
+        || p.contains('\\')
+}
+
+fn escape_inside_brackets(p: &str) -> String {
     let mut inner = String::with_capacity(p.len() + 8);
     for ch in p.chars() {
         match ch {
@@ -37,10 +45,7 @@ mod mpv_escape_path_tests {
 
     #[test]
     fn space_colon_eq_comma_use_brackets() {
-        assert_eq!(
-            mpv_escape_path("/a b/c:d=e,f.vpy"),
-            r"[/a b/c:d=e,f.vpy]"
-        );
+        assert_eq!(mpv_escape_path("/a b/c:d=e,f.vpy"), r"[/a b/c:d=e,f.vpy]");
     }
 
     #[test]

@@ -1,65 +1,6 @@
 include!("widgets_core.rs");
-
-/// All GTK widgets constructed for the main window, passed to the wiring phase.
-struct WindowWidgets {
-    win: adw::ApplicationWindow,
-    root: adw::ToolbarView,
-    header: adw::HeaderBar,
-    outer_ovl: gtk::Overlay,
-    video_handle: gtk::WindowHandle,
-    gl_area: gtk::GLArea,
-    bottom: gtk::Box,
-    #[cfg(target_os = "macos")]
-    bottom_shell: gtk::Box,
-    play_pause: gtk::Button,
-    sibling_nav: SiblingNavUi,
-    menu_btn: gtk::MenuButton,
-    vol_menu: gtk::MenuButton,
-    vol_header_img: gtk::Image,
-    vol_readout: gtk::Label,
-    sub_menu: gtk::MenuButton,
-    sub_readout: gtk::Label,
-    speed_mbtn: gtk::MenuButton,
-    speed_readout: gtk::Label,
-    smooth_btn: gtk::Button,
-    smooth_status: gtk::Label,
-    speed_list: gtk::ListBox,
-    speed_sync: Rc<Cell<bool>>,
-    seek: gtk::Scale,
-    seek_adj: gtk::Adjustment,
-    time_left: gtk::Label,
-    time_right: gtk::Label,
-    vol_adj: gtk::Adjustment,
-    vol_mute_btn: gtk::ToggleButton,
-    audio_tracks_box: gtk::Box,
-    audio_tracks_block: Rc<Cell<bool>>,
-    audio_tracks_section: gtk::Box,
-    sub_tracks_box: gtk::Box,
-    sub_tracks_block: Rc<Cell<bool>>,
-    sub_tracks_section: gtk::Box,
-    sub_scale_adj: gtk::Adjustment,
-    sub_color_btn: gtk::ColorDialogButton,
-    sub_color_row: gtk::Box,
-    vol_pop: gtk::Popover,
-    sub_pop: gtk::Popover,
-    #[cfg(target_os = "macos")]
-    main_menu: gio::Menu,
-    pref_menu: gio::Menu,
-    recent_scrl: gtk::Box,
-    flow_recent: gtk::Box,
-    recent_spacers: [gtk::Box; 2],
-    undo_bar: crate::recent_view::UndoBar,
-    notice_toast: crate::recent_view::NoticeToast,
-    /// Local wall-clock readout; visible only in fullscreen (`docs/features/17-window-behavior.md`).
-    fs_clock: gtk::Label,
-    /// macOS GTK: optional label in [`adw::HeaderBar::title_widget`] so double-click toggles fullscreen.
-    hdr_title_mirror: Option<Rc<gtk::Label>>,
-    /// Bottom-bar `app.close-video`; tooltip from [sync_close_video_action].
-    close_video_btn: gtk::Button,
-    blackout_sync: Rc<crate::screen_blackout::BlackoutSync>,
-    /// Keeps header [`gtk::SizeGroup`] alive for the window lifetime.
-    _header_btn_heights: gtk::SizeGroup,
-}
+include!("window_widgets.rs");
+include!("widgets_bars.rs");
 
 fn build_widgets(
     app: &adw::Application,
@@ -73,150 +14,85 @@ fn build_widgets(
     #[cfg(not(target_os = "macos"))]
     let _ = &exit_after_current;
 
-    let win = build_main_application_window(app);
-    let outer_ovl = gtk::Overlay::new();
-    let PlaybackChromeRow { play_pause, sibling_nav } = build_playback_chrome_row();
+    let menus = AppMenus::build();
+    let groups = WidgetGroups::build(app, player, video_pref, sub_pref);
+    let buttons = HeaderButtons::build(&groups.win, player, &menus.pref_menu, &groups.recent_scrl);
 
-    let (discard_menu_placeholder, pref_menu, menubar_model) = build_app_menus();
-    drop(discard_menu_placeholder);
-    #[cfg(not(target_os = "macos"))]
-    drop(menubar_model);
-    let HeaderPopovers {
-        vol_adj, vol_header_img, vol_readout, vol_mute_btn, audio_tracks_block, audio_tracks_box,
-        audio_tracks_section, vol_pop, vol_menu,
-        sub_tracks_block, sub_tracks_box, sub_tracks_section,
-        sub_scale_adj, sub_color_btn, sub_color_row, sub_pop, sub_menu,
-        sub_readout,
-    } = build_header_popovers(sub_pref);
-
-    let gl_area = build_gl_video_area();
-    let SpeedMenuResult {
-        speed_readout,
-        speed_mbtn,
-        speed_list,
-        speed_sync,
-    } = build_speed_menu(player, &gl_area, video_pref, app);
-
-    let SmoothToolbarWidgets { smooth_btn, smooth_status } = build_smooth_video_toolbar();
-    let (recent_scrl, flow_recent, recent_spacers, undo_bar, notice_toast) = recent_view::new_scroll();
-    recent_scrl.set_vexpand(true);
-    recent_scrl.set_hexpand(true);
-    recent_scrl.set_halign(gtk::Align::Fill);
-    recent_scrl.set_valign(gtk::Align::Fill);
-
-    let menu_btn = {
-        #[cfg(not(target_os = "macos"))]
-        {
-            build_linux_main_menu_button(&pref_menu)
-        }
-        #[cfg(target_os = "macos")]
-        {
-            gtk::MenuButton::new()
-        }
-    };
-
-    let (fill_btn, _) = crate::video_fill::build_fill_header(&win, player);
-
-    let (blackout_menu, blackout_sync) =
-        crate::screen_blackout::build_blackout_header(&win, player, &recent_scrl);
-
-    let ToolbarHeaderShell {
-        root,
-        header,
-        fs_clock,
-        hdr_title_mirror,
-        _header_btn_heights,
-    } = build_toolbar_header_shell(
-        &menu_btn,
-        &vol_menu,
-        &sub_menu,
-        &smooth_btn,
-        &speed_mbtn,
-        &fill_btn,
-        &blackout_menu,
+    let shell = build_toolbar_header_shell(
+        &buttons.menu_btn,
+        &groups.pops.vol_menu,
+        &groups.pops.sub_menu,
+        &groups.smooth.smooth_btn,
+        &groups.speed.speed_mbtn,
+        &buttons.fill_btn,
+        &buttons.blackout_menu,
     );
-
-    let SeekTimeLabels {
-        seek_adj,
-        seek,
-        time_left,
-        time_right,
-    } = build_seek_and_time_row();
-
+    let times = build_seek_and_time_row();
     let (bottom, close_video_btn) = build_bottom_bar(
-        &sibling_nav.prev_wrap,
-        &play_pause,
-        &sibling_nav.next_wrap,
-        &time_left,
-        &seek,
-        &time_right,
+        &groups.chrome.sibling_nav.prev_wrap,
+        &groups.chrome.play_pause,
+        &groups.chrome.sibling_nav.next_wrap,
+        &times.time_left,
+        &times.seek,
+        &times.time_right,
     );
     #[cfg(target_os = "macos")]
     let bottom_shell = crate::macos_bottom_bar::wrap_row(&bottom);
-    let ovl = build_video_overlay(&gl_area);
-    let video_handle = gtk::WindowHandle::new();
-    video_handle.set_child(Some(&ovl));
-    ovl.add_overlay(&recent_scrl);
+    let video_handle = mount_video_overlay(&groups.gl_area, &groups.recent_scrl);
 
     WindowWidgets {
-        win, root, header, outer_ovl, video_handle, gl_area, bottom,
+        win: groups.win,
+        root: shell.root,
+        header: shell.header,
+        outer_ovl: groups.outer_ovl,
+        video_handle,
+        gl_area: groups.gl_area,
+        bottom,
         #[cfg(target_os = "macos")]
         bottom_shell,
-        play_pause, sibling_nav,
-        menu_btn, vol_menu, vol_header_img, vol_readout, sub_menu, sub_readout, smooth_btn, smooth_status,
-        speed_mbtn, speed_readout,
-        speed_list, speed_sync,
-        seek, seek_adj, time_left, time_right,
-        vol_adj, vol_mute_btn,
-        audio_tracks_box, audio_tracks_block, audio_tracks_section,
-        sub_tracks_box, sub_tracks_block, sub_tracks_section,
-        sub_scale_adj, sub_color_btn, sub_color_row,
-        vol_pop, sub_pop,
+        play_pause: groups.chrome.play_pause,
+        sibling_nav: groups.chrome.sibling_nav,
+        menu_btn: buttons.menu_btn,
+        vol_menu: groups.pops.vol_menu,
+        vol_header_img: groups.pops.vol_header_img,
+        vol_readout: groups.pops.vol_readout,
+        sub_menu: groups.pops.sub_menu,
+        sub_readout: groups.pops.sub_readout,
+        smooth_btn: groups.smooth.smooth_btn,
+        smooth_status: groups.smooth.smooth_status,
+        speed_mbtn: groups.speed.speed_mbtn,
+        speed_readout: groups.speed.speed_readout,
+        speed_list: groups.speed.speed_list,
+        speed_sync: groups.speed.speed_sync,
+        seek: times.seek,
+        seek_adj: times.seek_adj,
+        time_left: times.time_left,
+        time_right: times.time_right,
+        vol_adj: groups.pops.vol_adj,
+        vol_mute_btn: groups.pops.vol_mute_btn,
+        audio_tracks_box: groups.pops.audio_tracks_box,
+        audio_tracks_block: groups.pops.audio_tracks_block,
+        audio_tracks_section: groups.pops.audio_tracks_section,
+        sub_tracks_box: groups.pops.sub_tracks_box,
+        sub_tracks_block: groups.pops.sub_tracks_block,
+        sub_tracks_section: groups.pops.sub_tracks_section,
+        sub_scale_adj: groups.pops.sub_scale_adj,
+        sub_color_btn: groups.pops.sub_color_btn,
+        sub_color_row: groups.pops.sub_color_row,
+        vol_pop: groups.pops.vol_pop,
+        sub_pop: groups.pops.sub_pop,
         #[cfg(target_os = "macos")]
-        main_menu: menubar_model,
-        pref_menu,
-        recent_scrl, flow_recent, recent_spacers, undo_bar, notice_toast,
-        fs_clock,
-        hdr_title_mirror,
+        main_menu: menus.menubar_model,
+        pref_menu: menus.pref_menu,
+        recent_scrl: groups.recent_scrl,
+        flow_recent: groups.flow_recent,
+        recent_spacers: groups.recent_spacers,
+        undo_bar: groups.undo_bar,
+        notice_toast: groups.notice_toast,
+        fs_clock: shell.fs_clock,
+        hdr_title_mirror: shell.hdr_title_mirror,
         close_video_btn,
-        blackout_sync,
-        _header_btn_heights,
+        blackout_sync: buttons.blackout_sync,
+        _header_btn_heights: shell._header_btn_heights,
     }
-}
-
-fn build_bottom_bar(
-    wrap_prev: &gtk::Box,
-    play_pause: &gtk::Button,
-    wrap_next: &gtk::Box,
-    time_left: &gtk::Label,
-    seek: &gtk::Scale,
-    time_right: &gtk::Label,
-) -> (gtk::Box, gtk::Button) {
-    let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    bottom.add_css_class("rp-bottom");
-    bottom.set_vexpand(false);
-    play_pause.set_valign(gtk::Align::Center);
-    wrap_prev.set_valign(gtk::Align::Center);
-    wrap_next.set_valign(gtk::Align::Center);
-    bottom.append(wrap_prev);
-    bottom.append(play_pause);
-    bottom.append(wrap_next);
-    bottom.append(time_left);
-    bottom.append(seek);
-    bottom.append(time_right);
-    let close_btn = gtk::Button::from_icon_name("window-close-symbolic");
-    close_btn.add_css_class("flat");
-    close_btn.set_valign(gtk::Align::Center);
-    close_btn.set_action_name(Some("app.close-video"));
-    close_btn.set_margin_start(2);
-    bottom.append(&close_btn);
-    (bottom, close_btn)
-}
-
-fn build_video_overlay(child: &gtk::GLArea) -> gtk::Overlay {
-    let ovl = gtk::Overlay::new();
-    ovl.add_css_class("rp-stack");
-    ovl.add_css_class("rp-page-stack");
-    ovl.set_child(Some(child));
-    ovl
 }

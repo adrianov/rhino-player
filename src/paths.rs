@@ -8,15 +8,17 @@ use std::path::{Path, PathBuf};
 
 /// `~/.config/rhino` (created if possible). `None` if `HOME` / config base is missing.
 pub fn app_config() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME").and_then(|v| {
-        let p = PathBuf::from(v);
-        p.is_absolute().then_some(p)
-    });
-    let base =
-        base.or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    let dir = base.join("rhino");
+    let dir = xdg_config_base()?.join("rhino");
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir)
+}
+
+/// `XDG_CONFIG_HOME` when absolute, else `$HOME/.config`.
+fn xdg_config_base() -> Option<PathBuf> {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
 }
 
 const BUNDLED_MVT60_VPY: &str = "rhino_60_mvtools.vpy";

@@ -46,30 +46,41 @@ fn install_aspect_hooks(
     deb: &Rc<RefCell<Option<glib::SourceId>>>,
     wired: &Rc<Cell<bool>>,
 ) {
-    use glib::object::ObjectExt;
     if wired.replace(true) {
         return;
     }
     let on_resize = build_aspect_on_resize(win, recent, win_aspect, deb);
+    let has_surf = connect_aspect_notifies(win, &on_resize);
+    eprintln!(
+        "[rhino] aspect: resize hooks wired (window notify{})",
+        if has_surf {
+            " + GdkSurface"
+        } else {
+            ", surface pending"
+        }
+    );
+}
+
+/// One fresh hook install: window width/height notify plus the live GdkSurface notify,
+/// scheduling the deferred-surface retry when the surface does not exist yet.
+fn connect_aspect_notifies(win: &adw::ApplicationWindow, on_resize: &Rc<dyn Fn()>) -> bool {
+    use glib::object::ObjectExt;
     win.connect_notify_local(Some("width"), {
-        let f = Rc::clone(&on_resize);
+        let f = Rc::clone(on_resize);
         move |_, _| f()
     });
     win.connect_notify_local(Some("height"), {
-        let f = Rc::clone(&on_resize);
+        let f = Rc::clone(on_resize);
         move |_, _| f()
     });
 
-    let has_surf = connect_surface_resize(win, &on_resize);
+    let has_surf = connect_surface_resize(win, on_resize);
     if !has_surf {
         let win_idle = win.clone();
-        let on_idle = Rc::clone(&on_resize);
+        let on_idle = Rc::clone(on_resize);
         let _ = glib::idle_add_local_once(move || log_deferred_surface_wire(&win_idle, &on_idle));
     }
-    eprintln!(
-        "[rhino] aspect: resize hooks wired (window notify{})",
-        if has_surf { " + GdkSurface" } else { ", surface pending" }
-    );
+    has_surf
 }
 
 /// Idle retry: connect the surface notify once it exists, logging the outcome.

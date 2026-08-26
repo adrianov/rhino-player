@@ -113,19 +113,20 @@ fn wire_value_changed(ctx: &Rc<SeekCtx>) {
             } else {
                 t
             };
-            let s = format_time(label_t);
-            if c.time_left.text().as_str() != s {
-                c.time_left.set_text(&s);
-            }
+            sync_time_left_label(&c.time_left, label_t);
             c.gl.queue_render();
             return;
         }
-        let s = format_time(t);
-        if c.time_left.text().as_str() != s {
-            c.time_left.set_text(&s);
-        }
+        sync_time_left_label(&c.time_left, t);
         quick_seek(&c, t);
     });
+}
+
+fn sync_time_left_label(time_left: &gtk::Label, t: f64) {
+    let s = format_time(t);
+    if time_left.text().as_str() != s {
+        time_left.set_text(&s);
+    }
 }
 
 fn wire_press_release(ctx: &Rc<SeekCtx>) {
@@ -178,110 +179,4 @@ fn commit_preview_seek(ctx: &SeekCtx) {
 }
 
 include!("seek_wiring/seek_keyframes.rs");
-
-fn quick_seek(ctx: &SeekCtx, v: f64) {
-    let s = format!("{v:.4}");
-    main_player_seek_keyframes(
-        &SeekKeyframeParams {
-            player: &ctx.player,
-            gl: &ctx.gl,
-            smooth_seek_debounce: &ctx.smooth_seek_debounce,
-            resume_after_seek_idle: &ctx.resume_after_seek_idle,
-            play_toggle: &ctx.play_toggle,
-            dvd_bar: Some(&ctx.dvd_bar),
-        },
-        SeekKeyframeKind::ScaleOrExternal,
-        &s,
-    );
-}
-
-struct SeekArrowDeps<'a> {
-    player: &'a Rc<RefCell<Option<MpvBundle>>>,
-    seek: &'a gtk::Scale,
-    seek_sync: &'a Rc<Cell<bool>>,
-    time_left: &'a gtk::Label,
-    gl: &'a gtk::GLArea,
-    smooth_seek_debounce: &'a Rc<RefCell<Option<glib::SourceId>>>,
-    resume_after_seek_idle: &'a Rc<Cell<bool>>,
-    play_toggle: &'a PlayToggleCtx,
-    dvd_bar: Option<&'a Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>>,
-}
-
-#[must_use]
-fn dvd_title_pos(
-    b: &MpvBundle,
-    ch: &std::path::Path,
-    local: f64,
-    live: f64,
-    dvd_bar: Option<&Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>>,
-) -> Option<(f64, f64)> {
-    if let Some(slot) = dvd_bar {
-        let guard = slot.borrow();
-        if let Some(ref bar) = *guard {
-            return Some((bar.transport_global_pos(b, ch, local), bar.total_sec()));
-        }
-    }
-    crate::dvd_vob_timeline::DvdBarState::build(ch, live)
-        .map(|bar| (bar.transport_global_pos(b, ch, local), bar.total_sec()))
-}
-
-fn arrow_seek_pos_len(
-    b: &MpvBundle,
-    seek: &gtk::Scale,
-    dvd_bar: Option<&Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>>,
-) -> Option<(f64, f64)> {
-    let shell = b.me_budget_shell_path.borrow().clone();
-    let mut pos = b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
-    let mut dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
-    let chapter = crate::media_probe::local_file_from_mpv(&b.mpv).or(shell);
-    if let Some(ref ch) = chapter {
-        let live = if dur.is_finite() { dur.max(0.0) } else { 0.0 };
-        if let Some((g, total)) = dvd_title_pos(b, ch, pos, live, dvd_bar) {
-            pos = g;
-            dur = total;
-        }
-    }
-    pos = if pos.is_finite() { pos.max(0.0) } else { 0.0 };
-    dur = if dur.is_finite() { dur.max(0.0) } else { 0.0 };
-    let adj_u = seek.adjustment().upper();
-    let adj_u = if adj_u.is_finite() { adj_u.max(0.0) } else { 0.0 };
-    let len = if adj_u > 0.0 { adj_u } else if dur > 0.0 { dur } else { 0.0 };
-    (len > 0.0).then_some((pos, len))
-}
-
-/// Steps **playback position** by `delta_sec` (e.g. −5 / +5 for arrow keys); keeps UI scale + clock aligned.
-fn seek_arrow_step(d: &SeekArrowDeps<'_>, delta_sec: f64) {
-    let nt = {
-        let g = d.player.borrow();
-        let Some(b) = g.as_ref() else {
-            return;
-        };
-        let Some((pos, len)) = arrow_seek_pos_len(b, d.seek, d.dvd_bar) else {
-            return;
-        };
-        (pos + delta_sec).clamp(0.0, len)
-    };
-    let s_abs = format!("{nt:.4}");
-    crate::user_action_log::act(format!(
-        "seek arrow {delta_sec:+.0}s -> t={s_abs}s"
-    ));
-    main_player_seek_keyframes(
-        &SeekKeyframeParams {
-            player: d.player,
-            gl: d.gl,
-            smooth_seek_debounce: d.smooth_seek_debounce,
-            resume_after_seek_idle: d.resume_after_seek_idle,
-            play_toggle: d.play_toggle,
-            dvd_bar: d.dvd_bar,
-        },
-        SeekKeyframeKind::ArrowBurst,
-        &s_abs,
-    );
-    d.seek_sync.set(true);
-    d.seek.set_value(nt);
-    d.seek_sync.set(false);
-    let ts = format_time(nt);
-    if d.time_left.text().as_str() != ts {
-        d.time_left.set_text(&ts);
-    }
-}
+include!("seek_wiring/seek_arrows.rs");

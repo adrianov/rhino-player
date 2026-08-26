@@ -63,6 +63,15 @@ fn mpris_track_metadata(s: &MprisShot) -> Metadata {
     meta.build()
 }
 
+async fn apply_active_capabilities(p: &Player, s: &MprisShot) -> zbus::Result<()> {
+    p.set_can_play(true).await?;
+    p.set_can_pause(true).await?;
+    p.set_can_seek(s.dur_sec > f64::EPSILON).await?;
+    p.set_can_go_next(s.can_next).await?;
+    p.set_can_go_previous(s.can_prev).await?;
+    Ok(())
+}
+
 async fn apply_shot_active(p: &Player, s: &MprisShot) -> zbus::Result<()> {
     let status = if s.paused {
         PlaybackStatus::Paused
@@ -70,11 +79,7 @@ async fn apply_shot_active(p: &Player, s: &MprisShot) -> zbus::Result<()> {
         PlaybackStatus::Playing
     };
     p.set_playback_status(status).await?;
-    p.set_can_play(true).await?;
-    p.set_can_pause(true).await?;
-    p.set_can_seek(s.dur_sec > f64::EPSILON).await?;
-    p.set_can_go_next(s.can_next).await?;
-    p.set_can_go_previous(s.can_prev).await?;
+    apply_active_capabilities(p, s).await?;
     p.set_metadata(mpris_track_metadata(s)).await?;
     let pos_us = (s.pos_sec * 1_000_000.0).round() as i64;
     p.set_position(Time::from_micros(pos_us.clamp(0, i64::MAX)));

@@ -1,5 +1,5 @@
-use super::{mpv_sub_id_for_ifo_slot, MpvSubTrackMeta};
 use super::super::streams::DvdIfoSub;
+use super::{mpv_sub_id_for_ifo_slot, MpvSubTrackMeta};
 
 fn ru_sub(slot: u8) -> DvdIfoSub {
     DvdIfoSub {

@@ -11,30 +11,59 @@ fn log_vf_add_fail_state(
     bundle: Option<&crate::mpv_embed::MpvBundle>,
     err: &libmpv2::Error,
 ) {
-    let pause = mpv.get_property::<bool>("pause").ok();
-    let core_idle = mpv.get_property::<bool>("core-idle").ok();
-    let pos = mpv.get_property::<f64>("time-pos").ok();
-    let dur = mpv.get_property::<f64>("duration").ok();
-    let vf = mpv
-        .get_property::<String>("vf")
-        .ok()
-        .map(|s| if s.trim().is_empty() { "<empty>".into() } else { s });
-    let path = crate::media_probe::local_file_from_mpv(mpv)
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "<none>".into());
-    let resume_pending = bundle
-        .map(|b| b.resume_seek_pending())
-        .unwrap_or(false);
+    let s = capture_vf_add_fail_state(mpv, bundle);
     eprintln!(
         "[rhino] video: vf add fail state err={err:?} pause={} core-idle={} resume-pending={} pos={} dur={} path={} vf={}",
-        pause.map(|x| x.to_string()).unwrap_or_else(|| "?".into()),
-        core_idle.map(|x| x.to_string()).unwrap_or_else(|| "?".into()),
-        resume_pending,
-        pos.map(|x| format!("{x:.3}")).unwrap_or_else(|| "?".into()),
-        dur.map(|x| format!("{x:.3}")).unwrap_or_else(|| "?".into()),
-        path,
-        vf.unwrap_or_else(|| "?".into()),
+        fmt_bool_opt(s.pause),
+        fmt_bool_opt(s.core_idle),
+        s.resume_pending,
+        fmt_secs_opt(s.pos, 3),
+        fmt_secs_opt(s.dur, 3),
+        fmt_opt_str(s.path, "<none>"),
+        fmt_opt_str(s.vf, "?"),
     );
+}
+
+/// mpv / bundle state snapshot taken at `vf add` failure, for the fail-state log line.
+struct VfAddFailState {
+    pause: Option<bool>,
+    core_idle: Option<bool>,
+    pos: Option<f64>,
+    dur: Option<f64>,
+    vf: Option<String>,
+    path: Option<String>,
+    resume_pending: bool,
+}
+
+fn capture_vf_add_fail_state(
+    mpv: &libmpv2::Mpv,
+    bundle: Option<&crate::mpv_embed::MpvBundle>,
+) -> VfAddFailState {
+    VfAddFailState {
+        pause: mpv.get_property::<bool>("pause").ok(),
+        core_idle: mpv.get_property::<bool>("core-idle").ok(),
+        pos: mpv.get_property::<f64>("time-pos").ok(),
+        dur: mpv.get_property::<f64>("duration").ok(),
+        vf: vf_chain_label_for_fail_log(mpv),
+        path: local_path_label_for_fail_log(mpv),
+        resume_pending: bundle.map(|b| b.resume_seek_pending()).unwrap_or(false),
+    }
+}
+
+/// Current `vf` chain text, `<empty>` when unset.
+fn vf_chain_label_for_fail_log(mpv: &libmpv2::Mpv) -> Option<String> {
+    mpv.get_property::<String>("vf").ok().map(|s| {
+        if s.trim().is_empty() {
+            "<empty>".into()
+        } else {
+            s
+        }
+    })
+}
+
+/// Local media path display string, `None` for non-local media.
+fn local_path_label_for_fail_log(mpv: &libmpv2::Mpv) -> Option<String> {
+    crate::media_probe::local_file_from_mpv(mpv).map(|p| p.display().to_string())
 }
 
 pub(crate) fn smooth_vapoursynth_vf_try_attach(

@@ -1,3 +1,4 @@
+include!("transport_read_props.rs");
 fn browse_pause_snap(
     ctx: &TransportCtx,
     shell: &Option<std::path::PathBuf>,
@@ -11,8 +12,7 @@ fn browse_pause_snap(
     let Some(p) = shell.as_ref() else {
         return (pos, dur, false);
     };
-    let Some(snap) =
-        crate::media_probe::continue_grid_cache_lookup(&ctx.continue_grid_cache, p)
+    let Some(snap) = crate::media_probe::continue_grid_cache_lookup(&ctx.continue_grid_cache, p)
     else {
         return (pos, dur, false);
     };
@@ -29,54 +29,11 @@ fn browse_pause_snap(
     (pos, dur, from_entity)
 }
 
-fn clamp_mpv_sec(v: f64) -> f64 {
-    if v.is_finite() { v.max(0.0) } else { 0.0 }
-}
-
-/// Container `duration` can exceed the decoded tail; clamp for transport UI when stalled near end.
-fn duration_clamp_stalled_playout(
-    dur: f64,
-    pos: f64,
-    core_idle: bool,
-    eof_reached: bool,
-    played_into_tail: bool,
-) -> f64 {
-    if dur <= 0.0 || pos <= 0.0 {
-        return dur;
-    }
-    let gap = dur - pos;
-    if gap > 0.0
-        && gap <= crate::media_probe::NEAR_END_SEC
-        && (eof_reached || (core_idle && played_into_tail))
-    {
-        pos
-    } else {
-        dur
-    }
-}
-
-fn read_transport_state(ctx: &TransportCtx) -> Option<(bool, bool, f64, f64)> {
-    let mut g = ctx.player.try_borrow_mut().ok()?;
-    let b = g.as_mut()?;
-    let pause = b.mpv.get_property::<bool>("pause").unwrap_or(false);
-    let core_idle = b.mpv.get_property::<bool>("core-idle").unwrap_or(false);
-    let eof_reached = b.mpv.get_property::<bool>("eof-reached").unwrap_or(false);
-    let pos = clamp_mpv_sec(b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0));
-    let raw_dur = clamp_mpv_sec(b.mpv.get_property::<f64>("duration").unwrap_or(0.0));
-    if !b.resume_seek_pending() {
-        ctx.eof.sibling_seof.note_transport_pos(pos);
-    }
-    let played_into_tail = ctx
-        .eof
-        .sibling_seof
-        .played_into_tail(raw_dur, eof_reached);
-    let dur = duration_clamp_stalled_playout(
-        raw_dur,
-        pos,
-        core_idle,
-        eof_reached,
-        played_into_tail,
-    );
+/// Resolve the browse-overlay chapter path and the playing chapter path for the current bundle.
+fn resolve_transport_chapters(
+    ctx: &TransportCtx,
+    b: &MpvBundle,
+) -> (Option<std::path::PathBuf>, Option<std::path::PathBuf>) {
     let shell = b.me_budget_shell_path.borrow().clone();
     let browse_chapter = crate::playback_entity::transport_chapter_path(
         ctx.recent_visible.get(),
@@ -84,39 +41,123 @@ fn read_transport_state(ctx: &TransportCtx) -> Option<(bool, bool, f64, f64)> {
         Some(&b.mpv),
         shell.as_deref(),
     );
-    let playback_chapter = crate::playback_entity::transport_chapter_path(
-        false,
-        None,
-        Some(&b.mpv),
-        shell.as_deref(),
-    );
+    let playback_chapter =
+        crate::playback_entity::transport_chapter_path(false, None, Some(&b.mpv), shell.as_deref());
+    (browse_chapter, playback_chapter)
+}
+
+fn persist_transport_bar_if_due(
+    ctx: &TransportCtx,
+    b: &MpvBundle,
+    unified_timeline: bool,
+    pos_from_entity_snap: bool,
+    dur: f64,
+    pos: f64,
+) {
+    let browse_overlay = ctx.recent_visible.get() && !ctx.eof.playback_focus.get();
+    if unified_timeline
+        && dur > 0.0
+        && !pos_from_entity_snap
+        && !browse_overlay
+        && !b.resume_seek_pending()
+    {
+        b.set_transport_bar_persist(dur, pos);
+    }
+}
+
+fn read_transport_state(ctx: &TransportCtx) -> Option<(bool, bool, f64, f64)> {
+    let mut g = ctx.player.try_borrow_mut().ok()?;
+    let b = g.as_mut()?;
+    let (pause, core_idle, dur, pos) = sample_transport_state(ctx, b);
+    let (browse_chapter, playback_chapter) = resolve_transport_chapters(ctx, b);
     let (mut pos, mut dur, pos_from_entity_snap) =
         browse_pause_snap(ctx, &browse_chapter, pause, pos, dur);
-    let bar_chapter = playback_chapter.as_ref().or(browse_chapter.as_ref());
-    if let Some(ch) = bar_chapter {
-        let entity = crate::playback_entity::PlaybackEntity::resolve(ch);
-        if entity.has_unified_timeline() {
-            dur = crate::dvd_vob_timeline::clamp_vob_duration(dur);
-        }
-        let bar = ctx.dvd_bar.borrow();
-        if pos_from_entity_snap {
-            if let (Some(pb), Some(bar)) = (playback_chapter.as_ref(), bar.as_ref()) {
-                if entity.dvd_bar_active(pb, bar) {
-                    dur = bar.total_sec();
-                }
-            }
-        } else if let Some(pb) = playback_chapter.as_ref().or(browse_chapter.as_ref()) {
-            (dur, pos) = entity.transport_bar(pb, pos, dur, bar.as_ref(), Some(b));
-        }
-        let browse_overlay = ctx.recent_visible.get() && !ctx.eof.playback_focus.get();
-        if entity.has_unified_timeline()
-            && dur > 0.0
-            && !pos_from_entity_snap
-            && !browse_overlay
-            && !b.resume_seek_pending()
-        {
-            b.set_transport_bar_persist(dur, pos);
+    apply_entity_transport_bar(
+        ctx,
+        b,
+        playback_chapter.as_deref(),
+        browse_chapter.as_deref(),
+        pos_from_entity_snap,
+        &mut pos,
+        &mut dur,
+    );
+    Some((pause, core_idle, dur, pos))
+}
+
+/// Raw mpv sample + tail clamps + sibling EOF bookkeeping.
+fn sample_transport_state(ctx: &TransportCtx, b: &MpvBundle) -> (bool, bool, f64, f64) {
+    let (pause, core_idle, eof_reached, pos, raw_dur) = read_mpv_transport_props(b);
+    if !b.resume_seek_pending() {
+        ctx.eof.sibling_seof.note_transport_pos(pos);
+    }
+    let played_into_tail = ctx.eof.sibling_seof.played_into_tail(raw_dur, eof_reached);
+    let dur =
+        duration_clamp_stalled_playout(raw_dur, pos, core_idle, eof_reached, played_into_tail);
+    (pause, core_idle, dur, pos)
+}
+
+/// Overlay DVD unified-timeline bar state onto the raw mpv position / duration.
+fn apply_entity_transport_bar(
+    ctx: &TransportCtx,
+    b: &mut MpvBundle,
+    playback_chapter: Option<&std::path::Path>,
+    browse_chapter: Option<&std::path::Path>,
+    pos_from_entity_snap: bool,
+    pos: &mut f64,
+    dur: &mut f64,
+) {
+    let Some(ch) = playback_chapter.or(browse_chapter) else {
+        return;
+    };
+    let entity = crate::playback_entity::PlaybackEntity::resolve(ch);
+    let unified_timeline = entity.has_unified_timeline();
+    if unified_timeline {
+        *dur = crate::dvd_vob_timeline::clamp_vob_duration(*dur);
+    }
+    overlay_dvd_bar_state(
+        ctx,
+        &EntityBarOverlay {
+            b,
+            playback_chapter,
+            browse_chapter,
+            entity: &entity,
+            pos_from_entity_snap,
+        },
+        pos,
+        dur,
+    );
+    persist_transport_bar_if_due(ctx, b, unified_timeline, pos_from_entity_snap, *dur, *pos);
+}
+
+/// Chapter / snapshot inputs for the DVD unified-timeline bar overlay.
+struct EntityBarOverlay<'a> {
+    b: &'a MpvBundle,
+    playback_chapter: Option<&'a std::path::Path>,
+    browse_chapter: Option<&'a std::path::Path>,
+    entity: &'a crate::playback_entity::PlaybackEntity,
+    pos_from_entity_snap: bool,
+}
+
+fn overlay_dvd_bar_state(ctx: &TransportCtx, o: &EntityBarOverlay, pos: &mut f64, dur: &mut f64) {
+    let bar = ctx.dvd_bar.borrow();
+    if o.pos_from_entity_snap {
+        apply_snap_bar_override(o.playback_chapter, bar.as_ref(), o.entity, dur);
+    } else if let Some(pb) = o.playback_chapter.or(o.browse_chapter) {
+        (*dur, *pos) = o
+            .entity
+            .transport_bar(pb, *pos, *dur, bar.as_ref(), Some(o.b));
+    }
+}
+
+fn apply_snap_bar_override(
+    playback_chapter: Option<&std::path::Path>,
+    bar: Option<&crate::dvd_vob_timeline::DvdBarState>,
+    entity: &crate::playback_entity::PlaybackEntity,
+    dur: &mut f64,
+) {
+    if let (Some(pb), Some(bar)) = (playback_chapter, bar) {
+        if entity.dvd_bar_active(pb, bar) {
+            *dur = bar.total_sec();
         }
     }
-    Some((pause, core_idle, dur, pos))
 }

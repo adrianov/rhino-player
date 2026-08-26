@@ -12,8 +12,7 @@ pub(super) fn drop_ifo_stub_segments(tl: &mut DvdVobTimeline) {
     let mut vobs = Vec::with_capacity(tl.vobs.len());
     let mut durs = Vec::with_capacity(tl.durs.len());
     for (vob, &d) in tl.vobs.iter().zip(tl.durs.iter()) {
-        if d > 0.0 && d < MIN_SUBSTANTIAL_SEC && !crate::dvd_entity::chapter_vob_substantial_on_disk(vob)
-        {
+        if ifo_stub_to_drop(vob, d) {
             continue;
         }
         vobs.push(vob.clone());
@@ -25,4 +24,9 @@ pub(super) fn drop_ifo_stub_segments(tl: &mut DvdVobTimeline) {
     tl.vobs = vobs;
     tl.durs = durs;
     tl.recompute_starts();
+}
+
+/// Tiny menu stub (`VTS_xx_1` ≈1 s) not backed by a substantial file on disk.
+fn ifo_stub_to_drop(vob: &Path, d: f64) -> bool {
+    d > 0.0 && d < MIN_SUBSTANTIAL_SEC && !crate::dvd_entity::chapter_vob_substantial_on_disk(vob)
 }

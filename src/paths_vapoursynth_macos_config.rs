@@ -125,61 +125,10 @@ pub(crate) fn macos_ensure_vapoursynth_python_config() {
     let Some(vs_lib) = macos_vapoursynth_lib_dir() else {
         return;
     };
-    let vsscript = vs_lib.join(VSSCRIPT_DYLIB);
-    if !vsscript.is_file() {
-        return;
-    }
-    let key = std::fs::canonicalize(&vsscript).unwrap_or(vsscript);
-    let Some(ver) = macos_vs_python_ver(&vs_lib) else {
-        eprintln!(
-            "[rhino] video: cannot derive Python version from {}",
-            vs_lib.display()
-        );
+    let Some(update) = resolve_vs_toml_update(&vs_lib) else {
         return;
     };
-    let Some(py_lib) = macos_opt_python_lib(&ver) else {
-        eprintln!(
-            "[rhino] video: Homebrew Python.framework missing for python@{ver} — \
-             `brew install python@{ver}`"
-        );
-        return;
-    };
-    let Some(py_exe) = macos_vs_python_exe() else {
-        eprintln!(
-            "[rhino] video: VapourSynth libexec python3 missing (brew install vapoursynth)"
-        );
-        return;
-    };
-    let Some(toml_path) = macos_vapoursynth_toml_path() else {
-        return;
-    };
-
-    let key_s = key.to_string_lossy();
-    let want_lib = py_lib.to_string_lossy();
-    let want_exe = py_exe.to_string_lossy();
-    let existing = std::fs::read_to_string(&toml_path).unwrap_or_default();
-    if vs_toml_mapping_already_ok(&existing, key_s.as_ref()) {
-        return;
-    }
-
-    if let Some(parent) = toml_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let text = merge_vs_toml_mapping(
-        &existing,
-        key_s.as_ref(),
-        want_exe.as_ref(),
-        want_lib.as_ref(),
-    );
-    match std::fs::write(&toml_path, text) {
-        Ok(()) => eprintln!(
-            "[rhino] video: refreshed {} → {}",
-            toml_path.display(),
-            py_lib.display()
-        ),
-        Err(e) => eprintln!(
-            "[rhino] video: failed to write {}: {e}",
-            toml_path.display()
-        ),
-    }
+    apply_vs_toml_update(&update);
 }
+
+include!("paths_vapoursynth_macos_config_update.rs");

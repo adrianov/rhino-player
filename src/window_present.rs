@@ -105,16 +105,32 @@ fn place_on_mouse_screen(win: &adw::ApplicationWindow) {
         return;
     };
     let vis = screen.visibleFrame();
-    let mut frame = nswin.frame();
+    let frame = frame_centered_on(
+        vis,
+        nswin.frame(),
+        win.default_width(),
+        win.default_height(),
+    );
+    nswin.setFrame_display(frame, true);
+}
+
+/// Clamp degenerate frames to sane defaults and center on the target screen's visible area.
+#[cfg(target_os = "macos")]
+fn frame_centered_on(
+    vis: objc2_foundation::NSRect,
+    mut frame: objc2_foundation::NSRect,
+    default_width: i32,
+    default_height: i32,
+) -> objc2_foundation::NSRect {
     if frame.size.width < 64.0 {
-        frame.size.width = f64::from(win.default_width().max(320));
+        frame.size.width = f64::from(default_width.max(320));
     }
     if frame.size.height < 64.0 {
-        frame.size.height = f64::from(win.default_height().max(200));
+        frame.size.height = f64::from(default_height.max(200));
     }
     frame.origin.x = vis.origin.x + (vis.size.width - frame.size.width) / 2.0;
     frame.origin.y = vis.origin.y + (vis.size.height - frame.size.height) / 2.0;
-    nswin.setFrame_display(frame, true);
+    frame
 }
 
 #[cfg(target_os = "macos")]

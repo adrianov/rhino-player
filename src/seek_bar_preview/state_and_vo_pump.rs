@@ -59,21 +59,7 @@ impl SeekPreviewState {
 
     pub(crate) fn show_at(&self, x: f64) {
         let reopening = !self.shown.get();
-        // frame: padding 3px + border 1px per side = 8px over gl width; use allocated width when ready.
-        let preview_w = self
-            .container
-            .width()
-            .max(self.gl.width_request() + 8)
-            .max(1) as f64;
-        let ovl_w = self.ovl.width().max(1) as f64;
-        let cursor_x = self
-            .seek
-            .compute_point(&self.ovl, &gtk::graphene::Point::new(x as f32, 0.0))
-            .map(|p| p.x() as f64)
-            .unwrap_or(x);
-        let raw = (cursor_x - preview_w / 2.0).round();
-        let margin_start = raw.clamp(0.0, (ovl_w - preview_w).max(0.0)) as i32;
-        let margin_bottom = self.bottom.height().max(1) + PREVIEW_GAP;
+        let (margin_start, margin_bottom) = self.show_margins(x);
         self.container.set_margin_start(margin_start);
         self.container.set_margin_bottom(margin_bottom);
         self.container.set_can_target(false);
@@ -90,6 +76,35 @@ impl SeekPreviewState {
         }
     }
 
+    /// Frame placement centered under the cursor, clamped to the seek overlay:
+    /// returns (margin_start, margin_bottom).
+    fn show_margins(&self, x: f64) -> (i32, i32) {
+        // frame: padding 3px + border 1px per side = 8px over gl width; use allocated width when ready.
+        let preview_w = self.preview_frame_w();
+        let ovl_w = self.ovl.width().max(1) as f64;
+        let raw = (self.cursor_x_in_overlay(x) - preview_w / 2.0).round();
+        let margin_start = raw.clamp(0.0, (ovl_w - preview_w).max(0.0)) as i32;
+        let margin_bottom = self.bottom.height().max(1) + PREVIEW_GAP;
+        (margin_start, margin_bottom)
+    }
+
+    /// Allocated preview width (frame padding/border included), at least 1 px.
+    /// Padding 3px + border 1px per side = 8px over gl width.
+    fn preview_frame_w(&self) -> f64 {
+        (self
+            .container
+            .width()
+            .max(self.gl.width_request() + 8)
+            .max(1)) as f64
+    }
+
+    fn cursor_x_in_overlay(&self, x: f64) -> f64 {
+        self.seek
+            .compute_point(&self.ovl, &gtk::graphene::Point::new(x as f32, 0.0))
+            .map(|p| p.x() as f64)
+            .unwrap_or(x)
+    }
+
     pub(crate) fn hide(&self) {
         if !self.shown.replace(false) {
             return;
@@ -102,16 +117,14 @@ impl SeekPreviewState {
 
     /// Main player opened another file — drop cached load target and hide until re-hover.
     pub(crate) fn reset_for_new_media(&self, from: &'static str) {
-        crate::preview_debug::info(format!(
-            "reset from {from} (prev_target={:?} owner={:?} visible={})",
-            self.loaded_target.borrow().as_deref(),
-            self.preview_owner_db
-                .borrow()
-                .as_ref()
-                .map(|p| p.display().to_string()),
-            self.is_open()
-        ));
+        self.log_reset_from(from);
         self.serial.set(self.serial.get().wrapping_add(1));
+        self.drop_cached_media();
+        self.hide();
+    }
+
+    /// Drops debounced/pump sources, cached load bookkeeping, and aux-player decode state.
+    fn drop_cached_media(&self) {
         crate::glib_source_drop::drop_glib_source(self.deb.as_ref());
         crate::glib_source_drop::drop_glib_source(self.pump.as_ref());
         *self.loaded_target.borrow_mut() = None;
@@ -122,7 +135,18 @@ impl SeekPreviewState {
             reset_preview_player_decode(&pr.mpv);
             self.clear_preview_visual();
         }
-        self.hide();
+    }
+
+    fn log_reset_from(&self, from: &'static str) {
+        crate::preview_debug::info(format!(
+            "reset from {from} (prev_target={:?} owner={:?} visible={})",
+            self.loaded_target.borrow().as_deref(),
+            self.preview_owner_db
+                .borrow()
+                .as_ref()
+                .map(|p| p.display().to_string()),
+            self.is_open()
+        ));
     }
 }
 
@@ -141,8 +165,16 @@ fn preview_size(dw: i32, dh: i32, long_edge: i32) -> (i32, i32) {
 }
 
 pub(crate) fn set_preview_size(st: &SeekPreviewState) {
-    let (dw, dh) = st
-        .player
+    let (dw, dh) = main_player_video_dims(&st.player);
+    let (req_w, req_h) = preview_size(dw, dh, preview_px(st.seek.width()));
+    if st.gl.width_request() != req_w || st.gl.height_request() != req_h {
+        st.gl.set_size_request(req_w, req_h);
+    }
+}
+
+/// Display dimensions of the main player's current video (fallback 1080p when unknown).
+fn main_player_video_dims(player: &Rc<RefCell<Option<MpvBundle>>>) -> (i32, i32) {
+    player
         .borrow()
         .as_ref()
         .map(|b| {
@@ -150,11 +182,7 @@ pub(crate) fn set_preview_size(st: &SeekPreviewState) {
             let dh = b.mpv.get_property::<i64>("dheight").unwrap_or(0) as i32;
             (dw.max(1), dh.max(1))
         })
-        .unwrap_or((1920, 1080));
-    let (req_w, req_h) = preview_size(dw, dh, preview_px(st.seek.width()));
-    if st.gl.width_request() != req_w || st.gl.height_request() != req_h {
-        st.gl.set_size_request(req_w, req_h);
-    }
+        .unwrap_or((1920, 1080))
 }
 
 include!("preview_frame_pump.rs");

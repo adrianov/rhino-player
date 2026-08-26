@@ -39,7 +39,18 @@ pub(crate) fn reload_open_media_for_vf_reset(b: &MpvBundle, resume_playing: bool
     let _ = b.mpv.set_property("pause", true);
     strip_vapoursynth_before_replace_media(b);
     let resume = if pos > 0.05 { Some(pos) } else { None };
-    match b.load_file_path(&path, false, false, false, resume) {
+    replace_media_at_pos(b, &path, pos, resume, resume_playing)
+}
+
+/// `loadfile replace` at the playhead; on success arms the unpause hold and drains after load.
+fn replace_media_at_pos(
+    b: &MpvBundle,
+    path: &std::path::Path,
+    pos: f64,
+    resume: Option<f64>,
+    resume_playing: bool,
+) -> bool {
+    match b.load_file_path(path, false, false, false, resume) {
         Ok(()) => {
             eprintln!(
                 "[rhino] video: loadfile replace for vapoursynth reattach path={} pos={pos:.2} resume_playing={resume_playing}",

@@ -26,32 +26,54 @@ pub fn mpv_sub_id_for_ifo_slot(
     tracks: &[MpvSubTrackMeta],
     slot: u8,
 ) -> Option<i64> {
-    for (idx, t) in tracks.iter().enumerate() {
-        if sub_slot_for_src_id(ifo_subs, t.src_id, idx) == Some(slot) {
-            return Some(t.id);
-        }
+    track_id_by_src_slot(ifo_subs, tracks, slot)
+        .or_else(|| track_id_by_ifo_lang(ifo_subs, tracks, slot))
+        .or_else(|| track_id_by_position(ifo_subs, tracks, slot))
+        .or_else(|| dvd_stream_fallback(tracks, slot))
+}
+
+fn track_id_by_src_slot(
+    ifo_subs: &[DvdIfoSub],
+    tracks: &[MpvSubTrackMeta],
+    slot: u8,
+) -> Option<i64> {
+    tracks
+        .iter()
+        .enumerate()
+        .find(|(idx, t)| sub_slot_for_src_id(ifo_subs, t.src_id, *idx) == Some(slot))
+        .map(|(_, t)| t.id)
+}
+
+fn track_id_by_ifo_lang(
+    ifo_subs: &[DvdIfoSub],
+    tracks: &[MpvSubTrackMeta],
+    slot: u8,
+) -> Option<i64> {
+    let want = ifo_subs.iter().find(|s| s.slot == slot)?.lang.trim();
+    if want.is_empty() {
+        return None;
     }
-    if let Some(ifo_row) = ifo_subs.iter().find(|s| s.slot == slot) {
-        let want = ifo_row.lang.trim();
-        if !want.is_empty() {
-            for t in tracks {
-                let l = t.lang.as_deref().unwrap_or("").trim();
-                if sub_langs_match(want, l) {
-                    return Some(t.id);
-                }
-            }
-        }
-    }
-    if let Some(pos) = ifo_subs.iter().position(|s| s.slot == slot) {
-        if let Some(t) = tracks.get(pos) {
-            return Some(t.id);
-        }
-    }
+    tracks
+        .iter()
+        .find(|t| sub_langs_match(want, t.lang.as_deref().unwrap_or("").trim()))
+        .map(|t| t.id)
+}
+
+fn track_id_by_position(
+    ifo_subs: &[DvdIfoSub],
+    tracks: &[MpvSubTrackMeta],
+    slot: u8,
+) -> Option<i64> {
+    let pos = ifo_subs.iter().position(|s| s.slot == slot)?;
+    tracks.get(pos).map(|t| t.id)
+}
+
+fn dvd_stream_fallback(tracks: &[MpvSubTrackMeta], slot: u8) -> Option<i64> {
     let dvd_stream = 0x20 + i64::from(slot);
-    if tracks.iter().any(|t| t.id == dvd_stream) {
-        return Some(dvd_stream);
-    }
-    None
+    tracks
+        .iter()
+        .any(|t| t.id == dvd_stream)
+        .then_some(dvd_stream)
 }
 
 #[cfg(test)]

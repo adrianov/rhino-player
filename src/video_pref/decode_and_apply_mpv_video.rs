@@ -67,6 +67,7 @@ pub fn smooth_user_enable_playing_reset(
     false
 }
 
+include!("smooth_apply_plan.rs");
 fn apply_mpv_video_impl(
     mpv: &Mpv,
     bundle: Option<&MpvBundle>,
@@ -80,90 +81,87 @@ fn apply_mpv_video_impl(
         eprintln!("[rhino] video: apply_mpv_video skipped (vapoursynth attach in flight)");
         return MpvVideoApply::default();
     }
-    let paused = mpv.get_property::<bool>("pause").unwrap_or(true);
-    let want_60 = v.smooth_60;
-    let cadence_hz = want_60.then(|| refresh_smooth_cadence_gate(mpv, bundle)).flatten();
-    let eligible_1x = mvtools_vf_eligible(mpv, speed_hint);
-    let display_only = smooth_prefers_display_resample_bundle(mpv, bundle);
-    let display_resample = want_60 && eligible_1x && display_only && !paused;
-    let had_vapoursynth = vf_chain_has_vapoursynth(mpv);
-    let use_mvtools = want_60
-        && smooth_wants_vapoursynth_vf(mpv, bundle, speed_hint)
-        && (!paused || !had_vapoursynth);
-    if display_resample {
-        apply_interleaved_display_resample(mpv, bundle, vlog);
-        post_smooth_60_state(mpv, v, want_60, false, vlog);
-        return MpvVideoApply::default();
+    let plan = SmoothApplyPlan::probe(mpv, bundle, v, speed_hint);
+    if let Some(outcome) = apply_plan_fast_path(mpv, bundle, v, speed_hint, &plan, vlog) {
+        return outcome;
     }
-    if !use_mvtools {
-        return apply_mpv_video_without_mvtools(
+    if !mpv_has_open_media(mpv) {
+        let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle, plan.cadence_hz);
+        return finish_smooth_apply(disabled_60, mpv, v, plan.want_60, vlog);
+    }
+
+    let mut p = SmoothVfParams {
+        mpv,
+        bundle,
+        v,
+        speed_hint,
+        cadence_hz: plan.cadence_hz,
+        want_60: plan.want_60,
+        had_vapoursynth: plan.had_vapoursynth,
+        vlog,
+    };
+    apply_smooth_vf_with_media(player, &mut p)
+}
+
+/// Branches that finish without touching a Smooth vf chain: display resampling and
+/// builds with MVTools unavailable.
+fn apply_plan_fast_path(
+    mpv: &Mpv,
+    bundle: Option<&MpvBundle>,
+    v: &mut VideoPrefs,
+    speed_hint: Option<f64>,
+    plan: &SmoothApplyPlan,
+    vlog: bool,
+) -> Option<MpvVideoApply> {
+    if plan.display_resample {
+        apply_interleaved_display_resample(mpv, bundle, vlog);
+        return Some(finish_smooth_apply(false, mpv, v, plan.want_60, vlog));
+    }
+    if !plan.use_mvtools {
+        return Some(apply_mpv_video_without_mvtools(
             mpv,
             bundle,
             v,
             speed_hint,
-            want_60,
-            had_vapoursynth,
+            plan.want_60,
+            plan.had_vapoursynth,
             vlog,
-        );
+        ));
     }
-    if !mpv_has_open_media(mpv) {
-        let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle, cadence_hz);
-        post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
-        return MpvVideoApply {
-            smooth_auto_off: disabled_60,
-        };
-    }
+    None
+}
 
+/// Parameters shared by the Smooth vf with-media refresh/rebuild paths.
+struct SmoothVfParams<'a> {
+    mpv: &'a Mpv,
+    bundle: Option<&'a MpvBundle>,
+    v: &'a mut VideoPrefs,
+    speed_hint: Option<f64>,
+    cadence_hz: Option<f64>,
+    want_60: bool,
+    had_vapoursynth: bool,
+    vlog: bool,
+}
+
+/// Smooth MVTools path with media open: refresh a matching chain in place, else full rebuild.
+fn apply_smooth_vf_with_media(
+    player: Option<&Rc<RefCell<Option<MpvBundle>>>>,
+    p: &mut SmoothVfParams<'_>,
+) -> MpvVideoApply {
     let Some(pl) = player else {
         eprintln!("[rhino] video: smooth vf rebuild skipped (no player handle for A/V resync)");
         return MpvVideoApply::default();
     };
 
-    if had_vapoursynth && vf_smooth_matches_prefs(mpv, v, bundle) {
-        if smooth_prefers_display_resample_bundle(mpv, bundle) {
-            apply_interleaved_display_resample(mpv, bundle, vlog);
-            post_smooth_60_state(mpv, v, want_60, false, vlog);
-            return MpvVideoApply::default();
+    if p.had_vapoursynth && vf_smooth_matches_prefs(p.mpv, p.v, p.bundle) {
+        if let Some(applied) = refresh_matched_smooth_vf(pl, p) {
+            return applied;
         }
-        match speed_hint {
-            Some(s) => set_playback_speed_env(s),
-            None => set_playback_speed_env_from_mpv(mpv),
-        }
-        let smooth_cap = effective_smooth_me_budget_px(mpv, v, bundle);
-        let fps_opt = cadence_hz;
-        if v.vs_path.trim().is_empty() {
-            crate::paths::publish_smooth_me_budget_env(smooth_cap);
-        }
-        let fps_env_before = std::env::var(crate::paths::RHINO_SOURCE_FPS_VAR).ok();
-        let before_hz = fps_env_before
-            .as_deref()
-            .and_then(|s| s.parse::<f64>().ok())
-            .filter(|x| x.is_finite());
-        let cadence_unchanged = match (fps_opt, before_hz) {
-            (Some(w), Some(b)) => (w - b).abs() < 1e-5,
-            (None, None) => true,
-            _ => false,
-        };
-        apply_source_fps_env(fps_opt);
-        if cadence_unchanged {
-            apply_smooth_vf_present_opts(mpv);
-            post_smooth_60_state(mpv, v, want_60, false, vlog);
-            return MpvVideoApply::default();
-        }
-        eprintln!(
-            "[rhino] video: rebuilding vapoursynth vf ({} changed)",
-            crate::paths::RHINO_SOURCE_FPS_VAR
-        );
-        let disabled_60 = rebuild_smooth_vf_chain(pl, mpv, bundle, v, speed_hint, cadence_hz, vlog);
-        post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
-        return MpvVideoApply {
-            smooth_auto_off: disabled_60,
-        };
     }
 
-    let disabled_60 = rebuild_smooth_vf_chain(pl, mpv, bundle, v, speed_hint, cadence_hz, vlog);
-    post_smooth_60_state(mpv, v, want_60, disabled_60, vlog);
-    MpvVideoApply {
-        smooth_auto_off: disabled_60,
-    }
+    let disabled_60 =
+        rebuild_smooth_vf_chain(pl, p.mpv, p.bundle, p.v, p.speed_hint, p.cadence_hz, p.vlog);
+    finish_smooth_apply(disabled_60, p.mpv, p.v, p.want_60, p.vlog)
 }
+
+include!("smooth_vf_refresh_matched.rs");

@@ -11,78 +11,17 @@ impl MpvPreviewGl {
     /// Call from [gtk::GLArea::connect_realize] with a current context ([make_current]).
     pub fn new(gl_area: &gtk::GLArea) -> Result<Self, String> {
         let gl_libs = GlDynLib::load()?;
-        let egl_state = EglState {
-            get: gl_libs.get_proc,
-        };
 
-        let mut mpv = Mpv::with_initializer(|init| {
-            init.set_option("vo", "libmpv")?;
-            init.set_option("ao", "null")?;
-            init.set_option("osc", "no")?;
-            init.set_option("load-scripts", false)?;
-            init.set_option("config", "no")?;
-            init.set_option("ytdl", false)?;
-            init.set_option("pause", true)?;
-            // Thumbnail seeks near EOF must not unload the clip (default EOF → idle/black).
-            let _ = init.set_option("keep-open", "always");
-            let _ = init.set_option("autoload-files", "no");
-            let _ = init.set_option("audio-file-auto", "no");
-            let _ = init.set_option("sub-auto", "no");
-            let _ = init.set_option("aid", "no");
-            let _ = init.set_option("sid", "no");
-            let _ = init.set_option("secondary-sid", "no");
-            let _ = init.set_option("resume-playback", "no");
-            let _ = init.set_option("save-position-on-quit", "no");
-            let _ = init.set_option("hwdec", "no");
-            let _ = init.set_option("terminal", false);
-            let _ = init.set_option("msg-level", "all=no");
-            let _ = init.set_option("vd-lavc-threads", 1i64);
-            let _ = init.set_option("vd-lavc-fast", true);
-            let _ = init.set_option("vd-lavc-skiploopfilter", "all");
-            let _ = init.set_option("vd-lavc-skipidct", "nonkey");
-            let _ = init.set_option("vd-lavc-skipframe", "nonkey");
-            let _ = init.set_option("vd-lavc-software-fallback", 1i64);
-            let _ = init.set_option("sws-scaler", "fast-bilinear");
-            let _ = init.set_option("demuxer-readahead-secs", 0.0f64);
-            let _ = init.set_option("demuxer-max-bytes", "128KiB");
-            let _ = init.set_option("hr-seek", false);
-            let _ = init.set_option("gpu-dumb-mode", true);
-            let _ = init.set_option("load-osd-console", "no");
-            let _ = init.set_option("load-stats-overlay", "no");
-            let _ = init.set_option("load-auto-profiles", "no");
-            let _ = init.set_option("really-quiet", "yes");
-            Ok(())
-        })
-        .map_err(|e| format!("{e:?}"))?;
+        let mut mpv = Mpv::with_initializer(init_preview_options).map_err(|e| format!("{e:?}"))?;
 
         let _ = mpv.set_property("pause", true);
         set_preview_tracks(&mpv);
         let _ = mpv.disable_deprecated_events();
 
-        let params: Vec<RenderParam<EglState>> = vec![
-            RenderParam::ApiType(RenderParamApiType::OpenGl),
-            RenderParam::InitParams(OpenGLInitParams {
-                get_proc_address: egl_proc,
-                ctx: egl_state,
-            }),
-        ];
-
-        let mut render = RenderContext::new(unsafe { mpv.ctx.as_mut() }, params)
-            .map_err(|e| format!("render context: {e:?}"))?;
+        let mut render = new_preview_render_context(&mut mpv, &gl_libs)?;
 
         let gl_ptr = gl_area.upcast_ref::<glib::Object>().as_ptr() as usize;
-        let mctx = glib::MainContext::default();
-        render.set_update_callback(move || {
-            let p = gl_ptr;
-            mctx.clone().invoke(move || {
-                let gl = unsafe {
-                    from_glib_borrow::<*mut gtk::ffi::GtkGLArea, gtk::GLArea>(
-                        p as *mut gtk::ffi::GtkGLArea,
-                    )
-                };
-                gl.queue_render();
-            });
-        });
+        install_preview_queue_render(&mut render, gl_ptr);
 
         Ok(Self {
             _gl: gl_libs,
@@ -120,6 +59,11 @@ impl MpvPreviewGl {
             return;
         }
         area.make_current();
+        self.clear_with_raw_gl();
+    }
+
+    /// Load `glClearColor`/`glClear` through the process loader and black the framebuffer.
+    fn clear_with_raw_gl(&self) {
         type GlClearColor = unsafe extern "C" fn(f32, f32, f32, f32);
         type GlClear = unsafe extern "C" fn(u32);
         const GL_COLOR_BUFFER_BIT: u32 = 0x4000;
@@ -163,3 +107,5 @@ pub fn set_preview_tracks(mpv: &Mpv) {
     let _ = mpv.set_property("secondary-sid", "no");
     let _ = mpv.set_property("pause", true);
 }
+
+include!("preview_gl_init.rs");
