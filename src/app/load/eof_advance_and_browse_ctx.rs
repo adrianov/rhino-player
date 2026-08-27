@@ -40,18 +40,46 @@ fn repaint_continue_row(
     on_trash: &RcPathFn,
     chrome_cache: &crate::media_probe::ContinueGridCache,
 ) {
-    let v: Vec<CardData> = card_data_list(paths);
-    let warm = rbf.borrow().as_ref().and_then(|c| c.warm_hover().cloned());
-    recent_view::fill_row(
-        row,
-        v,
-        on_open.clone(),
-        on_remove.clone(),
-        on_trash.clone(),
-        warm.as_ref(),
-        Some(chrome_cache),
-    );
+    // Query-aware strip source: neighbour-substring results replace the plain list while a
+    // search is active (feature 33). Thumbnail backfill below keeps targeting history entries.
+    let ctx = rbf.borrow().clone();
+    let plan = recent_view::strip_plan(search_of(&ctx), paths.to_vec());
+    if let Some(c) = &ctx {
+        c.paint(plan.paths.clone(), plan.kind);
+    }
+    if plan.searching {
+        if let Some(c) = &ctx {
+            c.note_search_hint();
+        }
+    }
+    // Thumbnail backfill keeps targeting the real watch-later entries even while results
+    // replace them visually; `paths` is always the history slice.
     backfill_continue_row(rbf, row, paths, on_open, on_remove, on_trash, chrome_cache);
+}
+
+/// Shared search state borrowed out of an optional strip context.
+fn search_of(ctx: &Option<Rc<RecentContext>>) -> Option<&recent_view::SiblingSearchState> {
+    ctx.as_ref().and_then(|c| c.search.as_deref())
+}
+
+/// Continue-strip hooks derived from the row's context: warm-hover hooks and the shared
+/// neighbour-search state ride along with whichever context painted last.
+fn strip_hooks(
+    rbf: &Rc<RefCell<Option<Rc<RecentContext>>>>,
+    on_open: &RcPathFn,
+    on_remove: &RcPathFn,
+    on_trash: &RcPathFn,
+    chrome_cache: &crate::media_probe::ContinueGridCache,
+) -> recent_view::ContinueStripHooks {
+    let ctx = rbf.borrow();
+    recent_view::ContinueStripHooks {
+        on_open: Rc::clone(on_open),
+        on_remove: Rc::clone(on_remove),
+        on_trash: Rc::clone(on_trash),
+        warm_hover: ctx.as_ref().and_then(|c| c.warm_hover().cloned()),
+        chrome_cache: Rc::clone(chrome_cache),
+        search: ctx.as_ref().and_then(|c| c.search.as_ref().map(Rc::clone)),
+    }
 }
 
 /// Wire thumbnail backfill for a freshly painted continue row.
@@ -64,95 +92,16 @@ fn backfill_continue_row(
     on_trash: &RcPathFn,
     chrome_cache: &crate::media_probe::ContinueGridCache,
 ) {
-    let warm_ctx = rbf.borrow().as_ref().and_then(|c| c.warm_hover().cloned());
     let n = recent_view::ensure_recent_backfill(
         rbf,
         row,
-        recent_view::ContinueStripHooks {
-            on_open: on_open.clone(),
-            on_remove: on_remove.clone(),
-            on_trash: on_trash.clone(),
-            warm_hover: warm_ctx,
-            chrome_cache: Rc::clone(chrome_cache),
-        },
+        strip_hooks(rbf, on_open, on_remove, on_trash, chrome_cache),
     );
     recent_view::schedule_thumb_backfill(n, paths.to_vec());
 }
 
-fn cancel_undo_timer(src: &RefCell<Option<glib::source::SourceId>>) {
-    drop_glib_source(src);
-}
-
-/// LIFO stack: label shows the file that **Undo** will restore; dismiss / timeout discards that undo target only.
-fn sync_undo_bar(
-    label: &gtk::Label,
-    btn: &gtk::Button,
-    shell: &gtk::Box,
-    stack: &RefCell<Vec<ContinueBarUndo>>,
-) {
-    let n = stack.borrow().len();
-    shell.set_visible(n > 0);
-    if n == 0 {
-        label.set_label("");
-        btn.set_tooltip_text(None);
-        return;
-    }
-    set_undo_tooltip(btn, n);
-    set_undo_top_label(label, stack);
-}
-
-/// Undo button tooltip: single-step hint, or a step counter while several entries remain.
-fn set_undo_tooltip(btn: &gtk::Button, n: usize) {
-    match n {
-        1 => btn.set_tooltip_text(Some(
-            "Restore to the list (and from Trash if that was the last action)",
-        )),
-        n => {
-            let s = format!("Undo newest first — {n} steps left");
-            btn.set_tooltip_text(Some(s.as_str()));
-        }
-    }
-}
-
-/// Label line naming the file the next **Undo** will restore and how it left the list.
-fn set_undo_top_label(label: &gtk::Label, stack: &RefCell<Vec<ContinueBarUndo>>) {
-    if let Some(p) = stack.borrow().last() {
-        let (name, tail) = match p {
-            ContinueBarUndo::ListRemove(u) => (
-                u.path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("file"),
-                "removed from list",
-            ),
-            ContinueBarUndo::Trash { snap, .. } => (
-                snap.path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("file"),
-                "moved to Trash",
-            ),
-        };
-        let line = format!("\u{201c}{name}\u{201d} {tail}");
-        label.set_label(&line);
-    }
-}
-
-fn rearm_undo_dismiss(
-    do_commit: &Rc<dyn Fn() + 'static>,
-    undo_source: &Rc<RefCell<Option<glib::source::SourceId>>>,
-) {
-    cancel_undo_timer(undo_source.as_ref());
-    let c = do_commit.clone();
-    let slot = Rc::clone(undo_source);
-    *undo_source.borrow_mut() = Some(glib::timeout_add_seconds_local(10, move || {
-        crate::glib_source_drop::finish_glib_source(slot.as_ref());
-        c();
-        glib::ControlFlow::Break
-    }));
-}
-
 include!("eof_advance_nav.rs");
+include!("undo_bar_presentation.rs");
 
 /// Shared handles for leaving playback and repainting the recent grid (Escape path).
 struct BackToBrowseCtx {

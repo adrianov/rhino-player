@@ -20,4 +20,6 @@ struct RecentUndoCtx {
     want_recent: bool,
     warm_hover: Option<recent_view::WarmHoverHooks>,
     continue_grid_cache: crate::media_probe::ContinueGridCache,
+    /// Neighbour-search state from the window widgets (feature 33).
+    search: Option<Rc<crate::recent_view::SiblingSearchState>>,
 }

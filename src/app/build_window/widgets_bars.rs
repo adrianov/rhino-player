@@ -23,26 +23,13 @@ fn build_bottom_bar(
     (bottom, close_btn)
 }
 
-fn new_recent_scroll_area() -> (
-    gtk::Box,
-    gtk::Box,
-    [gtk::Box; 2],
-    crate::recent_view::UndoBar,
-    crate::recent_view::NoticeToast,
-) {
-    let (recent_scrl, flow_recent, recent_spacers, undo_bar, notice_toast) =
-        recent_view::new_scroll();
-    recent_scrl.set_vexpand(true);
-    recent_scrl.set_hexpand(true);
-    recent_scrl.set_halign(gtk::Align::Fill);
-    recent_scrl.set_valign(gtk::Align::Fill);
-    (
-        recent_scrl,
-        flow_recent,
-        recent_spacers,
-        undo_bar,
-        notice_toast,
-    )
+fn new_recent_scroll_area() -> crate::recent_view::ScrollArea {
+    let area = recent_view::new_scroll();
+    area.recent_scrl.set_vexpand(true);
+    area.recent_scrl.set_hexpand(true);
+    area.recent_scrl.set_halign(gtk::Align::Fill);
+    area.recent_scrl.set_valign(gtk::Align::Fill);
+    area
 }
 
 fn window_menu_button(pref_menu: &gio::Menu) -> gtk::MenuButton {
@@ -146,6 +133,7 @@ struct WidgetGroups {
     recent_spacers: [gtk::Box; 2],
     undo_bar: crate::recent_view::UndoBar,
     notice_toast: crate::recent_view::NoticeToast,
+    sibling_search: crate::recent_view::SiblingSearch,
 }
 
 impl WidgetGroups {
@@ -162,8 +150,22 @@ impl WidgetGroups {
         let gl_area = build_gl_video_area();
         let speed = build_speed_menu(player, &gl_area, video_pref, app);
         let smooth = build_smooth_video_toolbar();
-        let (recent_scrl, flow_recent, recent_spacers, undo_bar, notice_toast) =
-            new_recent_scroll_area();
+        let area = new_recent_scroll_area();
+        let (
+            recent_scrl,
+            flow_recent,
+            recent_spacers,
+            undo_bar,
+            notice_toast,
+            sibling_search,
+        ) = (
+            area.recent_scrl,
+            area.flow_recent,
+            area.spacers,
+            area.undo_bar,
+            area.notice_toast,
+            area.search,
+        );
         Self {
             win,
             outer_ovl,
@@ -177,6 +179,7 @@ impl WidgetGroups {
             recent_spacers,
             undo_bar,
             notice_toast,
+            sibling_search,
         }
     }
 }

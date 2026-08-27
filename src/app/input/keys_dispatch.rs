@@ -53,6 +53,11 @@ impl KeyDispatch {
     }
 
     fn dispatch(&self, key: gtk::gdk::Key, m: gtk::gdk::ModifierType) -> glib::Propagation {
+        if key == gtk::gdk::Key::Escape && root_focus_wants_raw_keys(&self.win_key) {
+            // A text widget owns focus (e.g. the continue-screen neighbour search box): it
+            // consumes Escape itself — clear text, not strip-escape / fullscreen exits.
+            return glib::Propagation::Proceed;
+        }
         if let Some(r) = propagation_escape_key(key, &self.recent_esc, &self.p, &self.browse_back) {
             return r;
         }

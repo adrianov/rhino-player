@@ -89,6 +89,7 @@ fn build_widgets(
         recent_spacers: groups.recent_spacers,
         undo_bar: groups.undo_bar,
         notice_toast: groups.notice_toast,
+        sibling_search: groups.sibling_search,
         fs_clock: shell.fs_clock,
         hdr_title_mirror: shell.hdr_title_mirror,
         close_video_btn,

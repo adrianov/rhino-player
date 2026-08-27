@@ -177,8 +177,10 @@ fn append_history_card(
     card.add_overlay(&history_footer(&label_txt, &c, p));
 
     let (top_actions, hover_btns) = top_action_buttons(&c, h, miss);
-    card.add_overlay(&top_actions);
-
+    // Neighbour-hit cards are not list members: no Remove / Move-to-Trash overlays.
+    if h.kind != StripKind::NeighbourHits {
+        card.add_overlay(&top_actions);
+    }
     let card_warm = if miss { None } else { h.warm_hover };
     attach_card_activation(&card, &c, h, miss, card_warm, &hover_btns);
     finish_history_card(row, cards, &card);

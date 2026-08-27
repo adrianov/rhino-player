@@ -48,7 +48,8 @@ struct WindowWidgets {
     recent_spacers: [gtk::Box; 2],
     undo_bar: crate::recent_view::UndoBar,
     notice_toast: crate::recent_view::NoticeToast,
-    /// Local wall-clock readout; visible only in fullscreen (`docs/features/17-window-behavior.md`).
+    /// Neighbour-search box over the continue strip (`docs/features/33-continue-sibling-search.md`).
+    sibling_search: crate::recent_view::SiblingSearch,
     fs_clock: gtk::Label,
     /// macOS GTK: optional label in [`adw::HeaderBar::title_widget`] so double-click toggles fullscreen.
     hdr_title_mirror: Option<Rc<gtk::Label>>,

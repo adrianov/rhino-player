@@ -15,6 +15,7 @@ struct HistoryCardHandlers<'a> {
     on_remove: Rc<dyn Fn(&Path)>,
     on_trash: Rc<dyn Fn(&Path)>,
     warm_hover: Option<&'a WarmHoverHooks>,
+    kind: StripKind,
 }
 
 fn card_background(d: &CardData, miss: bool) -> gtk::Widget {

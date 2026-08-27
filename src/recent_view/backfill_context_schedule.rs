@@ -5,6 +5,43 @@ pub struct ContinueStripHooks {
     pub on_trash: RcPathFn,
     pub warm_hover: Option<WarmHoverHooks>,
     pub chrome_cache: crate::media_probe::ContinueGridCache,
+    /// Neighbour-search state (feature 33); bound to the context at first spawn.
+    pub search: Option<Rc<SiblingSearchState>>,
+}
+
+/// Fresh [RecentContext]: channels, worker registry, and the 32 ms refill poll source.
+/// Binds [SiblingSearchState] to the context so search input can repaint the strip.
+fn spawn_recent_context(row: &gtk::Box, hooks: ContinueStripHooks) -> Rc<RecentContext> {
+    let (cancel, backfill_gen) = fresh_backfill_counters();
+    let (refill_tx, refill_rx) = mpsc::channel();
+    let ContinueStripHooks {
+        on_open,
+        on_remove,
+        on_trash,
+        warm_hover,
+        chrome_cache,
+        search,
+    } = hooks;
+    let ctx = Rc::new(RecentContext {
+        chrome_cache,
+        row: row.clone(),
+        on_open,
+        on_remove,
+        on_trash,
+        warm_hover,
+        search,
+        cancel,
+        refill_tx,
+        poll_id: Rc::new(RefCell::new(None)),
+        workers: Rc::new(RefCell::new(Vec::new())),
+        backfill_gen,
+    });
+    if let Some(s) = &ctx.search {
+        s.bind_ctx(Rc::downgrade(&ctx));
+    }
+    let id = spawn_refill_poll(&ctx, refill_rx);
+    *ctx.poll_id.borrow_mut() = Some(id);
+    ctx
 }
 
 /// Creates or reuses a [RecentContext] in [cell] (one per window).
@@ -18,28 +55,6 @@ pub fn ensure_recent_backfill(
     }
     let ctx = spawn_recent_context(row, hooks);
     *cell.borrow_mut() = Some(Rc::clone(&ctx));
-    ctx
-}
-
-/// Fresh [RecentContext]: channels, worker registry, and the 32ms refill poll source.
-fn spawn_recent_context(row: &gtk::Box, hooks: ContinueStripHooks) -> Rc<RecentContext> {
-    let (cancel, backfill_gen) = fresh_backfill_counters();
-    let (refill_tx, refill_rx) = mpsc::channel();
-    let ctx = Rc::new(RecentContext {
-        chrome_cache: hooks.chrome_cache,
-        row: row.clone(),
-        on_open: hooks.on_open,
-        on_remove: hooks.on_remove,
-        on_trash: hooks.on_trash,
-        warm_hover: hooks.warm_hover,
-        cancel,
-        refill_tx,
-        poll_id: Rc::new(RefCell::new(None)),
-        workers: Rc::new(RefCell::new(Vec::new())),
-        backfill_gen,
-    });
-    let id = spawn_refill_poll(&ctx, refill_rx);
-    *ctx.poll_id.borrow_mut() = Some(id);
     ctx
 }
 
@@ -96,92 +111,5 @@ fn thumb_gen_cancelled(gen_watch: &std::sync::atomic::AtomicU64, gen: u64, c: &A
     gen_watch.load(std::sync::atomic::Ordering::Acquire) != gen || !c.load(Ordering::Acquire)
 }
 
-/// Hand on hover, primary click triggers [act]. [show_on_hover] (Remove / Move to Trash) shows on hover.
-/// Uses [PropagationPhase::Target] so nested [gtk::Button]s receive the click first.
-fn add_click_and_pointer(
-    card: &impl IsA<gtk::Widget>,
-    path: &Path,
-    act: UnitFn,
-    show_on_hover: &[gtk::Button],
-    warm_hover: Option<&WarmHoverHooks>,
-) {
-    attach_click_gesture(card, act);
-    attach_hover_pointer(card, path, show_on_hover, warm_hover);
-}
-
-fn attach_click_gesture(card: &impl IsA<gtk::Widget>, act: UnitFn) {
-    card.as_ref().set_can_target(true);
-    let g = gtk::GestureClick::new();
-    g.set_button(1);
-    g.set_propagation_phase(gtk::PropagationPhase::Target);
-    let act = act.clone();
-    g.connect_pressed(move |_, n, _x, _y| {
-        if n == 1 {
-            act(());
-        }
-    });
-    card.as_ref().add_controller(g);
-}
-
-/// Pointer cursor while hovering; reveals [show_on_hover] buttons and fires warm hooks.
-fn attach_hover_pointer(
-    card: &impl IsA<gtk::Widget>,
-    path: &Path,
-    show_on_hover: &[gtk::Button],
-    warm_hover: Option<&WarmHoverHooks>,
-) {
-    let m = gtk::EventControllerMotion::new();
-    wire_hover_enter(&m, card, path, show_on_hover, warm_hover);
-    wire_hover_leave(&m, card, show_on_hover, warm_hover);
-    card.as_ref().add_controller(m);
-}
-
-fn wire_hover_enter(
-    m: &gtk::EventControllerMotion,
-    card: &impl IsA<gtk::Widget>,
-    path: &Path,
-    show_on_hover: &[gtk::Button],
-    warm_hover: Option<&WarmHoverHooks>,
-) {
-    let c = card.as_ref().clone();
-    let show: Vec<gtk::Button> = show_on_hover.to_vec();
-    let warm_enter = warm_hover.map(|h| h.enter.clone());
-    let warm_path = path.to_path_buf();
-    m.connect_enter(move |_, _x, _y| hover_enter(&c, &show, warm_enter.as_ref(), &warm_path));
-}
-
-fn wire_hover_leave(
-    m: &gtk::EventControllerMotion,
-    card: &impl IsA<gtk::Widget>,
-    show_on_hover: &[gtk::Button],
-    warm_hover: Option<&WarmHoverHooks>,
-) {
-    let c = card.as_ref().clone();
-    let hide: Vec<gtk::Button> = show_on_hover.to_vec();
-    let warm_leave = warm_hover.map(|h| h.leave.clone());
-    m.connect_leave(move |_| hover_leave(&c, &hide, warm_leave.as_ref()));
-}
-
-/// Enter the card: pointer cursor, reveal hover actions, fire the warm-preload hook.
-fn hover_enter(c: &gtk::Widget, show: &[gtk::Button], warm_enter: Option<&RcPathFn>, path: &Path) {
-    c.set_cursor_from_name(Some("pointer"));
-    for b in show {
-        b.set_visible(true);
-    }
-    if let Some(f) = warm_enter {
-        f(path);
-    }
-}
-
-/// Leave the card: reset cursor, hide hover actions, end warm preload.
-fn hover_leave(c: &gtk::Widget, hide: &[gtk::Button], warm_leave: Option<&WarmHoverLeave>) {
-    c.set_cursor_from_name(None);
-    for b in hide {
-        b.set_visible(false);
-    }
-    if let Some(f) = warm_leave {
-        f();
-    }
-}
-
+include!("backfill_context_schedule/card_pointer.rs");
 include!("backfill_context_schedule/thumb_worker.rs");

@@ -19,6 +19,8 @@ pub struct RecentContext {
     on_remove: RcPathFn,
     on_trash: RcPathFn,
     warm_hover: Option<WarmHoverHooks>,
+    /// Neighbour-search state shared with the strip's search box (feature 33).
+    pub(crate) search: Option<Rc<SiblingSearchState>>,
     /// Stops workers and poller; cleared in [shutdown].
     pub cancel: Arc<AtomicBool>,
     /// Worker → main: request a [refill] (no GTK types on the [Send] side).
@@ -36,22 +38,52 @@ impl RecentContext {
         self.warm_hover.as_ref()
     }
 
-    /// Rebuilds cards from the current history (first five paths).
+    /// Card action wiring for this strip's context (shared by every painter).
+    pub(crate) fn strip_actions(&self) -> StripActions {
+        StripActions {
+            on_open: self.on_open.clone(),
+            on_remove: self.on_remove.clone(),
+            on_trash: self.on_trash.clone(),
+            warm_hover: self.warm_hover.clone(),
+        }
+    }
+
+    /// Refresh the inline match hint after a query-aware repaint.
+    pub(crate) fn note_search_hint(&self) {
+        if let Some(s) = &self.search {
+            s.note_repaint();
+        }
+    }
+
+    /// Rebuild the strip with `paths` (already query-resolved or the plain list) and `kind`.
+    /// The single card painter: DB-only card data, shared action wiring, chrome cache.
+    pub(crate) fn paint(&self, paths: Vec<PathBuf>, kind: StripKind) {
+        fill_row(
+            &self.row,
+            card_data_list(&paths),
+            self.strip_actions(),
+            Some(&self.chrome_cache),
+            kind,
+        );
+    }
+
+    /// Rebuilds cards: neighbour-substring hits while a query is active, otherwise the five
+    /// most-recent watch-later entries.
     pub fn refill(&self) {
-        let paths: Vec<std::path::PathBuf> = crate::history::load()
+        let fallback: Vec<_> = crate::history::load()
             .into_iter()
             .take(CONTINUE_DISPLAY_MAX)
             .collect();
-        let v: Vec<CardData> = card_data_list(&paths);
-        fill_row(
-            &self.row,
-            v,
-            self.on_open.clone(),
-            self.on_remove.clone(),
-            self.on_trash.clone(),
-            self.warm_hover.as_ref(),
-            Some(&self.chrome_cache),
-        );
+        let plan = strip_plan(self.search.as_deref(), fallback);
+        self.paint(plan.paths, plan.kind);
+        if plan.searching {
+            self.note_search_hint();
+        }
+    }
+
+    /// Activate one strip path through the shared open handler (Enter on the search box).
+    pub(crate) fn open_path(&self, p: &std::path::Path) {
+        (self.on_open)(p);
     }
 
     /// Stops the poller, signals workers to exit, and **detaches** worker joins to a short-lived

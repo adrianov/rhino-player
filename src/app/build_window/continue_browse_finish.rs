@@ -60,6 +60,7 @@ fn finish_recent_undo_wiring(
         want_recent: f.want_recent,
         warm_hover,
         continue_grid_cache: Rc::clone(continue_grid_cache),
+        search: Some(f.w.sibling_search.shared()),
     })
 }
 

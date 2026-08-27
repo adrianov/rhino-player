@@ -104,17 +104,33 @@ fn schedule_first_size_sync(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>
     });
 }
 
+
+/// Card action wiring shared by every card of one strip paint ([fill_row]).
+pub struct StripActions {
+    pub on_open: Rc<dyn Fn(&Path)>,
+    pub on_remove: Rc<dyn Fn(&Path)>,
+    pub on_trash: Rc<dyn Fn(&Path)>,
+    pub warm_hover: Option<WarmHoverHooks>,
+}
+
+/// Which population a strip paint carries; neighbour hits skip list-management chrome.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum StripKind {
+    /// Watch-later entries plus the Open Video tile (default).
+    ContinueList,
+    /// Neighbour-substring search results (feature 33): never list-managed here.
+    NeighbourHits,
+}
+
 /// Replace all children with cards. [on_remove] is **Remove from list**; [on_trash] is **Move to Trash**.
 pub fn fill_row(
     row: &gtk::Box,
     items: Vec<CardData>,
-    on_open: Rc<dyn Fn(&Path)>,
-    on_remove: Rc<dyn Fn(&Path)>,
-    on_trash: Rc<dyn Fn(&Path)>,
-    warm_hover: Option<&WarmHoverHooks>,
+    actions: StripActions,
     chrome_cache: Option<&crate::media_probe::ContinueGridCache>,
+    kind: StripKind,
 ) {
-    if let Some(cache) = chrome_cache {
+    if let Some(cache) = chrome_cache.filter(|_| kind == StripKind::ContinueList) {
         crate::media_probe::continue_grid_cache_refresh(cache, &items);
     }
     clear(row);
@@ -123,15 +139,15 @@ pub fn fill_row(
     append_open_pick_tile(row, &cards);
 
     let handlers = HistoryCardHandlers {
-        on_open,
-        on_remove,
-        on_trash,
-        warm_hover,
+        on_open: actions.on_open,
+        on_remove: actions.on_remove,
+        on_trash: actions.on_trash,
+        warm_hover: actions.warm_hover.as_ref(),
+        kind,
     };
     for d in items {
         append_history_card(row, &cards, d, &handlers);
     }
-    sync_card_sizes(row, &cards.borrow());
     wire_card_size_sync(row, &cards);
 }
 
