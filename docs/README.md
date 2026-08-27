@@ -50,6 +50,7 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 30 | [DVD unified timeline (all chapter VOBs)](features/30-dvd-unified-timeline.md) | done |
 | 31 | [Playback entity (single file + multi-part DVD)](features/31-playback-entity.md) | done |
 | 32 | [Fill screen (fullscreen crop-to-fill toggle)](features/32-fill-screen.md) | done |
+| 33 | [Sibling search on the continue screen](features/33-continue-sibling-search.md) | done |
 
 Feature numbers **05**, **16**, and **19** are unused (withdrawn playlist / session-playlist topics; files removed).
 
