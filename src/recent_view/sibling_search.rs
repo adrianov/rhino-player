@@ -48,7 +48,7 @@ fn classify_openable(path: &Path) -> bool {
 }
 
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 
 /// Result cards shown at most; a huge library folder must not flood the strip.
