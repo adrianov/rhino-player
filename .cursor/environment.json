@@ -1,0 +1,5 @@
+{
+  "name": "Rhino Player (Linux / GTK4 / mpv)",
+  "user": "ubuntu",
+  "install": "bash .cursor/install.sh"
+}
