@@ -16,7 +16,7 @@ alwaysApply: true
 | **`cognitive_complexity`**, **`too_many_lines`** | Extract pure helpers, subfunctions, or a dedicated module; replace nested `if` chains with early returns, `match`, or a small state type. |
 | **`too_many_arguments`**, many `Rc`/`RefCell` parameters | **Group parameters** in a `struct` (context, builder, “wiring” bundle); **narrow ownership** with clearer module boundaries. |
 | **`type_complexity`** | **`type` aliases**, newtype wrappers, or splitting generic-heavy code. |
-| **`module_inception`**, **large files** | **Feature-shaped modules** (see `complexity-and-module-design.mdc`): one area per file, **dependency injection** at boundaries (UI / mpv / storage). |
+| **`module_inception`**, sprawling ownership | **Feature-shaped modules** (see `complexity-and-module-design.mdc`); split when **abcop** / Clippy fail or a boundary is clearer — not for file line count alone. |
 | **GUI/FFI “noise”** | Move raw bindings to a **thin `unsafe` or FFI layer** with safe wrappers, instead of silencing lints on the whole app. |
 
 **Rare rustc-only** allows (e.g. `unused` in `include!` or generated code) are **not** Clippy; keep them local and commented when unavoidable.

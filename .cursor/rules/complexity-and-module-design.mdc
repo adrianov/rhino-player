@@ -1,22 +1,26 @@
 ---
-description: Clippy complexity, 200-line modules, six-file scatter consolidation, and end-of-turn shrink for edited files.
+description: abcop ABC complexity, Clippy complexity, and six-file scatter consolidation.
 alwaysApply: true
 ---
 
 # Complexity metrics and feature boundaries (Rust / Rhino)
 
-## There is no AbcSize in the Rust compiler
+## abcop is the size / complexity gate
 
-**RuboCop’s `Metrics/AbcSize`** (assignments + branches + conditions) is **Ruby-only**. The Rust compiler does not ship an identical metric, and there is no standard “ABC size” for Rust source.
+**`abcop`** (local CLI) is the project’s **AbcSize** and related checks for Rust (and other languages). It **supersedes** any earlier **~200-line module** / **`wc -l` end-of-turn shrink** rules. Do **not** split or extract modules solely because a file is long; split when **abcop** (or Clippy function lints below) fails, or when a feature-shaped boundary is clearer.
 
-**Practical substitute:** [Clippy](https://github.com/rust-lang/rust-clippy) is the default static analysis for Rust. The closest built-in, widely used signal is **`cognitive_complexity`**, with thresholds in **`clippy.toml`** in this repository. It is a different formula than AbcSize but pursues the same goal: **stop functions from turning into an unreadable tangle of branches and nesting**. Other useful pressure points include **arity** and **nesting** lints, enabled deliberately so they do not fight normal GUI or FFI code.
+Default ABC ceiling: **`--max-abc 17`** (abcop’s default). Treat an abcop offense like a failing test: **fix by refactoring** — extract helpers, early returns, smaller scopes — not by silencing.
 
-## What to run in automation
+### What to run
 
-- **`cargo clippy` is not part of `cargo build`.** A normal compile does not run these checks. Keep quality visible by:
-  - Running **`cargo clippy`** (or the **`cargo qcheck` alias** from **`.cargo/config.toml`**) before you merge, and
-  - Wiring the same command into **CI** (recommended) on every push or pull request to `main` / your default branch.
-- Treat a failing or warning-burdened Clippy run the same class of problem as a failing test: **fix by refactoring**; do not silence Clippy with `allow` (see `clippy-no-suppress.mdc`).
+- Before finishing work that touched production Rust: **`abcop`** on the changed paths (or bare `abcop` / `--uncommitted` when the tree is dirty).
+- Also **`cargo qcheck`** (Clippy) — see below and `clippy-no-suppress.mdc`.
+
+## Clippy (function-level, still required)
+
+[Clippy](https://github.com/rust-lang/rust-clippy) remains the default Rust static analysis alongside abcop. Useful signals: **`cognitive_complexity`**, **`too_many_lines`** (per **function**, thresholds in **`clippy.toml`**), arity / nesting lints. Fix by refactoring; do not `allow` (see `clippy-no-suppress.mdc`).
+
+- **`cargo clippy` is not part of `cargo build`.** Run **`cargo qcheck`** (alias in **`.cargo/config.toml`**) before merge; wire the same into CI when practical.
 
 ## Six-file scatter rule (one behavior → consolidate)
 
@@ -49,21 +53,3 @@ UI, playback engine, persistence, and platform stay separate. Feature-specific c
 ### Agent shorthand
 
 **One behavior, one home.** Past six production files → pause, consolidate, rewire through a small API, then finish — **do not ship the scattered version.**
-
-## Module length (~200 lines)
-
-**Goal:** keep `src/**/*.rs` modules small enough to review, navigate, and edit safely (including with AI). Target **~200 lines** per module.
-
-- **`clippy::too_many_lines`** — **`warn`** in `Cargo.toml`, threshold **200** in `clippy.toml`. Clippy’s closest built-in size signal (per **function**); split long functions instead of `allow`. Module file size uses **`wc -l`** + the end-of-turn rule below.
-
-### End of every request (before finishing the turn)
-
-1. List **production files you edited** this request (`src/**/*.rs`, `build.rs`, behavior-changing `data/` scripts — not docs-only or test-only files). Run **`wc -l`**, sort **longest first**.
-2. If the **longest** edited file is **≥ 200 lines**, shrink it **in the same turn** (one file only — do not refactor unrelated modules):
-   - Remove **dead code** and **duplication** first.
-   - If still **≥ 200 lines**, **extract ≥ 100 lines** into a cohesive submodule (responsibility-shaped name, e.g. `chrome_fullscreen_and_fit.rs` — not `part2.rs`; wire with `include!(…)` from a thin parent when splitting).
-   - Keep public API stable; behavior must not change. Run **`cargo qcheck`** and **`cargo test --lib`**.
-3. **Skip** only when shrinking would make the code longer or less clear — state what you tried and why.
-
-If several modules are over the limit across requests, refactor **one file at a time, longest first**.
-

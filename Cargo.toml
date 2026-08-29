@@ -87,7 +87,7 @@ objc2-core-video = { version = "0.3.2", default-features = false, features = ["s
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std"] }
 gdk4-macos = { version = "0.9", features = ["v4_8"] }
 
-# Clippy: see clippy.toml (`too_many_lines` threshold 200) and `.cursor/rules/complexity-and-module-design.mdc`.
+# Clippy: see clippy.toml. Module/complexity gate is abcop (not file line count) — `.cursor/rules/complexity-and-module-design.mdc`.
 [lints.clippy]
 cognitive_complexity = "deny"
 excessive_nesting = "deny"
