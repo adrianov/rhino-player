@@ -163,6 +163,18 @@ Feature: Window, fullscreen, and presentation
     When the user finishes a manual resize
     Then the window size is not adjusted for video aspect
 
+  Scenario Outline: Smooth motion or budget change leaves window size alone
+    Given a media title is playing in a windowed shell
+    And the window size was already chosen after open or by the user
+    When "<smooth_event>"
+    Then the outer window size is not adjusted for video aspect
+
+    Examples:
+      | smooth_event                                      |
+      | the viewer turns smooth motion on                 |
+      | the viewer turns smooth motion off                |
+      | the smooth-motion processing budget changes       |
+
   Scenario: One-click header menu switch — not shipped
     Given a header MenuButton popover is open
     When the user clicks another header MenuButton
@@ -241,8 +253,8 @@ Feature: Window, fullscreen, and presentation
 - **Pointer hide while inactive:** GTK does not send motion events to a non-key window, and AppKit ignores [`NSCursor::hide`] and GTK cursor rects while another app is active. macOS theater hide uses CoreGraphics **`CGDisplayHideCursor`** / **`CGDisplayShowCursor`** (`macos_window_cursor.rs`; the display id has no effect — hide is process-wide and paired) while the pointer is inside the viewer. Chrome autohide applies GTK `"none"` together with the bars; a skipped CoreGraphics hide must not show the pointer. While inactive, pointer motion comes from an **`NSEvent` global mouse-moved monitor** (`motion_macos_unfocused.rs`), not a poll; resigning key with the pointer already on the video hides at once. Covering the viewer or switching Space posts **`NSWindowDidChangeOcclusionStateNotification`** so a stationary pointer is shown again if this window is no longer frontmost. Linux: the compositor already delivers pointer events to the surface under the cursor.
 - Fit-on-open: `chrome_window_video_fit.rs` + `chrome_shell_layout.rs` — landscape fit + **`schedule_shell_layout_after_gtk_resize`**. macOS bottom chrome: **`macos_bottom_bar.rs`** — [`gtk::Box`] with `.rpb-header` plus **widget-level** CSS provider (display CSS alone is insufficient on gdk-macos); **`nudge_gdk_compositing_width`** after shell sync mimics manual edge-drag repaint; **`schedule_macos_shell_refresh_after_vf`** after VapourSynth `vf add`. **`RHINO_SHELL_DEBUG=1`**: watch **`bottom_h`**, **`shell=…x…`**, **`gdk width nudge`** lines.
 - ToolbarView extends to top and bottom edges so the GLArea fills the available area and chrome overlays the video. Client-side decorations: baseline for `shows-start-title-buttons` / `shows-end-title-buttons` is sampled after map (idle) while chrome first shows—not after a hide—or `apply_chrome` would capture `(false,false)` and restore would leave traffic lights off; invalid pairs are ignored in favor of a short `(true,true)` fallback until GTK reports a decorated side.
-- **Fit-on-open:** `chrome_window_video_fit.rs` — landscape **960×540-class** fit only when the window is still the default size or **smaller** than that target (grow-only). Otherwise keeps size; optional aspect nudge via `snap_size_after_user_resize`.
-- **Post-resize aspect snap:** `aspect_resize_snap.rs` — coded `width`×`height` in `WinAspectCell`; snap when width **or** height is within **60%** of aspect-correct; compute one-axis deltas **+W**, **−W**, **+H**, **−H** to match aspect (formulas `W′=round(H×vw/vh)`, `H′=round(W×vh/vw)`); apply the **smallest** delta if **|Δ|/side ≤ 50%**. Debounce 200 ms → `apply_window_outer_size`.
+- **Fit-on-open:** `chrome_window_video_fit.rs` — landscape **960×540-class** fit only when the window is still the default size or **smaller** than that target (grow-only). Otherwise keeps size; optional aspect nudge via `snap_size_after_user_resize`. Same-media Smooth `loadfile replace` calls **`suppress_window_fit_for_load`** with that load’s **`warm_file_gen`** (drops a pending debounce; fit schedules for that gen are skipped until a newer load). ME-budget / Smooth `vf` rebuilds do not schedule fit.
+- **Post-resize aspect snap:** `aspect_resize_snap.rs` — coded `width`×`height` in `WinAspectCell`; snap when width **or** height is within **60%** of aspect-correct; compute one-axis deltas **+W**, **−W**, **+H**, **−H** to match aspect (formulas `W′=round(H×vw/vh)`, `H′=round(W×vh/vw)`); apply the **smallest** delta if **|Δ|/side ≤ 50%**. Debounce 200 ms → `apply_window_outer_size`. macOS **`nudge_gdk_compositing_width`** (±1 px after fit / `vf` attach) calls **`note_programmatic_win_resize`** so that churn does not count as a manual resize.
 - See [GTK4 toplevel / aspect notes](../references-gtk4-toplevel-aspect.md) for upstream context (the prior `compute-size` approach was abandoned due to feedback loops).
 - Header menu switching attempts: `Popover:modal=false`, capture-phase GestureClick, idle `MenuButton::set_active`. Manual testing still required a second click on Linux; revisit with a deeper GTK / GNOME review.
 - **Multi-monitor activation:** Portable behavior is `gtk_window_present` only (compositor picks the output on Wayland). **macOS:** `window_present::present_on_activation_display` (startup only) sets `NSWindow` frame on the `NSScreen` under `NSEvent::mouseLocation` (else `mainScreen`) **before** `present`, briefly hides an already-visible window to avoid one frame on the wrong display, then re-applies frame synchronously after `present`; skipped when fullscreen or maximized. Later `NSApplicationDidBecomeActiveNotification` (Dock or clicking the window) calls `present` only — no re-centering.

@@ -56,6 +56,8 @@ fn replace_media_at_pos(
                 "[rhino] video: loadfile replace for vapoursynth reattach path={} pos={pos:.2} resume_playing={resume_playing}",
                 path.display()
             );
+            // Same media: do not re-run landscape fit / load-nudge (open + manual resize only).
+            crate::app::suppress_window_fit_for_load(b.warm_file_gen());
             if resume_playing {
                 UNPAUSE_AFTER_SMOOTH_RELOAD.with(|c| c.set(true));
             }

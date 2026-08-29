@@ -156,6 +156,9 @@ fn shell_compositing_idle_pass(
 
 /// Brief ±1px width change — gdk-macos repaints bottom chrome after user edge-drag resize
 /// but not always after height-only programmatic fit-on-open.
+///
+/// Marked programmatic so the post-resize aspect snap does not treat the ±1px churn
+/// (including after Smooth `vf` attach / ME budget rebuild) as a manual resize.
 pub fn nudge_gdk_compositing_width(win: &adw::ApplicationWindow) {
     use gtk::prelude::{GtkWindowExt, WidgetExt};
 
@@ -168,6 +171,8 @@ pub fn nudge_gdk_compositing_width(win: &adw::ApplicationWindow) {
         return;
     }
     crate::shell_debug_log::log("gdk width nudge +1".to_string());
+    // Final size we intend to keep — skip aspect snap for both +1 and restore notifies.
+    crate::app::note_programmatic_win_resize(w, h);
     force_nswindow_frame(win, w + 1, h);
     invalidate_window_layers(win);
     let win2 = win.clone();
@@ -177,6 +182,7 @@ pub fn nudge_gdk_compositing_width(win: &adw::ApplicationWindow) {
 fn restore_nudged_width(win: adw::ApplicationWindow, w: i32, h: i32) {
     use gtk::prelude::GtkWindowExt;
 
+    crate::app::note_programmatic_win_resize(w, h);
     force_nswindow_frame(&win, w, h);
     win.set_default_size(w, h);
     request_gdk_surface_layout(&win);

@@ -1,10 +1,35 @@
 // Landscape fit-on-open (first launch / small window only). Later loads keep user size.
+// Smooth same-media reload must not re-fit — see [suppress_window_fit_for_load].
 
 thread_local! {
     static FIT_DEB: RefCell<Option<glib::SourceId>> = const { RefCell::new(None) };
+    /// [MpvBundle::warm_file_gen] of a same-media Smooth reload — skip fit until a newer gen.
+    static FIT_SUPPRESS_GEN: Cell<Option<u32>> = const { Cell::new(None) };
 }
 
 const FIT_INIT_SIZE_TOL: i32 = 16;
+
+/// Cancel a pending landscape fit and skip fit for this load generation (Smooth same-media reload).
+pub(crate) fn suppress_window_fit_for_load(load_gen: u32) {
+    FIT_DEB.with(drop_glib_source);
+    FIT_SUPPRESS_GEN.set(Some(load_gen));
+}
+
+/// True when [schedule_window_fit_h_video] must no-op for the open player's load generation.
+fn fit_suppressed_for_gen(load_gen: Option<u32>) -> bool {
+    let Some(suppressed) = FIT_SUPPRESS_GEN.get() else {
+        return false;
+    };
+    match load_gen {
+        Some(cur) if cur == suppressed => true,
+        Some(_) => {
+            // A newer `loadfile` replaced the suppressed Smooth reload.
+            FIT_SUPPRESS_GEN.set(None);
+            false
+        }
+        None => false,
+    }
+}
 
 /// True when the shell is still at the default size or smaller than the landscape fit target.
 fn should_landscape_fit_on_load(win: &adw::ApplicationWindow, fit_w: i32, fit_h: i32) -> bool {
@@ -118,11 +143,21 @@ fn apply_window_fit_h_video(
 }
 
 /// Resize the window to match a **landscape** video aspect (chrome overlays; no extra height).
+/// Honours [suppress_window_fit_for_load] (Smooth same-media reload).
 fn schedule_window_fit_h_video(
     player: Rc<RefCell<Option<MpvBundle>>>,
     win: adw::ApplicationWindow,
     gl: gtk::GLArea,
 ) {
+    let load_gen = player.borrow().as_ref().map(MpvBundle::warm_file_gen);
+    if fit_suppressed_for_gen(load_gen) {
+        eprintln!(
+            "[rhino] aspect: fit-on-open skip (suppressed gen={})",
+            load_gen.unwrap_or(0)
+        );
+        FIT_DEB.with(drop_glib_source);
+        return;
+    }
     FIT_DEB.with(drop_glib_source);
     let id = glib::timeout_add_local(
         std::time::Duration::from_millis(u64::from(FIT_WINDOW_DELAY_MS)),
