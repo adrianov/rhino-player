@@ -32,12 +32,33 @@ impl SiblingSearch {
 
 fn search_entry() -> gtk::SearchEntry {
     let entry = gtk::SearchEntry::new();
-    entry.set_placeholder_text(Some("Find neighbours of your list…"));
+    entry.set_placeholder_text(Some("Search your video library…"));
     entry.add_css_class("rp-recent-search-entry");
     // Fixed width so the clear icon / typing does not reflow the strip below.
     entry.set_size_request(340, -1);
     entry.set_hexpand(false);
+    clear_initial_search_focus(&entry);
     entry
+}
+
+/// GTK focuses the first focusable field on map; drop that so launch leaves the entry idle.
+fn clear_initial_search_focus(entry: &gtk::SearchEntry) {
+    let once = std::cell::Cell::new(true);
+    entry.connect_map(move |e| {
+        if !once.replace(false) {
+            return;
+        }
+        let e = e.clone();
+        glib::idle_add_local_once(move || {
+            if !e.has_focus() {
+                return;
+            }
+            let Some(win) = e.root().and_downcast::<gtk::Window>() else {
+                return;
+            };
+            gtk::prelude::GtkWindowExt::set_focus(&win, gtk::Widget::NONE);
+        });
+    });
 }
 
 fn hint_label() -> gtk::Label {

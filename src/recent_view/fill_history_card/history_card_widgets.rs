@@ -25,19 +25,39 @@ fn card_background(d: &CardData, miss: bool) -> gtk::Widget {
     if let Some(ref bytes) = d.thumb {
         let key = crate::db::history_key(&d.path).unwrap_or_default();
         if let Some(tex) = crate::thumb_texture::texture_from_thumb_cached(&key, bytes.as_slice()) {
-            let pic = gtk::Picture::for_paintable(&tex);
-            pic.set_content_fit(gtk::ContentFit::Cover);
-            pic.set_can_shrink(true);
-            pic.set_vexpand(true);
-            pic.set_hexpand(true);
-            pic.set_halign(gtk::Align::Fill);
-            pic.set_valign(gtk::Align::Fill);
-            no_target(&pic);
-            pic.add_css_class("rp-recent-bg");
-            return pic.upcast();
+            return cover_thumb_frame(&tex);
         }
     }
-    full_bleed_icon("video-x-generic")
+    full_bleed_icon("camera-video-symbolic")
+}
+
+/// Cover-fit still inside a fixed landscape frame so portrait WebPs cannot raise the strip.
+fn cover_thumb_frame(tex: &impl IsA<gtk::gdk::Paintable>) -> gtk::Widget {
+    let frame = gtk::AspectFrame::builder()
+        .xalign(0.5)
+        .yalign(0.5)
+        .ratio(CARD_ASPECT as f32)
+        .obey_child(false)
+        .hexpand(true)
+        .vexpand(true)
+        .build();
+    // obey_child=false: measure from CARD_ASPECT, not the paintable’s natural size.
+    frame.set_child(Some(&cover_thumb_picture(tex)));
+    no_target(&frame);
+    frame.upcast()
+}
+
+fn cover_thumb_picture(tex: &impl IsA<gtk::gdk::Paintable>) -> gtk::Picture {
+    let pic = gtk::Picture::for_paintable(tex);
+    pic.set_content_fit(gtk::ContentFit::Cover);
+    pic.set_can_shrink(true);
+    pic.set_vexpand(true);
+    pic.set_hexpand(true);
+    pic.set_halign(gtk::Align::Fill);
+    pic.set_valign(gtk::Align::Fill);
+    no_target(&pic);
+    pic.add_css_class("rp-recent-bg");
+    pic
 }
 
 fn history_card_tooltip(c: &Path, a11y: &str, miss: bool) -> String {

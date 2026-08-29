@@ -113,29 +113,39 @@ impl RecentContext {
     }
 
     /// Apply the current search/history strip plan (search commit and explicit repaints).
-    pub(crate) fn apply_strip(&self) {
+    /// Schedules background thumbnails for the paths just painted.
+    pub(crate) fn apply_strip(self: &Rc<Self>) {
+        let paths = self.paint_strip();
+        schedule_thumb_backfill(Rc::clone(self), paths);
+    }
+
+    /// Thumb-poll rebuild. Skipped while a search draft is settling. While neighbour results
+    /// are showing, clears the identical-path skip so new stills can repaint the strip.
+    /// Does not re-arm workers (each completion would cancel the rest of the batch).
+    pub fn refill(self: &Rc<Self>) {
+        if self.search.as_ref().is_some_and(|s| s.typing_pending()) {
+            return;
+        }
+        if let Some(s) = &self.search {
+            if s.searching() {
+                s.clear_hits_paint();
+            }
+        }
+        let _ = self.paint_strip();
+    }
+
+    /// Paint the query-aware strip; returns the paths that are on screen.
+    fn paint_strip(&self) -> Vec<PathBuf> {
         let fallback: Vec<_> = crate::history::load()
             .into_iter()
             .take(CONTINUE_DISPLAY_MAX)
             .collect();
         let plan = strip_plan(self.search.as_deref(), fallback);
-        self.paint(plan.paths, plan.kind);
+        self.paint(plan.paths.clone(), plan.kind);
         if plan.searching {
             self.note_search_hint();
         }
-    }
-
-    /// Thumb-poll rebuild: skipped while a search draft is settling or neighbour results are
-    /// showing (rebuilding would flash the strip).
-    pub fn refill(&self) {
-        if self
-            .search
-            .as_ref()
-            .is_some_and(|s| s.typing_pending() || s.searching())
-        {
-            return;
-        }
-        self.apply_strip();
+        plan.paths
     }
 
     /// Activate one strip path through the shared open handler (Enter on the search box).

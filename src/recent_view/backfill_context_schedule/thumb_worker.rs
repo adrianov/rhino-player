@@ -18,7 +18,7 @@ fn run_thumb_worker(
             Ok(c) => c,
             _ => continue,
         };
-        if media_probe::cached_thumbnail_for_path(&can).is_some() {
+        if media_probe::thumb_backfill_satisfied(&can) {
             continue;
         }
         let _ = media_probe::ensure_thumbnail(&can);

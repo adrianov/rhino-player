@@ -46,6 +46,35 @@ pub fn ensure_recent_backfill(
     ctx
 }
 
+/// Ensure the strip context, then paint the query-aware strip and arm thumb workers.
+/// Single entry for remove/undo/browse-back so search hits get the same backfill as continue.
+pub fn ensure_apply_strip(
+    cell: &Rc<RefCell<Option<Rc<RecentContext>>>>,
+    row: &gtk::Box,
+    hooks: ContinueStripHooks,
+) {
+    ensure_recent_backfill(cell, row, hooks).apply_strip();
+}
+
+/// Hooks for a strip paint: warm-hover and neighbour-search ride along with the last context.
+pub fn strip_hooks_from_cell(
+    cell: &Rc<RefCell<Option<Rc<RecentContext>>>>,
+    on_open: RcPathFn,
+    on_remove: RcPathFn,
+    on_trash: RcPathFn,
+    chrome_cache: crate::media_probe::ContinueGridCache,
+) -> ContinueStripHooks {
+    let ctx = cell.borrow();
+    ContinueStripHooks {
+        on_open,
+        on_remove,
+        on_trash,
+        warm_hover: ctx.as_ref().and_then(|c| c.warm_hover().cloned()),
+        chrome_cache,
+        search: ctx.as_ref().and_then(|c| c.search.as_ref().map(Rc::clone)),
+    }
+}
+
 /// Fresh cancellation flag and backfill generation counter for a new context.
 fn fresh_backfill_counters() -> (Arc<AtomicBool>, Arc<std::sync::atomic::AtomicU64>) {
     (
@@ -74,12 +103,10 @@ fn spawn_refill_poll(ctx: &Rc<RecentContext>, refill_rx: mpsc::Receiver<()>) -> 
     })
 }
 
-/// For each displayed continue path (at most [CONTINUE_DISPLAY_MAX]), if the file is present and
-/// the DB has no up-to-date WebP thumb, runs [media_probe::ensure_thumbnail] on a **worker**
-/// thread, then [RecentContext::refill] on the main loop via a [Send] channel.
-/// Safe to call from the main thread: does not block on libmpv.
+/// For each path still missing a fresh WebP thumb, run [media_probe::ensure_thumbnail] on a
+/// **worker** thread, then [RecentContext::refill] on the main loop via a [Send] channel.
+/// Callers pass the painted strip only (already capped). Safe from the main thread.
 pub fn schedule_thumb_backfill(ctx: Rc<RecentContext>, paths: Vec<std::path::PathBuf>) {
-    let paths: Vec<_> = paths.into_iter().take(CONTINUE_DISPLAY_MAX).collect();
     if paths.is_empty() {
         return;
     }

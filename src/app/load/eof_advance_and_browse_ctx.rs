@@ -21,83 +21,32 @@ fn reflow_continue_cards(
     rbf: &Rc<RefCell<Option<Rc<RecentContext>>>>,
     chrome_cache: crate::media_probe::ContinueGridCache,
 ) {
-    let r: Vec<PathBuf> = history::load()
-        .into_iter()
-        .take(crate::recent_view::CONTINUE_DISPLAY_MAX)
-        .collect();
     recent.set_visible(true);
-    repaint_continue_row(row, rbf, &r, &on_open, &on_remove, &on_trash, &chrome_cache);
+    repaint_continue_row(row, rbf, &[], &on_open, &on_remove, &on_trash, &chrome_cache);
 }
 
-/// Repaint a continue row from card data and wire its thumbnail backfill (idle body of
-/// [schedule_continue_grid_refill], direct body of [reflow_continue_cards]).
+/// Repaint via [recent_view::ensure_apply_strip]. `_paths` kept for call-site stability;
+/// the strip source is query-aware inside [RecentContext::apply_strip].
 fn repaint_continue_row(
     row: &gtk::Box,
     rbf: &Rc<RefCell<Option<Rc<RecentContext>>>>,
-    paths: &[PathBuf],
+    _paths: &[PathBuf],
     on_open: &RcPathFn,
     on_remove: &RcPathFn,
     on_trash: &RcPathFn,
     chrome_cache: &crate::media_probe::ContinueGridCache,
 ) {
-    // Query-aware strip source: neighbour-substring results replace the plain list while a
-    // search is active (feature 33). Thumbnail backfill below keeps targeting history entries.
-    let ctx = rbf.borrow().clone();
-    let plan = recent_view::strip_plan(search_of(&ctx), paths.to_vec());
-    if let Some(c) = &ctx {
-        c.paint(plan.paths.clone(), plan.kind);
-    }
-    if plan.searching {
-        if let Some(c) = &ctx {
-            c.note_search_hint();
-        }
-    }
-    // Thumbnail backfill keeps targeting the real watch-later entries even while results
-    // replace them visually; `paths` is always the history slice.
-    backfill_continue_row(rbf, row, paths, on_open, on_remove, on_trash, chrome_cache);
-}
-
-/// Shared search state borrowed out of an optional strip context.
-fn search_of(ctx: &Option<Rc<RecentContext>>) -> Option<&recent_view::SiblingSearchState> {
-    ctx.as_ref().and_then(|c| c.search.as_deref())
-}
-
-/// Continue-strip hooks derived from the row's context: warm-hover hooks and the shared
-/// neighbour-search state ride along with whichever context painted last.
-fn strip_hooks(
-    rbf: &Rc<RefCell<Option<Rc<RecentContext>>>>,
-    on_open: &RcPathFn,
-    on_remove: &RcPathFn,
-    on_trash: &RcPathFn,
-    chrome_cache: &crate::media_probe::ContinueGridCache,
-) -> recent_view::ContinueStripHooks {
-    let ctx = rbf.borrow();
-    recent_view::ContinueStripHooks {
-        on_open: Rc::clone(on_open),
-        on_remove: Rc::clone(on_remove),
-        on_trash: Rc::clone(on_trash),
-        warm_hover: ctx.as_ref().and_then(|c| c.warm_hover().cloned()),
-        chrome_cache: Rc::clone(chrome_cache),
-        search: ctx.as_ref().and_then(|c| c.search.as_ref().map(Rc::clone)),
-    }
-}
-
-/// Wire thumbnail backfill for a freshly painted continue row.
-fn backfill_continue_row(
-    rbf: &Rc<RefCell<Option<Rc<RecentContext>>>>,
-    row: &gtk::Box,
-    paths: &[PathBuf],
-    on_open: &RcPathFn,
-    on_remove: &RcPathFn,
-    on_trash: &RcPathFn,
-    chrome_cache: &crate::media_probe::ContinueGridCache,
-) {
-    let n = recent_view::ensure_recent_backfill(
+    recent_view::ensure_apply_strip(
         rbf,
         row,
-        strip_hooks(rbf, on_open, on_remove, on_trash, chrome_cache),
+        recent_view::strip_hooks_from_cell(
+            rbf,
+            Rc::clone(on_open),
+            Rc::clone(on_remove),
+            Rc::clone(on_trash),
+            Rc::clone(chrome_cache),
+        ),
     );
-    recent_view::schedule_thumb_backfill(n, paths.to_vec());
 }
 
 include!("eof_advance_nav.rs");

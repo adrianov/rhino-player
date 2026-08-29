@@ -1,12 +1,16 @@
 // Neighbour (sibling) search for the continue screen — feature hub.
 // See docs/features/33-continue-sibling-search.md. Split across:
 //   sibling_search.rs          — BFS scan, hit filter, strip plan, tests
+//   sibling_search_score.rs    — Jaccard trigrams (`#[path]`)
 //   sibling_search_state.rs    — query / index / paint (`#[path]`)
 //   sibling_search_input.rs    — debounce / commit (`#[path]` from state)
 //   sibling_search_widgets.rs  — search-row widgets
 // NOTE: include!'d into `recent_view`; shares its imports (glib, Rc, RefCell, Path, Duration).
 
 include!("sibling_search_widgets.rs");
+#[path = "sibling_search_score.rs"]
+mod sibling_search_score;
+use sibling_search_score::{name_match_score, query_trigrams};
 #[path = "sibling_search_state.rs"]
 mod sibling_search_state;
 pub(crate) use sibling_search_state::*;
@@ -18,17 +22,29 @@ fn take_capped(mut hits: Vec<PathBuf>) -> (Vec<PathBuf>, bool) {
     (hits, capped)
 }
 
+/// One neighbour path plus openability learned when the session index was built (or refreshed).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct NeighbourEntry {
+    path: PathBuf,
+    openable: bool,
+}
+
 /// Fill `index` from `build` at most once (session neighbour scan).
 fn index_fill_once(
     scanned: &Cell<bool>,
-    index: &RefCell<Vec<PathBuf>>,
-    build: impl FnOnce() -> Vec<PathBuf>,
-) -> Vec<PathBuf> {
+    index: &RefCell<Vec<NeighbourEntry>>,
+    build: impl FnOnce() -> Vec<NeighbourEntry>,
+) -> Vec<NeighbourEntry> {
     if !scanned.get() {
         *index.borrow_mut() = build();
         scanned.set(true);
     }
     index.borrow().clone()
+}
+
+/// True when open preflight would allow a load (no missing / empty / hollow stub).
+fn classify_openable(path: &Path) -> bool {
+    crate::media_open_fail::preflight_user_message(path).is_none()
 }
 
 use std::cell::Cell;
@@ -132,29 +148,41 @@ fn enqueue_scan_dir(queue: &mut VecDeque<PathBuf>, seen: &mut HashSet<PathBuf>, 
 }
 
 /// Build the session neighbour index from the files catalog (once per [SiblingSearchState]).
-fn build_neighbour_index() -> Vec<PathBuf> {
+fn build_neighbour_index() -> Vec<NeighbourEntry> {
     let files = scan_sibling_universe(&crate::db::list_file_paths());
     crate::db::ensure_files(&files);
     files
-}
-
-/// Name hits that still exist on disk (drops trashed paths on strip refresh).
-fn present_name_hits(files: &[PathBuf], q: &str) -> Vec<PathBuf> {
-    collect_hits(files, q)
         .into_iter()
-        .filter(|p| p.is_file())
+        .map(|path| NeighbourEntry {
+            openable: classify_openable(&path),
+            path,
+        })
         .collect()
 }
 
-/// Name-substring matches in natural order (includes continue-list members).
-fn collect_hits(files: &[PathBuf], q: &str) -> Vec<PathBuf> {
-    let mut hits: Vec<PathBuf> = files
+/// Name hits among openable index entries, ranked by trigram Jaccard (feature 33).
+fn present_name_hits(entries: &[NeighbourEntry], q: &str) -> Vec<PathBuf> {
+    let q_tri = query_trigrams(q);
+    let mut scored: Vec<(f64, PathBuf)> = entries
         .iter()
-        .filter(|p| file_name_lower(p).contains(q))
-        .cloned()
+        .filter(|e| e.openable)
+        .filter_map(|e| {
+            let name = file_name_lower(&e.path);
+            name_match_score(&name, q, &q_tri).map(|s| (s, e.path.clone()))
+        })
         .collect();
-    sort_neighbours(&mut hits);
-    hits
+    sort_scored_hits(&mut scored);
+    scored.into_iter().map(|(_, p)| p).collect()
+}
+
+fn sort_scored_hits(scored: &mut [(f64, PathBuf)]) {
+    scored.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                lexical_sort::natural_lexical_cmp(&file_name_lower(&a.1), &file_name_lower(&b.1))
+            })
+    });
 }
 
 fn file_name_lower(p: &Path) -> String {

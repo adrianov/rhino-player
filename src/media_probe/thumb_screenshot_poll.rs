@@ -32,18 +32,20 @@ impl PollState {
         self.flat_run = 0;
     }
 
-    /// Fold one raw capture into the trackers; `Some` when a bright frame accepts now.
+    /// Fold one raw capture into the trackers; `Some` when a bright detailed frame accepts now.
+    /// Flat (almost-uniform) is checked before dark so solid color boards nudge instead of
+    /// waiting out the dark-stability path.
     fn fold_capture(&mut self, c: Capture) -> Option<Vec<u8>> {
-        if c.dark {
-            self.dark_run += 1;
-            self.flat_run = 0;
-            self.dark_webp = Some(c.webp);
-            return None;
-        }
         if c.flat {
             self.flat_run += 1;
             self.dark_run = 0;
             self.flat_webp = Some(c.webp);
+            return None;
+        }
+        if c.dark {
+            self.dark_run += 1;
+            self.flat_run = 0;
+            self.dark_webp = Some(c.webp);
             return None;
         }
         Some(c.webp)
@@ -110,8 +112,8 @@ fn timeout_poll_accept(polls: u32, dark_webp: Option<Vec<u8>>) -> Option<Vec<u8>
 }
 
 /// Poll until one decoded frame is available, then return WebP bytes (no temp files).
-/// A bright frame returns immediately; stable dark or flat frames are accepted after their
-/// stability windows so dark scenes and solid title cards still get a thumbnail.
+/// A bright detailed frame returns immediately; stable dark or flat frames are accepted after
+/// their stability windows. Callers may nudge the seek when the result is still almost uniform.
 pub(super) fn capture_screenshot_webp(m: &mut Mpv, wait_secs: u64) -> Option<Vec<u8>> {
     let mut st = PollState {
         polls: 0,

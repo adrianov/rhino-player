@@ -26,7 +26,12 @@ fn undo_button_clicked(h: &UndoBarHandles, do_commit: &Rc<dyn Fn()>) {
 
 /// Persist the restored path and repaint bar + continue row.
 fn restore_undo_step(h: &UndoBarHandles, undo: ContinueBarUndo) {
-    history::record(undo.target_path());
+    let path = undo.target_path().to_path_buf();
+    let was_trash = matches!(&undo, ContinueBarUndo::Trash { .. });
+    history::record(&path);
+    if was_trash {
+        recent_view::search_note_restored(&h.rbf, &path);
+    }
     sync_undo_bar(&h.label, &h.btn, &h.shell, &h.stack);
     h.recent.set_visible(true);
     refresh_continue_cards(h);

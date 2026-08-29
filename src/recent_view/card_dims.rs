@@ -11,18 +11,26 @@ pub(crate) const CARD_GAP: i32 = 16;
 /// 16:9 footprint used before the scrolled strip has a width (startup / first paint).
 pub(crate) fn default_card_dims() -> (i32, i32) {
     let w = CARD_MIN_W;
-    let h = (f64::from(w) / CARD_ASPECT).round() as i32;
-    (w, h)
+    (w, card_height(w))
 }
 
 pub(crate) fn apply_card_dims(card: &gtk::Overlay, w: i32, h: i32) {
     card.set_size_request(w, h);
+    // Start — not Fill — so a tall natural child cannot stretch siblings when the row grows.
+    card.set_valign(gtk::Align::Start);
+    card.set_halign(gtk::Align::Center);
     if let Some(pw) = card.parent() {
         if let Some(clamp) = pw.downcast_ref::<adw::Clamp>() {
             clamp.set_maximum_size(w);
             clamp.set_size_request(w, h);
+            clamp.set_valign(gtk::Align::Start);
         }
     }
+}
+
+/// Landscape height for a card width ([CARD_ASPECT]).
+pub(crate) fn card_height(w: i32) -> i32 {
+    (f64::from(w) / CARD_ASPECT).round() as i32
 }
 
 /// Tile width for the strip. Always divides by a full strip (Open + [CONTINUE_DISPLAY_MAX])
@@ -81,7 +89,7 @@ pub(crate) fn sync_card_sizes(card_row: &gtk::Box, cards: &[gtk::Overlay]) {
     }
     let strip_w = strip_width_for_cards(card_row);
     let w = card_width(strip_w);
-    let h = (f64::from(w) / CARD_ASPECT).round() as i32;
+    let h = card_height(w);
     for card in cards {
         apply_card_dims(card, w, h);
     }
@@ -98,5 +106,14 @@ mod card_width_tests {
         assert!((CARD_MIN_W..=CARD_MAX_W).contains(&full));
         // Same formula regardless of how many cards are showing (caller no longer passes count).
         assert_eq!(full, (strip - CARD_GAP * CONTINUE_DISPLAY_MAX as i32) / (CONTINUE_DISPLAY_MAX as i32 + 1));
+    }
+
+    #[test]
+    fn card_height_stays_landscape() {
+        for w in [CARD_MIN_W, 400, CARD_MAX_W] {
+            let h = card_height(w);
+            assert!(h < w, "expected 16:9 height {h} < width {w}");
+            assert_eq!(h, (f64::from(w) / CARD_ASPECT).round() as i32);
+        }
     }
 }

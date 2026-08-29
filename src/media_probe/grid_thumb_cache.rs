@@ -110,6 +110,28 @@ pub fn cached_thumbnail_for_path(path: &Path) -> Option<Vec<u8>> {
     cached_thumbnail_fresh(path)
 }
 
+/// True when backfill must not run libmpv: cache matches continue position, or a still already
+/// exists while resume is still at the start (no re-decode at the 0% → 2s fallback seek).
+pub fn thumb_backfill_satisfied(path: &Path) -> bool {
+    if cached_thumbnail_for_path(path).is_some() {
+        return true;
+    }
+    stored_thumb_while_at_start(path).is_some()
+}
+
+/// Stored card art when continue is still at 0 (avoids rebuilding from the start fallback).
+fn stored_thumb_while_at_start(path: &Path) -> Option<Vec<u8>> {
+    let entity = crate::playback_entity::db_path_for(path);
+    let (resume, _, _) = entity_continue_state(&entity);
+    if resume > 0.0 {
+        return None;
+    }
+    let b = db::stored_thumb_webp(&entity)?;
+    let key = crate::db::history_key(&entity)?;
+    // Flat stills stay pending until a capture attempt finishes this process.
+    grid_thumb_flat_capture::take_unless_flat_pending(&key, b)
+}
+
 pub(crate) fn db_thumb_for_entity_key(
     db_key: &str,
     load: &Path,
@@ -118,15 +140,16 @@ pub(crate) fn db_thumb_for_entity_key(
     let mtime = db::file_mtime_sec(load)?;
     let load_s = load.to_str();
     let b = db::take_thumb_if_fresh(db_key, mtime, cache_time, load_s)?;
-    if crate::thumb_texture::thumb_webp_is_flat_fill(&b) {
-        eprintln!("[rhino] grid_thumb reject cached flat fill path={load_s:?}");
-        return None;
-    }
-    Some(b)
+    grid_thumb_flat_capture::take_unless_flat_pending(db_key, b)
 }
 
-/// Card art: fresh frame when available, else last stored BLOB (avoids placeholder flash while backfill runs).
+/// Card art: fresh frame when available, else last stored BLOB (avoids placeholder flash while
+/// backfill runs). Flat stored stills are omitted until a capture attempt finishes this session.
 pub(crate) fn cached_thumbnail_for_display(path: &Path) -> Option<Vec<u8>> {
     let entity = crate::playback_entity::db_path_for(path);
-    cached_thumbnail_fresh(path).or_else(|| db::stored_thumb_webp(&entity))
+    cached_thumbnail_fresh(path).or_else(|| {
+        let b = db::stored_thumb_webp(&entity)?;
+        let key = crate::db::history_key(&entity)?;
+        grid_thumb_flat_capture::take_unless_flat_pending(&key, b)
+    })
 }

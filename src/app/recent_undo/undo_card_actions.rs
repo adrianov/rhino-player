@@ -43,6 +43,7 @@ fn trash_card_action(h: &UndoBarHandles, do_commit: &Rc<dyn Fn()>, path: &Path) 
         sync_undo_bar(&h.label, &h.btn, &h.shell, &h.stack);
         rearm_undo_dismiss(do_commit, &h.timer);
     }
+    recent_view::search_note_removed(&h.rbf, path);
     refresh_continue_cards(h);
 }
 

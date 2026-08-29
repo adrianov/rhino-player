@@ -7,16 +7,22 @@ pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
     if let Some(t) = db_thumb_for_entity_key(&db_key, &target.load, target.cache_time) {
         return Some(t);
     }
+    // Resume still at start but a still exists — keep it (do not re-seek to the 2s fallback).
+    if let Some(b) = stored_thumb_while_at_start(path) {
+        return Some(b);
+    }
     let mtime = db::file_mtime_sec(&target.load)?;
     let b = run_libmpv_image_frame(&target.load, target.seek_sec, target.chapter_dur)?;
-    db::set_thumb(
-        &db_key,
-        &b,
-        mtime,
-        target.cache_time,
-        target.load.to_str(),
-    );
+    persist_grid_thumb(&db_key, &b, mtime, &target);
     Some(b)
+}
+
+/// Write the captured still; mark flat fills so a second worker pass will accept them.
+fn persist_grid_thumb(db_key: &str, b: &[u8], mtime: i64, target: &GridThumbTarget) {
+    db::set_thumb(db_key, b, mtime, target.cache_time, target.load.to_str());
+    if crate::thumb_texture::thumb_webp_is_flat_fill(b) {
+        grid_thumb_flat_capture::mark_done(db_key);
+    }
 }
 
 /// Thumbnail: resume-position seek + small scale for continue cards.

@@ -131,6 +131,10 @@ fn vo_image_ensure_seeked(
     None
 }
 
+#[path = "thumb_vo_image_flat_nudge.rs"]
+mod thumb_vo_image_flat_nudge;
+use thumb_vo_image_flat_nudge::{vo_image_prefer_nonflat, FlatNudgeCtx};
+
 fn run_vo_image_one_frame(
     src: &Path,
     start_sec: f64,
@@ -145,7 +149,19 @@ fn run_vo_image_one_frame(
     let ifo_seek = crate::seek_bar_preview::cap_preview_seek_time(start_sec, cap);
     let mut m = vo_image_start(src, src_s, vf, ifo_seek, cap, chain_head, dvd_vob)?;
     vo_image_wait_loaded(&mut m, src, cap, chain_head, wait_secs)?;
-    vo_image_capture_after_seek(&mut m, src, ifo_seek, chain_head, dvd_vob, wait_secs)
+    let first = vo_image_capture_after_seek(&mut m, src, ifo_seek, chain_head, dvd_vob, wait_secs)?;
+    vo_image_prefer_nonflat(
+        FlatNudgeCtx {
+            m: &mut m,
+            src,
+            ifo_seek,
+            cap,
+            chain_head,
+            dvd_vob,
+            wait_secs,
+        },
+        first,
+    )
 }
 
 #[cfg(test)]
