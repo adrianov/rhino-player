@@ -63,9 +63,9 @@ fn recent_card_scroller(h: &gtk::Box) -> gtk::ScrolledWindow {
     card_scr
 }
 
-/// Vertical stack: top spacer, scroller, undo pill band ([new_undo_bar]), notice band
-/// ([new_notice_toast]), bottom spacer. The two `[gtk::Box]` spacers are the **empty** hit
-/// area for main-window double-click fullscreen: not the card strip or undo bar.
+/// Vertical stack: top spacer (search centered in its free space), card scroller, undo pill
+/// band ([new_undo_bar]), notice band ([new_notice_toast]), bottom spacer. The two
+/// `[gtk::Box]` spacers are the **empty** hit area for main-window double-click fullscreen.
 fn recent_stack(card_scr: &gtk::ScrolledWindow, search_row: &gtk::Box) -> (gtk::Box, [gtk::Box; 2]) {
     let v = gtk::Box::new(gtk::Orientation::Vertical, 0);
     v.set_vexpand(true);
@@ -74,14 +74,11 @@ fn recent_stack(card_scr: &gtk::ScrolledWindow, search_row: &gtk::Box) -> (gtk::
     v.set_valign(gtk::Align::Fill);
     v.add_css_class("rp-recent-vbox");
 
-    let [sp_top, sp_bot] = stack_spacers();
+    let sp_top = top_spacer_with_search(search_row);
+    let sp_bot = bottom_spacer();
     let undo_bar = new_undo_bar();
     let notice = new_notice_toast();
-    // Search row directly above the strip: reads as part of the card row and stays clear of
-    // the macOS header-compositing band at the very top of the overlay.
-    search_row.set_margin_bottom(6);
     v.append(&sp_top);
-    v.append(search_row);
     v.append(card_scr);
     v.append(&undo_bar.shell);
     v.append(&notice.shell);
@@ -90,11 +87,33 @@ fn recent_stack(card_scr: &gtk::ScrolledWindow, search_row: &gtk::Box) -> (gtk::
     (v, [sp_top, sp_bot])
 }
 
-/// Top / bottom flexible spacers flanking the strip.
-fn stack_spacers() -> [gtk::Box; 2] {
-    let sp_top = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    sp_top.set_vexpand(true);
-    let sp_bot = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    sp_bot.set_vexpand(true);
-    [sp_top, sp_bot]
+/// Top expand spacer with the search row centered in the free space above the card strip.
+fn top_spacer_with_search(search_row: &gtk::Box) -> gtk::Box {
+    let sp = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    sp.set_vexpand(true);
+    sp.set_hexpand(true);
+    let above = flex_filler();
+    let below = flex_filler();
+    // Pass double-clicks through to [sp] (fullscreen hit target).
+    above.set_can_target(false);
+    below.set_can_target(false);
+    search_row.set_halign(gtk::Align::Center);
+    search_row.set_valign(gtk::Align::Center);
+    search_row.set_hexpand(false);
+    sp.append(&above);
+    sp.append(search_row);
+    sp.append(&below);
+    sp
+}
+
+fn bottom_spacer() -> gtk::Box {
+    let sp = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    sp.set_vexpand(true);
+    sp
+}
+
+fn flex_filler() -> gtk::Box {
+    let b = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    b.set_vexpand(true);
+    b
 }

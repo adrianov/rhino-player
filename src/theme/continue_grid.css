@@ -59,15 +59,30 @@
             opacity: 0.92;
             color: rgba(154, 192, 255, 0.96);
         }
-        /* Neighbour search row atop the strip (feature 33). */
+        /* Neighbour search: centered in free space above the strip (feature 33). */
         box.rp-recent-search-row {
-            margin-top: 6px;
+            margin: 0;
+        }
+        /* Pill chrome lives on the wrapper — SearchEntry alone often keeps square corners on macOS. */
+        box.rp-recent-search-pill {
+            border-radius: 9999px;
+            background-color: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 4px 6px;
+            min-height: 40px;
+        }
+        box.rp-recent-search-pill:focus-within {
+            background-color: rgba(255, 255, 255, 0.10);
+            border-color: rgba(255, 255, 255, 0.12);
         }
         searchentry.rp-recent-search-entry {
-            min-width: 320px;
-            border-radius: 9999px;
+            min-width: 340px;
+            background: none;
+            background-color: transparent;
+            border: none;
+            box-shadow: none;
+            outline-style: none;
             padding: 4px 14px;
-            background-color: rgba(255, 255, 255, 0.06);
         }
         label.rp-recent-search-hint {
             color: #9a9996;
