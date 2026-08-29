@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 
 use super::{history_key, with_conn};
 
@@ -21,6 +21,22 @@ pub fn load_duration_map() -> HashMap<String, f64> {
         Ok(m.filter_map(|r| r.ok()).collect())
     })
     .unwrap_or_default()
+}
+
+/// Stored length (seconds) for one path — browse seek-bar hover when the strip cache misses.
+pub fn media_duration_sec(path: &Path) -> Option<f64> {
+    let s = history_key(path)?;
+    with_conn(|c| {
+        c.query_row(
+            "SELECT duration_sec FROM media WHERE path = ?1",
+            params![&s],
+            |row| row.get::<_, Option<f64>>(0),
+        )
+        .optional()
+    })
+    .flatten()
+    .flatten()
+    .filter(|d| d.is_finite() && *d > 0.0)
 }
 
 pub fn set_duration(path: &Path, sec: f64) {

@@ -18,8 +18,6 @@ pub(crate) struct WarmPreloadCtx {
     recent: gtk::Box,
     gl: gtk::GLArea,
     last_path: Rc<RefCell<Option<PathBuf>>>,
-    /// Pending hover warm-preload timer ([WARM_HOVER_DEBOUNCE]); cancelled on leave / new enter.
-    hover_idle: Rc<RefCell<Option<glib::SourceId>>>,
     path_settle: Rc<RefCell<Option<glib::SourceId>>>,
 }
 
@@ -43,7 +41,6 @@ impl WarmPreloadCtx {
             recent,
             gl,
             last_path,
-            hover_idle: Rc::new(RefCell::new(None)),
             path_settle: Rc::new(RefCell::new(None)),
         })
     }

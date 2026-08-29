@@ -15,7 +15,7 @@ related: [07, 21, 34]
 ## Description
 The browse screen grows a **search box above the video card strip**. Once per session the player gathers searchable neighbours from every path in the media files catalog: video files in each known file’s folder and in that folder’s sibling folders (folders that share the same parent). It never lists the filesystem root and never treats top-level folders as siblings of each other (for example it will not walk from one library root to another under `/`). Typing matches neighbour file names case-insensitively: names that contain the query always qualify, and close name similarity can qualify the rest. Results appear as regular cards in the same horizontal strip, closer matches first. The strip switches between plain watch-later cards and search-result cards in place — no navigation, no extra screen.
 
-Result cards open and warm-preload like continue cards. Present playable files show **Move to Trash** on hover like continue cards; **Remove from list** stays on the plain continue strip only. Empty, hollow, or missing files are omitted from results. Missing stills are filled in the background like continue cards, and each card updates when its thumbnail is ready. While a query is active the strip shows only results; clearing the box (or pressing Escape while typing) restores the plain continue list. The strip and Open Video tile stay put while typing; cards update only after filtering settles.
+Result cards open like continue cards. Present playable files show **Move to Trash** on hover like continue cards; **Remove from list** stays on the plain continue strip only. Empty, hollow, or missing files are omitted from results. Missing stills are filled in the background like continue cards, and each card updates when its thumbnail is ready. Hovering a result updates the seek bar from stored length and resume like continue cards (no background load). While a query is active the strip shows only results; clearing the box (or pressing Escape while typing) restores the plain continue list. The strip and Open Video tile stay put while typing; cards update only after filtering settles.
 
 ## Behavior
 
@@ -84,6 +84,12 @@ Feature: Sibling search on the continue screen
     When filtering finishes
     Then the closer match appears before the weaker match among the result cards
 
+  Scenario: In-progress videos rank ahead when name match is equal
+    Given two playable neighbours both match the same query equally closely
+    And one has a non-zero stored playback position and the other does not
+    When filtering finishes
+    Then the in-progress neighbour appears before the unstarted one among the result cards
+
   Scenario: Slightly misspelled fragments still match
     Given a playable neighbour whose file name contains a recognizable word
     When the user types that word with one or two letter mistakes and filtering finishes
@@ -107,10 +113,10 @@ Feature: Sibling search on the continue screen
     Then each of those cards shows its thumbnail without clearing the search
     And the Open Video tile stays in place
 
-  Scenario: Result cards open and warm-preload with trash
+  Scenario: Result cards open with trash and seek-bar hover sync
     Given the strip shows search-result cards for present local files
     When the user rests the pointer on a result card
-    Then the file warm-preloads paused behind the grid like a hovered continue card
+    Then the seek bar shows that card’s stored length and resume position like a hovered continue card
     And the card shows Move to Trash
     And the card shows no Remove from list control
     When the user clicks the result card
@@ -143,7 +149,7 @@ Feature: Sibling search on the continue screen
 ## Notes
 - Scope: catalog paths → each file’s parent dir + that dir’s sibling dirs (BFS queue of dirs, then non-recursive video listing per dir). Skip the filesystem root as a scan dir; do not list children of the root as sibling dirs. See [34](34-files-catalog.md) for the catalog; [07](07-sibling-folder-queue.md) for playback folder-advance (different feature).
 - Seeds: `db::list_file_paths()` (table `files`). Discoveries from the session scan call `db::ensure_files` (one transaction) so later sessions grow the catalog.
-- Reuses `video_ext::list_videos_in_dir`. Hit order: trigram Jaccard score descending, then natural lexical name (`lexical_sort`) for ties.
+- Reuses `video_ext::list_videos_in_dir`. Hit order: trigram Jaccard score descending; equal scores prefer a non-zero stored resume (`media.time_pos_sec` via `load_time_pos_map`); then natural lexical name (`lexical_sort`).
 - Scoring: padded character trigrams + Jaccard (`sibling_search_score.rs`). Score is the best Jaccard of the query against the full lowercased file name and each alphanumeric token (so a misspelled word inside a long name still ranks without sliding-window noise); minimum `TRIGRAM_MIN_SCORE`. Substring containment always keeps a hit even when Jaccard is low. Results capped (`SEARCH_MAX_HITS`); hint notes the cap. Hits may include continue-list members. Openability is classified once when the session neighbour index is built (`NeighbourEntry.openable` via `media_open_fail::preflight_user_message`); settled queries filter that flag only. Trash/restore go through `recent_view::search_note_removed` / `search_note_restored` (strip context owns the index). Search-strip chrome shows Move to Trash for present files; omits Remove (list membership) for every hit.
 - Index: built once per window/session on continue-search bind (one idle) or on first committed query if still empty; typing never rescans. Filter debounce: `TYPE_DEBOUNCE_MS` in `src/recent_view/sibling_search_state.rs`; empty draft commits immediately.
 - Placement: search row centered horizontally, parked just above the card strip; hint side slot mirrored by an invisible twin of the widest hint. macOS header-compositing band stays clear. Placeholder: `Search your video library…`. First map clears initial focus from the entry (GTK would otherwise focus the first focusable field). When the continue strip hides for playback, `SiblingSearchState::sync_browse_visible` drops window focus and sets `can_focus=false` on the entry so gdk-macos cannot leave an IM caret / typed glyph over the video.

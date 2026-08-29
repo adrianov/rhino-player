@@ -46,41 +46,78 @@ pub fn thumb_webp_valid(bytes: &[u8]) -> bool {
     bytes.len() >= 12 && bytes.starts_with(b"RIFF") && bytes[8..12] == *b"WEBP"
 }
 
-/// Reject almost-uniform WebP fills (mpv vo=null placeholder after hr-seek stored before decode).
+/// Reject almost-uniform WebP fills: solid color boards, single-hue gradients / mesh textures,
+/// and mpv vo=null placeholders stored before decode finishes.
 pub fn thumb_webp_is_flat_fill(bytes: &[u8]) -> bool {
-    if !thumb_webp_valid(bytes) {
-        return true;
-    }
-    let Ok((rgb, w, h)) = zenwebp::oneshot::decode_rgb(bytes) else {
+    let Some((rgb, w, h)) = decode_flat_check_rgb(bytes) else {
         return true;
     };
-    let w = w as usize;
-    let h = h as usize;
-    if w == 0 || h == 0 || rgb.len() < w * h * 3 {
-        return true;
-    }
-    sampled_color_bucket_count(&rgb, w, h) < 8
+    rgb_samples_mostly_flat(grid_rgb_samples(&rgb, w, h))
 }
 
-/// Number of distinct 16-level color buckets among an ~8×8 grid of samples.
-fn sampled_color_bucket_count(rgb: &[u8], w: usize, h: usize) -> usize {
+fn decode_flat_check_rgb(bytes: &[u8]) -> Option<(Vec<u8>, usize, usize)> {
+    if !thumb_webp_valid(bytes) {
+        return None;
+    }
+    let (rgb, w, h) = zenwebp::oneshot::decode_rgb(bytes).ok()?;
+    let (w, h) = (w as usize, h as usize);
+    (w > 0 && h > 0 && rgb.len() >= w * h * 3).then_some((rgb, w, h))
+}
+
+fn grid_rgb_samples(rgb: &[u8], w: usize, h: usize) -> Vec<(u8, u8, u8)> {
     let step_y = (h / 8).max(1);
     let step_x = (w / 8).max(1);
-    let mut buckets = std::collections::HashSet::new();
+    let mut samples = Vec::with_capacity(64);
     for y in (0..h).step_by(step_y) {
         for x in (0..w).step_by(step_x) {
-            sample_bucket(&mut buckets, rgb, y * w * 3 + x * 3);
+            push_rgb_sample(&mut samples, rgb, y * w * 3 + x * 3);
         }
     }
-    buckets.len()
+    samples
 }
 
-/// Adds the 16-level bucket of the pixel starting at [i]; out-of-range samples are ignored.
-fn sample_bucket(buckets: &mut std::collections::HashSet<(u8, u8, u8)>, rgb: &[u8], i: usize) {
-    if i + 2 >= rgb.len() {
-        return;
+fn push_rgb_sample(out: &mut Vec<(u8, u8, u8)>, rgb: &[u8], i: usize) {
+    if let Some(p) = rgb.get(i..i + 3) {
+        out.push((p[0], p[1], p[2]));
     }
-    buckets.insert((rgb[i] / 16, rgb[i + 1] / 16, rgb[i + 2] / 16));
+}
+
+/// True when an ~8×8 sample grid is a solid fill, mono gradient, or lightly textured color board.
+/// Shared by WebP flat checks and packed `screenshot-raw` frames.
+pub(crate) fn rgb_samples_mostly_flat(samples: impl IntoIterator<Item = (u8, u8, u8)>) -> bool {
+    let mut color = std::collections::HashSet::new();
+    let mut hues = std::collections::HashSet::new();
+    let mut n = 0u32;
+    for (r, g, b) in samples {
+        n += 1;
+        color.insert((r / 16, g / 16, b / 16));
+        if let Some(h) = chromatic_primary(r, g, b) {
+            hues.insert(h);
+        }
+    }
+    if n == 0 {
+        return false;
+    }
+    // Few RGB buckets: solid / near-solid. One chromatic primary with limited bucket spread:
+    // single-hue gradient or mesh (not a detailed mono-tinted scene with many shades).
+    color.len() < 8 || (hues.len() < 2 && color.len() < 18)
+}
+
+/// Dominant primary for chromatic pixels; `None` for near-black or near-grey (luma-only boards).
+fn chromatic_primary(r: u8, g: u8, b: u8) -> Option<u8> {
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    (max >= 16 && max - min >= 16).then(|| primary_channel(r, g, b))
+}
+
+fn primary_channel(r: u8, g: u8, b: u8) -> u8 {
+    if r >= g && r >= b {
+        0
+    } else if g >= b {
+        1
+    } else {
+        2
+    }
 }
 
 thread_local! {
@@ -159,6 +196,58 @@ mod tests {
         }
         let webp = encode_packed_webp(&bgra, w, h, w as usize, PixelLayout::Bgra8).expect("encode");
         assert!(thumb_webp_is_flat_fill(&webp));
+    }
+
+    #[test]
+    fn red_luma_gradient_is_flat() {
+        // Bright→dark red spans many RGB buckets but one chroma — title-card style boards.
+        let samples: Vec<_> = (0..64)
+            .map(|i| {
+                let r = 40 + i * 3;
+                (r, 8u8, 8u8)
+            })
+            .collect();
+        assert!(rgb_samples_mostly_flat(samples));
+    }
+
+    #[test]
+    fn red_mesh_luma_noise_is_flat() {
+        let samples: Vec<_> = (0..64)
+            .map(|i| {
+                let r = 180u8.wrapping_add((i % 7) as u8 * 9);
+                (r, 12u8, 10u8)
+            })
+            .collect();
+        assert!(rgb_samples_mostly_flat(samples));
+    }
+
+    #[test]
+    fn detailed_mono_tint_is_not_flat() {
+        // One primary with rich shade variation — real picture, not a color board.
+        let samples: Vec<_> = (0..64)
+            .map(|i| {
+                let r = 80 + (i * 2) as u8;
+                let g = 20 + (i % 11) as u8 * 3;
+                let b = 15 + (i % 7) as u8 * 4;
+                (r, g, b)
+            })
+            .collect();
+        assert!(!rgb_samples_mostly_flat(samples));
+    }
+
+    #[test]
+    fn multi_hue_scene_is_not_flat() {
+        let samples = [
+            (220u8, 40, 40),
+            (40, 200, 50),
+            (40, 60, 220),
+            (220, 200, 40),
+            (200, 40, 200),
+            (40, 200, 200),
+            (120, 80, 40),
+            (80, 40, 120),
+        ];
+        assert!(!rgb_samples_mostly_flat(samples));
     }
 
     #[test]

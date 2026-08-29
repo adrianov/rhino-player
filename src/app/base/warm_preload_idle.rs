@@ -34,7 +34,6 @@ pub(crate) fn cancel_warm_preload_for_playback() {
             return;
         };
         c.gate.cancel();
-        crate::glib_source_drop::drop_glib_source(c.hover_idle.as_ref());
     });
 }
 
@@ -137,28 +136,4 @@ fn finish_warm_preload_ready_now(player: &Rc<RefCell<Option<MpvBundle>>>, gl: &g
     warm_preload_apply_resume_audio(player, Some(gl));
     let _ = glib::idle_add_local_once(transport_drain_after_loadfile);
     transport_nudge_tick();
-}
-
-/// How long the pointer must rest on a continue card before warm `loadfile` starts.
-const WARM_HOVER_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
-
-fn schedule_warm_hover_preload(ctx: &Rc<WarmPreloadCtx>, path: PathBuf) {
-    crate::glib_source_drop::drop_glib_source(&ctx.hover_idle);
-    let run = Rc::clone(ctx);
-    *ctx.hover_idle.borrow_mut() = Some(glib::timeout_add_local_once(
-        WARM_HOVER_DEBOUNCE,
-        move || {
-            crate::glib_source_drop::finish_glib_source(&run.hover_idle);
-            run_continue_warm_preload_path(&path, &run);
-        },
-    ));
-}
-
-fn run_continue_warm_preload_path(path: &Path, ctx: &Rc<WarmPreloadCtx>) {
-    transport_sync_warm_browse(path);
-    if ctx.warm_target_ready(path) && ctx.gate.queued.borrow().is_none() {
-        warm_preload_hold_browse_pause(&ctx.player, &ctx.gl);
-        return;
-    }
-    WarmPreloadCtx::run_path(ctx, path.to_path_buf());
 }

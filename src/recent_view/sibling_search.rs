@@ -163,24 +163,36 @@ fn build_neighbour_index() -> Vec<NeighbourEntry> {
 /// Name hits among openable index entries, ranked by token trigram Jaccard (feature 33).
 fn present_name_hits(entries: &[NeighbourEntry], q: &str) -> Vec<PathBuf> {
     let q_tri = query_trigrams(q);
-    let mut scored: Vec<(f64, PathBuf)> = entries
+    let tpos = crate::db::load_time_pos_map();
+    let mut scored: Vec<(f64, bool, PathBuf)> = entries
         .iter()
         .filter(|e| e.openable)
         .filter_map(|e| {
             let name = file_name_lower(&e.path);
-            name_match_score(&name, q, &q_tri).map(|s| (s, e.path.clone()))
+            name_match_score(&name, q, &q_tri).map(|s| {
+                (s, path_has_resume(&e.path, &tpos), e.path.clone())
+            })
         })
         .collect();
     sort_scored_hits(&mut scored);
-    scored.into_iter().map(|(_, p)| p).collect()
+    scored.into_iter().map(|(_, _, p)| p).collect()
 }
 
-fn sort_scored_hits(scored: &mut [(f64, PathBuf)]) {
+/// True when the store holds a positive resume for this path (same key as continue cards).
+fn path_has_resume(path: &Path, tpos: &std::collections::HashMap<String, f64>) -> bool {
+    crate::db::history_key(path)
+        .and_then(|k| tpos.get(&k).copied())
+        .is_some_and(|t| t.is_finite() && t > 0.0)
+}
+
+/// Score ↓, then in-progress before unstarted, then natural file name.
+fn sort_scored_hits(scored: &mut [(f64, bool, PathBuf)]) {
     scored.sort_by(|a, b| {
         b.0.partial_cmp(&a.0)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.1.cmp(&a.1))
             .then_with(|| {
-                lexical_sort::natural_lexical_cmp(&file_name_lower(&a.1), &file_name_lower(&b.1))
+                lexical_sort::natural_lexical_cmp(&file_name_lower(&a.2), &file_name_lower(&b.2))
             })
     });
 }
@@ -199,4 +211,21 @@ fn sort_neighbours(v: &mut [PathBuf]) {
 mod tests {
     use super::*;
     include!("sibling_search_tests.rs");
+}
+
+#[cfg(test)]
+mod rank_tests {
+    use super::*;
+
+    #[test]
+    fn equal_score_prefers_in_progress_over_unstarted() {
+        let mut scored = [
+            (0.5, false, PathBuf::from("/store/ep05.mkv")),
+            (0.5, true, PathBuf::from("/store/ep07.mkv")),
+            (0.5, false, PathBuf::from("/store/ep06.mkv")),
+        ];
+        sort_scored_hits(&mut scored);
+        assert_eq!(file_name_lower(&scored[0].2), "ep07.mkv");
+        assert!(scored[0].1);
+    }
 }

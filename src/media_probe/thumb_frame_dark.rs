@@ -79,7 +79,7 @@ fn packed_frame_mostly_black(
     samples > 0 && bright * 20 < samples
 }
 
-/// Almost no color variation across samples: mpv vo=null placeholder after hr-seek, not a real picture.
+/// Solid fill, single-hue gradient / mesh, or mpv vo=null placeholder — not a real picture.
 fn packed_frame_mostly_flat(
     w: usize,
     h: usize,
@@ -89,9 +89,8 @@ fn packed_frame_mostly_flat(
     data: &[u8],
 ) -> bool {
     let (ri, gi, bi) = channel_order(fmt);
-    let mut buckets = std::collections::HashSet::new();
-    for i in packed_sample_offsets(w, h, row_stride, bpp, bi, data) {
-        buckets.insert((data[i + ri] / 16, data[i + gi] / 16, data[i + bi] / 16));
-    }
-    buckets.len() < 8
+    crate::thumb_texture::rgb_samples_mostly_flat(
+        packed_sample_offsets(w, h, row_stride, bpp, bi, data)
+            .map(|i| (data[i + ri], data[i + gi], data[i + bi])),
+    )
 }

@@ -55,6 +55,24 @@ pub fn continue_grid_cache_lookup(cache: &ContinueGridCache, path: &Path) -> Opt
     cache.borrow().get(&key).copied()
 }
 
+/// Strip cache first; on miss, one-row SQLite resume/duration (search hits not in the continue five).
+pub fn continue_snap_for_browse(cache: &ContinueGridCache, path: &Path) -> Option<ContinueSnap> {
+    if let Some(s) = continue_grid_cache_lookup(cache, path) {
+        return Some(s);
+    }
+    let entity = crate::playback_entity::db_path_for(path);
+    let resume_sec = db::resume_pos(&entity).unwrap_or(0.0);
+    let duration_sec = db::media_duration_sec(&entity).unwrap_or(0.0);
+    let snap = ContinueSnap {
+        resume_sec,
+        duration_sec,
+    };
+    if let Some(k) = crate::db::history_key(&entity) {
+        cache.borrow_mut().insert(k, snap);
+    }
+    Some(snap)
+}
+
 /// Register the live continue-grid cache so seek / transport persist can refresh browse snaps.
 pub fn continue_grid_cache_attach(cache: ContinueGridCache) {
     continue_grid_cache_hook::attach(cache);

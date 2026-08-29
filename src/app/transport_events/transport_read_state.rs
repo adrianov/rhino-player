@@ -2,7 +2,6 @@ include!("transport_read_props.rs");
 fn browse_pause_snap(
     ctx: &TransportCtx,
     shell: &Option<std::path::PathBuf>,
-    pause: bool,
     pos: f64,
     dur: f64,
 ) -> (f64, f64, bool) {
@@ -12,21 +11,17 @@ fn browse_pause_snap(
     let Some(p) = shell.as_ref() else {
         return (pos, dur, false);
     };
-    let Some(snap) = crate::media_probe::continue_grid_cache_lookup(&ctx.continue_grid_cache, p)
+    let Some(snap) = crate::media_probe::continue_snap_for_browse(&ctx.continue_grid_cache, p)
     else {
         return (pos, dur, false);
     };
-    let mut pos = pos;
-    let mut dur = dur;
-    let mut from_entity = false;
-    if pause {
-        pos = snap.resume_sec;
-        from_entity = true;
-    }
-    if dur <= 0.0 {
-        dur = snap.duration_sec;
-    }
-    (pos, dur, from_entity)
+    // Prefer stored continue tech info while the grid is up (hover does not loadfile).
+    let dur = if snap.duration_sec > 0.0 {
+        snap.duration_sec
+    } else {
+        dur
+    };
+    (snap.resume_sec, dur, true)
 }
 
 /// Resolve the browse-overlay chapter path and the playing chapter path for the current bundle.
@@ -70,8 +65,7 @@ fn read_transport_state(ctx: &TransportCtx) -> Option<(bool, bool, f64, f64)> {
     let b = g.as_mut()?;
     let (pause, core_idle, dur, pos) = sample_transport_state(ctx, b);
     let (browse_chapter, playback_chapter) = resolve_transport_chapters(ctx, b);
-    let (mut pos, mut dur, pos_from_entity_snap) =
-        browse_pause_snap(ctx, &browse_chapter, pause, pos, dur);
+    let (mut pos, mut dur, pos_from_entity_snap) = browse_pause_snap(ctx, &browse_chapter, pos, dur);
     apply_entity_transport_bar(
         ctx,
         b,
