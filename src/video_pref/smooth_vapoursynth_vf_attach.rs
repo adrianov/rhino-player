@@ -113,8 +113,6 @@ fn vf_add_once(
                 b.clear_smooth_vf_stripped_this_open();
                 b.clear_smooth_vf_reload_attempted();
             }
-            #[cfg(target_os = "macos")]
-            crate::app::schedule_macos_shell_refresh_after_vf();
             true
         }
         Err(e) => {

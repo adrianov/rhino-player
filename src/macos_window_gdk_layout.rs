@@ -158,7 +158,7 @@ fn shell_compositing_idle_pass(
 /// but not always after height-only programmatic fit-on-open.
 ///
 /// Marked programmatic so the post-resize aspect snap does not treat the ±1px churn
-/// (including after Smooth `vf` attach / ME budget rebuild) as a manual resize.
+/// (after fit-on-open / shell sync) as a manual resize.
 pub fn nudge_gdk_compositing_width(win: &adw::ApplicationWindow) {
     use gtk::prelude::{GtkWindowExt, WidgetExt};
 

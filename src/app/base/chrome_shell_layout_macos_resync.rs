@@ -1,5 +1,5 @@
 // macOS resync after geometry changes: GTK-resize polling, surface-size compositing
-// debounce, and refresh hooks shared by window resize / recent-hide / vf-add paths.
+// debounce, and refresh hooks for window resize / recent-hide (not Smooth vf — unchanged geometry).
 //
 // Included from `chrome_shell_layout.rs` (macOS only); shares its module scope.
 
@@ -137,17 +137,4 @@ pub(crate) fn refresh_registered_shell_compositing() {
         &ctx.bottom_shell,
         &ctx.bottom,
     );
-}
-
-/// After VapourSynth `vf add` (runs after initial shell sync on DVD open), refresh gdk chrome.
-#[cfg(target_os = "macos")]
-pub(crate) fn schedule_macos_shell_refresh_after_vf() {
-    refresh_registered_shell_compositing();
-    let win = SHELL_LAYOUT.with(|s| s.borrow().as_ref().map(|c| c.win.clone()));
-    if let Some(win) = win {
-        let _ = glib::idle_add_local_once(move || {
-            refresh_registered_shell_compositing();
-            crate::macos_window::nudge_gdk_compositing_width(&win);
-        });
-    }
 }
