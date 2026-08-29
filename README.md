@@ -8,12 +8,10 @@ Rhino Player is a desktop video player for Linux (GNOME, Ubuntu, and similar sys
 
 ## Philosophy
 
-Rhino aims to stay **almost configuration-free**—more precisely, **configured by use**. Everyday watching should not depend on preference pages or library setup.
+Rhino is **almost configuration-free**—more precisely, **intelligent configuring**. Everyday watching should not need preference pages or library setup.
 
-- **Remember choices, not preference forms.** Pick an audio or subtitle track once; Rhino keeps that choice and fuzzy-matches similar track labels on later videos so the same language tends to come back without a language list in Settings.
-- **No library paths to configure.** There is no “add folders to the library” step. Paths enter the catalog when you play a file; neighbours and seasons show up from siblings of what you already watched.
-
-Optional power features (for example Smooth Video) stay available when you want them; the default path is open a file and watch.
+- **Remember choices, not forms.** Pick an audio or subtitle track once; Rhino remembers it and fuzzy-matches similar track labels on later videos so the same language tends to return without a language preference list.
+- **No library paths to configure.** Paths enter the catalog when you play a file; neighbours and seasons come from siblings of what you already watched.
 
 ## Screenshots
 
