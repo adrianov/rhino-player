@@ -1,7 +1,7 @@
 // Per-key-family handlers for the capture-phase key controller (`KeyDispatch::dispatch`).
 // Each returns `None` when the event belongs to no family of this handler.
 
-/// `C` / `c` with the platform copy modifier: copy the playing file's path.
+/// `C` / `c` with the platform copy modifier: copy the playing file (Finder / file-manager style).
 fn copy_playing_path_key(
     key: gtk::gdk::Key,
     m: gtk::gdk::ModifierType,
