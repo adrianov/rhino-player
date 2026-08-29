@@ -9,16 +9,13 @@ fn open_video_pick_card() -> gtk::Overlay {
     card.set_tooltip_text(Some(
         "Choose a video file — same action as Open Video from the menu",
     ));
-
     let btn = open_pick_button();
     card.set_child(Some(&btn));
-
     card.set_cursor_from_name(Some("pointer"));
     btn.set_cursor_from_name(Some("pointer"));
     card
 }
 
-/// Flat button holding the plus icon and "Open Video…" caption.
 fn open_pick_button() -> gtk::Button {
     let btn = gtk::Button::builder()
         .action_name("app.open")
@@ -31,7 +28,6 @@ fn open_pick_button() -> gtk::Button {
     btn
 }
 
-/// Centered column with the plus glyph above the caption.
 fn open_pick_content() -> gtk::Box {
     let col = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -70,8 +66,48 @@ fn open_pick_caption() -> gtk::Label {
     lab
 }
 
-/// Keeps card widths in sync while the strip (or its parent) is resized, plus one idle pass
-/// after the first [Allocation].
+/// Keep the existing Open Video tile when present; otherwise rebuild it.
+fn keep_open_pick(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
+    if let Some(pick) = leading_open_pick(row) {
+        cards.borrow_mut().push(pick);
+        return;
+    }
+    clear(row);
+    append_open_pick_tile(row, cards);
+}
+
+fn leading_open_pick(row: &gtk::Box) -> Option<gtk::Overlay> {
+    let first = row.first_child()?;
+    let clamp = first.downcast::<adw::Clamp>().ok()?;
+    let child = clamp.child()?;
+    let ov = child.downcast::<gtk::Overlay>().ok()?;
+    ov.has_css_class("rp-recent-open-pick").then_some(ov)
+}
+
+/// Remove every child after the Open Video tile.
+fn drop_after_first(row: &gtk::Box) {
+    while row
+        .last_child()
+        .is_some_and(|last| row.first_child().as_ref() != Some(&last))
+    {
+        if let Some(last) = row.last_child() {
+            last.unparent();
+        }
+    }
+}
+
+fn append_open_pick_tile(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
+    let pick = open_video_pick_card();
+    let wrap_pick = adw::Clamp::new();
+    wrap_pick.set_maximum_size(CARD_MAX_W);
+    wrap_pick.set_child(Some(&pick));
+    let (dw, dh) = default_card_dims();
+    apply_card_dims(&pick, dw, dh);
+    cards.borrow_mut().push(pick.clone());
+    row.append(&wrap_pick);
+}
+
+
 fn wire_card_size_sync(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
     wire_width_notify(row, cards);
     schedule_first_size_sync(row, cards);
@@ -93,8 +129,6 @@ fn wire_width_notify(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
     }
 }
 
-// After the first [Allocation], parent width is reliable; [idle] runs after a layout pass in
-// case [notify] did not run when width crossed 0 → >0.
 fn schedule_first_size_sync(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
     let hrow = row.clone();
     let c3 = Rc::clone(cards);
@@ -103,7 +137,6 @@ fn schedule_first_size_sync(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>
         glib::ControlFlow::Break
     });
 }
-
 
 /// Card action wiring shared by every card of one strip paint ([fill_row]).
 pub struct StripActions {
@@ -122,21 +155,22 @@ pub enum StripKind {
     NeighbourHits,
 }
 
-/// Replace all children with cards. [on_remove] is **Remove from list**; [on_trash] is **Move to Trash**.
+/// Replace trailing history cards; keeps the leading Open Video tile when present.
 pub fn fill_row(
     row: &gtk::Box,
     items: Vec<CardData>,
     actions: StripActions,
     chrome_cache: Option<&crate::media_probe::ContinueGridCache>,
     kind: StripKind,
+    cards: &Rc<RefCell<Vec<gtk::Overlay>>>,
+    size_wired: &std::cell::Cell<bool>,
 ) {
     if let Some(cache) = chrome_cache.filter(|_| kind == StripKind::ContinueList) {
         crate::media_probe::continue_grid_cache_refresh(cache, &items);
     }
-    clear(row);
-    let cards = Rc::new(RefCell::new(Vec::<gtk::Overlay>::new()));
-
-    append_open_pick_tile(row, &cards);
+    cards.borrow_mut().clear();
+    keep_open_pick(row, cards);
+    drop_after_first(row);
 
     let handlers = HistoryCardHandlers {
         on_open: actions.on_open,
@@ -146,19 +180,12 @@ pub fn fill_row(
         kind,
     };
     for d in items {
-        append_history_card(row, &cards, d, &handlers);
+        append_history_card(row, cards, d, &handlers);
     }
-    wire_card_size_sync(row, &cards);
-}
-
-/// The leading "Open Video…" tile, pre-wrapped and registered like a history card.
-fn append_open_pick_tile(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
-    let pick = open_video_pick_card();
-    let wrap_pick = adw::Clamp::new();
-    wrap_pick.set_maximum_size(CARD_MAX_W);
-    wrap_pick.set_child(Some(&pick));
-    let (dw, dh) = default_card_dims();
-    apply_card_dims(&pick, dw, dh);
-    cards.borrow_mut().push(pick.clone());
-    row.append(&wrap_pick);
+    if size_wired.get() {
+        sync_card_sizes(row, &cards.borrow());
+    } else {
+        wire_card_size_sync(row, cards);
+        size_wired.set(true);
+    }
 }

@@ -1,14 +1,13 @@
 // Neighbour (sibling) search for the continue screen — feature hub.
 // See docs/features/33-continue-sibling-search.md. Split across:
 //   sibling_search.rs          — this file: scan core, hit filter, strip-paint plan, tests
-//   sibling_search_state.rs    — [SiblingSearchState]: query, index refresh, debounce, strip API
+//   sibling_search_state.rs    — [SiblingSearchState]: query, debounce, paint skip
 //   sibling_search_widgets.rs  — the search-row widgets (pill entry + inline hint)
 // NOTE: include!'d into `recent_view`; shares its imports (glib, Rc, RefCell, Path, Duration).
 
 include!("sibling_search_widgets.rs");
 include!("sibling_search_state.rs");
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Weak;
 use std::time::Instant;
@@ -67,12 +66,11 @@ fn scan_watch_later_dirs() -> Vec<PathBuf> {
     files
 }
 
-/// Name-substring matches minus current watch-later entries, natural order.
-fn collect_hits(files: &[PathBuf], q: &str, exclude: &HashSet<String>) -> Vec<PathBuf> {
+/// Name-substring matches in natural order (includes continue-list members).
+fn collect_hits(files: &[PathBuf], q: &str) -> Vec<PathBuf> {
     let mut hits: Vec<PathBuf> = files
         .iter()
         .filter(|p| file_name_lower(p).contains(q))
-        .filter(|p| !exclude.contains(&entity_key(p)))
         .cloned()
         .collect();
     sort_neighbours(&mut hits);
@@ -83,17 +81,6 @@ fn file_name_lower(p: &Path) -> String {
     p.file_name()
         .map(|n| n.to_string_lossy().to_lowercase())
         .unwrap_or_default()
-}
-
-/// Canonical-ish identity used to keep real watch-later members out of the results.
-fn entity_key(p: &Path) -> String {
-    crate::playback_entity::db_path_for(p)
-        .to_string_lossy()
-        .into_owned()
-}
-
-fn history_entity_keys() -> HashSet<String> {
-    crate::history::load().iter().map(|p| entity_key(p)).collect()
 }
 
 fn sort_neighbours(v: &mut [PathBuf]) {

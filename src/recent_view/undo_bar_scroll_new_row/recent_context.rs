@@ -21,6 +21,10 @@ pub struct RecentContext {
     warm_hover: Option<WarmHoverHooks>,
     /// Neighbour-search state shared with the strip's search box (feature 33).
     pub(crate) search: Option<Rc<SiblingSearchState>>,
+    /// Live overlays for width sync (stable [Rc] so notify handlers stay valid).
+    cards: Rc<RefCell<Vec<gtk::Overlay>>>,
+    /// Width-notify for [cards] is connected once.
+    size_wired: std::cell::Cell<bool>,
     /// Stops workers and poller; cleared in [shutdown].
     pub cancel: Arc<AtomicBool>,
     /// Worker → main: request a [refill] (no GTK types on the [Send] side).
@@ -34,6 +38,32 @@ pub struct RecentContext {
 }
 
 impl RecentContext {
+    /// Build context fields; search bind and refill poll are wired by the caller.
+    pub(super) fn from_hooks(
+        row: &gtk::Box,
+        hooks: ContinueStripHooks,
+        refill_tx: mpsc::Sender<()>,
+        cancel: Arc<AtomicBool>,
+        backfill_gen: Arc<std::sync::atomic::AtomicU64>,
+    ) -> Self {
+        Self {
+            chrome_cache: hooks.chrome_cache,
+            row: row.clone(),
+            on_open: hooks.on_open,
+            on_remove: hooks.on_remove,
+            on_trash: hooks.on_trash,
+            warm_hover: hooks.warm_hover,
+            search: hooks.search,
+            cards: Rc::new(RefCell::new(Vec::new())),
+            size_wired: std::cell::Cell::new(false),
+            cancel,
+            refill_tx,
+            poll_id: Rc::new(RefCell::new(None)),
+            workers: Rc::new(RefCell::new(Vec::new())),
+            backfill_gen,
+        }
+    }
+
     pub(crate) fn warm_hover(&self) -> Option<&WarmHoverHooks> {
         self.warm_hover.as_ref()
     }
@@ -55,15 +85,30 @@ impl RecentContext {
         }
     }
 
-    /// Rebuild the strip with `paths` (already query-resolved or the plain list) and `kind`.
-    /// The single card painter: DB-only card data, shared action wiring, chrome cache.
+    /// Rebuild the strip. No-op while a search draft is settling; neighbour paints with the
+    /// same paths are skipped inside [SiblingSearchState].
     pub(crate) fn paint(&self, paths: Vec<PathBuf>, kind: StripKind) {
+        if self.search.as_ref().is_some_and(|s| s.typing_pending()) {
+            return;
+        }
+        if kind == StripKind::NeighbourHits {
+            let Some(s) = &self.search else {
+                return;
+            };
+            if !s.begin_hits_paint(&paths) {
+                return;
+            }
+        } else if let Some(s) = &self.search {
+            s.clear_hits_paint();
+        }
         fill_row(
             &self.row,
             card_data_list(&paths),
             self.strip_actions(),
             Some(&self.chrome_cache),
             kind,
+            &self.cards,
+            &self.size_wired,
         );
     }
 
@@ -81,7 +126,7 @@ impl RecentContext {
     }
 
     /// Thumb-poll rebuild: skipped while a search draft is settling or neighbour results are
-    /// showing (those cards have no thumbs; rebuilding would flash the strip).
+    /// showing (rebuilding would flash the strip).
     pub fn refill(&self) {
         if self
             .search

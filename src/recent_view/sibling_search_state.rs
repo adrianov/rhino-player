@@ -1,9 +1,6 @@
-// [SiblingSearchState] — the neighbour-search state machine for one window: query text,
-// sibling-file index with throttled rescan, typing debounce, and the strip repaint entry.
+// [SiblingSearchState] — neighbour-search query, index, debounce, and strip repaint.
 
-/// Typing debounce before committing the draft query and repainting the strip.
 const TYPE_DEBOUNCE_MS: u64 = 250;
-/// Cached directory listings older than this are rebuilt on the next committed filter.
 const RESCAN_MIN_AGE_SECS: u64 = 2;
 
 type CtxSlot = RefCell<Option<Weak<crate::recent_view::RecentContext>>>;
@@ -12,19 +9,18 @@ type CtxSlot = RefCell<Option<Weak<crate::recent_view::RecentContext>>>;
 pub(crate) struct SiblingSearchState {
     entry: gtk::SearchEntry,
     hint: gtk::Label,
-    /// Committed filter text (drives strip paint). Entry text is draft until debounce.
+    /// Committed filter (drives strip paint). Entry text is draft until debounce.
     query: RefCell<String>,
-    /// Videos under the current watch-later parents (empty = never scanned).
     index: RefCell<Vec<PathBuf>>,
     scanned_at: RefCell<Option<Instant>>,
-    /// Result count + capped flag from the last [SiblingSearchState::current_hits].
     last_hits: RefCell<Option<(usize, bool)>>,
+    /// Last neighbour paths painted; identical commits skip [fill_row].
+    painted: RefCell<Option<Vec<PathBuf>>>,
     ctx: CtxSlot,
     debounce: RefCell<Option<glib::SourceId>>,
 }
 
 impl SiblingSearchState {
-    /// Fresh state for one window's search row (widgets built in [SiblingSearch::new]).
     pub(super) fn new(entry: gtk::SearchEntry, hint: gtk::Label) -> Rc<Self> {
         Rc::new(Self {
             entry,
@@ -33,22 +29,33 @@ impl SiblingSearchState {
             index: RefCell::default(),
             scanned_at: RefCell::new(None),
             last_hits: RefCell::new(None),
+            painted: RefCell::new(None),
             ctx: RefCell::new(None),
             debounce: RefCell::new(None),
         })
     }
 
-    /// True while a committed query filters the strip.
     pub(crate) fn searching(&self) -> bool {
         !self.query.borrow().is_empty()
     }
 
-    /// True while a non-empty draft is waiting on the typing debounce.
     pub(crate) fn typing_pending(&self) -> bool {
         self.debounce.borrow().is_some()
     }
 
-    /// `Some(hits)` replaces the strip with neighbour results; `None` keeps the plain list.
+    /// `false` when the strip already shows these neighbour paths.
+    pub(crate) fn begin_hits_paint(&self, paths: &[PathBuf]) -> bool {
+        if self.painted.borrow().as_ref().is_some_and(|p| p == paths) {
+            return false;
+        }
+        *self.painted.borrow_mut() = Some(paths.to_vec());
+        true
+    }
+
+    pub(crate) fn clear_hits_paint(&self) {
+        self.painted.borrow_mut().take();
+    }
+
     pub(crate) fn current_hits(&self) -> Option<Vec<PathBuf>> {
         let q = self.query.borrow().trim().to_lowercase();
         if q.is_empty() {
@@ -56,19 +63,16 @@ impl SiblingSearchState {
             return None;
         }
         let files = self.scanned_files();
-        let exclude = history_entity_keys();
-        let (hits, capped) = take_capped(collect_hits(&files, &q, &exclude));
+        let (hits, capped) = take_capped(collect_hits(&files, &q));
         *self.last_hits.borrow_mut() = Some((hits.len(), capped));
         Some(hits)
     }
 
-    /// Index contents, rescanning first when the cached listing went stale.
     fn scanned_files(&self) -> Vec<PathBuf> {
         self.refresh_index_if_stale();
         self.index.borrow().clone()
     }
 
-    /// Sync the inline hint with the outcome of the latest repaint.
     pub(crate) fn note_repaint(&self) {
         self.hint.set_text(&match (*self.last_hits.borrow()).filter(|_| self.searching()) {
             None => String::new(),
@@ -78,8 +82,6 @@ impl SiblingSearchState {
         });
     }
 
-    /// Link back to the strip context so input events can trigger repaints, and wire the
-    /// entry signals (called once during continue-strip wiring).
     pub(crate) fn bind_ctx(self: &Rc<Self>, ctx: Weak<crate::recent_view::RecentContext>) {
         *self.ctx.borrow_mut() = Some(ctx);
         let s = Rc::clone(self);
@@ -90,7 +92,6 @@ impl SiblingSearchState {
         self.entry.connect_stop_search(move |_| s3.clear_query());
     }
 
-    /// SearchEntry has no version-stable `activate` signal; catch Return / keypad Enter here.
     fn wire_enter(&self, act: impl Fn() + 'static) {
         let k = gtk::EventControllerKey::new();
         k.connect_key_pressed(move |_, key, _, _| {
@@ -109,7 +110,6 @@ impl SiblingSearchState {
             self.commit_and_refill(String::new());
             return;
         }
-        // Keep the strip on the last committed query while typing.
         self.arm_debounce();
     }
 
@@ -124,14 +124,12 @@ impl SiblingSearchState {
         ));
     }
 
-    /// Escape / clear icon: drop the filter immediately.
     fn clear_query(self: &Rc<Self>) {
         crate::glib_source_drop::drop_glib_source(&self.debounce);
         if self.entry.text().is_empty() {
             self.commit_and_refill(String::new());
             return;
         }
-        // `changed` commits the empty draft.
         self.entry.set_text("");
     }
 
@@ -139,7 +137,6 @@ impl SiblingSearchState {
         entry.text().trim().to_string()
     }
 
-    /// Apply `next` as the committed query and rebuild the strip only when it changed.
     fn commit_and_refill(&self, next: String) {
         if *self.query.borrow() == next {
             self.note_repaint();
@@ -156,7 +153,6 @@ impl SiblingSearchState {
         self.note_repaint();
     }
 
-    /// Enter: commit any pending draft, then open the best hit.
     fn open_first_hit(self: &Rc<Self>) {
         crate::glib_source_drop::drop_glib_source(&self.debounce);
         self.commit_and_refill(Self::draft_text(&self.entry));
@@ -186,7 +182,6 @@ impl SiblingSearchState {
     }
 }
 
-/// Cap is a display concern: applied here, reported to the hint as `N+ matches`.
 fn take_capped(mut hits: Vec<PathBuf>) -> (Vec<PathBuf>, bool) {
     let capped = hits.len() > SEARCH_MAX_HITS;
     hits.truncate(SEARCH_MAX_HITS);

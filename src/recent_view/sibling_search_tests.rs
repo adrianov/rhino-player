@@ -1,4 +1,4 @@
-// Unit tests for the neighbour-search pure logic (scan, filter, exclusion). Included from
+// Unit tests for the neighbour-search pure logic (scan, filter). Included from
 // `sibling_search.rs`'s `mod tests`.
 
 fn scratch(name: &str) -> PathBuf {
@@ -48,15 +48,13 @@ fn parents_dedupe_across_entries() {
 }
 
 #[test]
-fn hits_exclude_current_list_members() {
+fn hits_include_continue_list_members() {
     let files = vec![
         PathBuf::from("/store/pick1.mkv"),
         PathBuf::from("/store/listed.mkv"),
     ];
-    let mut exclude = HashSet::new();
-    exclude.insert(entity_key(Path::new("/store/listed.mkv")));
-    let hits = collect_hits(&files, "pick", &exclude);
-    assert_eq!(hits, vec![PathBuf::from("/store/pick1.mkv")]);
+    let hits = collect_hits(&files, "listed");
+    assert_eq!(hits, vec![PathBuf::from("/store/listed.mkv")]);
 }
 
 #[test]
@@ -64,7 +62,6 @@ fn collect_hits_does_not_cap_cap_is_callers_concern() {
     let files: Vec<PathBuf> = (0..SEARCH_MAX_HITS + 5)
         .map(|i| PathBuf::from(format!("/store/pick{i}.mkv")))
         .collect();
-    let exclude = HashSet::new();
-    let hits = collect_hits(&files, "pick", &exclude);
+    let hits = collect_hits(&files, "pick");
     assert_eq!(hits.len(), SEARCH_MAX_HITS + 5);
 }

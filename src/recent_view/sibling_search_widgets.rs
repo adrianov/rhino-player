@@ -33,6 +33,9 @@ fn search_entry() -> gtk::SearchEntry {
     let entry = gtk::SearchEntry::new();
     entry.set_placeholder_text(Some("Find neighbours of your list…"));
     entry.add_css_class("rp-recent-search-entry");
+    // Fixed width so the clear icon / typing does not reflow the strip below.
+    entry.set_size_request(340, -1);
+    entry.set_hexpand(false);
     entry
 }
 
@@ -40,6 +43,9 @@ fn hint_label() -> gtk::Label {
     let hint = gtk::Label::new(None);
     hint.add_css_class("rp-recent-search-hint");
     hint.set_valign(gtk::Align::Center);
+    hint.set_xalign(0.0);
+    hint.set_width_chars(14);
+    hint.set_hexpand(false);
     hint
 }
 
