@@ -1,15 +1,11 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::time::Duration;
+
 use gtk::glib;
 use gtk::glib::prelude::Cast;
 use gtk::prelude::EventControllerExt;
 use gtk::prelude::IsA;
-use std::cell::RefCell;
-use std::path::Path;
-use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
-use std::sync::Arc;
-use std::thread::JoinHandle;
-use std::time::Duration;
 
 use crate::media_probe::{self, card_data_list, CardData};
 
@@ -108,4 +104,5 @@ fn full_bleed_icon(icon: &'static str) -> gtk::Widget {
 }
 
 include!("strip_stack.rs");
+include!("live_card.rs");
 include!("undo_bar_scroll_new_row/recent_context.rs");
