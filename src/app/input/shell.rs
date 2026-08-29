@@ -1,5 +1,3 @@
-include!("shell_focus_return_repaint.rs");
-
 /// Packs toolbar + video stack into the application window (safe to call once).
 fn attach_window_shell(s: &WindowInputShell) {
     s.root.add_top_bar(&s.header);

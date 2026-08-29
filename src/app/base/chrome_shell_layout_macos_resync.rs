@@ -3,7 +3,7 @@
 //
 // Included from `chrome_shell_layout.rs` (macOS only); shares its module scope.
 
-/// Wait until GTK client size matches `(target_w, target_h)` then run [`schedule_shell_layout_sync`].
+/// Wait until GTK client size matches `(target_w, target_h)` then sync chrome once + width nudge.
 #[cfg(target_os = "macos")]
 pub(crate) fn schedule_shell_layout_after_gtk_resize(target_w: i32, target_h: i32) {
     let Some(ctx) = SHELL_LAYOUT.with(|s| s.borrow().clone()) else {
@@ -12,7 +12,7 @@ pub(crate) fn schedule_shell_layout_after_gtk_resize(target_w: i32, target_h: i3
     poll_shell_layout_after_resize(Rc::clone(&ctx), target_w, target_h, 0);
 }
 
-/// Run the shell sync and nudge compositing width once GTK reports the target size,
+/// Run one shell sync + compositing width nudge once GTK reports the target size,
 /// or after [`SHELL_RESIZE_POLL_MAX_ATTEMPTS`] failed attempts.
 #[cfg(target_os = "macos")]
 fn poll_shell_layout_after_resize(
@@ -45,9 +45,14 @@ fn poll_shell_layout_after_resize(
 }
 
 #[cfg(target_os = "macos")]
-fn finish_poll_shell_layout(ctx: &Rc<ShellLayoutCtx>) {
-    schedule_shell_layout_sync();
+fn macos_sync_shell_and_nudge(ctx: &ShellLayoutCtx, tag: &str) {
+    sync_shell_layout_tag(ctx, tag);
     crate::macos_window::nudge_gdk_compositing_width(&ctx.win);
+}
+
+#[cfg(target_os = "macos")]
+fn finish_poll_shell_layout(ctx: &Rc<ShellLayoutCtx>) {
+    macos_sync_shell_and_nudge(ctx, "gtk-synced");
 }
 
 /// Debounce slot so surface size storms trigger at most one compositing refresh.
@@ -111,10 +116,8 @@ pub(crate) fn wire_macos_recent_hide_refresh(
         if r.is_visible() {
             return;
         }
-        refresh_registered_shell_compositing();
         if let Some(ctx) = SHELL_LAYOUT.with(|s| s.borrow().clone()) {
-            sync_shell_layout_tag(&ctx, "recent-hide");
-            crate::macos_window::nudge_gdk_compositing_width(&ctx.win);
+            macos_sync_shell_and_nudge(&ctx, "recent-hide");
         }
         if let Ok(g) = p.try_borrow() {
             if let Some(b) = g.as_ref() {

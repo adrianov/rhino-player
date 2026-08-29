@@ -18,6 +18,15 @@ where
 /// When the recent grid is visible, always reveal bars. When playing, visibility follows `bar_show`
 /// (pointer motion clears [IDLE_3S]). Open header menus cancel auto-hide timer.
 fn apply_chrome<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>) {
+    apply_chrome_ex(c, false);
+}
+
+/// Same as [`apply_chrome`], but always invalidates macOS window layers (fullscreen / focus return).
+fn apply_chrome_force_layers<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>) {
+    apply_chrome_ex(c, true);
+}
+
+fn apply_chrome_ex<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>, force_layers: bool) {
     c.root.set_extend_content_to_top_edge(true);
     c.root.set_extend_content_to_bottom_edge(true);
     let show = c.recent.is_visible() || c.bar_show.get();
@@ -26,8 +35,7 @@ fn apply_chrome<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>) {
     let reveal_changed = set_toolbar_reveal(c.root, show);
     sync_header_window_controls(c.header, c.hdr_csd_baseline, show, c.root);
     log_chrome_layout(&c, show);
-    repaint_chrome_after_layout(c, show);
-    // Thumb updates are skipped while bars stay hidden; catch up as soon as they show.
+    repaint_chrome_after_layout(c, show, reveal_changed || force_layers);
     if reveal_changed && show {
         transport_nudge_tick();
     }
@@ -80,8 +88,8 @@ fn log_chrome_layout<R: IsA<gtk::Widget>>(c: &ChromeApplyParts<'_, R>, show: boo
     );
 }
 
-/// Queue redraws up the widget chain so macOS surface layers pick up bar changes.
-fn queue_native_repaint(gl: &gtk::GLArea) {
+/// Queue surface redraw; macOS layer invalidate when bars toggled or caller forced layers.
+fn queue_native_repaint(gl: &gtk::GLArea, invalidate_layers: bool) {
     use gtk::prelude::NativeExt;
 
     if let Some(win) = gl
@@ -93,16 +101,20 @@ fn queue_native_repaint(gl: &gtk::GLArea) {
             surf.queue_render();
         }
         #[cfg(target_os = "macos")]
-        if !crate::macos_header_menu::defer_layer_invalidate() {
+        if invalidate_layers && !crate::macos_header_menu::defer_layer_invalidate() {
             crate::macos_window::invalidate_window_layers(&win);
         }
     }
 }
 
-fn repaint_chrome_after_layout<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>, show: bool) {
+fn repaint_chrome_after_layout<R: IsA<gtk::Widget>>(
+    c: ChromeApplyParts<'_, R>,
+    show: bool,
+    invalidate_layers: bool,
+) {
     c.root.queue_allocate();
     c.gl.queue_render();
-    queue_native_repaint(c.gl);
+    queue_native_repaint(c.gl, invalidate_layers);
     if let Some(b) = c.player.borrow().as_ref() {
         sub_prefs::apply_sub_pos_for_toolbar(&b.mpv, show, c.bottom.height(), c.gl.height());
     }

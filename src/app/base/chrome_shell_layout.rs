@@ -1,8 +1,12 @@
 // After programmatic window resize (VOB / DVD fit-on-open), gdk-macos needs the same
 // relayout + layer invalidation as a manual resize or fullscreen focus return.
+// One immediate sync + one delayed settle — stacking more passes flashes chrome.
 
 thread_local! {
     static SHELL_LAYOUT: RefCell<Option<Rc<ShellLayoutCtx>>> = const { RefCell::new(None) };
+    /// Pending settle for Linux [`schedule_shell_layout_sync`]; replaced on re-entry.
+    #[cfg(not(target_os = "macos"))]
+    static SHELL_SYNC_SETTLE: RefCell<Option<glib::SourceId>> = const { RefCell::new(None) };
 }
 
 /// Widget refs for shell relayout after geometry changes (registered once when attached).
@@ -41,15 +45,10 @@ fn toolbar_show(ctx: &ShellLayoutCtx) -> bool {
 #[cfg(target_os = "macos")]
 include!("chrome_shell_layout_macos_resync.rs");
 
-/// Queue relayout across every shell widget after a geometry change.
+/// Queue layout (allocate / video render). Platform draws live in [`repaint_shell_layers`].
 fn queue_shell_relayout(ctx: &ShellLayoutCtx) {
     ctx.win.queue_resize();
     ctx.root.queue_allocate();
-    ctx.root.queue_draw();
-    ctx.header.queue_draw();
-    ctx.bottom.queue_draw();
-    #[cfg(target_os = "macos")]
-    ctx.bottom_shell.queue_draw();
     ctx.video_handle.queue_draw();
     ctx.gl.queue_render();
 }
@@ -59,7 +58,6 @@ fn queue_shell_relayout(ctx: &ShellLayoutCtx) {
 fn repaint_shell_layers(ctx: &ShellLayoutCtx) {
     #[cfg(target_os = "macos")]
     {
-        crate::macos_bottom_bar::repaint_opaque(&ctx.bottom_shell, &ctx.bottom);
         crate::macos_window::refresh_gdk_shell_compositing(
             &ctx.win,
             &ctx.gl,
@@ -73,6 +71,10 @@ fn repaint_shell_layers(ctx: &ShellLayoutCtx) {
     {
         use gtk::prelude::NativeExt;
 
+        ctx.root.queue_draw();
+        ctx.header.queue_draw();
+        ctx.bottom.queue_draw();
+        ctx.video_handle.queue_draw();
         ctx.win.queue_draw();
         if let Some(surf) = ctx.win.native().and_then(|n| n.surface()) {
             surf.queue_render();
@@ -122,28 +124,26 @@ fn sync_shell_layout_tag(ctx: &ShellLayoutCtx, tag: &str) {
     log_shell_layout(ctx, tag, show);
 }
 
-/// One delayed [`sync_shell_layout_tag`] pass with a log tag.
-fn shell_sync_after_delay(ctx: &Rc<ShellLayoutCtx>, delay_ms: u64, tag: &'static str) {
-    let c = Rc::clone(ctx);
-    let _ = glib::timeout_add_local_once(std::time::Duration::from_millis(delay_ms), move || {
-        sync_shell_layout_tag(&c, tag);
+/// Arm the single delayed settle; cancels any prior settle first.
+#[cfg(not(target_os = "macos"))]
+fn arm_shell_sync_settle(ctx: Rc<ShellLayoutCtx>) {
+    SHELL_SYNC_SETTLE.with(drop_glib_source);
+    let id = glib::timeout_add_local_once(std::time::Duration::from_millis(150), move || {
+        SHELL_SYNC_SETTLE.with(crate::glib_source_drop::finish_glib_source);
+        sync_shell_layout_tag(&ctx, "sched-150ms");
+        if let Some(touch) = ctx.touch_chrome.borrow().clone() {
+            touch();
+        }
     });
+    SHELL_SYNC_SETTLE.with(|slot| *slot.borrow_mut() = Some(id));
 }
 
-/// Idle + short delays so ToolbarView bottom bar lands after NSWindow / revealer layout.
+/// Immediate sync + one delayed settle. macOS fit/hide paths use sync+nudge instead.
+#[cfg(not(target_os = "macos"))]
 pub(crate) fn schedule_shell_layout_sync() {
     let Some(ctx) = SHELL_LAYOUT.with(|s| s.borrow().clone()) else {
         return;
     };
     sync_shell_layout_tag(&ctx, "sched-0");
-    let c1 = Rc::clone(&ctx);
-    let _ = glib::idle_add_local_once(move || sync_shell_layout_tag(&c1, "sched-idle"));
-    let c3 = Rc::clone(&ctx);
-    let _ = glib::timeout_add_local_once(std::time::Duration::from_millis(150), move || {
-        sync_shell_layout_tag(&c3, "sched-150ms");
-        if let Some(touch) = c3.touch_chrome.borrow().clone() {
-            touch();
-        }
-    });
-    shell_sync_after_delay(&ctx, 300, "sched-300ms");
+    arm_shell_sync_settle(ctx);
 }

@@ -36,7 +36,8 @@ fn macos_fs_notify_defer_maximize(
     });
 }
 
-/// Reapply chrome and repaint video — shared by fullscreen transitions and focus return.
+/// Reapply chrome — shared by fullscreen transitions and focus return.
+/// Uses [`apply_chrome_force_layers`] so macOS drops stale layer snapshots even when reveal is unchanged.
 fn touch_chrome_gl_factory(ctx: &WindowInputCtx) -> Rc<dyn Fn(&adw::ApplicationWindow)> {
     let root_fs = ctx.shell.root.clone();
     let hdr_csd = Rc::clone(&ctx.hdr_csd_baseline);
@@ -46,8 +47,8 @@ fn touch_chrome_gl_factory(ctx: &WindowInputCtx) -> Rc<dyn Fn(&adw::ApplicationW
     let bottom_fs = ctx.shell.bottom.clone();
     let p_fs = ctx.player.clone();
     let b = ctx.bar_show.clone();
-    Rc::new(move |w: &adw::ApplicationWindow| {
-        apply_chrome(ChromeApplyParts {
+    Rc::new(move |_w: &adw::ApplicationWindow| {
+        apply_chrome_force_layers(ChromeApplyParts {
             hdr_csd_baseline: &hdr_csd,
             root: &root_fs,
             header: &header_fs,
@@ -57,8 +58,6 @@ fn touch_chrome_gl_factory(ctx: &WindowInputCtx) -> Rc<dyn Fn(&adw::ApplicationW
             bottom: &bottom_fs,
             player: &p_fs,
         });
-        gl_fs.queue_render();
-        w.queue_draw();
     })
 }
 
@@ -117,6 +116,49 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
         fs_notify_on_event(&deps, w, &fs_leave_gen);
         #[cfg(not(target_os = "macos"))]
         fs_notify_on_event(&deps, w);
+    });
+}
+
+// --- Focus-return chrome (same touch_chrome factory as fullscreen) ---
+
+/// Re-snapshot chrome when a window regains focus (stale gdk-macos layers vs video).
+fn wire_focus_return_repaint(
+    ctx: &WindowInputCtx,
+    touch_chrome_gl: Rc<dyn Fn(&adw::ApplicationWindow)>,
+) {
+    let root_ia = ctx.shell.root.clone();
+    let vh_ia = ctx.shell.video_handle.clone();
+    let win_focus = ctx.shell.win.clone();
+    let tch = touch_chrome_gl;
+    win_focus.connect_is_active_notify(move |w| {
+        if !w.is_active() {
+            return;
+        }
+        if !w.is_fullscreen() {
+            #[cfg(target_os = "macos")]
+            crate::macos_window::invalidate_window_layers(w);
+            return;
+        }
+        repaint_fullscreen_surface(&tch, &root_ia, &vh_ia, w);
+    });
+}
+
+fn repaint_fullscreen_surface(
+    tch: &Rc<dyn Fn(&adw::ApplicationWindow)>,
+    root: &adw::ToolbarView,
+    vh: &gtk::WindowHandle,
+    w: &adw::ApplicationWindow,
+) {
+    tch(w);
+    if let Some(surf) = w.native().and_then(|n| n.surface()) {
+        surf.queue_render();
+    }
+    root.queue_allocate();
+    vh.queue_draw();
+    let tch2 = Rc::clone(tch);
+    let w2 = w.clone();
+    let _ = glib::source::idle_add_local_once(move || {
+        tch2(&w2);
     });
 }
 

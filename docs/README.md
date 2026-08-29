@@ -59,7 +59,7 @@ Feature numbers **05**, **16**, and **19** are unused (withdrawn playlist / sess
 
 Some UX targets were attempted in code but did not validate in manual testing on the maintainer’s GNOME / Wayland setup. They are documented as **not achieved in the current Cursor / Composer 2 Fast pass** (revisit with a different model or deeper GTK review): one-click switch between header `MenuButton` popovers — see [17-window-behavior](features/17-window-behavior.md).
 
-**macOS hybrid UI:** simplified repaint paths deliberately avoid aggressive chrome redraws during resize/maximize churn (risk of AppKit ↔ GDK fullscreen/recursion trouble). **Theater overlay compositing** (header menus + seek preview in native fullscreen) is documented in [`references-gtk4-macos-header-menus.md`](references-gtk4-macos-header-menus.md). Bottom toolbar can still occasionally show through stale compositing after fit-on-open — see `## Notes` in [17-window-behavior](features/17-window-behavior.md).
+**macOS hybrid UI:** chrome compositing is event-driven and de-duplicated (one sync + settle, not stacked idle/150/300 ms passes; no extra refresh on Smooth `vf` or open reveal when recent-hide already nudged). Aggressive invalidate during resize/maximize churn risks AppKit ↔ GDK fullscreen recursion. **Theater overlay compositing** — [`references-gtk4-macos-header-menus.md`](references-gtk4-macos-header-menus.md). Bottom toolbar can still occasionally show through after fit-on-open — [17-window-behavior](features/17-window-behavior.md) Notes.
 
 ## Architecture and product context
 

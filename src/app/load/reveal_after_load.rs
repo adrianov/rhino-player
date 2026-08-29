@@ -15,8 +15,6 @@ fn reveal_ui_after_load(
     let delayed_warm = warm_hit && o.play_on_start;
     if !delayed_warm {
         reveal_immediate(recent_layer, o);
-        #[cfg(target_os = "macos")]
-        nudge_shell_compositing_after_reveal(player, win, gl);
     }
     gl.queue_render();
     if o.play_on_start {
@@ -36,20 +34,6 @@ fn reveal_immediate(recent_layer: &impl IsA<gtk::Widget>, o: &LoadOpts) {
     }
     if let Some(f) = o.on_start.as_ref() {
         f();
-    }
-}
-
-/// macOS only: refresh shell compositing after the resize-driven layout change.
-#[cfg(target_os = "macos")]
-fn nudge_shell_compositing_after_reveal(
-    player: &Rc<RefCell<Option<MpvBundle>>>,
-    win: &adw::ApplicationWindow,
-    gl: &gtk::GLArea,
-) {
-    crate::app::refresh_registered_shell_compositing();
-    crate::macos_window::nudge_gdk_compositing_width(win);
-    if let Some(b) = player.borrow().as_ref() {
-        b.nudge_shell_layout_after_resize(gl);
     }
 }
 
