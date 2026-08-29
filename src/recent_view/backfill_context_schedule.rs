@@ -12,36 +12,40 @@ pub struct ContinueStripHooks {
 /// Fresh [RecentContext]: channels, worker registry, and the 32 ms refill poll source.
 /// Binds [SiblingSearchState] to the context so search input can repaint the strip.
 fn spawn_recent_context(row: &gtk::Box, hooks: ContinueStripHooks) -> Rc<RecentContext> {
-    let (cancel, backfill_gen) = fresh_backfill_counters();
     let (refill_tx, refill_rx) = mpsc::channel();
-    let ContinueStripHooks {
-        on_open,
-        on_remove,
-        on_trash,
-        warm_hover,
-        chrome_cache,
-        search,
-    } = hooks;
-    let ctx = Rc::new(RecentContext {
-        chrome_cache,
+    let ctx = Rc::new(recent_from_hooks(row, hooks, refill_tx));
+    wire_search_poll(&ctx, refill_rx);
+    ctx
+}
+
+/// Build the strip context; search bind and refill poll are wired by [wire_search_poll].
+fn recent_from_hooks(
+    row: &gtk::Box,
+    hooks: ContinueStripHooks,
+    refill_tx: mpsc::Sender<()>,
+) -> RecentContext {
+    let (cancel, backfill_gen) = fresh_backfill_counters();
+    RecentContext {
+        chrome_cache: hooks.chrome_cache,
         row: row.clone(),
-        on_open,
-        on_remove,
-        on_trash,
-        warm_hover,
-        search,
+        on_open: hooks.on_open,
+        on_remove: hooks.on_remove,
+        on_trash: hooks.on_trash,
+        warm_hover: hooks.warm_hover,
+        search: hooks.search,
         cancel,
         refill_tx,
         poll_id: Rc::new(RefCell::new(None)),
         workers: Rc::new(RefCell::new(Vec::new())),
         backfill_gen,
-    });
-    if let Some(s) = &ctx.search {
-        s.bind_ctx(Rc::downgrade(&ctx));
     }
-    let id = spawn_refill_poll(&ctx, refill_rx);
-    *ctx.poll_id.borrow_mut() = Some(id);
-    ctx
+}
+
+fn wire_search_poll(ctx: &Rc<RecentContext>, refill_rx: mpsc::Receiver<()>) {
+    if let Some(s) = &ctx.search {
+        s.bind_ctx(Rc::downgrade(ctx));
+    }
+    *ctx.poll_id.borrow_mut() = Some(spawn_refill_poll(ctx, refill_rx));
 }
 
 /// Creates or reuses a [RecentContext] in [cell] (one per window).

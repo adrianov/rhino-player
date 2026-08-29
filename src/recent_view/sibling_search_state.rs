@@ -1,9 +1,9 @@
 // [SiblingSearchState] — the neighbour-search state machine for one window: query text,
 // sibling-file index with throttled rescan, typing debounce, and the strip repaint entry.
 
-/// Typing debounce before rescanning and repainting.
-const TYPE_DEBOUNCE_MS: u64 = 180;
-/// Cached directory listings older than this are rebuilt on the next keystroke burst.
+/// Typing debounce before committing the draft query and repainting the strip.
+const TYPE_DEBOUNCE_MS: u64 = 250;
+/// Cached directory listings older than this are rebuilt on the next committed filter.
 const RESCAN_MIN_AGE_SECS: u64 = 2;
 
 type CtxSlot = RefCell<Option<Weak<crate::recent_view::RecentContext>>>;
@@ -12,6 +12,7 @@ type CtxSlot = RefCell<Option<Weak<crate::recent_view::RecentContext>>>;
 pub(crate) struct SiblingSearchState {
     entry: gtk::SearchEntry,
     hint: gtk::Label,
+    /// Committed filter text (drives strip paint). Entry text is draft until debounce.
     query: RefCell<String>,
     /// Videos under the current watch-later parents (empty = never scanned).
     index: RefCell<Vec<PathBuf>>,
@@ -37,9 +38,14 @@ impl SiblingSearchState {
         })
     }
 
-    /// True while typed text filters the strip.
+    /// True while a committed query filters the strip.
     pub(crate) fn searching(&self) -> bool {
         !self.query.borrow().is_empty()
+    }
+
+    /// True while a non-empty draft is waiting on the typing debounce.
+    pub(crate) fn typing_pending(&self) -> bool {
+        self.debounce.borrow().is_some()
     }
 
     /// `Some(hits)` replaces the strip with neighbour results; `None` keeps the plain list.
@@ -64,14 +70,12 @@ impl SiblingSearchState {
 
     /// Sync the inline hint with the outcome of the latest repaint.
     pub(crate) fn note_repaint(&self) {
-        let matched = *self.last_hits.borrow();
-        let text = match matched.filter(|_| self.searching()) {
+        self.hint.set_text(&match (*self.last_hits.borrow()).filter(|_| self.searching()) {
             None => String::new(),
             Some((n, true)) => format!("{n}+ matches"),
             Some((0, false)) => "No matches".to_string(),
             Some((n, false)) => format!("{n} match{}", if n == 1 { "" } else { "es" }),
-        };
-        self.hint.set_text(&text);
+        });
     }
 
     /// Link back to the strip context so input events can trigger repaints, and wire the
@@ -100,13 +104,13 @@ impl SiblingSearchState {
     }
 
     fn on_changed(self: &Rc<Self>) {
-        *self.query.borrow_mut() = self.entry.text().trim().to_string();
         crate::glib_source_drop::drop_glib_source(&self.debounce);
-        if self.searching() {
-            self.arm_debounce();
-        } else {
-            self.refill_now();
+        if Self::draft_text(&self.entry).is_empty() {
+            self.commit_and_refill(String::new());
+            return;
         }
+        // Keep the strip on the last committed query while typing.
+        self.arm_debounce();
     }
 
     fn arm_debounce(self: &Rc<Self>) {
@@ -115,29 +119,47 @@ impl SiblingSearchState {
             std::time::Duration::from_millis(TYPE_DEBOUNCE_MS),
             move || {
                 crate::glib_source_drop::finish_glib_source(&s.debounce);
-                s.refill_now();
+                s.commit_and_refill(Self::draft_text(&s.entry));
             },
         ));
     }
 
     /// Escape / clear icon: drop the filter immediately.
     fn clear_query(self: &Rc<Self>) {
-        *self.query.borrow_mut() = String::new();
-        self.entry.set_text("");
         crate::glib_source_drop::drop_glib_source(&self.debounce);
+        if self.entry.text().is_empty() {
+            self.commit_and_refill(String::new());
+            return;
+        }
+        // `changed` commits the empty draft.
+        self.entry.set_text("");
+    }
+
+    fn draft_text(entry: &gtk::SearchEntry) -> String {
+        entry.text().trim().to_string()
+    }
+
+    /// Apply `next` as the committed query and rebuild the strip only when it changed.
+    fn commit_and_refill(&self, next: String) {
+        if *self.query.borrow() == next {
+            self.note_repaint();
+            return;
+        }
+        *self.query.borrow_mut() = next;
         self.refill_now();
     }
 
     fn refill_now(&self) {
-        let ctx = self.ctx.borrow().as_ref().and_then(|w| w.upgrade());
-        if let Some(c) = ctx {
-            c.refill();
+        if let Some(c) = self.ctx.borrow().as_ref().and_then(|w| w.upgrade()) {
+            c.apply_strip();
         }
         self.note_repaint();
     }
 
-    /// Open the best current hit without repainting first (Enter path).
-    fn open_first_hit(&self) {
+    /// Enter: commit any pending draft, then open the best hit.
+    fn open_first_hit(self: &Rc<Self>) {
+        crate::glib_source_drop::drop_glib_source(&self.debounce);
+        self.commit_and_refill(Self::draft_text(&self.entry));
         if !self.searching() {
             return;
         }
@@ -158,10 +180,9 @@ impl SiblingSearchState {
     }
 
     fn index_fresh(&self) -> bool {
-        let recent = self.scanned_at.borrow().is_some_and(|t| {
+        self.scanned_at.borrow().is_some_and(|t| {
             t.elapsed() < std::time::Duration::from_secs(RESCAN_MIN_AGE_SECS)
-        });
-        recent && !self.index.borrow().is_empty()
+        }) && !self.index.borrow().is_empty()
     }
 }
 

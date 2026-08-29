@@ -36,9 +36,14 @@ Feature: Sibling search on the continue screen
     When the card strip paints
     Then the strip shows the Open Video tile followed by the usual watch-later cards
 
-  Scenario: Typing swaps the strip to matching neighbour cards
+  Scenario: Typing keeps the strip stable until filtering settles
+    Given the continue screen shows the plain watch-later cards
+    When the user types a search fragment without pausing long enough for filtering to finish
+    Then the strip still shows the same cards it showed before typing
+
+  Scenario: Settled typing swaps the strip to matching neighbour cards
     Given a watch-later entry references a file inside a folder that also holds other video files
-    When the user types a fragment of one of those neighbour file names
+    When the user types a fragment of one of those neighbour file names and filtering finishes
     Then the strip replaces the watch-later cards with one card per matching neighbour file
     And each card carries that neighbour thumbnail placeholder, title, and zero progress
 
@@ -85,5 +90,6 @@ Feature: Sibling search on the continue screen
 - Directory listings rebuild lazily and throttle-rescan on typing activity (no timers otherwise); this follows the synchronous `read_dir` precedent of sibling advance. StaleListing risk on network mounts equals existing folder-scan behaviour.
 - Placement: the row mounts **between the centering spacer and the card scroller** (directly above the strip). The very top of the overlay is a macOS hybrid-compositing dead zone where mapped GTK children never paint; fine on Linux, so a port may pin the row higher.
 - Query awareness lives in the paint path (`RecentContext::refill`, `repaint_continue_row`) so background thumbnail refills cannot clobber active results. State type: `SiblingSearchState` in `src/recent_view/sibling_search.rs`.
+- The entry text is **draft** until typing debounce commits it (`TYPE_DEBOUNCE_MS`); only the committed query drives `current_hits` / strip paint. Thumb-driven `refill` is skipped while a draft is pending or neighbour results are showing, so mid-keystroke and background thumbs leave the strip unchanged; search commits call `apply_strip` instead.
 - Escape precedence: while a text widget owns focus, the capture-phase shortcut pass lets Escape proceed (`KeyDispatch::dispatch` guard), so the search box consumes it (clear) instead of triggering playback shortcuts or strip escapes.
 - Styling: `.rp-recent-search-*` classes in `src/theme/continue_grid.css`; macOS shares the base rules (`macos_native_lists.css` paddings untouched).

@@ -67,9 +67,8 @@ impl RecentContext {
         );
     }
 
-    /// Rebuilds cards: neighbour-substring hits while a query is active, otherwise the five
-    /// most-recent watch-later entries.
-    pub fn refill(&self) {
+    /// Apply the current search/history strip plan (search commit and explicit repaints).
+    pub(crate) fn apply_strip(&self) {
         let fallback: Vec<_> = crate::history::load()
             .into_iter()
             .take(CONTINUE_DISPLAY_MAX)
@@ -79,6 +78,19 @@ impl RecentContext {
         if plan.searching {
             self.note_search_hint();
         }
+    }
+
+    /// Thumb-poll rebuild: skipped while a search draft is settling or neighbour results are
+    /// showing (those cards have no thumbs; rebuilding would flash the strip).
+    pub fn refill(&self) {
+        if self
+            .search
+            .as_ref()
+            .is_some_and(|s| s.typing_pending() || s.searching())
+        {
+            return;
+        }
+        self.apply_strip();
     }
 
     /// Activate one strip path through the shared open handler (Enter on the search box).
