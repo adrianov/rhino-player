@@ -15,7 +15,7 @@ related: [07, 21, 34]
 ## Description
 The browse screen grows a **search box above the video card strip**. Once per session the player builds a neighbour index from every path in the media files catalog: it lists video files in each known file’s folder and in that folder’s sibling folders (folders that share the same parent). It never lists the filesystem root and never treats top-level folders as siblings of each other (for example it will not walk from one library root to another under `/`). Typing filters that index by file-name substring (letter case ignored) and shows matches as regular cards in the same horizontal strip. The strip switches between plain watch-later cards and search-result cards in place — no navigation, no extra screen.
 
-Result cards open and warm-preload like continue cards; they omit Remove / Move-to-Trash on the search strip (list management stays on the plain continue view). While a query is active the strip shows only results; clearing the box (or pressing Escape while typing) restores the plain continue list. The strip and Open Video tile stay put while typing; cards update only after filtering settles.
+Result cards open and warm-preload like continue cards. Present files show **Move to Trash** on hover like continue cards; **Remove from list** stays on the plain continue strip only. While a query is active the strip shows only results; clearing the box (or pressing Escape while typing) restores the plain continue list. The strip and Open Video tile stay put while typing; cards update only after filtering settles.
 
 ## Behavior
 
@@ -81,13 +81,20 @@ Feature: Sibling search on the continue screen
     When the user searches with a fragment that matches it
     Then that file appears among the result cards
 
-  Scenario: Result cards open and warm-preload without list controls
-    Given the strip shows search-result cards
+  Scenario: Result cards open and warm-preload with trash
+    Given the strip shows search-result cards for present local files
     When the user rests the pointer on a result card
     Then the file warm-preloads paused behind the grid like a hovered continue card
-    And the card shows no Remove and no Move to Trash controls
+    And the card shows Move to Trash
+    And the card shows no Remove from list control
     When the user clicks the result card
     Then that file loads and plays from its stored position if any
+
+  Scenario: Trash on a search result removes the file
+    Given the strip shows a search-result card for a present local file
+    When the user activates Move to Trash on that card
+    Then the file is moved to the platform trash
+    And the result leaves the search strip
 
   Scenario: Pressing Enter opens the best match
     Given the strip shows at least one search-result card
@@ -110,7 +117,7 @@ Feature: Sibling search on the continue screen
 - Scope: catalog paths → each file’s parent dir + that dir’s sibling dirs (BFS queue of dirs, then non-recursive video listing per dir). Skip the filesystem root as a scan dir; do not list children of the root as sibling dirs. See [34](34-files-catalog.md) for the catalog; [07](07-sibling-folder-queue.md) for playback folder-advance (different feature).
 - Seeds: `db::list_file_paths()` (table `files`). Discoveries from the session scan call `db::ensure_files` (one transaction) so later sessions grow the catalog.
 - Reuses `video_ext::list_videos_in_dir` and natural lexical ordering (`lexical_sort`).
-- Results capped (`SEARCH_MAX_HITS`); hint notes the cap. Hits may include continue-list members. Search-strip chrome omits Remove / Trash for every hit.
+- Results capped (`SEARCH_MAX_HITS`); hint notes the cap. Hits may include continue-list members. Search-strip chrome shows Move to Trash for present files; omits Remove (list membership) for every hit.
 - Index: built once per window/session on continue-search bind (one idle) or on first committed query if still empty; typing never rescans. Filter debounce: `TYPE_DEBOUNCE_MS` in `src/recent_view/sibling_search_state.rs`; empty draft commits immediately.
 - Placement: search row centered horizontally, parked just above the card strip; hint side slot mirrored by an invisible twin of the widest hint. macOS header-compositing band stays clear.
 - Paint path: `RecentContext::refill` / `apply_strip`; draft vs committed query; skip identical neighbour paints; `fill_row` keeps Open Video.

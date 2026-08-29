@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 
 use super::{
-    build_neighbour_index, collect_hits, index_fill_once, take_capped,
+    build_neighbour_index, index_fill_once, present_name_hits, take_capped,
 };
 
 /// Settled filter delay after typing stops (feature 33).
@@ -77,7 +77,7 @@ impl SiblingSearchState {
             return None;
         }
         let files = self.neighbour_index();
-        let (hits, capped) = take_capped(collect_hits(&files, &q));
+        let (hits, capped) = take_capped(present_name_hits(&files, &q));
         *self.last_hits.borrow_mut() = Some((hits.len(), capped));
         Some(hits)
     }

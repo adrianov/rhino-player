@@ -138,6 +138,14 @@ fn build_neighbour_index() -> Vec<PathBuf> {
     files
 }
 
+/// Name hits that still exist on disk (drops trashed paths on strip refresh).
+fn present_name_hits(files: &[PathBuf], q: &str) -> Vec<PathBuf> {
+    collect_hits(files, q)
+        .into_iter()
+        .filter(|p| p.is_file())
+        .collect()
+}
+
 /// Name-substring matches in natural order (includes continue-list members).
 fn collect_hits(files: &[PathBuf], q: &str) -> Vec<PathBuf> {
     let mut hits: Vec<PathBuf> = files

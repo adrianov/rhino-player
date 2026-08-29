@@ -1,73 +1,6 @@
-/// Logs the continue-strip verb, then runs [act].
-fn wire_logged_action(
-    btn: &gtk::Button,
-    path: std::path::PathBuf,
-    act: Rc<dyn Fn(&Path)>,
-    verb: &'static str,
-) {
-    btn.connect_clicked(move |_| {
-        crate::user_action_log::act(format!("continue {verb} {}", path.display()));
-        act(&path);
-    });
-}
-
-/// Top-right overlay buttons: Remove always; Move to Trash only for present media files.
-/// Returns the overlay box plus the buttons that toggle with hover.
-fn top_action_buttons(
-    c: &Path,
-    h: &HistoryCardHandlers<'_>,
-    miss: bool,
-) -> (gtk::Box, Vec<gtk::Button>) {
-    let top_actions = action_overlay_box();
-    let hover_btns: Vec<gtk::Button> = if !miss && c.is_file() {
-        trash_and_remove_buttons(c, h, &top_actions)
-    } else {
-        remove_only_buttons(c, h, &top_actions)
-    };
-    (top_actions, hover_btns)
-}
-
-/// Top-right overlay container for the action buttons.
-fn action_overlay_box() -> gtk::Box {
-    let top_actions = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    top_actions.set_spacing(2);
-    top_actions.set_halign(gtk::Align::End);
-    top_actions.set_valign(gtk::Align::Start);
-    top_actions.set_margin_top(2);
-    top_actions.set_margin_end(2);
-    top_actions
-}
-
-/// Trash + Remove pair for present media files.
-fn trash_and_remove_buttons(
-    c: &Path,
-    h: &HistoryCardHandlers<'_>,
-    top_actions: &gtk::Box,
-) -> Vec<gtk::Button> {
-    let trash = card_action_btn("user-trash-symbolic", "Move to Trash");
-    wire_logged_action(&trash, c.to_path_buf(), h.on_trash.clone(), "trash");
-    let remove = remove_button(c, h);
-    top_actions.append(&trash);
-    top_actions.append(&remove);
-    vec![trash, remove]
-}
-
-/// Remove-only row (stale entries or vanished files).
-fn remove_only_buttons(
-    c: &Path,
-    h: &HistoryCardHandlers<'_>,
-    top_actions: &gtk::Box,
-) -> Vec<gtk::Button> {
-    let remove = remove_button(c, h);
-    top_actions.append(&remove);
-    vec![remove.clone()]
-}
-
-fn remove_button(c: &Path, h: &HistoryCardHandlers<'_>) -> gtk::Button {
-    let remove = card_action_btn("window-close-symbolic", "Remove from list");
-    wire_logged_action(&remove, c.to_path_buf(), h.on_remove.clone(), "remove");
-    remove
-}
+#[path = "fill_history_card/card_actions.rs"]
+mod card_actions;
+use card_actions::top_action_buttons;
 
 /// Whole-card click: Remove on stale cards, Open otherwise.
 fn attach_card_activation(
@@ -177,8 +110,7 @@ fn append_history_card(
     card.add_overlay(&history_footer(&label_txt, &c, p));
 
     let (top_actions, hover_btns) = top_action_buttons(&c, h, miss);
-    // Neighbour-hit cards are not list members: no Remove / Move-to-Trash overlays.
-    if h.kind != StripKind::NeighbourHits {
+    if !hover_btns.is_empty() {
         card.add_overlay(&top_actions);
     }
     let card_warm = if miss { None } else { h.warm_hover };

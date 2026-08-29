@@ -146,12 +146,12 @@ pub struct StripActions {
     pub warm_hover: Option<WarmHoverHooks>,
 }
 
-/// Which population a strip paint carries; neighbour hits skip list-management chrome.
+/// Which population a strip paint carries (affects hover chrome: Remove vs Trash-only).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum StripKind {
     /// Watch-later entries plus the Open Video tile (default).
     ContinueList,
-    /// Neighbour-substring search results (feature 33): never list-managed here.
+    /// Neighbour-substring search results (feature 33): Trash on present files, no Remove.
     NeighbourHits,
 }
 
