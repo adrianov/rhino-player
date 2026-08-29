@@ -1,7 +1,7 @@
 # Media files catalog
 
 ---
-status: planned
+status: wip
 priority: p1
 layers: [persistence, storage, playback]
 related: [07, 21, 31, 33]
@@ -20,7 +20,7 @@ Technical facts — total length, decode size, source frame rate, thumbnail imag
 ## Behavior
 
 ```gherkin
-@status:planned @priority:p1 @layer:persistence @area:files-catalog
+@status:wip @priority:p1 @layer:persistence @area:files-catalog
 Feature: Media files catalog
 
   Scenario: Opening a video registers it in the catalog
@@ -62,9 +62,7 @@ Feature: Media files catalog
 ```
 
 ## Notes
-- **Tables:** `files` (catalog + lazy tech) vs existing `media` (playback state: `time_pos_sec`, `aid`/`sid`/IFO slots, `fill_screen`, `smooth_me_budget_*`) vs `history` (continue membership + `last_opened`). Same entity path key from `playback_entity::db_path_for` / `db::history_key`.
-- **`files` columns (initial):** `path` PK, `discovered_at`, optional cheap `source_mtime_sec` / size; nullable tech: `duration_sec`, `decode_w`/`decode_h`, `source_fps_hz`, `thumb_webp` + thumb meta (moved from today’s `media` length/decode/fps/thumb **facts**; resume stays on `media`). Codecs wait until a caller needs them.
-- **Register call sites:** open/CLI/DnD, `list_videos_in_dir` consumers (sibling advance, folder open, neighbour search `scan_watch_later_dirs`), `history::record`. API sketch: `db::ensure_file(path)` (insert-or-ignore) and `db::file_tech_*` getters that fill on miss.
-- **Forget call sites:** today’s absence paths (`history::load` prune, stale continue card, open that finds the file gone) → `db::forget_file(path)` clears `files` + `media` + `history` for that key (same idea as `remove_continue_entry`, extended to the catalog).
-- **Migration:** create `files`; copy tech columns from `media` for existing paths; `ensure_file` for every `history` path; keep `media` for playback state only (drop migrated tech columns from `media` once callers move).
+- **Shipped so far (path registry):** table `files (path TEXT PRIMARY KEY, discovered_at INTEGER)` in `db/history_files_catalog.rs` (history `#[path]` submodule); duration helpers in `db/history_media_duration.rs`; `ensure_file` / `list_file_paths`; `record_history` registers. Neighbour search ([33](33-continue-sibling-search.md)) seeds its BFS from `list_file_paths` and registers scan hits with `ensure_files`.
+- **Still planned:** lazy tech columns, continue pointing at catalog identity, forget-on-miss wiring, moving tech off `media` — see scenarios above.
+- **Tables (target):** `files` (catalog + lazy tech) vs existing `media` (playback state) vs `history` (continue membership). Same entity path key from `playback_entity::db_path_for` / `db::history_key`.
 - **Out of scope for v1:** recursive library watchers, network URLs in the catalog, dedicated “rescan library” UI.

@@ -3,16 +3,17 @@
 ---
 status: done
 priority: p1
-layers: [ui, storage]
-related: [07, 21]
+layers: [ui, storage, persistence]
+related: [07, 21, 34]
 ---
 
 ## Use cases
-- Find the next episode sitting next to something on the watch-later list without going back through **Open Video**.
+- Find the next episode sitting next to something already known to the player without going back through **Open Video**.
 - Jump straight to any neighbouring video whose file name contains a known fragment (episode number, title word, release tag), including files already on the continue list.
+- Reach videos in a folder next to a known title’s folder (same parent), without scanning the whole disk or other top-level libraries.
 
 ## Description
-The browse screen grows a **search box above the video card strip**. Typing scans the directories that hold watch-later entries for video files and shows every file whose name contains the typed fragment (letter case ignored) as a regular card in the same horizontal strip — including files that are already on the continue list. The strip switches between plain watch-later cards and search-result cards in place — no navigation, no extra screen.
+The browse screen grows a **search box above the video card strip**. Once per session the player builds a neighbour index from every path in the media files catalog: it lists video files in each known file’s folder and in that folder’s sibling folders (folders that share the same parent). It never lists the filesystem root and never treats top-level folders as siblings of each other (for example it will not walk from one library root to another under `/`). Typing filters that index by file-name substring (letter case ignored) and shows matches as regular cards in the same horizontal strip. The strip switches between plain watch-later cards and search-result cards in place — no navigation, no extra screen.
 
 Result cards open and warm-preload like continue cards; they omit Remove / Move-to-Trash on the search strip (list management stays on the plain continue view). While a query is active the strip shows only results; clearing the box (or pressing Escape while typing) restores the plain continue list. The strip and Open Video tile stay put while typing; cards update only after filtering settles.
 
@@ -44,11 +45,30 @@ Feature: Sibling search on the continue screen
     And the Open Video tile does not disappear or rebuild
 
   Scenario: Settled typing swaps the strip to matching neighbour cards
-    Given a watch-later entry references a file inside a folder that also holds other video files
+    Given the media files catalog holds a path inside a folder that also holds other video files
     When the user types a fragment of one of those neighbour file names and filtering finishes
     Then the strip replaces the watch-later cards with one card per matching file
     And the Open Video tile remains the first tile without flashing away
     And each card carries that file's title and progress from the store when known
+
+  Scenario: Sibling folders of a known folder are searchable
+    Given the catalog holds a video under one show folder
+    And another show folder sits beside it under the same non-root parent
+    And that sibling folder holds a differently named video
+    When the user types a fragment of the sibling folder's video name and filtering finishes
+    Then that sibling video appears among the result cards
+
+  Scenario: Top-level library roots are not treated as siblings
+    Given the catalog holds a video under one top-level library folder
+    And another top-level library folder exists beside it under the filesystem root
+    When the user searches
+    Then videos under that other top-level library do not appear solely because the folders share the root
+    And the filesystem root itself is never scanned for videos
+
+  Scenario: Neighbour index builds once per session
+    Given the neighbour index has already been built this session
+    When the user changes the search fragment and filtering finishes again
+    Then matching uses the same neighbour index without scanning folders again
 
   Scenario: Matching is case-insensitive and substring-based
     Given neighbour folders contain video files with mixed-case names
@@ -75,7 +95,7 @@ Feature: Sibling search on the continue screen
     Then the first result card loads exactly as if clicked
 
   Scenario: Zero matches reports clearly
-    Given the user typed a fragment matching nothing near the watch-later entries
+    Given the user typed a fragment matching nothing in the neighbour index
     When the strip repaints
     Then the strip keeps only the Open Video tile
     And a short inline hint states that nothing matched
@@ -87,12 +107,12 @@ Feature: Sibling search on the continue screen
 ```
 
 ## Notes
-- Scope: **direct siblings only** — the immediate parent directories of watch-later entries (full list, not just the five shown), listed non-recursively. Sub-directory trees beside them are not walked (see [07](07-sibling-folder-queue.md) for folder-advance semantics).
-- Reuses the shared extension list (`video_ext`) and natural lexical ordering (`lexical_sort`) from open / folder scan.
-- Results are capped (`SEARCH_MAX_HITS`); the hint notes the cap. Hits may include continue-list members; `card_data_list` still supplies store progress/thumbs when present. Search-strip chrome omits Remove / Trash for every hit.
-- Directory listings rebuild lazily and throttle-rescan on typing activity (no timers otherwise); this follows the synchronous `read_dir` precedent of sibling advance. StaleListing risk on network mounts equals existing folder-scan behaviour.
-- Placement: the search row is **centered horizontally** and **parked just above the card strip** (top expand spacer, margin under the row). Match hint uses a fixed-width side slot mirrored by an invisible twin of the widest hint (`40+ matches`) so the entry stays centered when the hint has text. Stays clear of the macOS header-compositing band at the very top of the overlay.
-- Query awareness lives in the paint path (`RecentContext::refill`, `repaint_continue_row`) so background thumbnail refills cannot clobber active results. State type: `SiblingSearchState` in `src/recent_view/sibling_search.rs`.
-- The entry text is **draft** until typing debounce commits it (`TYPE_DEBOUNCE_MS`); only the committed query drives `current_hits` / strip paint. Thumb-driven `refill` and other paints are skipped while a draft is pending; settled neighbour paints with identical paths are skipped in `SiblingSearchState`. Search commits call `apply_strip`. `fill_row` keeps the Open Video tile and only replaces trailing cards.
-- Escape precedence: while a text widget owns focus, the capture-phase shortcut pass lets Escape proceed (`KeyDispatch::dispatch` guard), so the search box consumes it (clear) instead of triggering playback shortcuts or strip escapes.
-- Styling: one surface on `entry.search.rp-recent-search-entry` in `src/theme/continue_grid.css` (GtkSearchEntry’s CSS node is `entry.search`; no outer wrapper). Base rules shared; `macos_native_lists.css` paddings untouched.
+- Scope: catalog paths → each file’s parent dir + that dir’s sibling dirs (BFS queue of dirs, then non-recursive video listing per dir). Skip the filesystem root as a scan dir; do not list children of the root as sibling dirs. See [34](34-files-catalog.md) for the catalog; [07](07-sibling-folder-queue.md) for playback folder-advance (different feature).
+- Seeds: `db::list_file_paths()` (table `files`). Discoveries from the session scan call `db::ensure_files` (one transaction) so later sessions grow the catalog.
+- Reuses `video_ext::list_videos_in_dir` and natural lexical ordering (`lexical_sort`).
+- Results capped (`SEARCH_MAX_HITS`); hint notes the cap. Hits may include continue-list members. Search-strip chrome omits Remove / Trash for every hit.
+- Index: built once per window/session on continue-search bind (one idle) or on first committed query if still empty; typing never rescans. Filter debounce: `TYPE_DEBOUNCE_MS` in `src/recent_view/sibling_search_state.rs`; empty draft commits immediately.
+- Placement: search row centered horizontally, parked just above the card strip; hint side slot mirrored by an invisible twin of the widest hint. macOS header-compositing band stays clear.
+- Paint path: `RecentContext::refill` / `apply_strip`; draft vs committed query; skip identical neighbour paints; `fill_row` keeps Open Video.
+- Escape while a text widget has focus proceeds to the search box (clear), not strip/playback shortcuts.
+- Styling: `entry.search.rp-recent-search-entry` in `src/theme/continue_grid.css`.

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 // Split-out unit (resume position + playback + track storage); public paths stay stable.
@@ -6,6 +5,15 @@ mod playback_state {
     include!("history_playback_state.rs");
 }
 pub use playback_state::*;
+
+// Path catalog (`files` table) — feature 34 partial; neighbour search seeds from here.
+#[path = "history_files_catalog.rs"]
+mod files_catalog;
+pub use files_catalog::*;
+
+#[path = "history_media_duration.rs"]
+mod media_duration;
+pub use media_duration::*;
 
 /// Newest first, at most [MAX_HISTORY] kept.
 pub fn list_history(limit: usize) -> Vec<PathBuf> {
@@ -43,6 +51,8 @@ pub fn record_history(path: &Path) {
         )?;
         Ok(())
     });
+    // Continue / open always registers the path in the files catalog (feature 34).
+    ensure_file(Path::new(&s));
 }
 
 pub(crate) fn history_key(path: &Path) -> Option<String> {
@@ -105,52 +115,4 @@ pub fn remove_history_matching_entity(path: &Path) {
         }
     }
     remove_history(&crate::playback_entity::db_path_for(path));
-}
-
-// --- media (duration + thumb) ---
-
-/// Last-known duration for progress on the recent grid. Keys: canonical path strings.
-pub fn load_duration_map() -> HashMap<String, f64> {
-    with_conn(|c| {
-        let mut s =
-            c.prepare("SELECT path, duration_sec FROM media WHERE duration_sec IS NOT NULL AND duration_sec > 0")?;
-        let m = s.query_map([], |row| {
-            let p: String = row.get(0)?;
-            let d: f64 = row.get(1)?;
-            Ok((p, d))
-        })?;
-        Ok(m.filter_map(|r| r.ok()).collect())
-    })
-    .unwrap_or_default()
-}
-
-pub fn set_duration(path: &Path, sec: f64) {
-    if !sec.is_finite() || sec <= 0.0 {
-        return;
-    }
-    let Some(s) = history_key(path) else {
-        return;
-    };
-    let _ = with_conn(|c| {
-        c.execute(
-            "INSERT INTO media (path, duration_sec) VALUES (?1, ?2)
-             ON CONFLICT(path) DO UPDATE SET duration_sec = excluded.duration_sec",
-            params![&s, sec],
-        )?;
-        Ok(())
-    });
-}
-
-/// Drop a stale whole-title duration while keeping resume (legacy whole-disc rows).
-pub fn clear_duration(path: &Path) {
-    let Some(s) = history_key(path) else {
-        return;
-    };
-    let _ = with_conn(|c| {
-        c.execute(
-            "UPDATE media SET duration_sec = NULL WHERE path = ?1",
-            params![&s],
-        )?;
-        Ok(())
-    });
 }
