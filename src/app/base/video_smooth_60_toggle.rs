@@ -71,7 +71,18 @@ fn apply_smooth_60_while_playing(ctx: &Smooth60ToggleCtx, b: bool) {
         let mut g = ctx.video_pref.borrow_mut();
         let reload = b && video_pref::smooth_user_enable_playing_reset(&ctx.player, &mut g);
         if !reload {
+            // Off→on (or post-seek strip): arm exact playhead resync for reattach only.
+            let stripped = b
+                && ctx
+                    .player
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(MpvBundle::smooth_vf_stripped_this_open);
+            if stripped {
+                video_pref::arm_smooth_reattach_av_resync();
+            }
             let r = video_pref::apply_mpv_video(&ctx.player, &mut g, None);
+            video_pref::clear_smooth_reattach_av_resync();
             handle_smooth_apply_result(&ctx.app, &ctx.player, r);
         }
         reload

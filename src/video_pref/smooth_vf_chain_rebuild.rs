@@ -1,5 +1,6 @@
-/// Graph was stripped (seek / Smooth off→on): **`vf add`** only — never **`loadfile`**, a second
-/// keyframe seek, or **`vf_swap_snap` pause**. Leave pause as-is so a playing seek keeps playing.
+/// Graph was stripped (seek / Smooth off→on): **`vf add`** — never **`loadfile`**. Seek reattach
+/// leaves pause as-is. User toggle **on** ([take_reattach_av_resync]): pause, attach, exact seek
+/// to the pre-attach playhead, unpause — bare **`vf add`** while playing can leave A/V drifted.
 /// Reload on **`vf add`** failure lives in [add_smooth_60].
 fn smooth_reattach_after_vf_strip(
     mpv: &Mpv,
@@ -8,8 +9,44 @@ fn smooth_reattach_after_vf_strip(
     speed_hint: Option<f64>,
     cadence_hz: Option<f64>,
 ) -> bool {
-    eprintln!("[rhino] video: smooth reattach after vf strip");
-    add_smooth_60_with_av_log(mpv, v, speed_hint, bundle, cadence_hz)
+    let av_resync = take_reattach_av_resync();
+    let snap = av_resync.then(|| vf_swap_snap(mpv, true));
+    let playhead = av_resync
+        .then(|| vf_resync_playhead_sec(mpv, bundle))
+        .flatten();
+    eprintln!(
+        "[rhino] video: smooth reattach after vf strip{}",
+        if av_resync { " (toggle A/V resync)" } else { "" }
+    );
+    let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle, cadence_hz);
+    finish_reattach_after_add(mpv, bundle, snap.as_ref(), playhead, disabled_60)
+}
+
+/// Exact playhead seek + unpause after a toggle-armed reattach; seek reattach only logs A/V.
+fn finish_reattach_after_add(
+    mpv: &Mpv,
+    bundle: Option<&MpvBundle>,
+    snap: Option<&VfAvSnap>,
+    playhead: Option<f64>,
+    disabled_60: bool,
+) -> bool {
+    if disabled_60 {
+        if let Some(s) = snap {
+            vf_swap_unpause(mpv, s);
+        }
+        return true;
+    }
+    if let (Some(s), Some(t)) = (snap, playhead) {
+        exact_playhead_resync(mpv, bundle, s, t, "smooth reattach");
+        return false;
+    }
+    if let Some(s) = snap {
+        eprintln!("[rhino] video: smooth reattach playhead resync skipped (no playhead)");
+        vf_swap_unpause(mpv, s);
+    }
+    log_smooth_avsync(mpv);
+    vf_av_ping_render(bundle);
+    false
 }
 
 fn add_smooth_60_with_av_log(

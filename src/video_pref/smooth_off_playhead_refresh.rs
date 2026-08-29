@@ -9,6 +9,39 @@ thread_local! {
     static VF_SWAP_DEFER_IN_FLIGHT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static VF_SWAP_REQUEST_SMOOTH_RESYNC: std::cell::RefCell<Option<Rc<dyn Fn()>>> =
         const { std::cell::RefCell::new(None) };
+    /// User Smooth **on** after a strip: [smooth_reattach_after_vf_strip] pauses, **`vf add`**, then
+    /// **`absolute+exact`** to the pre-attach playhead (same idea as audio-track A/V resync). Seek
+    /// reattach leaves this clear so playing seeks stay hitch-free.
+    static REATTACH_AV_RESYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Arm exact playhead resync for the next [smooth_reattach_after_vf_strip] (user Smooth toggle on).
+pub(crate) fn arm_smooth_reattach_av_resync() {
+    REATTACH_AV_RESYNC.set(true);
+}
+
+pub(crate) fn clear_smooth_reattach_av_resync() {
+    REATTACH_AV_RESYNC.set(false);
+}
+
+fn take_reattach_av_resync() -> bool {
+    REATTACH_AV_RESYNC.replace(false)
+}
+
+/// Exact seek to [playhead], restore pause from [snap], ping render, log A/V offset.
+fn exact_playhead_resync(
+    mpv: &Mpv,
+    bundle: Option<&MpvBundle>,
+    snap: &VfAvSnap,
+    playhead: f64,
+    tag: &str,
+) {
+    let s = format!("{playhead:.4}");
+    let _ = mpv.command("seek", &[s.as_str(), "absolute+exact"]);
+    eprintln!("[rhino] video: {tag} playhead resync seek t={s}");
+    vf_swap_unpause(mpv, snap);
+    vf_av_ping_render(bundle);
+    log_smooth_avsync(mpv);
 }
 
 pub(crate) fn register_vf_swap_smooth_resync(f: Rc<dyn Fn()>) {
@@ -102,16 +135,12 @@ pub(crate) fn smooth_off_refresh_playhead(
     snap: &VfAvSnap,
 ) {
     let Some(t) = vf_resync_playhead_sec(mpv, bundle) else {
-        eprintln!("[rhino] video: smooth-off keyframe resync skipped (no playhead)");
+        eprintln!("[rhino] video: smooth-off playhead resync skipped (no playhead)");
         vf_swap_unpause(mpv, snap);
         vf_av_ping_render(bundle);
         return;
     };
-    let s = format!("{t:.4}");
-    let _ = mpv.command("seek", &[s.as_str(), "absolute+keyframes"]);
-    eprintln!("[rhino] video: smooth-off keyframe resync seek t={s}");
-    vf_swap_unpause(mpv, snap);
-    vf_av_ping_render(bundle);
+    exact_playhead_resync(mpv, bundle, snap, t, "smooth-off");
 }
 
 /// Pause + playhead captured **before** `aid` changes (decoder reopen would skew clocks).
@@ -153,12 +182,6 @@ pub(crate) fn finish_audio_track_av_resync(
     let Some(prep) = prep else {
         return;
     };
-    let mpv = &b.mpv;
-    let s = format!("{:.4}", prep.playhead);
-    let _ = mpv.command("seek", &[s.as_str(), "absolute+exact"]);
-    eprintln!("[rhino] video: audio-track playhead resync seek t={s}");
-    vf_swap_unpause(mpv, &prep.snap);
-    vf_av_ping_render(Some(b));
+    exact_playhead_resync(&b.mpv, Some(b), &prep.snap, prep.playhead, "audio-track");
     schedule_audio_track_resync_tail();
-    log_smooth_avsync(mpv);
 }

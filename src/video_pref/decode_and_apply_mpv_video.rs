@@ -36,7 +36,8 @@ pub fn apply_mpv_video(
 /// First Smooth-on while playing (graph never stripped this open): **`loadfile replace`** at the
 /// playhead so **`vf add`** runs after resume (A/V aligned). When
 /// [MpvBundle::smooth_vf_stripped_this_open] is set (Smooth off→on, post-seek), returns **false** so
-/// the caller runs [apply_mpv_video] → [smooth_reattach_after_vf_strip] (**`vf add`** only).
+/// the caller runs [apply_mpv_video] → [smooth_reattach_after_vf_strip] (**`vf add`**; toggle on may
+/// exact-seek the playhead for A/V).
 ///
 /// Returns **true** when reload started — skip **`apply_mpv_video`**; FileLoaded resync attaches **`vf`**.
 pub fn smooth_user_enable_playing_reset(
