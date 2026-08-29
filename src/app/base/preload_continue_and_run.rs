@@ -18,7 +18,7 @@ pub(crate) struct WarmPreloadCtx {
     recent: gtk::Box,
     gl: gtk::GLArea,
     last_path: Rc<RefCell<Option<PathBuf>>>,
-    /// Coalesced hover target; runs at [glib::Priority::LOW] so scroll/motion stays smooth.
+    /// Pending hover warm-preload timer ([WARM_HOVER_DEBOUNCE]); cancelled on leave / new enter.
     hover_idle: Rc<RefCell<Option<glib::SourceId>>>,
     path_settle: Rc<RefCell<Option<glib::SourceId>>>,
 }

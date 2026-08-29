@@ -168,16 +168,18 @@ fn schedule_preload_pause(player: Rc<RefCell<Option<MpvBundle>>>, gl: gtk::GLAre
     });
 }
 
-/// Immediate hover warm preload (no debounce); shared [WarmPreloadCtx] with startup preload.
+/// Hover warm preload after [WARM_HOVER_DEBOUNCE]; shared [WarmPreloadCtx] with startup preload.
 pub(crate) fn warm_hover_hooks(ctx: Rc<WarmPreloadCtx>) -> recent_view::WarmHoverHooks {
     let enter_ctx = Rc::clone(&ctx);
     let enter = Rc::new(move |path: &Path| {
         schedule_warm_hover_preload(&enter_ctx, path.to_path_buf());
     });
-    let player = Rc::clone(&ctx.player);
-    let gl = ctx.gl.clone();
+    let leave_ctx = Rc::clone(&ctx);
     recent_view::WarmHoverHooks {
         enter,
-        leave: Rc::new(move || warm_preload_hold_browse_pause(&player, &gl)),
+        leave: Rc::new(move || {
+            crate::glib_source_drop::drop_glib_source(&leave_ctx.hover_idle);
+            warm_preload_hold_browse_pause(&leave_ctx.player, &leave_ctx.gl);
+        }),
     }
 }

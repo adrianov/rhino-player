@@ -139,15 +139,17 @@ fn finish_warm_preload_ready_now(player: &Rc<RefCell<Option<MpvBundle>>>, gl: &g
     transport_nudge_tick();
 }
 
+/// How long the pointer must rest on a continue card before warm `loadfile` starts.
+const WARM_HOVER_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
+
 fn schedule_warm_hover_preload(ctx: &Rc<WarmPreloadCtx>, path: PathBuf) {
     crate::glib_source_drop::drop_glib_source(&ctx.hover_idle);
     let run = Rc::clone(ctx);
-    *ctx.hover_idle.borrow_mut() = Some(glib::source::idle_add_local_full(
-        glib::Priority::LOW,
+    *ctx.hover_idle.borrow_mut() = Some(glib::timeout_add_local_once(
+        WARM_HOVER_DEBOUNCE,
         move || {
-            *run.hover_idle.borrow_mut() = None;
+            crate::glib_source_drop::finish_glib_source(&run.hover_idle);
             run_continue_warm_preload_path(&path, &run);
-            glib::ControlFlow::Break
         },
     ));
 }
