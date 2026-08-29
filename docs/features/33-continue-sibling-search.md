@@ -84,6 +84,11 @@ Feature: Sibling search on the continue screen
     When filtering finishes
     Then the closer match appears before the weaker match among the result cards
 
+  Scenario: Slightly misspelled fragments still match
+    Given a playable neighbour whose file name contains a recognizable word
+    When the user types that word with one or two letter mistakes and filtering finishes
+    Then that neighbour appears among the result cards
+
   Scenario: Continue-list files remain searchable
     Given a matching file is already on the watch-later list
     When the user searches with a fragment that matches it
@@ -139,7 +144,7 @@ Feature: Sibling search on the continue screen
 - Scope: catalog paths → each file’s parent dir + that dir’s sibling dirs (BFS queue of dirs, then non-recursive video listing per dir). Skip the filesystem root as a scan dir; do not list children of the root as sibling dirs. See [34](34-files-catalog.md) for the catalog; [07](07-sibling-folder-queue.md) for playback folder-advance (different feature).
 - Seeds: `db::list_file_paths()` (table `files`). Discoveries from the session scan call `db::ensure_files` (one transaction) so later sessions grow the catalog.
 - Reuses `video_ext::list_videos_in_dir`. Hit order: trigram Jaccard score descending, then natural lexical name (`lexical_sort`) for ties.
-- Scoring: padded character trigrams + Jaccard on the lowercased file name (`sibling_search_score.rs`); minimum `TRIGRAM_MIN_SCORE`; substring containment always keeps a hit even when Jaccard is low on a long name. Results capped (`SEARCH_MAX_HITS`); hint notes the cap. Hits may include continue-list members. Openability is classified once when the session neighbour index is built (`NeighbourEntry.openable` via `media_open_fail::preflight_user_message`); settled queries filter that flag only. Trash/restore go through `recent_view::search_note_removed` / `search_note_restored` (strip context owns the index). Search-strip chrome shows Move to Trash for present files; omits Remove (list membership) for every hit.
+- Scoring: padded character trigrams + Jaccard (`sibling_search_score.rs`). Score is the best Jaccard of the query against the full lowercased file name and each alphanumeric token (so a misspelled word inside a long name still ranks without sliding-window noise); minimum `TRIGRAM_MIN_SCORE`. Substring containment always keeps a hit even when Jaccard is low. Results capped (`SEARCH_MAX_HITS`); hint notes the cap. Hits may include continue-list members. Openability is classified once when the session neighbour index is built (`NeighbourEntry.openable` via `media_open_fail::preflight_user_message`); settled queries filter that flag only. Trash/restore go through `recent_view::search_note_removed` / `search_note_restored` (strip context owns the index). Search-strip chrome shows Move to Trash for present files; omits Remove (list membership) for every hit.
 - Index: built once per window/session on continue-search bind (one idle) or on first committed query if still empty; typing never rescans. Filter debounce: `TYPE_DEBOUNCE_MS` in `src/recent_view/sibling_search_state.rs`; empty draft commits immediately.
 - Placement: search row centered horizontally, parked just above the card strip; hint side slot mirrored by an invisible twin of the widest hint. macOS header-compositing band stays clear. Placeholder: `Search your video library…`. First map clears initial focus from the entry (GTK would otherwise focus the first focusable field). When the continue strip hides for playback, `SiblingSearchState::sync_browse_visible` drops window focus and sets `can_focus=false` on the entry so gdk-macos cannot leave an IM caret / typed glyph over the video.
 - Paint path: `RecentContext::apply_strip` / `ensure_apply_strip` (arms `schedule_thumb_backfill` for the painted paths — history or neighbour hits); `refill` refreshes stills while searching without re-arming workers; draft vs committed query; skip identical neighbour paints except when a thumb refill clears the skip; `fill_row` keeps Open Video.

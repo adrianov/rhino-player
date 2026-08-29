@@ -160,7 +160,7 @@ fn build_neighbour_index() -> Vec<NeighbourEntry> {
         .collect()
 }
 
-/// Name hits among openable index entries, ranked by trigram Jaccard (feature 33).
+/// Name hits among openable index entries, ranked by token trigram Jaccard (feature 33).
 fn present_name_hits(entries: &[NeighbourEntry], q: &str) -> Vec<PathBuf> {
     let q_tri = query_trigrams(q);
     let mut scored: Vec<(f64, PathBuf)> = entries
