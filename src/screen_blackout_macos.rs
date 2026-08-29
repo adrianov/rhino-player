@@ -28,26 +28,37 @@ fn make_cover_window(
     use objc2_app_kit::{
         NSBackingStoreType, NSColor, NSMainMenuWindowLevel, NSWindow, NSWindowStyleMask,
     };
-    use objc2_foundation::NSRect;
+    use objc2_foundation::{NSPoint, NSRect};
 
-    // `initWithContentRect` takes GLOBAL coordinates: keep each screen's
-    // own origin (secondary displays are not anchored at 0,0) or covers
-    // land on the wrong display.
-    let frame: NSRect = screen.frame();
+    // `…screen:` treats contentRect.origin as relative to that screen's bottom-left
+    // (Apple docs). Passing the global `NSScreen::frame` origin (non-zero on every
+    // non-primary display, and a non-zero y when tops are aligned) shifts the cover
+    // up/aside so only part of the display goes black.
+    let global: NSRect = screen.frame();
+    let local = NSRect {
+        origin: NSPoint { x: 0.0, y: 0.0 },
+        size: global.size,
+    };
     let black = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer_screen(
             mtm.alloc::<NSWindow>(),
-            frame,
+            local,
             NSWindowStyleMask(0),
             NSBackingStoreType::Buffered,
             false,
             Some(screen.as_ref()),
         )
     };
+    // Pin the frame in global coordinates so topology changes cannot leave a stale local rect.
+    black.setFrame_display(global, false);
     black.setBackgroundColor(Some(&NSColor::blackColor()));
     black.setLevel(NSMainMenuWindowLevel + 1);
     black.orderFrontRegardless();
     crate::macos_window::attach_blank_cursor_content(&black);
+    eprintln!(
+        "[rhino] blackout: cover {}x{} @ ({:.0},{:.0})",
+        global.size.width, global.size.height, global.origin.x, global.origin.y
+    );
     black
 }
 

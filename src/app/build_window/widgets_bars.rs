@@ -41,7 +41,11 @@ fn window_menu_button(pref_menu: &gio::Menu) -> gtk::MenuButton {
     }
     #[cfg(target_os = "macos")]
     {
-        gtk::MenuButton::new()
+        // Placeholder for shared chrome wiring; never packed into the header (system menubar).
+        let mb = gtk::MenuButton::new();
+        mb.set_visible(false);
+        mb.set_can_target(false);
+        mb
     }
 }
 

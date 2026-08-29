@@ -71,9 +71,6 @@ fn build_toolbar_header_shell(
     #[cfg(not(target_os = "macos"))]
     let hdr_title_mirror: Option<Rc<gtk::Label>> = None;
 
-    #[cfg(target_os = "macos")]
-    std::hint::black_box(menu_btn);
-
     ToolbarHeaderShell {
         root,
         header,
@@ -106,11 +103,13 @@ fn new_fs_clock() -> gtk::Label {
 
 /// Packs the toolbar chrome row into header end slots — Linux includes main menu.
 fn pack_header_end(header: &adw::HeaderBar, end_widgets: [&gtk::Widget; 8]) {
-    // Linux packs the main menu first (rightmost slot); macOS has no main menu button.
+    // [0] is the Linux main-menu button; macOS uses the system menubar instead.
     #[cfg(target_os = "macos")]
-    let _ = end_widgets[0];
-    for w in end_widgets {
-        header.pack_end(w);
+    let skip = 1;
+    #[cfg(not(target_os = "macos"))]
+    let skip = 0;
+    for w in end_widgets.iter().skip(skip) {
+        header.pack_end(*w);
     }
 }
 
