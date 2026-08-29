@@ -3,19 +3,19 @@
 ---
 status: done
 priority: p0
-layers: [ui, platform]
+layers: [ui, os-integration]
 related: [06, 13, 14, 17, 21, 27]
-actions: [app.open, app.close-video, app.exit-after-current, app.about, app.quit, app.move-to-trash]
+scope: portable
 ---
 
 ## Use cases
-- Familiar GNOME-style app: one icon, standard menus, predictable quit / open behaviour.
+- Familiar desktop app: one icon, standard menus, predictable quit / open behaviour.
 - A focused viewing window with dark theme and standard accelerators.
 
 ## Description
-A `GtkApplication` / `adw::Application` registers application id `ch.rhino.RhinoPlayer`, builds an `adw::ApplicationWindow` with `adw::ToolbarView` (header + GLArea + bottom bar), wires global actions, and forces dark style. The header carries volume, subtitles, speed, and the main menu; the bottom bar has prev / play / next, time labels, the seek bar, and a trailing **Close Video**.
+The application registers its desktop id, builds the main window (header, video surface, bottom bar), wires global actions, and uses a dark chrome style by default. The header carries volume, subtitles, speed, and the main menu; the bottom bar has prev / play / next, time labels, the seek bar, and a trailing **Close Video**.
 
-`activate` shows the main window; `open` receives files and forwards them to the load layer (see [06-open-and-cli](06-open-and-cli.md)). The session-only **Exit After Current Video** quits the app at natural EOF before any sibling auto-advance.
+Activation shows the main window; opening files forwards them to the load layer (see [06-open-and-cli](06-open-and-cli.md)). The session-only **Exit After Current Video** quits the app at natural EOF before any sibling auto-advance.
 
 ## Behavior
 
@@ -26,7 +26,7 @@ Feature: Application shell
   Scenario: Quit from keyboard
     Given the main window is open
     When the user presses q or Ctrl+Q
-    Then app.quit runs persistence
+    Then a resume snapshot is written
     And the application process exits
 
   Scenario: Close Video keeps the app running
@@ -66,23 +66,25 @@ Feature: Application shell
   Scenario: About dialog is reachable
     Given the main window has focus
     When the user activates About from the main menu or F1
-    Then a gtk::AboutDialog appears with app name, version, license, and the themed icon
+    Then an About dialog appears with app name, version, license, and the themed icon
 
   Scenario: Application id matches desktop branding
-    Given the app is installed via data/install-to-user-dirs.sh
-    When GNOME resolves dash and alt-tab artwork
-    Then the icon, .desktop Icon=, and window branding all use ch.rhino.RhinoPlayer
+    Given the app is installed for the current user desktop session
+    When the desktop shell resolves dash and alt-tab artwork
+    Then the icon, desktop entry, and window branding all use the same application id
 
   Scenario: Dark style is the default
     Given the user has not overridden the style
     When the app starts
-    Then adw::StyleManager forces dark
+    Then the chrome uses the dark style
 ```
 
 ## Notes
-- Global accelerators: `app.open` (Ctrl+O), `app.close-video` (Ctrl+W), `app.about` (F1), `app.quit` (q, Ctrl+Q).
+- Binding: `GtkApplication` / `adw::Application`, application id `ch.rhino.RhinoPlayer`, `adw::ApplicationWindow` + `adw::ToolbarView` (header + GLArea + bottom bar); `adw::StyleManager` forces dark.
+- Global actions: `app.open`, `app.close-video`, `app.exit-after-current`, `app.about`, `app.quit`, `app.move-to-trash`. Accelerators: `app.open` (Ctrl+O), `app.close-video` (Ctrl+W), `app.about` (F1), `app.quit` (Ctrl/Cmd+Q). Plain **q** quits via the capture-phase key controller with an editable-focus guard (see [13](13-input-shortcuts.md)).
+- About: `gtk::AboutDialog`.
+- Desktop install / branding: `data/install-to-user-dirs.sh`, `data/applications`, `data/metainfo`, `data/icons` (Freedesktop); GNOME dash / alt-tab use `ch.rhino.RhinoPlayer`.
 - `app.close-video`: **quit** when the continue grid is visible (browse / warm preload behind the grid) or when nothing local is loaded; **back to browse** when the grid is hidden and a local file or Blu-ray disc tree is loaded (`wire_actions.rs`, `has_loaded_local_media`). That gate reads `media_probe::open_media_path` rather than `shell_media_path`, so a file renamed or deleted mid-playback (a `*.dctmp` download that finished) still counts as loaded — its picture is on screen even though the opened name no longer resolves. Escape (`key_escape_seek.rs`) bypasses the gate and always returns to browse. The continue card afterwards comes from `history::load` adopting the finished sibling, carrying the position saved before the rename.
 - User-facing name: `glib::set_application_name` is set to the same string as the initial window title (**Rhino Player**); `glib::set_prgname` remains the application id for `.desktop` / shell matching.
 - **macOS:** `gtk_application_set_menubar` uses the **same** `GMenu` instance as the header hamburger (`Open`, `Close`, `Fullscreen`, … `Preferences`, `About`, `Quit`), after actions are registered and the Preferences submenu is rebuilt.
 - Main-menu labels use Title Case for desktop-menu readability.
-- Packaged metadata: `data/applications`, `data/metainfo`, `data/icons` (Freedesktop layout).

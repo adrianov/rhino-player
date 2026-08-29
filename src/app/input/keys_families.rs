@@ -114,29 +114,4 @@ fn space_play_key(key: gtk::gdk::Key, play_key: &PlayToggleCtx) -> glib::Propaga
     glib::Propagation::Stop
 }
 
-/// `q` without modifiers: quit the app.
-///
-/// On Linux the `q` accelerator is registered via [`adw::Application::set_accels_for_action`]
-/// and handled by GTK's accelerator machinery; this handler only intervenes on macOS where the
-/// native menubar consumes plain `q` and the app-level accelerator never fires.
-///
-/// `<Meta>q` (Cmd+Q) is **not** intercepted here — it flows to the native menu bar.
-#[cfg(target_os = "macos")]
-fn quit_key(
-    key: gtk::gdk::Key,
-    m: gtk::gdk::ModifierType,
-    app: &adw::Application,
-) -> Option<glib::Propagation> {
-    if key == gtk::gdk::Key::q && m.is_empty() {
-        crate::user_action_log::act("key q -> quit");
-        app.activate_action("quit", None);
-        Some(glib::Propagation::Stop)
-    } else {
-        None
-    }
-}
 
-#[cfg(not(target_os = "macos"))]
-fn quit_key(_key: gtk::gdk::Key, _m: gtk::gdk::ModifierType, _app: &adw::Application) -> Option<glib::Propagation> {
-    None
-}

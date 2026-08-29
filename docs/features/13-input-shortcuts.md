@@ -3,18 +3,17 @@
 ---
 status: done
 priority: p1
-layers: [input, ui, mpv]
-related: [02, 07, 17, 21, 22, 27, 28]
-actions: [app.quit, app.open, app.close-video, app.move-to-trash, app.exit-after-current]
+layers: [input, ui, playback]
+related: [02, 07, 17, 21, 22, 27, 28, 33]
 ---
 
 ## Use cases
-- Power users keep mpv muscle memory.
+- Power users keep familiar media-player muscle memory.
 - Casual users get familiar shortcuts (Space, Escape, arrows).
 - Mouse maps match typical player expectations.
 
 ## Description
-GTK accelerators handle window-scope shortcuts in capture phase. Application accelerators are not forwarded to mpv to avoid double-handling. Mouse maps cover primary double-click (toggle fullscreen), right-click (toggle pause), and scroll on the video surface (volume). **Enter**, **KP_Enter**, **f**, and **F** share one fullscreen toggle like typical players. **Escape** returns to the continue grid during playback and does **not** exit fullscreen (use Enter, **f**, **F**, or double-click for that).
+Window-scope shortcuts run in a capture-phase key controller so focused chrome does not steal playback chords. Application accelerators are not also forwarded to the playback engine (avoids double-handling). Mouse maps cover primary double-click (toggle fullscreen), right-click (toggle pause), and scroll on the video surface (volume). **Enter**, **KP_Enter**, **f**, and **F** share one fullscreen toggle like typical players. **Escape** returns to the continue grid during playback and does **not** exit fullscreen (use Enter, **f**, **F**, or double-click for that).
 
 ## Behavior
 
@@ -22,16 +21,16 @@ GTK accelerators handle window-scope shortcuts in capture phase. Application acc
 @status:done @priority:p1 @layer:input @area:shortcuts
 Feature: Keyboard and pointer input
 
-  Scenario: App accelerators are not forwarded to mpv
-    Given a key combination is bound as a GTK application shortcut
+  Scenario: Application shortcuts are not double-handled by the engine
+    Given a key combination is bound as an application shortcut
     When the user presses it with the main window focused
     Then the application handles it
-    And the same chord is not also delivered to mpv
+    And the same chord is not also delivered to the playback engine
 
   Scenario: Space toggles play / pause when ready
     Given the main window is focused and a file with duration is loaded
     When the user presses Space
-    Then mpv pause toggles
+    Then pause toggles
     And no extra notification is shown
 
   Scenario: Space reveals warm-preloaded continue card
@@ -64,7 +63,7 @@ Feature: Keyboard and pointer input
   Scenario: Delete moves a local file to trash
     Given a local regular file is playing and the grid is hidden
     When the user presses Delete or KP_Delete
-    Then app.move-to-trash runs per 27-move-to-trash
+    Then the open local file is moved to the platform trash per 27-move-to-trash
     And streams or grid focus leave the action disabled
 
   Scenario: Ctrl with arrows jumps previous / next sibling
@@ -81,7 +80,7 @@ Feature: Keyboard and pointer input
   Scenario: Volume keys nudge by 5%
     Given the player is ready
     When the user presses Up or Down
-    Then volume changes by 5%, clamped to volume-max
+    Then volume changes by 5%, clamped to the configured maximum
     And no extra notification is shown
 
   Scenario: Mute toggle on m
@@ -105,8 +104,14 @@ Feature: Keyboard and pointer input
   Scenario: Quit on q or Ctrl+Q
     Given the main window is open
     When the user presses q or Ctrl+Q
-    Then app.quit writes resume snapshot
+    Then a resume snapshot is written
     And the application exits
+
+  Scenario: Typing q in the neighbour search box does not quit
+    Given the continue screen search box has focus
+    When the user types the letter q
+    Then the letter appears in the search box
+    And the application keeps running
 
   Scenario: Enter or f toggles fullscreen
     Given the main window is focused
@@ -116,7 +121,7 @@ Feature: Keyboard and pointer input
   Scenario: Right click toggles play / pause
     Given a file with duration is loaded and the grid is hidden
     When the user right-clicks on the video surface
-    Then mpv pause toggles like Space
+    Then pause toggles like Space
 
   Scenario: Dedicated play and pause media controls match Space
     Given a file with duration is loaded or the first continue card is warm-preloaded
@@ -135,6 +140,7 @@ Feature: Keyboard and pointer input
 ```
 
 ## Notes
+- GIO actions wired for this feature: `app.quit`, `app.open`, `app.close-video`, `app.move-to-trash`, `app.exit-after-current`.
 - Default bindings load from a memory `input.conf`; an optional user `input.conf` under `~/.config/rhino/` is reserved for later (TBD).
 - Empty-area double-click on the recent grid spacers also toggles fullscreen (see [21-recent-videos-launch](21-recent-videos-launch.md)). Double-click primary on the top toolbar exits fullscreen anytime, or enters fullscreen during playback while the overlay is hidden (same rules as GL double-click).
 - **f** / **F** toggles fullscreen like Enter or KP_Enter.
@@ -145,4 +151,4 @@ Feature: Keyboard and pointer input
 - Hardware **play**, **pause**, **stop**, **previous**, and **next** keys (GDK `AudioPlay`, `AudioPause`, `AudioStop`, `AudioPrev`, `AudioNext`) are handled in the same capture-phase controller **when the main window is focused**; behaviour matches Space and Ctrl+arrows as above. True background / unfocused routing is OS-specific (on macOS that may require separate Now Playing integration).
 - Digit **1**–**8** (and keypad **KP_1**–**KP_8**), **without** Ctrl / Alt / Meta / Super (see `DIGIT_SPEED_BLOCK` in `input/digit_speed_keys.rs`): **3** → **1.5×**, other digits → **N**× (`input/digit_speed_keys.rs` → `playback_speed`, same idle resync path as header list in **28-playback-speed**). Keys are ignored when media is unavailable (capture handler exits before mutating mpv).
 - **Copy path:** **macOS** **⌘C** / **Linux** **Ctrl+C** in the same capture-phase controller (`input/copy_playing_path.rs` → `shell_media_path` on mpv + `me_budget_shell_path`). Skipped when focus is in an entry / text view so normal text copy still works. No toast.
-- **q** quits via `app.quit` accelerator on Linux; **macOS** handles plain **q** in the capture-phase controller (`input/keys_families.rs` → `quit_key`) because the native menubar does not register non-modifier accelerators. Cmd+Q still routes through the native menu. Ignored when focus is in an entry / text view so typing is unaffected.
+- **q** quits via the capture-phase controller (`input/keys.rs` → `quit_key`) after the editable-focus guard (`root_focus_wants_raw_keys` walks ancestors — SearchEntry focuses an inner Editable `Text`). Cmd/Ctrl+Q stays on `app.quit` accelerators (`final_actions_wire`); plain `q` is never registered as an accel so GTK cannot quit behind the guard.

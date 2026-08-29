@@ -11,7 +11,8 @@ fn wire_final_platform_accels(ctx: &FinalActionCtx) {
             "app.move-to-trash",
             &["Delete", "KP_Delete", "<Meta>BackSpace"],
         );
-        ctx.app.set_accels_for_action("app.quit", &["<Meta>q", "q"]);
+        // Plain `q` is capture-phase only (`quit_key`) so typing in SearchEntry cannot quit.
+        ctx.app.set_accels_for_action("app.quit", &["<Meta>q"]);
         ctx.app
             .set_accels_for_action("app.toggle-fullscreen", &["<Meta><Control>f"]);
     }
@@ -24,7 +25,8 @@ fn wire_final_platform_accels(ctx: &FinalActionCtx) {
             .set_accels_for_action("app.move-to-trash", &["Delete", "KP_Delete"]);
         ctx.app.set_accels_for_action("app.about", &["F1"]);
         ctx.app
-            .set_accels_for_action("app.quit", &["<Primary>q", "q"]);
+            // Plain `q` is capture-phase only (`quit_key`) so typing in SearchEntry cannot quit.
+            .set_accels_for_action("app.quit", &["<Primary>q"]);
         ctx.app
             .set_accels_for_action("app.toggle-fullscreen", &["F11"]);
     }

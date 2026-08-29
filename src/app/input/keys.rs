@@ -2,18 +2,44 @@ include!("keys_families.rs");
 include!("keys_handles.rs");
 include!("keys_dispatch.rs");
 
+
+/// Plain `q` (no modifiers): quit. Runs only after [`root_focus_wants_raw_keys`] has already
+/// returned false — so typing in SearchEntry / other editables never reaches here.
+///
+/// Platform Cmd/Ctrl+Q stays on [`adw::Application`] accelerators (`<Meta>q` / `<Primary>q`);
+/// plain `q` is **not** registered as an accel so GTK cannot quit behind the focus guard.
+fn quit_key(
+    key: gtk::gdk::Key,
+    m: gtk::gdk::ModifierType,
+    app: &adw::Application,
+) -> Option<glib::Propagation> {
+    if key == gtk::gdk::Key::q && m.is_empty() {
+        crate::user_action_log::act("key q -> quit");
+        app.activate_action("quit", None);
+        Some(glib::Propagation::Stop)
+    } else {
+        None
+    }
+}
+
 /// When focus is in a widget that needs unmodified key events (typing, caret moves), let GTK handle
 /// keys after our [`gtk::PropagationPhase::Capture`] pass — except [`gtk::gdk::Key::Escape`],
 /// which is handled above this check in [`w_in_key_controller`].
+///
+/// Walks ancestors: GtkSearchEntry focuses an inner [`gtk::Text`] (Editable), not the SearchEntry
+/// itself — a direct downcast miss lets plain `q` reach [`quit_key`] and quit while typing.
 fn root_focus_wants_raw_keys(win: &adw::ApplicationWindow) -> bool {
     let Some(fw) = gtk::prelude::RootExt::focus(win) else {
         return false;
     };
-    fw.downcast_ref::<gtk::TextView>().is_some()
-        || fw.downcast_ref::<gtk::Entry>().is_some()
-        || fw.downcast_ref::<gtk::SearchEntry>().is_some()
-        || fw.downcast_ref::<gtk::SpinButton>().is_some()
-        || fw.downcast_ref::<gtk::PasswordEntry>().is_some()
+    let mut w: Option<gtk::Widget> = Some(fw);
+    while let Some(cur) = w {
+        if cur.is::<gtk::Editable>() || cur.downcast_ref::<gtk::TextView>().is_some() {
+            return true;
+        }
+        w = gtk::prelude::WidgetExt::parent(&cur);
+    }
+    false
 }
 
 /// GDK **Audio\*** keys: hardware play/pause/stop and prev/next on Linux (and keyboards that expose them via GDK).
