@@ -111,6 +111,11 @@ impl MpvBundle {
     /// [VideoPrefs] (optional VapourSynth 60 fps `vf`) from SQLite; see [apply_mpv_video].
     /// The `bool` is `true` when **Smooth Video (60 FPS)** was auto-disabled.
     pub fn new(gl_area: &gtk::GLArea, video: &mut VideoPrefs) -> Result<(Self, bool), String> {
+        // mpv_create rejects a non-C LC_NUMERIC. `main` sets it, but GTK init runs
+        // setlocale(LC_ALL, "") which restores LC_NUMERIC from the environment when
+        // LC_ALL is set (common in containers / CI). Re-assert C numeric right before
+        // the mpv core is created, per libmpv's own diagnostic instruction.
+        unsafe { libc::setlocale(libc::LC_NUMERIC, b"C\0".as_ptr().cast()) };
         let mpv = Mpv::with_initializer(Self::mpv_init_options).map_err(|e| format!("{e:?}"))?;
 
         let auto_off = apply_mpv_video_init(&mpv, video).smooth_auto_off;
