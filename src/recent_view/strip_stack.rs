@@ -20,14 +20,16 @@ pub fn new_scroll() -> ScrollArea {
     let h = recent_strip_row();
     let card_scr = recent_card_scroller(&h);
     let search = SiblingSearch::new();
-    let (v, spacers) = recent_stack(&card_scr, search.widget());
+    // Must return the same undo/notice widgets that `recent_stack` mounts — a second
+    // `new_undo_bar`/`new_notice_toast` here would wire actions to orphaned pills.
+    let (v, spacers, undo_bar, notice_toast) = recent_stack(&card_scr, search.widget());
 
     ScrollArea {
         recent_scrl: v,
         flow_recent: h,
         spacers,
-        undo_bar: new_undo_bar(),
-        notice_toast: new_notice_toast(),
+        undo_bar,
+        notice_toast,
         search,
     }
 }
@@ -66,7 +68,12 @@ fn recent_card_scroller(h: &gtk::Box) -> gtk::ScrolledWindow {
 /// Vertical stack: top spacer (search centered in its free space), card scroller, undo pill
 /// band ([new_undo_bar]), notice band ([new_notice_toast]), bottom spacer. The two
 /// `[gtk::Box]` spacers are the **empty** hit area for main-window double-click fullscreen.
-fn recent_stack(card_scr: &gtk::ScrolledWindow, search_row: &gtk::Box) -> (gtk::Box, [gtk::Box; 2]) {
+///
+/// Returns the mounted undo/notice handles so callers wire visibility to the on-screen pills.
+fn recent_stack(
+    card_scr: &gtk::ScrolledWindow,
+    search_row: &gtk::Box,
+) -> (gtk::Box, [gtk::Box; 2], UndoBar, NoticeToast) {
     let v = gtk::Box::new(gtk::Orientation::Vertical, 0);
     v.set_vexpand(true);
     v.set_hexpand(true);
@@ -84,7 +91,7 @@ fn recent_stack(card_scr: &gtk::ScrolledWindow, search_row: &gtk::Box) -> (gtk::
     v.append(&notice.shell);
     v.append(&sp_bot);
 
-    (v, [sp_top, sp_bot])
+    (v, [sp_top, sp_bot], undo_bar, notice)
 }
 
 /// Top expand spacer with the search row parked just above the card strip (stable when
