@@ -4,7 +4,8 @@
 //! and exposes helpers used by the GTK shell: hide / show traffic lights and layer invalidation.
 //!
 //! Fullscreen **exit** (`chrome_macos_unfullscreen_defer`): arm guard, hide bars, settle,
-//! libdispatch hop, flatten titlebar ([`prep_native_fullscreen_exit`]), then
+//! libdispatch hop, flatten titlebar ([`prep_native_fullscreen_exit`] +
+//! `_syncToolbarPosition` reentrancy guard), then
 //! [`toggleFullScreen:`] — not [`GtkWindowExt::set_fullscreened`](false). Toolbar
 //! reveal waits for `fullscreened_notify` (never while the native fullscreen mask is set).
 

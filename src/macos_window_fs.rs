@@ -39,6 +39,8 @@ pub(crate) fn enter_fullscreen_from_maximized(win: &adw::ApplicationWindow) {
     }
 }
 
+include!("macos_window_fs_layout_guard.rs");
+
 /// GDK-style guarded `toggleFullScreen:` to enter native fullscreen from maximized/windowed.
 pub(crate) fn native_toggle_fullscreen_enter(win: &adw::ApplicationWindow) -> bool {
     let gtk = win.upcast_ref::<gtk::Widget>();
@@ -48,6 +50,8 @@ pub(crate) fn native_toggle_fullscreen_enter(win: &adw::ApplicationWindow) -> bo
     if gdk_macos_in_fullscreen_transition(gtk) || ns_window_is_native_fullscreen(&nswin) {
         return false;
     }
+    // Live before any exit path (system chrome included), not only our prep.
+    ensure_titlebar_layout_guard();
     unsafe {
         let _: () = msg_send![&*nswin, toggleFullScreen: &*nswin];
     }
@@ -57,14 +61,15 @@ pub(crate) fn native_toggle_fullscreen_enter(win: &adw::ApplicationWindow) -> bo
 /// Flatten AppKit titlebar state before native fullscreen **exit**.
 ///
 /// `_NSExitFullScreenTransitionController prepareToExitFullScreenMode` calls
-/// `setCustomTitlebarHeight:`. With CSD chrome / traffic-light zoom-cell tracking still
-/// live, that recurses `_updateTitlebarContainerViewFrameIfNecessary` ↔
-/// `_syncToolbarPosition` until stack overflow (macOS 26.x). Hide lights, drop the
-/// CSD `NSToolbar`, and zero titlebar height **before** `toggleFullScreen:`.
+/// `setCustomTitlebarHeight:`, which on macOS 26.x can recurse
+/// `_updateTitlebarContainerViewFrameIfNecessary` ↔ `_syncToolbarPosition` until
+/// stack overflow. The `_syncToolbarPosition` reentrancy guard (installed on enter
+/// and here) cuts that loop. Hide lights and drop the CSD `NSToolbar` before
+/// `toggleFullScreen:` so zoom-cell tracking is quiet during the transition.
 pub(crate) fn prep_native_fullscreen_exit(nswin: &NSWindow) {
     use objc2::runtime::AnyObject;
-    use objc2::runtime::NSObjectProtocol;
 
+    ensure_titlebar_layout_guard();
     for kind in [
         NSWindowButton::CloseButton,
         NSWindowButton::MiniaturizeButton,
@@ -77,20 +82,6 @@ pub(crate) fn prep_native_fullscreen_exit(nswin: &NSWindow) {
     unsafe {
         let none: Option<&AnyObject> = None;
         let _: () = msg_send![nswin, setToolbar: none];
-    }
-    if nswin.respondsToSelector(objc2::sel!(setTitlebarHeight:)) {
-        unsafe {
-            let _: () = msg_send![nswin, setTitlebarHeight: 0.0f64];
-        }
-    }
-    if let Some(cv) = nswin.contentView() {
-        if let Some(frame) = unsafe { cv.superview() } {
-            if frame.respondsToSelector(objc2::sel!(setCustomTitlebarHeight:)) {
-                unsafe {
-                    let _: () = msg_send![&*frame, setCustomTitlebarHeight: 0.0f64];
-                }
-            }
-        }
     }
     crate::macos_fs_debug::log("prep native fullscreen exit (titlebar flattened)");
 }
