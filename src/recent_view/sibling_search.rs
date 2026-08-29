@@ -48,7 +48,7 @@ fn classify_openable(path: &Path) -> bool {
 }
 
 use std::cell::Cell;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 
 /// Result cards shown at most; a huge library folder must not flood the strip.
@@ -164,25 +164,33 @@ fn build_neighbour_index() -> Vec<NeighbourEntry> {
 fn present_name_hits(entries: &[NeighbourEntry], q: &str) -> Vec<PathBuf> {
     let q_tri = query_trigrams(q);
     let tpos = crate::db::load_time_pos_map();
+    let durs = crate::db::load_duration_map();
     let mut scored: Vec<(f64, bool, PathBuf)> = entries
         .iter()
         .filter(|e| e.openable)
-        .filter_map(|e| {
-            let name = file_name_lower(&e.path);
-            name_match_score(&name, q, &q_tri).map(|s| {
-                (s, path_has_resume(&e.path, &tpos), e.path.clone())
-            })
-        })
+        .filter_map(|e| score_openable_hit(e, q, &q_tri, &tpos, &durs))
         .collect();
     sort_scored_hits(&mut scored);
     scored.into_iter().map(|(_, _, p)| p).collect()
 }
 
-/// True when the store holds a positive resume for this path (same key as continue cards).
-fn path_has_resume(path: &Path, tpos: &std::collections::HashMap<String, f64>) -> bool {
-    crate::db::history_key(path)
-        .and_then(|k| tpos.get(&k).copied())
-        .is_some_and(|t| t.is_finite() && t > 0.0)
+fn score_openable_hit(
+    e: &NeighbourEntry,
+    q: &str,
+    q_tri: &HashSet<(char, char, char)>,
+    tpos: &HashMap<String, f64>,
+    durs: &HashMap<String, f64>,
+) -> Option<(f64, bool, PathBuf)> {
+    let name = file_name_lower(&e.path);
+    let score = name_match_score(&name, q, q_tri)?;
+    Some((score, path_has_progress(&e.path, tpos, durs), e.path.clone()))
+}
+
+/// Same resume source as continue/search card progress (`card_resume_duration`).
+fn path_has_progress(path: &Path, tpos: &HashMap<String, f64>, durs: &HashMap<String, f64>) -> bool {
+    let entity = crate::playback_entity::db_path_for(path);
+    let (resume, _) = crate::playback_entity::card_resume_duration(&entity, durs, tpos);
+    resume.is_finite() && resume > 0.0
 }
 
 /// Score ↓, then in-progress before unstarted, then natural file name.

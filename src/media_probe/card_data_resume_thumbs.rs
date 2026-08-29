@@ -63,6 +63,9 @@ pub fn continue_snap_for_browse(cache: &ContinueGridCache, path: &Path) -> Optio
     let entity = crate::playback_entity::db_path_for(path);
     let resume_sec = db::resume_pos(&entity).unwrap_or(0.0);
     let duration_sec = db::media_duration_sec(&entity).unwrap_or(0.0);
+    if resume_sec <= 0.0 && duration_sec <= 0.0 {
+        return None;
+    }
     let snap = ContinueSnap {
         resume_sec,
         duration_sec,
