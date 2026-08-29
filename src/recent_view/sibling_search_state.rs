@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 
 use gtk::glib::prelude::CastNone;
-use gtk::prelude::{GtkWindowExt, WidgetExt};
+use gtk::prelude::{GtkWindowExt, IsA, WidgetExt};
 
 use super::{
     build_neighbour_index, classify_openable, index_fill_once, present_name_hits, take_capped,
@@ -19,8 +19,30 @@ pub(super) const TYPE_DEBOUNCE_MS: u64 = 200;
 
 type CtxSlot = RefCell<Option<Weak<crate::recent_view::RecentContext>>>;
 
+thread_local! {
+    /// Bound from continue-strip wiring; [dismiss_search_for_playback] / [hide_continue_strip].
+    static STRIP_SEARCH: RefCell<Option<Weak<SiblingSearchState>>> = const { RefCell::new(None) };
+}
+
+/// Drop search focus and unmap the row while the continue strip may still be visible.
+pub fn dismiss_search_for_playback() {
+    STRIP_SEARCH.with(|c| {
+        if let Some(s) = c.borrow().as_ref().and_then(Weak::upgrade) {
+            s.sync_browse_visible(false);
+        }
+    });
+}
+
+/// Hide the continue strip for playback: dismiss neighbour-search first, then unmap the strip.
+pub fn hide_continue_strip(recent: &impl IsA<gtk::Widget>) {
+    dismiss_search_for_playback();
+    recent.set_visible(false);
+}
+
 /// Query text, sibling-file index, and result bookkeeping for one window.
 pub(crate) struct SiblingSearchState {
+    /// Entry + hint row; hidden with the continue strip so gdk-macos tears down IM.
+    shell: gtk::Box,
     pub(super) entry: gtk::SearchEntry,
     hint: gtk::Label,
     /// Committed filter (drives strip paint). Entry text is draft until debounce.
@@ -39,8 +61,9 @@ pub(crate) struct SiblingSearchState {
 mod input;
 
 impl SiblingSearchState {
-    pub(super) fn new(entry: gtk::SearchEntry, hint: gtk::Label) -> Rc<Self> {
+    pub(super) fn new(shell: gtk::Box, entry: gtk::SearchEntry, hint: gtk::Label) -> Rc<Self> {
         Rc::new(Self {
+            shell,
             entry,
             hint,
             query: RefCell::new(String::new()),
@@ -125,15 +148,18 @@ impl SiblingSearchState {
         });
     }
 
-    /// Browse strip shown ↔ search may take focus; when hidden for playback, drop IM/caret focus
-    /// so gdk-macos cannot paint typed glyphs over the video.
+    /// Browse strip shown ↔ search row mapped. Hide path drops focus then unmaps the row so
+    /// gdk-macos cannot leave an IM badge over the video.
     pub(crate) fn sync_browse_visible(&self, visible: bool) {
-        if visible {
-            self.entry.set_can_focus(true);
-            return;
+        if !visible {
+            self.drop_window_focus();
         }
-        self.drop_window_focus();
-        self.entry.set_can_focus(false);
+        self.shell.set_visible(visible);
+    }
+
+    /// Remember this row for [hide_continue_strip] (one window).
+    pub(crate) fn bind_strip_hide(self: &Rc<Self>) {
+        STRIP_SEARCH.with(|c| *c.borrow_mut() = Some(Rc::downgrade(self)));
     }
 
     fn drop_window_focus(&self) {

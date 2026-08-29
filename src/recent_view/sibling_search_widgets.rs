@@ -15,7 +15,7 @@ impl SiblingSearch {
         let entry = search_entry();
         let hint = hint_label();
         let shell = search_row_shell(&entry, &hint);
-        let state = SiblingSearchState::new(entry, hint);
+        let state = SiblingSearchState::new(shell.clone(), entry, hint);
         SiblingSearch { shell, state }
     }
 

@@ -64,12 +64,13 @@ fn finish_recent_undo_wiring(
     })
 }
 
-/// Mirrors strip visibility into a cell; drops search text focus when the strip hides.
+/// Mirrors strip visibility into a cell; hides the search row when the strip hides.
 fn finish_track_recent_visible(f: &ContinueBrowseFinish<'_>) -> Rc<Cell<bool>> {
     // `is_visible()` is false until the window is mapped; seed from `want_recent` so
     // transport and warm-preload see the continue strip on empty launch before `present`.
     let recent_visible = Rc::new(Cell::new(f.want_recent));
     let search = f.w.sibling_search.shared();
+    search.bind_strip_hide();
     search.sync_browse_visible(f.want_recent);
     {
         let rv = Rc::clone(&recent_visible);

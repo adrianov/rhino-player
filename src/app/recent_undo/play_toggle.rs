@@ -151,6 +151,8 @@ fn flip_play_icon(btn: &gtk::Button, now_paused: bool) {
 fn schedule_warm_reveal(ctx: PlayToggleCtx) {
     crate::app::cancel_warm_preload_for_playback();
     ctx.playback_focus.set(true);
+    // Strip stays for the warm beat; drop search IM immediately so the badge cannot linger.
+    crate::recent_view::dismiss_search_for_playback();
     let _ = glib::timeout_add_local(Duration::from_millis(WARM_REVEAL_DELAY_MS), move || {
         run_warm_reveal_step(&ctx);
         glib::ControlFlow::Break
@@ -159,7 +161,7 @@ fn schedule_warm_reveal(ctx: PlayToggleCtx) {
 
 /// One delayed-reveal tick: hide the grid, restore video chrome, present, unpause + resume.
 fn run_warm_reveal_step(ctx: &PlayToggleCtx) {
-    ctx.recent.set_visible(false);
+    crate::recent_view::hide_continue_strip(&ctx.recent);
     (ctx.on_video_chrome)();
     schedule_window_fit_h_video(ctx.player.clone(), ctx.win.clone(), ctx.gl.clone());
     if let Some(button) = ctx.sub_menu.as_ref() {

@@ -140,10 +140,11 @@ Feature: Sibling search on the continue screen
     Then the strip keeps only the Open Video tile
     And a short inline hint states that nothing matched
 
-  Scenario: Opening playback clears search-field focus
+  Scenario: Opening playback hides the search box
     Given the search box has focus
     When the user opens a video and the continue strip hides
-    Then no text caret or typed character from the search box appears over the video
+    Then the search box is not visible
+    And no text caret or typed character from the search box appears over the video
 ```
 
 ## Notes
@@ -152,7 +153,7 @@ Feature: Sibling search on the continue screen
 - Reuses `video_ext::list_videos_in_dir`. Hit order: trigram Jaccard score descending; equal scores prefer a non-zero resume from the same maps as card progress (`card_resume_duration` / `load_time_pos_map` + `load_duration_map`); then natural lexical name (`lexical_sort`).
 - Scoring: padded character trigrams + Jaccard (`sibling_search_score.rs`). Score is the best Jaccard of the query against the full lowercased file name and each alphanumeric token (so a misspelled word inside a long name still ranks without sliding-window noise); minimum `TRIGRAM_MIN_SCORE`. Substring containment always keeps a hit even when Jaccard is low. Results capped (`SEARCH_MAX_HITS`); hint notes the cap. Hits may include continue-list members. Openability is classified once when the session neighbour index is built (`NeighbourEntry.openable` via `media_open_fail::preflight_user_message`); settled queries filter that flag only. Trash/restore go through `recent_view::search_note_removed` / `search_note_restored` (strip context owns the index). Search-strip chrome shows Move to Trash for present files; omits Remove (list membership) for every hit.
 - Index: built once per window/session on continue-search bind (one idle) or on first committed query if still empty; typing never rescans. Filter debounce: `TYPE_DEBOUNCE_MS` in `src/recent_view/sibling_search_state.rs`; empty draft commits immediately.
-- Placement: search row centered horizontally, parked just above the card strip; hint side slot mirrored by an invisible twin of the widest hint. macOS header-compositing band stays clear. Placeholder: `Search your video library…`. First map clears initial focus from the entry (GTK would otherwise focus the first focusable field). When the continue strip hides for playback, `SiblingSearchState::sync_browse_visible` drops window focus and sets `can_focus=false` on the entry so gdk-macos cannot leave an IM caret / typed glyph over the video.
+- Placement: search row centered horizontally, parked just above the card strip; hint side slot mirrored by an invisible twin of the widest hint. macOS header-compositing band stays clear. Placeholder: `Search your video library…`. First map clears initial focus from the entry (GTK would otherwise focus the first focusable field). Playback uses `dismiss_search_for_playback` (focus drop + search-row unmap) before the continue strip hides — including at the start of a warm-reveal beat — then `hide_continue_strip` unmaps the strip. Strip `notify::visible` restores the row when browse returns.
 - Paint path: `RecentContext::apply_strip` / `ensure_apply_strip` (arms `ThumbBackfill::schedule`); ready stills hop via coalesced `MainContext::invoke` in `live_card` (no refill poll) → in-place `apply_ready_thumbs`; draft vs committed query; skip identical neighbour paints; `fill_row` keeps Open Video.
 - Escape while a text widget has focus proceeds to the search box (clear), not strip/playback shortcuts.
 - Styling: `entry.search.rp-recent-search-entry` in `src/theme/continue_grid.css`. No-thumb placeholder uses bundled `camera-video-symbolic`.

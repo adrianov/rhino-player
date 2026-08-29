@@ -30,7 +30,7 @@ fn reveal_ui_after_load(
 
 /// Immediate reveal: hide the grid, raise playback chrome, run the open callback.
 fn reveal_immediate(recent_layer: &impl IsA<gtk::Widget>, o: &LoadOpts) {
-    recent_layer.set_visible(false);
+    crate::recent_view::hide_continue_strip(recent_layer);
     if let Some(pf) = o.playback_focus.as_ref() {
         pf.set(true);
     }
@@ -83,6 +83,7 @@ fn schedule_delayed_warm_reveal(
     recent_layer: &impl IsA<gtk::Widget>,
     o: &LoadOpts,
 ) {
+    crate::recent_view::dismiss_search_for_playback();
     let recent = recent_layer.as_ref().clone();
     let win2 = win.clone();
     let gl2 = gl.clone();
@@ -104,7 +105,7 @@ fn run_delayed_warm_reveal_tick(
     on_start: &Option<Rc<dyn Fn()>>,
     playback_focus: &Option<Rc<Cell<bool>>>,
 ) {
-    recent.set_visible(false);
+    crate::recent_view::hide_continue_strip(recent);
     if let Some(pf) = playback_focus.as_ref() {
         pf.set(true);
     }
