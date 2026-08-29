@@ -87,22 +87,21 @@ fn recent_stack(card_scr: &gtk::ScrolledWindow, search_row: &gtk::Box) -> (gtk::
     (v, [sp_top, sp_bot])
 }
 
-/// Top expand spacer with the search row centered in the free space above the card strip.
+/// Top expand spacer with the search row parked just above the card strip (stable when
+/// strip height changes — centering between equal fillers used to slide it vertically).
 fn top_spacer_with_search(search_row: &gtk::Box) -> gtk::Box {
     let sp = gtk::Box::new(gtk::Orientation::Vertical, 0);
     sp.set_vexpand(true);
     sp.set_hexpand(true);
     let above = flex_filler();
-    let below = flex_filler();
     // Pass double-clicks through to [sp] (fullscreen hit target).
     above.set_can_target(false);
-    below.set_can_target(false);
     search_row.set_halign(gtk::Align::Center);
-    search_row.set_valign(gtk::Align::Center);
+    search_row.set_valign(gtk::Align::End);
     search_row.set_hexpand(false);
+    search_row.set_margin_bottom(16);
     sp.append(&above);
     sp.append(search_row);
-    sp.append(&below);
     sp
 }
 

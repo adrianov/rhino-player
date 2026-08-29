@@ -59,30 +59,31 @@
             opacity: 0.92;
             color: rgba(154, 192, 255, 0.96);
         }
-        /* Neighbour search: centered in free space above the strip (feature 33). */
-        box.rp-recent-search-row {
-            margin: 0;
-        }
-        /* Pill chrome lives on the wrapper — SearchEntry alone often keeps square corners on macOS. */
-        box.rp-recent-search-pill {
+        /* Neighbour search (feature 33). GtkSearchEntry’s CSS node is entry.search, not searchentry. */
+        entry.search.rp-recent-search-entry {
+            min-width: 340px;
+            min-height: 40px;
             border-radius: 9999px;
+            padding: 8px 18px;
             background-color: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.06);
-            padding: 4px 6px;
-            min-height: 40px;
+            box-shadow: none;
+            outline: none;
+            outline-style: none;
         }
-        box.rp-recent-search-pill:focus-within {
+        entry.search.rp-recent-search-entry:focus {
             background-color: rgba(255, 255, 255, 0.10);
             border-color: rgba(255, 255, 255, 0.12);
+            box-shadow: none;
+            outline: none;
         }
-        searchentry.rp-recent-search-entry {
-            min-width: 340px;
+        /* Adwaita paints the inner text node too — clear it so we do not get a field in a field. */
+        entry.search.rp-recent-search-entry > text {
             background: none;
             background-color: transparent;
             border: none;
             box-shadow: none;
             outline-style: none;
-            padding: 4px 14px;
         }
         label.rp-recent-search-hint {
             color: #9a9996;

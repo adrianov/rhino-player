@@ -2,7 +2,7 @@
 // See docs/features/33-continue-sibling-search.md. Split across:
 //   sibling_search.rs          — this file: scan core, hit filter, strip-paint plan, tests
 //   sibling_search_state.rs    — [SiblingSearchState]: query, debounce, paint skip
-//   sibling_search_widgets.rs  — the search-row widgets (pill entry + inline hint)
+//   sibling_search_widgets.rs  — the search-row widgets (entry + inline hint)
 // NOTE: include!'d into `recent_view`; shares its imports (glib, Rc, RefCell, Path, Duration).
 
 include!("sibling_search_widgets.rs");

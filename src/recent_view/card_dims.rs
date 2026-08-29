@@ -25,15 +25,12 @@ pub(crate) fn apply_card_dims(card: &gtk::Overlay, w: i32, h: i32) {
     }
 }
 
-pub(crate) fn card_width(strip_w: i32, count: usize) -> i32 {
-    let count = count.max(1) as i32;
-    let avail = (strip_w - CARD_GAP * (count - 1)).max(CARD_MIN_W);
-    let target = if count == 1 {
-        (f64::from(strip_w) * 0.40).round() as i32
-    } else {
-        avail / count
-    };
-    target.clamp(CARD_MIN_W, CARD_MAX_W)
+/// Tile width for the strip. Always divides by a full strip (Open + [CONTINUE_DISPLAY_MAX])
+/// so a short list or search hit does not inflate cards and shove the layout around.
+pub(crate) fn card_width(strip_w: i32) -> i32 {
+    let slots = (CONTINUE_DISPLAY_MAX + 1) as i32;
+    let avail = (strip_w - CARD_GAP * (slots - 1)).max(CARD_MIN_W);
+    (avail / slots).clamp(CARD_MIN_W, CARD_MAX_W)
 }
 
 fn ancestor_scrolled_width(card_row: &gtk::Box) -> Option<i32> {
@@ -83,9 +80,23 @@ pub(crate) fn sync_card_sizes(card_row: &gtk::Box, cards: &[gtk::Overlay]) {
         return;
     }
     let strip_w = strip_width_for_cards(card_row);
-    let w = card_width(strip_w, cards.len());
+    let w = card_width(strip_w);
     let h = (f64::from(w) / CARD_ASPECT).round() as i32;
     for card in cards {
         apply_card_dims(card, w, h);
+    }
+}
+
+#[cfg(test)]
+mod card_width_tests {
+    use super::*;
+
+    #[test]
+    fn short_strip_matches_full_strip_width() {
+        let strip = 1400;
+        let full = card_width(strip);
+        assert!((CARD_MIN_W..=CARD_MAX_W).contains(&full));
+        // Same formula regardless of how many cards are showing (caller no longer passes count).
+        assert_eq!(full, (strip - CARD_GAP * CONTINUE_DISPLAY_MAX as i32) / (CONTINUE_DISPLAY_MAX as i32 + 1));
     }
 }

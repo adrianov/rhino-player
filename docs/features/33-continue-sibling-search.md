@@ -29,7 +29,7 @@ Feature: Sibling search on the continue screen
     Given the first window is shown with no CLI paths and no session takeover
     When the window paints
     Then a search box is visible centered horizontally
-    And the search box sits vertically in the free space above the video card strip
+    And the search box sits just above the video card strip
     And the strip below still shows the Open Video tile plus watch-later cards
 
   Scenario: Empty query keeps the plain continue strip
@@ -91,8 +91,8 @@ Feature: Sibling search on the continue screen
 - Reuses the shared extension list (`video_ext`) and natural lexical ordering (`lexical_sort`) from open / folder scan.
 - Results are capped (`SEARCH_MAX_HITS`); the hint notes the cap. Hits may include continue-list members; `card_data_list` still supplies store progress/thumbs when present. Search-strip chrome omits Remove / Trash for every hit.
 - Directory listings rebuild lazily and throttle-rescan on typing activity (no timers otherwise); this follows the synchronous `read_dir` precedent of sibling advance. StaleListing risk on network mounts equals existing folder-scan behaviour.
-- Placement: the search row is **centered horizontally** and **vertically in the free space above the card strip** (nested inside the top expand spacer, between two equal fillers). Match hint sits in an end slot locked to an invisible start balancer via a horizontal `SizeGroup`, so the pill stays centered when the hint has text. Stays clear of the macOS header-compositing band at the very top of the overlay.
+- Placement: the search row is **centered horizontally** and **parked just above the card strip** (top expand spacer, margin under the row). Match hint uses a fixed-width side slot mirrored by an invisible twin of the widest hint (`40+ matches`) so the entry stays centered when the hint has text. Stays clear of the macOS header-compositing band at the very top of the overlay.
 - Query awareness lives in the paint path (`RecentContext::refill`, `repaint_continue_row`) so background thumbnail refills cannot clobber active results. State type: `SiblingSearchState` in `src/recent_view/sibling_search.rs`.
 - The entry text is **draft** until typing debounce commits it (`TYPE_DEBOUNCE_MS`); only the committed query drives `current_hits` / strip paint. Thumb-driven `refill` and other paints are skipped while a draft is pending; settled neighbour paints with identical paths are skipped in `SiblingSearchState`. Search commits call `apply_strip`. `fill_row` keeps the Open Video tile and only replaces trailing cards.
 - Escape precedence: while a text widget owns focus, the capture-phase shortcut pass lets Escape proceed (`KeyDispatch::dispatch` guard), so the search box consumes it (clear) instead of triggering playback shortcuts or strip escapes.
-- Styling: pill chrome on `.rp-recent-search-pill` in `src/theme/continue_grid.css` (entry stays transparent — SearchEntry often ignores `border-radius` on macOS). Base rules shared; `macos_native_lists.css` paddings untouched.
+- Styling: one surface on `entry.search.rp-recent-search-entry` in `src/theme/continue_grid.css` (GtkSearchEntry’s CSS node is `entry.search`; no outer wrapper). Base rules shared; `macos_native_lists.css` paddings untouched.
