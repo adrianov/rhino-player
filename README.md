@@ -6,6 +6,15 @@
 
 Rhino Player is a desktop video player for Linux (GNOME, Ubuntu, and similar systems) and macOS. It combines mpv playback with a GTK 4 / libadwaita interface, focused on smooth watching, quick resume, and simple local-file workflows. Linux is the primary target; macOS support is experimental and built on top of Homebrew.
 
+## Philosophy
+
+Rhino aims to stay **almost configuration-free**—more precisely, **configured by use**. Everyday watching should not depend on preference pages or library setup.
+
+- **Remember choices, not preference forms.** Pick an audio or subtitle track once; Rhino keeps that choice and fuzzy-matches similar track labels on later videos so the same language tends to come back without a language list in Settings.
+- **No library paths to configure.** There is no “add folders to the library” step. Paths enter the catalog when you play a file; neighbours and seasons show up from siblings of what you already watched.
+
+Optional power features (for example Smooth Video) stay available when you want them; the default path is open a file and watch.
+
 ## Screenshots
 
 <p align="center">
@@ -21,8 +30,8 @@ Rhino Player is a desktop video player for Linux (GNOME, Ubuntu, and similar sys
 - **Continue where you left off:** start on a recent-video grid with thumbnails, progress, and one-click resume.
 - **TV-series friendly playback:** continue through episodes in a folder, then into the next sibling folder at the same level (e.g. next season beside the current one), without jumping to unrelated folders that only share a higher folder. Opening a folder resumes the last unfinished file in natural order, or starts at the first file.
 - **Optional Smooth Video (~60 FPS):** smoother motion with VapourSynth + MVTools when your setup supports it. Rhino **adapts how hard this runs while you watch** so it stays closer to what your PC can handle, instead of one fixed load for everyone.
-- **Subtitles:** pick subtitle tracks, remember subtitle style preferences, and auto-pick matching subtitle tracks when possible.
-- **Audio track switching:** choose between available audio tracks while watching a video.
+- **Subtitles:** pick a track once; Rhino remembers the choice, keeps style preferences, and fuzzy-matches similar subtitle tracks on later files when possible.
+- **Audio track switching:** choose among available audio tracks; the same remember-and-match approach applies across videos.
 - **Seek preview:** hover over the progress bar to preview frames before jumping.
 - **Clean playback view:** auto-hiding header, transport controls, and pointer keep the video area focused.
 - **Fast playback controls:** play/pause, seek, fullscreen, elapsed/remaining time, keyboard shortcuts, and quick 1.0× / 1.5× / 2.0× / 8.0× speed choices.
