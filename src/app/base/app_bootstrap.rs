@@ -50,16 +50,20 @@ fn wire_app_startup(app: &adw::Application) {
     });
 }
 
-/// Filter glib log spam, pin `LC_NUMERIC`, init libadwaita, build the app, wire startup.
+/// Filter glib log spam, init libadwaita, pin `LC_NUMERIC`, build the app, wire startup.
 /// Returns Err(exit code) when libadwaita cannot initialize.
 fn bootstrap_app() -> Result<adw::Application, i32> {
     crate::glib_log_filter::install();
-    unsafe {
-        libc::setlocale(libc::LC_NUMERIC, b"C\0".as_ptr().cast());
-    }
     if let Err(e) = adw::init() {
         eprintln!("libadwaita: {e}");
         return Err(1);
+    }
+    // Must run AFTER adw::init(): gtk_init calls setlocale(LC_ALL, ""), which restores a
+    // non-C LC_NUMERIC from the environment when LC_ALL is set (common in containers / CI).
+    // libmpv's mpv_create() then refuses to initialize, so no video (nor thumbnail / DVD
+    // probes) could load. Pin C numeric here, once, for every later libmpv instance.
+    unsafe {
+        libc::setlocale(libc::LC_NUMERIC, b"C\0".as_ptr().cast());
     }
     let app = build_adw_application();
     wire_app_startup(&app);
