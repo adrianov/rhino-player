@@ -132,7 +132,7 @@ fn shell_compositing_sync_pass(
     if !skip_invalidate {
         invalidate_window_layers(win);
     }
-    sync_traffic_lights_vertical(header, header.height());
+    sync_traffic_lights_vertical(header);
 }
 
 fn shell_compositing_idle_pass(
@@ -151,7 +151,7 @@ fn shell_compositing_idle_pass(
     if !crate::macos_header_menu::defer_layer_invalidate() {
         invalidate_window_layers(win);
     }
-    sync_traffic_lights_vertical(header, header.height());
+    sync_traffic_lights_vertical(header);
 }
 
 /// Brief ±1px width change — gdk-macos repaints bottom chrome after user edge-drag resize

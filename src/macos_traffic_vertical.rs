@@ -1,25 +1,21 @@
-// Vertically center native traffic lights in the compact ToolbarView top bar.
+// Native traffic lights for the compact ToolbarView top bar: visibility + frame sync.
+//
+// Y is always computed from fixed TOP_BAR_H (CSS compact header) — never from live
+// reveal height. X is shifted once from AppKit defaults and cached so compositing
+// refresh cannot keep subtracting. Sync is a no-op while buttons are hidden so a
+// mid-hide compositing pass cannot lock a bad X sample.
 
 use objc2_foundation::NSPoint;
+
+/// Matches `min-height` on `toolbarview.rp-toolbar headerbar.rpb-header`
+/// (`theme/shell.css` / `macos_header_compact.css`).
+const TOP_BAR_H: f64 = 34.0;
 
 /// AppKit’s default stoplight X sits too far right against our compact header chrome.
 const TRAFFIC_LIGHTS_SHIFT_LEFT: f64 = 8.0;
 
-#[derive(Clone, Copy)]
-struct BtnFrame {
-    x: f64,
-    y: f64,
-}
-
-#[derive(Clone, Copy)]
-struct TrafficLightFrames {
-    close: BtnFrame,
-    mini: BtnFrame,
-    zoom: BtnFrame,
-}
-
 thread_local! {
-    static TRAFFIC_LIGHT_FRAMES: RefCell<Option<TrafficLightFrames>> = const { RefCell::new(None) };
+    static TRAFFIC_LIGHT_XS: RefCell<Option<(f64, f64, f64)>> = const { RefCell::new(None) };
 }
 
 fn shifted_x(x: f64) -> f64 {
@@ -30,7 +26,7 @@ fn shifted_x(x: f64) -> f64 {
     }
 }
 
-fn stoplight_y(nswin: &NSWindow, bar_h: i32) -> Option<f64> {
+fn stoplight_y(nswin: &NSWindow) -> Option<f64> {
     let close = nswin.standardWindowButton(NSWindowButton::CloseButton)?;
     let titlebar = unsafe { close.superview() }?;
     let title_h = titlebar.bounds().size.height;
@@ -41,64 +37,100 @@ fn stoplight_y(nswin: &NSWindow, bar_h: i32) -> Option<f64> {
     if h <= 0.0 {
         return None;
     }
-    let gtk_h = f64::from(bar_h);
-    let band_h = gtk_h.min(title_h);
+    let band_h = TOP_BAR_H.min(title_h);
     let band_base = title_h - band_h;
     Some(band_base + (band_h - h) * 0.5)
 }
 
-fn remember_first_frames(nswin: &NSWindow, bar_h: i32) -> Option<TrafficLightFrames> {
-    let y = stoplight_y(nswin, bar_h)?;
+fn remember_xs(nswin: &NSWindow) -> Option<(f64, f64, f64)> {
     let close = nswin.standardWindowButton(NSWindowButton::CloseButton)?;
     let mini = nswin.standardWindowButton(NSWindowButton::MiniaturizeButton)?;
     let zoom = nswin.standardWindowButton(NSWindowButton::ZoomButton)?;
-    Some(TrafficLightFrames {
-        close: BtnFrame {
-            x: shifted_x(close.frame().origin.x),
-            y,
-        },
-        mini: BtnFrame {
-            x: shifted_x(mini.frame().origin.x),
-            y,
-        },
-        zoom: BtnFrame {
-            x: shifted_x(zoom.frame().origin.x),
-            y,
-        },
-    })
+    Some((
+        shifted_x(close.frame().origin.x),
+        shifted_x(mini.frame().origin.x),
+        shifted_x(zoom.frame().origin.x),
+    ))
 }
 
-fn apply_traffic_light_frames(nswin: &NSWindow, frames: TrafficLightFrames) {
-    for (kind, pt) in [
-        (NSWindowButton::CloseButton, frames.close),
-        (NSWindowButton::MiniaturizeButton, frames.mini),
-        (NSWindowButton::ZoomButton, frames.zoom),
+fn set_buttons_hidden(nswin: &NSWindow, hidden: bool) {
+    for kind in [
+        NSWindowButton::CloseButton,
+        NSWindowButton::MiniaturizeButton,
+        NSWindowButton::ZoomButton,
+    ] {
+        if let Some(btn) = nswin.standardWindowButton(kind) {
+            btn.setHidden(hidden);
+        }
+    }
+}
+
+fn apply_origins(nswin: &NSWindow, xs: (f64, f64, f64), y: f64) {
+    for (kind, x) in [
+        (NSWindowButton::CloseButton, xs.0),
+        (NSWindowButton::MiniaturizeButton, xs.1),
+        (NSWindowButton::ZoomButton, xs.2),
     ] {
         let Some(btn) = nswin.standardWindowButton(kind) else {
             continue;
         };
-        btn.setFrameOrigin(NSPoint::new(pt.x, pt.y));
+        btn.setFrameOrigin(NSPoint::new(x, y));
     }
 }
 
-/// First draw remembers exact stoplight origins; every later call re-applies the same frames.
-pub fn sync_traffic_lights_vertical<W: IsA<gtk::Widget>>(anchor: &W, bar_h: i32) {
+fn clear_traffic_light_xs() {
+    TRAFFIC_LIGHT_XS.with(|cell| *cell.borrow_mut() = None);
+}
+
+/// Hide stoplights and drop the X cache — used from [`prep_native_fullscreen_exit`].
+pub(crate) fn flatten_traffic_lights(nswin: &NSWindow) {
+    clear_traffic_light_xs();
+    set_buttons_hidden(nswin, true);
+}
+
+/// Align stoplights to the fixed compact top bar. No-op while hidden.
+pub fn sync_traffic_lights_vertical<W: IsA<gtk::Widget>>(anchor: &W) {
     let Some(nswin) = nswindow_for_widget(anchor) else {
         return;
     };
-    TRAFFIC_LIGHT_FRAMES.with(|cell| {
+    let Some(close) = nswin.standardWindowButton(NSWindowButton::CloseButton) else {
+        return;
+    };
+    if close.isHidden() {
+        return;
+    }
+    let Some(y) = stoplight_y(&nswin) else {
+        return;
+    };
+    let xs = TRAFFIC_LIGHT_XS.with(|cell| {
         let mut slot = cell.borrow_mut();
         if slot.is_none() {
-            if bar_h < 20 {
-                return;
-            }
-            let Some(frames) = remember_first_frames(&nswin, bar_h) else {
-                return;
-            };
-            *slot = Some(frames);
+            *slot = remember_xs(&nswin);
         }
-        if let Some(frames) = *slot {
-            apply_traffic_light_frames(&nswin, frames);
-        }
+        *slot
     });
+    let Some(xs) = xs else {
+        return;
+    };
+    apply_origins(&nswin, xs, y);
+}
+
+/// Hide or show the macOS traffic-light buttons on the NSWindow that hosts `widget`.
+///
+/// Uses [`NSWindow::standardWindowButton`] + `setHidden:`. We deliberately do **not**
+/// touch GTK's `set_show_start_title_buttons` here: on macOS that path is one-way (once
+/// disabled, GTK won't restore the AppKit buttons). Driving `setHidden:` directly is
+/// reversible and survives GTK layout passes.
+pub fn set_traffic_lights_visible<W: IsA<gtk::Widget>>(widget: &W, visible: bool) {
+    if crate::macos_fs_exit::exit_armed() {
+        crate::macos_fs_debug::log("skip traffic lights (exit armed)");
+        return;
+    }
+    let Some(win) = nswindow_for_widget(widget) else {
+        return;
+    };
+    set_buttons_hidden(&win, !visible);
+    if visible {
+        sync_traffic_lights_vertical(widget);
+    }
 }

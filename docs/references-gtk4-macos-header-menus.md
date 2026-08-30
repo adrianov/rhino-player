@@ -39,7 +39,7 @@ Observed failure modes when forcing GtkPopover in theater:
 | Header buttons look disabled | **`set_popover(None)`** without CSS — Adwaita greys `MenuButton` with no popover |
 | Full-screen flash on open | **`invalidate_window_layers`** called synchronously on overlay open |
 | Horizontal bands of stale header / title chrome through the video | gdk-macos GTK sublayer not repainted after **`outer_ovl`** child shown in theater; AppKit layer snapshot replay (see **Theater overlay compositing** below) |
-| Traffic lights drift after menu close | AppKit resets stoplight frames during compositing refresh after our sync (fixed: remember exact per-button X/Y on first draw; re-apply cached frames after every sync and post-invalidate idle) |
+| Traffic lights drift after menu close | AppKit resets stoplight frames during compositing refresh (fixed: cache shifted X once; always recompute Y from **`TOP_BAR_H`** in `src/macos_traffic_vertical.rs`) |
 
 ## Native fullscreen — shipped solution (Overlay reparent)
 
@@ -123,7 +123,7 @@ Dismiss controller lives on **`outer_ovl`**, not `ToolbarView`:
 - **Do not** wire outside-dismiss pick on **`ToolbarView`** while overlay is on **`outer_ovl`**.
 - **Do not** leave overlay panel at **`can_target(false)`** while visible — menu items never receive clicks.
 - **Do not** keep popovers attached in theater **only** to avoid grey buttons — use detach + **`rp-header-menu-fs`** instead (orphan popup surface returns).
-- **Do not** re-apply traffic-light X shift on every compositing refresh — use idempotent shift in **`macos_traffic_vertical.rs`**.
+- **Do not** re-apply traffic-light X shift on every compositing refresh — cache shifted X once in **`macos_traffic_vertical.rs`**; Y always uses fixed compact top-bar height (**`TOP_BAR_H`**), never live reveal height.
 
 ## Theater overlay compositing (stale gdk-macos layers)
 

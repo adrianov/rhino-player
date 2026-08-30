@@ -94,7 +94,6 @@ pub(super) fn macos_schedule_unfullscreen(win: adw::ApplicationWindow) {
     let Some(gen) = crate::macos_fs_exit::try_arm_exit() else {
         return;
     };
-    macos_traffic_cancel_poll();
     macos_hide_bars_for_exit(&win);
     if let Some(nswin) = crate::macos_window::nswindow_for_widget(&win) {
         crate::macos_window::prep_native_fullscreen_exit(&nswin);

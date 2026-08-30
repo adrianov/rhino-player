@@ -70,48 +70,10 @@ pub(crate) fn prep_native_fullscreen_exit(nswin: &NSWindow) {
     use objc2::runtime::AnyObject;
 
     ensure_titlebar_layout_guard();
-    for kind in [
-        NSWindowButton::CloseButton,
-        NSWindowButton::MiniaturizeButton,
-        NSWindowButton::ZoomButton,
-    ] {
-        if let Some(btn) = nswin.standardWindowButton(kind) {
-            btn.setHidden(true);
-        }
-    }
+    flatten_traffic_lights(nswin);
     unsafe {
         let none: Option<&AnyObject> = None;
         let _: () = msg_send![nswin, setToolbar: none];
     }
     crate::macos_fs_debug::log("prep native fullscreen exit (titlebar flattened)");
-}
-
-/// Hide or show the macOS traffic-light buttons on the NSWindow that hosts `widget`.
-///
-/// Uses [`NSWindow::standardWindowButton`] + `setHidden:`. We deliberately do **not**
-/// touch GTK's `set_show_start_title_buttons` here: on macOS that path is one-way (once
-/// disabled, GTK won't restore the AppKit buttons), and re-enabling it after a hide
-/// fight breaks the very state we are trying to manage. Driving `setHidden:` directly is
-/// reversible and survives GTK layout passes.
-pub fn set_traffic_lights_visible<W: IsA<gtk::Widget>>(widget: &W, visible: bool) {
-    if crate::macos_fs_exit::exit_armed() {
-        crate::macos_fs_debug::log("skip traffic lights (exit armed)");
-        return;
-    }
-    let Some(win) = nswindow_for_widget(widget) else {
-        return;
-    };
-    let hidden = !visible;
-    for kind in [
-        NSWindowButton::CloseButton,
-        NSWindowButton::MiniaturizeButton,
-        NSWindowButton::ZoomButton,
-    ] {
-        if let Some(btn) = win.standardWindowButton(kind) {
-            btn.setHidden(hidden);
-        }
-    }
-    if visible {
-        sync_traffic_lights_vertical(widget, widget.height());
-    }
 }

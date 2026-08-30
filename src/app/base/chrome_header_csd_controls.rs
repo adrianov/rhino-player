@@ -30,25 +30,23 @@ fn sync_header_window_controls(
     root: &adw::ToolbarView,
 ) {
     #[cfg(target_os = "macos")]
-    sync_header_window_controls_macos(hdr, baseline, show_chrome, root);
+    {
+        let _ = (baseline, root);
+        sync_header_window_controls_macos(hdr, show_chrome);
+    }
     #[cfg(not(target_os = "macos"))]
-    sync_header_window_controls_linux(hdr, baseline, show_chrome);
-    #[cfg(not(target_os = "macos"))]
-    let _ = root;
+    {
+        let _ = root;
+        sync_header_window_controls_linux(hdr, baseline, show_chrome);
+    }
 }
 
-/// macOS: native titlebar buttons — windowed hide/show timing in `chrome_macos_traffic_lights.rs`.
+/// macOS: show/hide native stoplights with chrome (layout owned by `macos_traffic_vertical`).
 #[cfg(target_os = "macos")]
-fn sync_header_window_controls_macos(
-    hdr: &adw::HeaderBar,
-    _baseline: &Rc<Cell<Option<(bool, bool)>>>,
-    show_chrome: bool,
-    root: &adw::ToolbarView,
-) {
+fn sync_header_window_controls_macos(hdr: &adw::HeaderBar, show_chrome: bool) {
     use gtk::prelude::WidgetExt;
 
     if crate::macos_fs_exit::exit_armed() {
-        macos_traffic_cancel_poll();
         // Do not touch traffic lights while exiting — AppKit titlebar layout is fragile.
         return;
     }
@@ -58,20 +56,7 @@ fn sync_header_window_controls_macos(
         .and_then(|w| w.downcast::<adw::ApplicationWindow>().ok())
         .is_some_and(|win| win.is_fullscreen());
 
-    macos_traffic_cancel_poll();
-
-    if fullscreen {
-        crate::macos_window::set_traffic_lights_visible(hdr, true);
-        return;
-    }
-
-    if !show_chrome {
-        crate::macos_window::set_traffic_lights_visible(hdr, false);
-        return;
-    }
-
-    crate::macos_window::set_traffic_lights_visible(hdr, false);
-    macos_traffic_poll_until_stable(hdr.clone(), root.clone());
+    crate::macos_window::set_traffic_lights_visible(hdr, fullscreen || show_chrome);
 }
 
 #[cfg(not(target_os = "macos"))]

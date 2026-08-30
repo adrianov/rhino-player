@@ -1,6 +1,4 @@
 include!("chrome_fs_transition_gate.rs");
-#[cfg(target_os = "macos")]
-include!("chrome_macos_traffic_lights.rs");
 include!("chrome_macos_unfullscreen_defer.rs");
 #[cfg(target_os = "macos")]
 include!("chrome_macos_toggle.rs");
