@@ -44,7 +44,7 @@ fn trash_card_action(h: &UndoBarHandles, do_commit: &Rc<dyn Fn()>, path: &Path) 
         rearm_undo_dismiss(do_commit, &h.timer);
     }
     recent_view::search_note_removed(&h.rbf, path);
-    refresh_continue_cards(h);
+    schedule_refresh_continue_cards(h);
 }
 
 /// Continue-card **Remove**: capture an undo snapshot, drop the entry from the list, refresh cards.
@@ -62,24 +62,26 @@ fn remove_card_action(h: &UndoBarHandles, do_commit: &Rc<dyn Fn()>, path: &Path)
     remove_continue_entry(path);
     h.stack.borrow_mut().push(ContinueBarUndo::ListRemove(u));
     sync_undo_bar(&h.label, &h.btn, &h.shell, &h.stack);
-    refresh_continue_cards(h);
     rearm_undo_dismiss(do_commit, &h.timer);
+    schedule_refresh_continue_cards(h);
+}
+
+/// Rebuild the strip after the current GTK handler returns (button click or deferred card press).
+fn schedule_refresh_continue_cards(h: &UndoBarHandles) {
+    let h = h.clone();
+    let _ = glib::idle_add_local_once(move || refresh_continue_cards(&h));
 }
 
 /// Repaint the continue row through the currently-wired Remove/Trash handlers.
 fn refresh_continue_cards(h: &UndoBarHandles) {
-    let f = h
-        .cell_rm
-        .borrow()
-        .as_ref()
-        .expect("on_remove not wired")
-        .clone();
-    let t = h
-        .cell_t
-        .borrow()
-        .as_ref()
-        .expect("on_trash not wired")
-        .clone();
+    let Some(f) = h.cell_rm.borrow().as_ref().cloned() else {
+        eprintln!("[rhino] continue: refresh skipped (on_remove not wired)");
+        return;
+    };
+    let Some(t) = h.cell_t.borrow().as_ref().cloned() else {
+        eprintln!("[rhino] continue: refresh skipped (on_trash not wired)");
+        return;
+    };
     reflow_continue_cards(
         &h.flow,
         &h.recent,
