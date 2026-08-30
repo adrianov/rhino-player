@@ -86,6 +86,11 @@ chmod u+w "$PLUGINS/mvtools.dylib"
 cp -f "$SRC_FFTW" "$PLUGINS/libfftw3f.3.dylib"
 chmod u+w "$PLUGINS/libfftw3f.3.dylib"
 
+# Drop Homebrew's existing signature so install_name_tool has nothing to invalidate
+# (we ad-hoc re-sign below regardless); avoids noisy "will invalidate the code signature".
+codesign --remove-signature "$PLUGINS/libfftw3f.3.dylib" 2>/dev/null || true
+codesign --remove-signature "$PLUGINS/mvtools.dylib" 2>/dev/null || true
+
 # Drop absolute Homebrew deps on fftw; keep only @loader_path sibling.
 install_name_tool -id "@loader_path/libfftw3f.3.dylib" "$PLUGINS/libfftw3f.3.dylib"
 install_name_tool -id "@loader_path/mvtools.dylib" "$PLUGINS/mvtools.dylib"
