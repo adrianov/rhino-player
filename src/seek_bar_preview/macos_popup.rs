@@ -10,11 +10,18 @@ fn preview_provider() -> &'static gtk::CssProvider {
         p.load_from_string(
             "popover.rp-seek-popover > contents {\
                 padding: 0;\
+                border: none;\
                 background: transparent;\
                 box-shadow: none;\
             }\
-            frame.rp-seek-thumb-frame,\
+            frame.rp-seek-thumb-frame {\
+                padding: 0;\
+                border: none;\
+                background-color: #2d2d2d;\
+                background: #2d2d2d;\
+            }\
             frame.rp-seek-thumb-frame > border {\
+                border: none;\
                 background-color: #2d2d2d;\
                 background: #2d2d2d;\
             }\
