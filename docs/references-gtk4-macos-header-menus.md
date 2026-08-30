@@ -117,7 +117,7 @@ Dismiss controller lives on **`outer_ovl`**, not `ToolbarView`:
 ### Pitfalls (do not reintroduce)
 
 - **Do not** call **`invalidate_window_layers`** synchronously on overlay open — use **`on_overlay_surface_opened`** (arm + queue_draw, full invalidate after ~332 ms).
-- **Seek preview in theater** — same helper as header menus (`on_overlay_surface_opened` via `seek_bar_preview/macos_compositing.rs`).
+- **Seek preview in theater** — opaque frame CSS only (`seek_bar_preview/macos_compositing.rs`); do **not** call shell compositing open/close (that flashes chrome when the window is not key).
 - **Do not** wire outside-dismiss pick on **`ToolbarView`** while overlay is on **`outer_ovl`**.
 - **Do not** leave overlay panel at **`can_target(false)`** while visible — menu items never receive clicks.
 - **Do not** keep popovers attached in theater **only** to avoid grey buttons — use detach + **`rp-header-menu-fs`** instead (orphan popup surface returns).
@@ -131,15 +131,15 @@ Rhino on macOS uses a **hybrid render stack**: native mpv video in a **`CAOpenGL
 
 ### Symptom
 
-When an overlay child becomes visible in native fullscreen, gdk-macos can fail to repaint its GTK sublayer. Stale tiles from the header / titlebar (window title text, “Player” label fragments) appear as **horizontal semi-transparent bands** across the video area. The overlay itself may look correct; the glitch is **behind** it on the video stack.
+When a **header menu** panel becomes visible in native fullscreen, gdk-macos can fail to repaint its GTK sublayer. Stale tiles from the header / titlebar (window title text, “Player” label fragments) appear as **horizontal semi-transparent bands** across the video area. The overlay itself may look correct; the glitch is **behind** it on the video stack.
 
-Same class of bug as Space cross-fade staleness documented in **`macos_window::invalidate_window_layers`** — but triggered by **overlay show/hide** during theater playback, not only display changes.
+Same class of bug as Space cross-fade staleness documented in **`macos_window::invalidate_window_layers`** — but triggered by **menu panel show/hide** during theater playback, not only display changes.
 
-### Fix: unified overlay refresh (`macos_shell_compositing`)
+### Fix: header-menu overlay refresh (`macos_shell_compositing`)
 
-**Do not** call **`invalidate_window_layers`** synchronously when an overlay opens — that causes a full-window flash.
+**Do not** call **`invalidate_window_layers`** synchronously when a menu overlay opens — that causes a full-window flash.
 
-**Do** call **`macos_shell_compositing::overlay_opened` / `overlay_closed`** (thin wrappers: **`macos_header_menu::on_overlay_surface_opened` / `on_menu_surface_closed`**):
+**Do** call **`macos_shell_compositing::overlay_opened` / `overlay_closed`** (thin wrappers: **`macos_header_menu::on_overlay_surface_opened` / `on_menu_surface_closed`**) for **header menus only**:
 
 | Step | When | What |
 |------|------|------|
@@ -148,17 +148,16 @@ Same class of bug as Space cross-fade staleness documented in **`macos_window::i
 | 3 | Open (+332 ms) | refresh again — full pass including **`invalidate_window_layers`** |
 | 4 | Close | cancel the pending open settle, disarm, refresh after GTK removes the overlay child, then a second refresh after the hold window (one pass can replay a stale snapshot when the window is not key) |
 
-Rapid open/close/open sequences replace the pending settle source. Older hover cycles cannot
-clear a newer hold or run stale delayed refreshes.
+Rapid open/close/open sequences replace the pending settle source. Older cycles cannot clear a newer hold or run stale delayed refreshes.
 
-Header menus and seek preview share this one policy — seek preview no longer has a separate timer/opacity/raise path.
+**Seek-bar preview must not use this policy.** Showing/hiding the thumb frame only toggles visibility of a small bottom overlay; running the shell refresh flashes header/bottom chrome (especially when the window is fullscreen and not key). Preview relies on opaque frame CSS at connect time instead.
 
 ### Call sites
 
 | Overlay | Open | Close |
 |---------|------|-------|
 | Header menu (speed / sound / subtitles) | **`HeaderMenuOverlay::toggle`** after **`show_panel`** | **`hide_panel`** → **`on_menu_surface_closed`** |
-| Seek-bar preview | **`macos_shell_compositing::overlay_opened`** (theater reopen) | **`overlay_closed`** — same coalesced policy as menus; hide is **`set_visible(false)`** only |
+| Seek-bar preview | opaque CSS only — **no** shell compositing | **`set_visible(false)`** only |
 
 Seek preview stays on `outer_ovl` from startup (`deferred_after_present`); menus call **`raise_panel_top`** when opened so they stack above the preview. Preview does **not** re-`add_overlay` (that tore down the preview `GLArea`).
 
@@ -179,8 +178,8 @@ Windowed mode does not call **`on_overlay_surface_opened`** — popover popup su
 | `macos_header_menu_overlay_place.rs` | Anchor math, scrolled max heights, `show_panel` / `hide_panel_widget`, target tree |
 | `macos_header_menu_overlay_input.rs` | Capture gestures, activate block, popover map/show guards |
 | `macos_header_menu_debug.rs` | Temporary stderr trace (remove when stable) |
-| Seek preview (theater) | `seek_bar_preview/macos_compositing.rs` — opaque frame CSS; open/close → **`macos_shell_compositing`** |
-| `macos_shell_compositing.rs` | Single open/close refresh policy for all `outer_ovl` children |
+| Seek preview (theater) | `seek_bar_preview/macos_compositing.rs` — opaque frame CSS only (no shell refresh) |
+| `macos_shell_compositing.rs` | Open/close refresh policy for header menu `outer_ovl` panels |
 | `macos_window_gdk_layout.rs` | Compositing refresh; defers invalidate while menus arm/open |
 | `macos_traffic_vertical.rs` | Stoplight vertical align + one-time X shift |
 | `chrome_macos_header_popovers.rs` | Outside-click dismiss on **`outer_ovl`** |

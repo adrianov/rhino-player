@@ -65,12 +65,6 @@ impl SeekPreviewState {
         self.container.set_can_target(false);
         self.shown.set(true);
         self.container.set_visible(true);
-        #[cfg(target_os = "macos")]
-        if reopening {
-            // Defensive: older theater hide used opacity 0; never show a transparent frame.
-            self.container.set_opacity(1.0);
-            macos_compositing::on_open(self);
-        }
         if reopening && self.preview_media_warm() {
             self.gl.queue_render();
         }
@@ -111,8 +105,6 @@ impl SeekPreviewState {
         }
         self.container.set_visible(false);
         self.container.set_can_target(false);
-        #[cfg(target_os = "macos")]
-        macos_compositing::on_close();
     }
 
     /// Main player opened another file — drop cached load target and hide until re-hover.

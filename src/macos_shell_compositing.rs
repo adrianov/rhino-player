@@ -1,9 +1,9 @@
-//! One gdk-macos hybrid-layer refresh policy for `outer_ovl` children.
+//! One gdk-macos hybrid-layer refresh policy for header menu `outer_ovl` panels.
 //!
 //! Video lives in a native `CAOpenGLLayer` under gdk-macos's GTK sublayer. Showing or
-//! hiding an overlay child (header menu panel, seek preview) can leave stale chrome
-//! tiles — especially when the window is fullscreen and not key. Callers only report
-//! open/close; timing and invalidate live here.
+//! hiding a header menu panel can leave stale chrome tiles — especially when the
+//! window is fullscreen and not key. Seek-bar preview must not call this path (it
+//! flashes chrome). Callers only report open/close; timing and invalidate live here.
 
 use std::cell::{Cell, RefCell};
 
@@ -61,7 +61,7 @@ fn settle_open() {
     );
 }
 
-/// Overlay child became visible (theater panel / seek preview).
+/// Header menu overlay became visible in theater.
 /// Defers layer invalidate briefly to avoid a full-window flash, then refreshes again.
 pub fn overlay_opened() {
     set_armed(true);
@@ -72,7 +72,7 @@ pub fn overlay_opened() {
 /// Overlay child hidden. First refresh runs right after GTK drops the child from the
 /// render tree; a delayed pass repeats it once gdk-macos has repainted its layer —
 /// one refresh alone can replay a stale snapshot when the window is not key.
-/// A later open cancels pending close work, avoiding churn during rapid hover.
+/// A later open cancels pending close work, avoiding churn during rapid open/close.
 pub fn overlay_closed() {
     disarm_hold();
     settle_after(std::time::Duration::ZERO, || {
