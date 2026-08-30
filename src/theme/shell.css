@@ -244,19 +244,17 @@
             background: transparent;
             box-shadow: none;
         }
+        /* GTK4 GtkFrame draws its border on the "frame" node itself (no "border" subnode,
+           unlike GTK3), so background/border/radius/shadow all live here. */
         frame.rp-seek-thumb-frame {
             padding: 0;
             background-color: #2d2d2d;
-            border: none;
+            border: 1px solid rgba(255, 255, 255, 0.18);
             border-radius: 8px;
             box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
         }
-        frame.rp-seek-thumb-frame > border {
-            border: 1px solid rgba(255, 255, 255, 0.18);
-            border-radius: 8px;
-        }
         frame.rp-seek-thumb-frame glarea {
-            border-radius: 8px 8px 0 0;
+            border-radius: 7px 7px 0 0;
         }
         label.rp-seek-thumb-chapter {
             color: #e0dfd8;
