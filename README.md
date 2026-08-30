@@ -40,7 +40,7 @@ See the full feature index in [docs/README.md](docs/README.md).
 
 ## Install from GitHub Releases
 
-Prebuilt packages are published on **[github.com/adrianov/rhino-player/releases](https://github.com/adrianov/rhino-player/releases)**. Download the **`.deb`** for your architecture on Debian/Ubuntu (and similar) and install it with your package manager, for example `sudo apt install ./rhino-player_*.deb`. On macOS, use the release **`.zip`** that contains **Rhino Player.app** when available; unzip it, then open the app. macOS still needs GTK 4, libadwaita, and mpv from Homebrew at runtime—see [Build from source → macOS](#macos-experimental) below.
+Prebuilt packages are published on **[github.com/adrianov/rhino-player/releases](https://github.com/adrianov/rhino-player/releases)**. Download the **`.deb`** for your architecture on Debian/Ubuntu (and similar) and install it with your package manager, for example `sudo apt install ./rhino-player_*.deb`. On macOS, use the release **`.dmg`** when available; open it and run **Rhino Player.app** (or copy it to Applications). macOS still needs GTK 4, libadwaita, and mpv from Homebrew at runtime—see [Build from source → macOS](#macos-experimental) below.
 
 ## Build From Source
 

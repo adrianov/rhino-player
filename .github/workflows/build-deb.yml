@@ -1,0 +1,32 @@
+# Build Linux .deb on ubuntu-latest (native amd64). Trigger manually or on version tags.
+name: Build deb
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential pkg-config \
+            libgtk-4-dev libadwaita-1-dev libmpv-dev clang lld dpkg-dev gzip
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build .deb
+        run: ./scripts/build-deb.sh
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhino-player-deb
+          path: releases/rhino-player_*.deb
+          if-no-files-found: error

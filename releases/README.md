@@ -4,10 +4,10 @@ This directory is the **staging area** on your machine (or in CI) for files you 
 
 ## Git vs GitHub Releases (why binaries are not committed)
 
-**GitHub does not store downloadable `.deb` / `.zip` assets inside the git tree.** A Release on GitHub has:
+**GitHub does not store downloadable `.deb` / `.dmg` assets inside the git tree.** A Release on GitHub has:
 
 1. **The repo at a tag** — only what git tracks (source, scripts, this README).
-2. **Separate upload attachments** — the built `.deb`, `.zip`, etc., stored by GitHub next to that Release.
+2. **Separate upload attachments** — the built `.deb`, `.dmg`, etc., stored by GitHub next to that Release.
 
 So users download installers from the Release **Assets** list, not by cloning the repository. Committing large binaries to git would bloat history and slow every clone; the usual pattern is **build → upload as Release assets** (manually, `gh release create …`, or GitHub Actions).
 
@@ -20,7 +20,7 @@ Keep **one release tag’s assets** here at a time, or use unique versioned file
 | Platform | Artifact pattern | How it is produced |
 |----------|------------------|-------------------|
 | **Ubuntu / Debian** | `rhino-player_<semver>-<deb-rev>_<arch>.deb` | `./scripts/build-deb.sh` or `./scripts/stage-github-release.sh` on Linux |
-| **macOS** | `Rhino-Player-<semver>-macos-<arm64\|x86_64>.zip` | `./scripts/stage-github-release.sh` on macOS (zipped `.app`) |
+| **macOS** | `Rhino-Player-<semver>-macos-<arm64\|x86_64>.dmg` | `./scripts/stage-github-release.sh` on macOS (UDZO disk image with `.app`) |
 | **Windows** (planned) | `rhino-player-<semver>-windows-x86_64.zip` (suggested) | Not automated yet; ship portable `.exe` / installer when added |
 
 `<arch>` for `.deb` follows Debian (`amd64`, `arm64`, …).
@@ -28,7 +28,7 @@ Keep **one release tag’s assets** here at a time, or use unique versioned file
 ## Commands
 
 - **Linux (.deb):** `./scripts/stage-github-release.sh` or `./scripts/build-deb.sh`
-- **macOS (.zip):** `./scripts/stage-github-release.sh` (builds `Rhino Player.app`, then zips it into `releases/`)
+- **macOS (.dmg):** `./scripts/stage-github-release.sh` (builds `Rhino Player.app`, then a UDZO `.dmg` into `releases/`)
 
 Override deb output only if needed: `OUTPUT=/tmp ./scripts/build-deb.sh`
 
@@ -45,7 +45,7 @@ That is normal on Ubuntu: user **`_apt`** cannot read paths inside `~/…` when 
 From the repo root, after tagging:
 
 ```bash
-gh release create "v${VERSION}" releases/rhino-player_*.deb releases/Rhino-Player-*.zip --generate-notes
+gh release create "v${VERSION}" releases/rhino-player_*.deb releases/Rhino-Player-*.dmg --notes-file "releases/github-release-v${VERSION}.md"
 ```
 
 Adjust globs if you only built one platform. You can also upload assets through the GitHub web UI: attach the same files from `releases/`.
