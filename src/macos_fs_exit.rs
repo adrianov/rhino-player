@@ -34,6 +34,24 @@ pub(crate) fn clear_exit() {
     }
 }
 
+/// Drop a stuck exit latch once AppKit is windowed (and not mid-transition).
+///
+/// Leave-restore is the normal clearer; if a spurious `fullscreened` notify cancelled that
+/// path, chrome reveal and traffic-light show stay blocked until this heals.
+#[cfg(target_os = "macos")]
+pub(crate) fn heal_stuck_exit(win: &adw::ApplicationWindow) {
+    if !exit_armed() {
+        return;
+    }
+    if crate::macos_window::window_still_fullscreen(win)
+        || crate::macos_window::gdk_macos_in_fullscreen_transition(win)
+    {
+        return;
+    }
+    eprintln!("[rhino] macos-fs: clear stuck exit_armed (ns windowed)");
+    clear_exit();
+}
+
 #[cfg(target_os = "macos")]
 pub(crate) fn unfs_gen_is_current(gen: u64) -> bool {
     gen == UNFS_GEN.load(Ordering::Acquire)

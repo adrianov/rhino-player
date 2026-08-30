@@ -66,6 +66,8 @@ struct LeaveFsRestoreCtx {
 fn macos_leave_fs_restore_tick(ctx: Rc<LeaveFsRestoreCtx>) {
     if ctx.gen.get() != ctx.want_gen {
         ctx.skip.set(false);
+        // Superseded leave must not leave `exit_armed` stuck after AppKit is already windowed.
+        crate::macos_fs_exit::heal_stuck_exit(&ctx.win);
         return;
     }
     if crate::macos_window::window_still_fullscreen(&ctx.win) && ctx.polls < MACOS_LEAVE_FS_POLL_MAX
@@ -83,7 +85,8 @@ fn macos_leave_fs_restore_tick(ctx: Rc<LeaveFsRestoreCtx>) {
 }
 
 /// Polls exhausted or window windowed again: clear the exit latch, restore pause + geometry,
-/// then re-apply chrome one idle later.
+/// then re-apply chrome (idle + one settle retry so traffic lights un-flatten after AppKit
+/// rebuilds the titlebar).
 #[cfg(target_os = "macos")]
 fn macos_leave_fs_restore_now(ctx: Rc<LeaveFsRestoreCtx>) {
     crate::macos_fs_exit::clear_exit();
@@ -95,6 +98,16 @@ fn macos_leave_fs_restore_now(ctx: Rc<LeaveFsRestoreCtx>) {
     let _ = glib::source::idle_add_local_once(move || {
         skip2.set(false);
         tch2(&w2);
+        let w3 = w2.clone();
+        let tch3 = Rc::clone(&tch2);
+        let _ = glib::timeout_add_local_once(crate::fullscreen_timing::TRANSITION_SETTLE, move || {
+            if crate::macos_fs_exit::exit_armed()
+                || crate::macos_window::window_still_fullscreen(&w3)
+            {
+                return;
+            }
+            tch3(&w3);
+        });
     });
 }
 

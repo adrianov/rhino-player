@@ -92,6 +92,14 @@ fn fs_notify_sequence<F: FnOnce()>(
 
 #[cfg(target_os = "macos")]
 fn fs_notify_on_event(deps: &FsNotifyDeps, w: &adw::ApplicationWindow, gen: &Rc<Cell<u32>>) {
+    // AppKit exit often emits a brief true→false→true→false storm. A re-enter notify while
+    // exit is armed would bump `fs_leave_gen`, cancel leave-restore (never `clear_exit`), and
+    // hide bars — leaving windowed chrome + traffic lights stuck off.
+    if w.is_fullscreen() && crate::macos_fs_exit::exit_armed() {
+        eprintln!("[rhino] macos-fs: ignore re-enter while exit armed");
+        crate::macos_fs_debug::log_win_state("ignore_reenter_exit_armed", w);
+        return;
+    }
     gen.set(gen.get().wrapping_add(1));
     fs_notify_sequence(deps, w, || fs_notify_leave(deps, w, gen));
 }

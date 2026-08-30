@@ -26,12 +26,29 @@ fn apply_chrome_force_layers<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>) {
     apply_chrome_ex(c, true);
 }
 
+fn chrome_bars_show<R: IsA<gtk::Widget>>(c: &ChromeApplyParts<'_, R>) -> bool {
+    let show = c.recent.is_visible() || c.bar_show.get();
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(win) = c
+            .header
+            .root()
+            .and_then(|r| r.downcast::<adw::ApplicationWindow>().ok())
+        {
+            crate::macos_fs_exit::heal_stuck_exit(&win);
+        }
+        return show && !crate::macos_fs_exit::exit_armed();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        show
+    }
+}
+
 fn apply_chrome_ex<R: IsA<gtk::Widget>>(c: ChromeApplyParts<'_, R>, force_layers: bool) {
     c.root.set_extend_content_to_top_edge(true);
     c.root.set_extend_content_to_bottom_edge(true);
-    let show = c.recent.is_visible() || c.bar_show.get();
-    #[cfg(target_os = "macos")]
-    let show = show && !crate::macos_fs_exit::exit_armed();
+    let show = chrome_bars_show(&c);
     let reveal_changed = set_toolbar_reveal(c.root, show);
     sync_header_window_controls(c.header, c.hdr_csd_baseline, show, c.root);
     log_chrome_layout(&c, show);
