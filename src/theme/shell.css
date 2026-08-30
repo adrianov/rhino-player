@@ -247,15 +247,16 @@
         frame.rp-seek-thumb-frame {
             padding: 0;
             background-color: #2d2d2d;
-            border: 1px solid rgba(255, 255, 255, 0.18);
+            border: none;
             border-radius: 8px;
             box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
         }
         frame.rp-seek-thumb-frame > border {
-            border: none;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 8px;
         }
         frame.rp-seek-thumb-frame glarea {
-            border-radius: 7px;
+            border-radius: 8px 8px 0 0;
         }
         label.rp-seek-thumb-chapter {
             color: #e0dfd8;
