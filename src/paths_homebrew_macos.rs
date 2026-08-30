@@ -2,14 +2,6 @@
 // process was started outside a login shell (Finder / Dock / `open` on a `.app`).
 // Without this, libadwaita aborts with "No GSettings schemas are installed on the system".
 
-#[cfg(target_os = "macos")]
-use std::ffi::OsString;
-#[cfg(target_os = "macos")]
-use std::path::{Path, PathBuf};
-
-#[cfg(target_os = "macos")]
-const HOMEBREW_PREFIXES: &[&str] = &["/opt/homebrew", "/usr/local"];
-
 /// Prepend `dir` to a `:`-separated env var when it is not already a path entry.
 #[cfg(target_os = "macos")]
 fn prepend_path_env(key: &str, dir: &Path) {
@@ -26,14 +18,14 @@ fn prepend_path_env(key: &str, dir: &Path) {
     };
     // SAFETY: single-threaded startup before GTK; no other threads read env yet.
     unsafe {
-        std::env::set_var(key, OsString::from(merged));
+        std::env::set_var(key, merged);
     }
 }
 
 /// First Homebrew prefix whose `share/glib-2.0/schemas` tree exists.
 #[cfg(target_os = "macos")]
 fn homebrew_share_with_schemas() -> Option<PathBuf> {
-    HOMEBREW_PREFIXES.iter().find_map(|prefix| {
+    ["/opt/homebrew", "/usr/local"].iter().find_map(|prefix| {
         let share = Path::new(prefix).join("share");
         share
             .join("glib-2.0/schemas")
