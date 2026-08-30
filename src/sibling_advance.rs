@@ -44,7 +44,11 @@ fn last_video_in_dir(dir: &Path) -> Option<PathBuf> {
 mod dvd {
     include!("sibling_advance_dvd.rs");
 }
+mod series {
+    include!("sibling_advance_series.rs");
+}
 use dvd::{dvd_disc_sibling, is_dvd_queue_path};
+use series::same_series_dirs;
 
 /// Sibling entries after `idx` (step > 0) or before it, reversed (step < 0); [None] for step 0.
 fn step_ordered(subs: &[PathBuf], idx: usize, step: isize) -> Option<Vec<&PathBuf>> {
@@ -55,19 +59,30 @@ fn step_ordered(subs: &[PathBuf], idx: usize, step: isize) -> Option<Vec<&PathBu
     }
 }
 
-/// First (forward) or last (backward) video in the adjacent sibling subfolder of `dir`,
-/// under the same enclosing directory. Skips siblings without videos.
-fn adjacent_sibling_dir_video(dir: &Path, step: isize) -> Option<PathBuf> {
+/// Sorted sibling dirs of `dir`'s parent, plus `dir`'s index among them.
+fn dir_sibling_index(dir: &Path) -> Option<(Vec<PathBuf>, usize)> {
     let parent = dir.parent()?;
     let my = dir.file_name()?;
     let subs = child_dirs_sorted(parent);
     let idx = subs.iter().position(|s| s.file_name() == Some(my))?;
-    for sdir in step_ordered(&subs, idx, step)? {
-        if let Some(f) = sibling_video(sdir, step) {
-            return Some(f);
-        }
+    Some((subs, idx))
+}
+
+/// First (forward) or last (backward) video in the adjacent sibling subfolder of `dir`,
+/// under the same enclosing directory. Skips empty siblings and folders that belong to a
+/// different series (season markers stripped; see `series::same_series_dirs`).
+fn adjacent_sibling_dir_video(dir: &Path, step: isize) -> Option<PathBuf> {
+    let (subs, idx) = dir_sibling_index(dir)?;
+    step_ordered(&subs, idx, step)?
+        .into_iter()
+        .find_map(|sdir| same_series_pick(dir, sdir, step))
+}
+
+fn same_series_pick(from: &Path, sdir: &Path, step: isize) -> Option<PathBuf> {
+    if !same_series_dirs(from, sdir) {
+        return None;
     }
-    None
+    sibling_video(sdir, step)
 }
 
 /// First video (forward step) or last video (backward step) in [sdir].
@@ -80,10 +95,10 @@ fn sibling_video(sdir: &Path, step: isize) -> Option<PathBuf> {
 }
 
 /// Local file that follows `current` in the same **sorted** folder, then—if that folder is
-/// exhausted—the first video in the next sibling directory under the **same** enclosing directory
-/// only (e.g. next season next to the current season). There is **no** walk further up the tree, so
-/// unrelated directories beside that grouping are never queued (e.g. another series under a shared
-/// library folder). Used for EOF advance and the **Next** control.
+/// exhausted—the first video in the next **same-series** sibling directory under the **same**
+/// enclosing directory only (e.g. next season next to the current season). Unrelated show folders
+/// beside it are skipped. There is **no** walk further up the tree. Used for EOF advance and the
+/// **Next** control.
 pub(crate) fn next_after_eof(current: &Path) -> Option<PathBuf> {
     if is_dvd_queue_path(current) {
         return dvd_disc_sibling(current, 1);
@@ -93,7 +108,6 @@ pub(crate) fn next_after_eof(current: &Path) -> Option<PathBuf> {
     }
     let current = current.to_path_buf();
     let dir = current.parent()?;
-
     if let Some(videos) = list_videos_in_dir(dir) {
         if let Some(i) = index_in_list(&videos, &current) {
             if i + 1 < videos.len() {
@@ -101,12 +115,12 @@ pub(crate) fn next_after_eof(current: &Path) -> Option<PathBuf> {
             }
         }
     }
-
     adjacent_sibling_dir_video(dir, 1)
 }
 
 /// Symmetric to [next_after_eof]: the previous file in the same folder, or the **last** video in
-/// the **previous** sibling subfolder under the same enclosing directory only (no extra walk-up).
+/// the **previous** same-series sibling subfolder under the same enclosing directory only (no
+/// extra walk-up; unrelated series folders are skipped).
 pub(crate) fn prev_before_current(current: &Path) -> Option<PathBuf> {
     if is_dvd_queue_path(current) {
         return dvd_disc_sibling(current, -1);
@@ -116,20 +130,18 @@ pub(crate) fn prev_before_current(current: &Path) -> Option<PathBuf> {
     }
     let current = current.to_path_buf();
     let dir = current.parent()?;
-
-    if let Some(videos) = list_videos_in_dir(dir) {
-        if let Some(i) = index_in_list(&videos, &current) {
-            if i > 0 {
-                return Some(videos[i - 1].clone());
-            }
-        } else {
-            return None;
-        }
-    } else {
-        return None;
+    let (videos, i) = index_in_dir_videos(&current, dir)?;
+    if i > 0 {
+        return Some(videos[i - 1].clone());
     }
-
     adjacent_sibling_dir_video(dir, -1)
+}
+
+/// Index of `current` in the sorted video list of `dir`, with that list.
+fn index_in_dir_videos(current: &Path, dir: &Path) -> Option<(Vec<PathBuf>, usize)> {
+    let videos = list_videos_in_dir(dir)?;
+    let i = index_in_list(&videos, current)?;
+    Some((videos, i))
 }
 
 #[cfg(test)]

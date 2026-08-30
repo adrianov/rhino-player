@@ -26,7 +26,7 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 03 | [mpv embed: render context and video surface](features/03-mpv-embedding.md) | done |
 | 04 | [Transport: play, pause, seek, progress UI](features/04-transport-and-progress.md) | done |
 | 06 | [Open files: file picker, folder, CLI, single-instance](features/06-open-and-cli.md) | wip |
-| 07 | [Sibling folder queue (folder playback)](features/07-sibling-folder-queue.md) | done |
+| 07 | [Sibling folder queue](features/07-sibling-folder-queue.md) | done |
 | 08 | [Tracks: audio, video, subtitles](features/08-tracks.md) | wip |
 | 09 | [Chapters: marks, menu, seek bar hover](features/09-chapters.md) | wip |
 | 10 | [Video options: aspect, crop, zoom, filters](features/10-video-options.md) | planned |

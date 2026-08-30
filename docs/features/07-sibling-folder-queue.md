@@ -1,4 +1,4 @@
-# Sibling folder queue (folder playback)
+# Sibling folder queue
 
 ---
 status: done
@@ -9,12 +9,12 @@ related: [02, 03, 04, 06, 13, 21, 28]
 
 ## Use cases
 - After a file ends, continue with the next file in the same directory.
-- When the directory is exhausted, continue in the next sibling subdirectory under the same parent (e.g. next season folder).
+- When the directory is exhausted, continue in the next same-series sibling subdirectory under the same parent (e.g. next season folder), not an unrelated show beside it.
 - Browse a folder tree without going back to **Open** between files.
 - Keep watching an unfinished download without jumping to the next folder neighbour when playable data runs out.
 
 ## Description
-On natural end of playback, the next file in **sorted** order in the current directory loads automatically. If the current file was the last in its directory, the app looks only among **sibling directories that share the same immediate enclosing directory** (e.g. next season folder beside the current season); the first sorted video in the next such directory loads, and empty siblings are skipped. The queue **does not** walk further up the tree to other directory groups (e.g. it does not jump from one show folder to an unrelated show folder that lives beside it under a shared library folder). With no next file in-folder and no later sibling directory with a video, playback stops (no wrap).
+On natural end of playback, the next file in **sorted** order in the current directory loads automatically. If the current file was the last in its directory, the app looks only among **sibling directories that share the same immediate enclosing directory**; empty siblings are skipped. When a sibling folder is season-named, advance continues only into another folder of the **same series** (folder title after season markers are removed), so an unrelated show beside it is not queued. Sibling folders with no season markers still advance as before. The queue **does not** walk further up the tree to other directory groups. With no next file in-folder and no later eligible sibling directory with a video, playback stops (no wrap).
 
 Sibling videos use the shared extension list from open / folder scan; the listing is non-recursive per directory and ordering uses natural lexical comparison (case-insensitive, with natural digit runs). Bottom-bar **Previous** / **Next** use the same ordering when a local file with duration is loaded.
 
@@ -38,13 +38,15 @@ Feature: Sibling folder queue
 
   Scenario: Advance to next sibling folder when current folder is exhausted
     Given the current file is the last in its directory by sorted order
+    And a later sibling subdirectory under the parent belongs to the same series
     When end-of-playback occurs
-    Then the first sorted video in the next sibling subdirectory under the parent loads
+    Then the first sorted video in the next same-series sibling subdirectory under the parent loads
     And empty sibling subdirectories are skipped
+    And sibling subdirectories of a different series are skipped
 
   Scenario: No further sibling stops playback
     Given there is no next sorted file in the current directory
-    And no later sibling directory under the same immediate enclosing directory holds a next playable file
+    And no later same-series sibling directory under the same immediate enclosing directory holds a next playable file
     When end-of-playback occurs
     Then playback stops without wrapping back to the first folder
 
@@ -52,6 +54,18 @@ Feature: Sibling folder queue
     Given the current file is last in its directory and playable files exist only under a different directory that is a sibling of the directory that contains the current directory
     When end-of-playback occurs
     Then playback stops without loading those files
+
+  Scenario: Flat library does not advance into a different series
+    Given the current file is the last in a season folder whose name includes the series title
+    And the next sibling directory under the same parent is a season folder of a different series
+    When end-of-playback occurs
+    Then playback stops without loading that other series
+
+  Scenario: Advance across season-only sibling folders
+    Given the current file is the last in a season folder named only with a season label
+    And a later sibling directory under the same parent is also named only with a season label
+    When end-of-playback occurs
+    Then the first sorted video in that later season folder loads
 
   Scenario: Exit After Current Video overrides advance
     Given the session-only Exit After Current Video option is enabled
@@ -114,6 +128,7 @@ Feature: Sibling folder queue
 - Before loading the next sibling after EOF, mpv `speed` is set to **1.0** when it was not already (see [28-playback-speed](28-playback-speed.md)).
 - The last successfully loaded canonical path is used when `path` is empty.
 - Local files only: with no resolvable path, no advance runs.
-- Implementation: `src/sibling_advance.rs`, `src/incomplete_download_eof.rs` (`IncompleteEofHold`), `src/app/load.rs::maybe_advance_sibling_on_eof`, `src/app/transport_events.rs`.
+- Implementation: `src/sibling_advance.rs`, `src/sibling_advance_series.rs` (exact stem equality after season-marker strip), `src/incomplete_download_eof.rs` (`IncompleteEofHold`), `src/app/load.rs::maybe_advance_sibling_on_eof`, `src/app/transport_events.rs`.
+- Same-series gate (`sibling_advance_series.rs`): when either sibling folder looks seasonal (`Season N` / `Сезон N` / `Sxx` / bare `01`), compare stems after stripping those markers (+ years) and collapsing leftover separators (`-`, parentheses, etc.); equal stems or two season-only labels match. When **neither** folder looks seasonal, keep classic any-sibling advance (movie dirs). DVD disc-sibling advance is unchanged.
 - Sensitivity and tooltips update on `path` change plus `FileLoaded` / `VideoReconfig`; chrome controls update from `mpv_observe_property` events with no-op-change guards (so tooltip-show timers are not reset).
 - Out of scope here: arbitrary multi-title playlists, shuffle, MIME probing.
