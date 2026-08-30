@@ -46,7 +46,7 @@ See the full feature index in [docs/README.md](docs/README.md).
 brew install adrianov/rhino-player/rhino-player
 ```
 
-Builds from source and pulls **GTK 4**, **libadwaita**, and **mpv** as dependencies. Installs the Freedesktop app icon into the icon theme, and on macOS a **`Rhino Player.app`** with **AppIcon.icns** (symlink into `/Applications` if you want Launchpad / Finder). For Smooth Video, also `brew install vapoursynth-mvtools`.
+Builds from source and pulls **GTK 4**, **libadwaita**, and **mpv** as dependencies. Installs the Freedesktop app icon into the icon theme, and on macOS a **`Rhino Player.app`** with **AppIcon.icns** (symlink into `/Applications` if you want Launchpad / Finder). The app primes Homebrew’s GSettings schema path so Finder / Dock launches work without a login shell. For Smooth Video, also `brew install vapoursynth-mvtools` (then `brew reinstall rhino-player` so the `.app` can vendor the plugin). Formula mirror in-tree: [`packaging/homebrew/`](packaging/homebrew/). To pick up unreleased fixes: `brew install --HEAD adrianov/rhino-player/rhino-player`.
 
 ### GitHub Releases
 

@@ -79,4 +79,4 @@ pub use diagnostics::{cli_diagnostics_exit, cli_version_exit};
 pub use time::format_time;
 
 #[cfg(target_os = "macos")]
-pub use paths::macos_reexec_for_vapoursynth_dyld_if_needed;
+pub use paths::{macos_prime_homebrew_runtime_env, macos_reexec_for_vapoursynth_dyld_if_needed};

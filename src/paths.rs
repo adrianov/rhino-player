@@ -124,6 +124,7 @@ include!("paths_smooth_me_budget_env.rs");
 include!("paths_mvtools_macos.rs");
 include!("paths_mvtools_linux.rs");
 include!("paths_vapoursynth_macos.rs");
+include!("paths_homebrew_macos.rs");
 
 /// Playback speed (e.g. `1.0`, `1.5`, `2.0`, `8.0`) for the bundled `rhino_60_mvtools.vpy` so **FlowFPS** only fills
 /// frames to **~60** against **(source fps × speed)**. Set with [crate::video_pref::set_playback_speed_env_from_mpv] or [crate::video_pref::set_playback_speed_env] (known UI value) before the vf is built.

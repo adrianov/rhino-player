@@ -97,15 +97,29 @@ fn macos_seed_config_mvtools() -> Option<PathBuf> {
         return Some(existing);
     }
     let dest = crate::paths::app_config()?.join("lib/vapoursynth");
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/macos-vendor-smooth-libs.sh");
-    if !script.is_file() {
-        eprintln!(
-            "[rhino] video: cannot seed config MVTools (missing {})",
-            script.display()
-        );
-        return None;
-    }
+    let script = vendor_smooth_libs_script()?;
     seed_status_result(Command::new(&script).arg(&dest).status(), &dest)
+}
+
+/// Dev checkout script, else `PREFIX/share/rhino-player/scripts/…` next to the running exe.
+#[cfg(target_os = "macos")]
+fn vendor_smooth_libs_script() -> Option<PathBuf> {
+    let name = "macos-vendor-smooth-libs.sh";
+    let dev = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts").join(name);
+    if dev.is_file() {
+        return Some(dev);
+    }
+    for base in share_roots_next_to_exe() {
+        let p = base.join("share/rhino-player/scripts").join(name);
+        if p.is_file() {
+            return std::fs::canonicalize(&p).ok().or(Some(p));
+        }
+    }
+    eprintln!(
+        "[rhino] video: cannot seed config MVTools (missing scripts/{name} \
+         next to the binary or in the source tree)"
+    );
+    None
 }
 
 #[cfg(target_os = "macos")]
