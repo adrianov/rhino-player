@@ -4,7 +4,7 @@
 status: wip
 priority: p1
 layers: [ui, os-integration, playback, persistence]
-related: [07, 11, 12, 21]
+related: [07, 11, 12, 21, 35]
 ---
 
 ## Use cases
@@ -94,6 +94,13 @@ Feature: Open files and CLI integration
     When the app resolves a playable file inside it
     Then the first playable file in sorted order loads via the standard load path
     And subsequent siblings follow the sibling-folder queue rules
+
+  Scenario: Diagnostics switch skips the window
+    Given the user launches with the diagnostics switch
+    When the process starts
+    Then a readiness report is printed and the process exits
+    And the main window does not open
+    # full contract: 35-system-diagnostics
 
   Scenario: Invalid CLI path falls back to the recent grid
     Given the user passes an unsupported or missing path

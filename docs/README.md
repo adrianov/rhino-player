@@ -52,7 +52,8 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 32 | [Fill screen (fullscreen crop-to-fill toggle)](features/32-fill-screen.md) | done |
 | 33 | [Sibling search on the continue screen](features/33-continue-sibling-search.md) | done |
 | 34 | [Media files catalog](features/34-files-catalog.md) | wip |
-| 35 | [Homebrew / macOS packaged app launch](features/35-homebrew-macos-app-launch.md) | done |
+| 35 | [System diagnostics (CLI)](features/35-system-diagnostics.md) | done |
+| 36 | [Homebrew / macOS packaged app launch](features/36-homebrew-macos-app-launch.md) | done |
 
 Feature numbers **05**, **16**, and **19** are unused (withdrawn playlist / session-playlist topics; files removed).
 

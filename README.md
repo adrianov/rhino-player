@@ -184,6 +184,16 @@ python3 -c "import vapoursynth as vs; vs.core.std.LoadPlugin('$MT'); print(vs.co
 
 Both lines must print non-empty output. Then enable **Preferences → Smooth Video (60 FPS)** in Rhino.
 
+Or from Rhino itself (no UI):
+
+```bash
+rhino-player --diagnostics
+# packaged .app:
+"/Applications/Rhino Player.app/Contents/MacOS/rhino-player" --diagnostics
+```
+
+Exit status **0** means Smooth prerequisites look usable.
+
 ### Linux
 
 #### Install Dependencies

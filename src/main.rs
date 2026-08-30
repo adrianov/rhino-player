@@ -3,11 +3,17 @@
 //! Copyright © 2026 Peter Adrianov. GPL-3.0-or-later.
 
 fn main() -> ! {
+    if let Some(code) = rhino_player::cli_version_exit() {
+        std::process::exit(code);
+    }
     #[cfg(target_os = "macos")]
     {
         // Finder/Dock do not inherit shell XDG; prime before GTK and before any re-exec.
         rhino_player::macos_prime_homebrew_runtime_env();
         rhino_player::macos_reexec_for_vapoursynth_dyld_if_needed();
+    }
+    if let Some(code) = rhino_player::cli_diagnostics_exit() {
+        std::process::exit(code);
     }
     // Before GLib / GTK: on Linux, best-effort I/O scheduling *class* (not niceness); see `sched`.
     rhino_player::sched::raise_process_priority();
