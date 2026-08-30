@@ -47,15 +47,20 @@ fn toml_escape(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('\"', "\\\""))
 }
 
-/// Parse `"key" = ["exe","lib"]` → `(key, exe, lib)`.
+/// Parse `"key" = ["exe","lib"]` or VSScript's 3-field form `["exe","lib","mtime"]` → `(key, exe, lib)`.
 #[cfg(target_os = "macos")]
 fn parse_vs_toml_line(line: &str) -> Option<(String, String, String)> {
-    let line = line.trim();
-    let (key_part, rest) = line.split_once("\" = [\"")?;
+    let (key_part, rest) = line.trim().split_once("\" = [\"")?;
     let key = key_part.strip_prefix('\"')?.to_string();
-    let rest = rest.strip_suffix(']')?;
-    let (exe, lib) = rest.split_once("\",\"")?;
-    Some((key, exe.to_string(), lib.trim_end_matches('\"').to_string()))
+    let (exe, lib) = parse_vs_toml_paths(rest.strip_suffix(']')?)?;
+    Some((key, exe, lib))
+}
+
+#[cfg(target_os = "macos")]
+fn parse_vs_toml_paths(body: &str) -> Option<(String, String)> {
+    let (exe, after_exe) = body.split_once("\",\"")?;
+    let lib = after_exe.split("\",\"").next()?.trim_end_matches('\"');
+    Some((exe.to_string(), lib.to_string()))
 }
 
 #[cfg(target_os = "macos")]
@@ -69,13 +74,12 @@ fn same_vsscript_key(a: &str, b: &str) -> bool {
     }
 }
 
-/// Live + not a Cellar patch pin (those break on `brew upgrade python`).
+/// Mapping is usable when both paths still exist. Prefer rewriting only when a Cellar pin is
+/// dead (`brew upgrade python`); do not fight VSScript each launch when it rewrites a live
+/// Cellar path (+ optional mtime field) back into the toml.
 #[cfg(target_os = "macos")]
 fn macos_vs_python_mapping_ok(exe: &str, lib: &str) -> bool {
-    Path::new(exe).is_file()
-        && Path::new(lib).is_file()
-        && !lib.contains("/Cellar/python@")
-        && lib.contains("/opt/python@")
+    Path::new(exe).is_file() && Path::new(lib).is_file()
 }
 
 /// Replace or append the VSScript→Python mapping; keep every other line.

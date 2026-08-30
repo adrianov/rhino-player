@@ -39,6 +39,11 @@ pub(crate) fn pin_vsscript_python() {
     });
 }
 
+/// CLI diagnostics: resolve VSScript and hold one script env (same pin Smooth uses).
+pub(crate) fn diagnose_vsscript() -> Result<String, String> {
+    pin_once().map(|name| format!("pinned via {name}"))
+}
+
 fn pin_once() -> Result<&'static str, String> {
     for name in VSSCRIPT_LIB_NAMES {
         // Err aborts the search (API answered but failed); Ok(None) skips to the next candidate.

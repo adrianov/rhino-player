@@ -7,6 +7,7 @@ mod audio_tracks;
 mod chapter_list;
 mod continue_undo;
 mod db;
+mod diagnostics;
 mod dvd_ifo_parse;
 mod dvd_entity;
 mod dvd_vob_mpv_probe;
@@ -74,6 +75,7 @@ mod video_fill;
 mod video_pref;
 
 pub use app::{run, APP_ID};
+pub use diagnostics::{cli_diagnostics_exit, cli_version_exit};
 pub use time::format_time;
 
 #[cfg(target_os = "macos")]
