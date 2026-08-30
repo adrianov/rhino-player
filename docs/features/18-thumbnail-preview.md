@@ -53,13 +53,13 @@ Feature: Thumbnails: seek bar preview
     Then the preview is no longer shown
     And the window chrome arrangement matches the layout before the hover
 
-  Scenario: Seek preview does not flash window chrome
+  Scenario: Seek preview on inactive fullscreen does not ghost chrome
     Given seek bar preview is on
     And locally previewable media is open in full screen
     And the viewer window is not the active window
     When the user hovers the seek bar so the preview appears
-    Then the header and bottom chrome do not briefly flash or redraw
-    And the preview shows above the bar independently of chrome drawing
+    Then the video surface shows no bands of stale window chrome
+    And a thumbnail above the bar shows the video at the hovered time
 
   Scenario Outline: Show the preview in every window mode
     Given seek bar preview is on
@@ -84,4 +84,4 @@ Feature: Thumbnails: seek bar preview
 - Load selection and decode limits are owned by `preview_media_load.rs`; the separate `MpvPreviewGl` never seeks the main player. Optical-media mapping is delegated to the playback entity and timeline modules.
 - Leaving the bar hides the overlay with `set_visible(false)` but keeps the cached target. Reopen renders a warm frame immediately; `need_load` reloads after GL context loss. Main-media changes clear the target without replacing the preview GL context.
 - Debug: `[rhino] preview:` lifecycle and failure lines are always printed; `RHINO_PREVIEW_DEBUG=1` adds frame-pump trace.
-- UI: preview is a **`GtkFrame`** overlay on **`outer_ovl`** (not **`GtkPopover`**) — no separate compositor surface. **macOS:** opaque CSS on the frame at connect (`seek_bar_preview/macos_compositing.rs`); show/hide is **`set_visible` only**; lift uses **`bottom_shell`** height. Seek preview does **not** call **`macos_shell_compositing`** — that refresh is for header menu panels and was flashing chrome on unfocused theater hover. See [`references-gtk4-macos-header-menus.md`](../references-gtk4-macos-header-menus.md) (**Theater overlay compositing**).
+- UI: preview is a **`GtkFrame`** overlay on **`outer_ovl`** (not **`GtkPopover`**) — no separate compositor surface. **macOS:** opaque CSS on the frame at connect (`seek_bar_preview/macos_compositing.rs`); show/hide is **`set_visible` only**; lift uses **`bottom_shell`** height. Theater reopen calls **`macos_shell_compositing::preview_opened`** (same one-tick + double refresh as close — not the deferred-arm menu open path, which left stale titlebar tiles on the video while armed). Every hide calls **`overlay_closed`**. See [`references-gtk4-macos-header-menus.md`](../references-gtk4-macos-header-menus.md) (**Theater overlay compositing**).

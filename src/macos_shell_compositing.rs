@@ -1,9 +1,9 @@
-//! One gdk-macos hybrid-layer refresh policy for header menu `outer_ovl` panels.
+//! One gdk-macos hybrid-layer refresh policy for `outer_ovl` children.
 //!
 //! Video lives in a native `CAOpenGLLayer` under gdk-macos's GTK sublayer. Showing or
-//! hiding a header menu panel can leave stale chrome tiles — especially when the
-//! window is fullscreen and not key. Seek-bar preview must not call this path (it
-//! flashes chrome). Callers only report open/close; timing and invalidate live here.
+//! hiding an overlay child (header menu panel, seek preview) can leave stale chrome
+//! tiles — especially when the window is fullscreen and not key. Callers only report
+//! open/close; timing and invalidate live here.
 
 use std::cell::{Cell, RefCell};
 
@@ -69,11 +69,10 @@ pub fn overlay_opened() {
     settle_open();
 }
 
-/// Overlay child hidden. First refresh runs right after GTK drops the child from the
-/// render tree; a delayed pass repeats it once gdk-macos has repainted its layer —
-/// one refresh alone can replay a stale snapshot when the window is not key.
-/// A later open cancels pending close work, avoiding churn during rapid open/close.
-pub fn overlay_closed() {
+/// After an `outer_ovl` child show/hide that can leave stale tiles: wait one tick for
+/// GTK to commit the tree, refresh, then refresh again (one pass can replay a stale
+/// snapshot when the window is not key). Cancels any pending arm/settle first.
+fn flush_overlay_change() {
     disarm_hold();
     settle_after(std::time::Duration::ZERO, || {
         refresh();
@@ -82,4 +81,17 @@ pub fn overlay_closed() {
             refresh,
         );
     });
+}
+
+/// Seek preview became visible in theater.
+///
+/// Do **not** use [`overlay_opened`]'s deferred-arm path — that hold leaves titlebar
+/// ghosts on the video (worst when fullscreen and not key). Same flush as close.
+pub fn preview_opened() {
+    flush_overlay_change();
+}
+
+/// Overlay child hidden (menu panel or seek preview).
+pub fn overlay_closed() {
+    flush_overlay_change();
 }

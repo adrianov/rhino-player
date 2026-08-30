@@ -244,12 +244,12 @@ Feature: Window, fullscreen, and presentation
     Then the video surface shows no horizontal bands of stale header chrome
     And the overlay panel renders with opaque chrome
 
-  Scenario: Seek preview hover does not flash theater chrome
+  Scenario: Seek preview on inactive fullscreen does not ghost chrome
     Given the window is in native fullscreen presentation
     And a media title is playing with the continue grid hidden
     And the viewer window is not the active window
     When the user hovers the seek bar so the preview appears
-    Then the header and bottom chrome do not briefly flash or redraw
+    Then the video surface shows no bands of stale window chrome
 ```
 
 ## Notes
@@ -277,5 +277,5 @@ Feature: Window, fullscreen, and presentation
   that screen's size, then `setFrame:display:` with the screen's **global** `frame` (the
   `screen:` initializer treats origin as relative to the target display — feeding the global
   origin left secondary covers shifted so only part of the display went black).
-- **macOS theater overlay compositing (fixed):** showing header menu panels on **`outer_ovl`** in native fullscreen used to leave stale gdk-macos header tiles on the video; **`on_overlay_surface_opened`** + close tail **`on_menu_surface_closed`** refresh the shell (arm 300 ms → queue_draw → full invalidate ~332 ms later). Seek-bar preview stays off that path (opaque frame only) so unfocused theater hover does not flash chrome. See [`references-gtk4-macos-header-menus.md`](../references-gtk4-macos-header-menus.md).
+- **macOS theater overlay compositing (fixed):** showing **`outer_ovl`** children (header menu panel, seek preview) in native fullscreen used to leave stale gdk-macos header tiles on the video; header menus use **`on_overlay_surface_opened`** (arm 300 ms → soft refresh → full invalidate ~332 ms later); seek preview uses **`preview_opened`** (same one-tick + double refresh as close — no arm defer). Close tail **`overlay_closed`**. See [`references-gtk4-macos-header-menus.md`](../references-gtk4-macos-header-menus.md).
 - **Known macOS glitch (partial):** after programmatic fit-on-open, gdk-macos can leave the **bottom toolbar** transparent until a surface resize; USER-priority bottom CSS + surface-notify refresh + post-fit width nudge mitigate DVD/VOB open. Smooth `vf` does not run that pass (it flashed chrome). Repeated zoom/maximize/fullscreen churn can briefly show video through opaque chrome — **`invalidate_window_layers`** helps Space/cross-fade staleness only.
