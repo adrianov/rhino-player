@@ -46,7 +46,7 @@ See the full feature index in [docs/README.md](docs/README.md).
 brew install adrianov/rhino-player/rhino-player
 ```
 
-Builds from source and pulls **GTK 4**, **libadwaita**, and **mpv** as dependencies. For Smooth Video, also `brew install vapoursynth-mvtools`.
+Builds from source and pulls **GTK 4**, **libadwaita**, and **mpv** as dependencies. Installs the Freedesktop app icon into the icon theme, and on macOS a **`Rhino Player.app`** with **AppIcon.icns** (symlink into `/Applications` if you want Launchpad / Finder). For Smooth Video, also `brew install vapoursynth-mvtools`.
 
 ### GitHub Releases
 
