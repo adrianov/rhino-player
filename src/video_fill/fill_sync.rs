@@ -3,18 +3,33 @@
 use crate::black_bars::{
     apply_video_crop, clear_video_crop, pump_bar_probe, schedule_bar_probe, BarState,
 };
-use super::{monitor_ar, stored_fill_preference, FillSync, AR_TOLERANCE};
+use super::{stored_fill_preference, viewport_ar, FillSync, AR_TOLERANCE};
 use gtk::prelude::*;
 use std::rc::Rc;
 
 impl FillSync {
+    /// Wire the video surface for aspect checks and resize resync (once).
+    pub(super) fn attach_viewport(self: &Rc<Self>, viewport: &gtk::GLArea) {
+        *self.viewport.borrow_mut() = Some(viewport.clone());
+        if !self.resize_hooked.replace(true) {
+            let s = Rc::clone(self);
+            viewport.connect_resize(move |_, _, _| {
+                let s = Rc::clone(&s);
+                let _ = glib::idle_add_local_once(move || s.sync());
+            });
+        }
+        self.sync();
+    }
+
     /// Recheck visibility; apply or reset fill to match user preference.
     pub(super) fn sync(&self) {
-        let is_fs = self.win.is_fullscreen();
-        let can_fill = self.can_fill();
-        let show = is_fs && can_fill;
+        let show = self.aspect_mismatch();
         if show {
-            self.apply_fill(self.preferred.get());
+            let want = self.preferred.get();
+            // Re-apply when on so a late strip crop attaches; skip no-op fitted syncs.
+            if want || self.active.get() {
+                self.apply_fill(want);
+            }
         } else if self.active.get() {
             self.reset_fill_view();
         }
@@ -61,28 +76,34 @@ impl FillSync {
         );
     }
 
-    fn can_fill(&self) -> bool {
-        self.aspect_mismatch() || self.bars.has_crop()
+    /// Viewport vs content aspect (strip crop when known, else decode size).
+    fn aspect_mismatch(&self) -> bool {
+        let guard = self.viewport.borrow();
+        let Some(viewport) = guard.as_ref() else {
+            return false;
+        };
+        let Some(view_ar) = viewport_ar(viewport) else {
+            return false;
+        };
+        let Some(content_ar) = self.content_ar() else {
+            return false;
+        };
+        (view_ar - content_ar).abs() > AR_TOLERANCE
     }
 
-    fn aspect_mismatch(&self) -> bool {
+    fn content_ar(&self) -> Option<f64> {
+        if let Some(c) = self.bars.crop() {
+            return (c.w > 0 && c.h > 0).then(|| c.w as f64 / c.h as f64);
+        }
         let guard = self.player.borrow();
-        let Some(b) = guard.as_ref() else {
-            return false;
-        };
-        let Some(screen_ar) = monitor_ar(&self.win) else {
-            return false;
-        };
+        let b = guard.as_ref()?;
         let Ok(vw) = b.mpv.get_property::<i64>("dwidth") else {
-            return false;
+            return None;
         };
         let Ok(vh) = b.mpv.get_property::<i64>("dheight") else {
-            return false;
+            return None;
         };
-        if vw <= 0 || vh <= 0 {
-            return false;
-        }
-        (screen_ar - vw as f64 / vh as f64).abs() > AR_TOLERANCE
+        (vw > 0 && vh > 0).then(|| vw as f64 / vh as f64)
     }
 
     pub(super) fn apply_fill(&self, on: bool) {

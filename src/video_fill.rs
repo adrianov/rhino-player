@@ -1,12 +1,11 @@
-//! Fill-screen toggle: zoom video to fill the display by panning/scanning (mpv `panscan`)
-//! and crop baked-in black strips (`video-crop` from a short `cropdetect` probe).
+//! Fill toggle: zoom video to cover the **viewport** (`panscan`) and crop baked-in
+//! black strips (`video-crop` from a short `cropdetect` probe).
 //!
-//! The button appears in the header only in fullscreen when the video aspect ratio
-//! differs from the screen, or when strip detection finds meaningful bars. `preferred`
-//! tracks the user's intent and is restored each time fullscreen is re-entered, and
-//! re-read from the per-video `media.fill_screen` choice whenever new media opens.
-//! Panscan and `video-crop` are reset when the button hides (fullscreen exit or media
-//! change), but `preferred` only changes on a user toggle or a media open.
+//! The header button shows when the video surface aspect differs from the content
+//! aspect (strip crop when known, else decode size). Call [`bind_fill_viewport`]
+//! once the shell mounts the video `GLArea`. `preferred` tracks the user's intent
+//! across viewport size / fullscreen changes, and is re-read from the per-video
+//! `media.fill_screen` choice when new media opens.
 
 use gtk::prelude::*;
 use std::cell::Cell;
@@ -29,25 +28,24 @@ pub struct FillSync {
     btn: gtk::Button,
     /// Whether fill (panscan / bar crop) is currently applied to mpv.
     active: Cell<bool>,
-    /// The user's last explicit choice — restored when re-entering fullscreen.
+    /// The user's last explicit choice — restored when the button can show again.
     preferred: Cell<bool>,
     player: Rc<RefCell<Option<MpvBundle>>>,
-    win: adw::ApplicationWindow,
+    /// Video surface used for viewport aspect (set by [`bind_fill_viewport`]).
+    viewport: RefCell<Option<gtk::GLArea>>,
+    resize_hooked: Cell<bool>,
     bars: Rc<BarProbe>,
 }
 
-/// Returns the aspect ratio of the monitor the window is currently on.
-/// Uses GDK monitor geometry so it's available immediately, even during fullscreen transition.
-fn monitor_ar(win: &adw::ApplicationWindow) -> Option<f64> {
-    use gtk::prelude::NativeExt;
-    let surface = win.surface()?;
-    let monitor = gtk::prelude::WidgetExt::display(win).monitor_at_surface(&surface)?;
-    let geo = monitor.geometry();
-    let (w, h) = (geo.width(), geo.height());
+/// Aspect ratio of the video surface (`GLArea` allocation).
+fn viewport_ar(viewport: &gtk::GLArea) -> Option<f64> {
+    let w = viewport.width();
+    let h = viewport.height();
     (w > 0 && h > 0).then(|| w as f64 / h as f64)
 }
 
 /// Build the fill header button and wire fullscreen + transport resync.
+/// Pair with [`bind_fill_viewport`] after the video surface is created.
 pub fn build_fill_header(
     win: &adw::ApplicationWindow,
     player: &Rc<RefCell<Option<MpvBundle>>>,
@@ -58,13 +56,25 @@ pub fn build_fill_header(
         active: Cell::new(false),
         preferred: Cell::new(false),
         player: Rc::clone(player),
-        win: win.clone(),
+        viewport: RefCell::new(None),
+        resize_hooked: Cell::new(false),
         bars: Rc::new(BarProbe::new()),
     });
     connect_fill_clicked(&btn, &sync);
-    connect_fill_resync_on_fullscreen(win, &sync);
+    connect_fullscreen_resync(win, &sync);
     register_fill_hooks(&sync);
     (btn, sync)
+}
+
+/// Attach the video surface so fill can compare viewport vs content aspect.
+pub fn bind_fill_viewport(viewport: &gtk::GLArea) {
+    FILL_SYNC.with(|c| {
+        let Some(sync) = c.borrow().clone() else {
+            eprintln!("[rhino] fill: bind_fill_viewport before build_fill_header");
+            return;
+        };
+        sync.attach_viewport(viewport);
+    });
 }
 
 fn build_fill_button() -> gtk::Button {
@@ -122,8 +132,7 @@ fn stored_fill_preference(player: &Rc<RefCell<Option<MpvBundle>>>) -> bool {
         .unwrap_or(false)
 }
 
-fn connect_fill_resync_on_fullscreen(win: &adw::ApplicationWindow, sync: &Rc<FillSync>) {
-    // Defer sync: window dimensions are updated after fullscreened-notify fires.
+fn connect_fullscreen_resync(win: &adw::ApplicationWindow, sync: &Rc<FillSync>) {
     let sw = Rc::clone(sync);
     win.connect_fullscreened_notify(move |_| {
         let s = Rc::clone(&sw);
@@ -132,6 +141,7 @@ fn connect_fill_resync_on_fullscreen(win: &adw::ApplicationWindow, sync: &Rc<Fil
 }
 
 fn register_fill_hooks(sync: &Rc<FillSync>) {
+    FILL_SYNC.with(|c| *c.borrow_mut() = Some(Rc::clone(sync)));
     hook_resync(sync);
     hook_sync_only(sync);
     hook_reset(sync);
@@ -153,6 +163,7 @@ fn hook_reset(sync: &Rc<FillSync>) {
 }
 
 thread_local! {
+    static FILL_SYNC: RefCell<Option<Rc<FillSync>>> = const { RefCell::new(None) };
     static FILL_RESYNC: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     static FILL_SYNC_ONLY: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     static FILL_RESET: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };

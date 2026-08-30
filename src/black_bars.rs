@@ -80,10 +80,6 @@ impl BarProbe {
         gen
     }
 
-    pub fn has_crop(&self) -> bool {
-        matches!(self.state.get(), BarState::Crop(_))
-    }
-
     pub fn crop(&self) -> Option<CropRect> {
         match self.state.get() {
             BarState::Crop(r) => Some(r),

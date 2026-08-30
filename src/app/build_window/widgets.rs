@@ -39,6 +39,7 @@ fn build_widgets(
     #[cfg(target_os = "macos")]
     let bottom_shell = crate::macos_bottom_bar::wrap_row(&bottom);
     let video_handle = mount_video_overlay(&groups.gl_area, &groups.recent_scrl);
+    crate::video_fill::bind_fill_viewport(&groups.gl_area);
 
     WindowWidgets {
         win: groups.win,
