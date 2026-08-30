@@ -59,6 +59,7 @@ Feature: Thumbnails: seek bar preview
     And the viewer window is not the active window
     When the user hovers the seek bar so the preview appears
     Then the video surface shows no bands of stale window chrome
+    And the header and bottom chrome do not briefly flash or redraw
     And a thumbnail above the bar shows the video at the hovered time
 
   Scenario Outline: Show the preview in every window mode
@@ -76,7 +77,7 @@ Feature: Thumbnails: seek bar preview
 ## Notes
 - Settings: SQLite `seek_bar_preview` defaults to **on**; toggled from main menu Preferences (gio stateful action `seek-bar-preview`).
 - Hover time is `(x / width) * bar_upper` capped by [seek_bar_label_time]. Pointer release on the seek bar (trough or thumb drag) seeks the main player to that hover time, not the raw GtkRange thumb value; preview off falls back to capped thumb time ([`seek_wiring`](../../src/app/seek_wiring.rs)).
-- Preview **`GtkFrame`** on **`outer_ovl`** above the bottom bar; positioned from seek-bar pointer x; the preview **`GLArea`** is realised before first show.
+- Linux: preview **`GtkFrame`** on **`outer_ovl`** above the bottom bar. macOS: the same frame is inside an independent non-modal **`GtkPopover`** surface anchored to the seek bar.
 - Thumbnail sizing follows the source aspect and the bounds in `state_and_vo_pump.rs`.
 - Motion coalescing uses `PREVIEW_DEBOUNCE`; the debounce and frame pump run at default GLib priority.
 - The `Progress Bar Preview` row is the only preview-related preference; no separate preferences window.
@@ -84,4 +85,4 @@ Feature: Thumbnails: seek bar preview
 - Load selection and decode limits are owned by `preview_media_load.rs`; the separate `MpvPreviewGl` never seeks the main player. Optical-media mapping is delegated to the playback entity and timeline modules.
 - Leaving the bar hides the overlay with `set_visible(false)` but keeps the cached target. Reopen renders a warm frame immediately; `need_load` reloads after GL context loss. Main-media changes clear the target without replacing the preview GL context.
 - Debug: `[rhino] preview:` lifecycle and failure lines are always printed; `RHINO_PREVIEW_DEBUG=1` adds frame-pump trace.
-- UI: preview is a **`GtkFrame`** overlay on **`outer_ovl`** (not **`GtkPopover`**) — no separate compositor surface. **macOS:** opaque CSS on the frame at connect (`seek_bar_preview/macos_compositing.rs`); show/hide is **`set_visible` only**; lift uses **`bottom_shell`** height. Theater reopen calls **`macos_shell_compositing::preview_opened`** (same one-tick + double refresh as close — not the deferred-arm menu open path, which left stale titlebar tiles on the video while armed). Every hide calls **`overlay_closed`**. See [`references-gtk4-macos-header-menus.md`](../references-gtk4-macos-header-menus.md) (**Theater overlay compositing**).
+- **macOS independence:** `seek_bar_preview/macos_popup.rs` owns a non-modal, arrowless **`GtkPopover`** parented to the seek bar. Popup show/hide never calls shell compositing or invalidates the main content view, so it cannot redraw header/bottom chrome. Linux keeps the in-window overlay path.

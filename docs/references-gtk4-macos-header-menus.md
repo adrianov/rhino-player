@@ -43,7 +43,7 @@ Observed failure modes when forcing GtkPopover in theater:
 
 ## Native fullscreen — shipped solution (Overlay reparent)
 
-**Do not** use a separate Gdk popover surface in theater mode. **Do** reparent the existing popover **child** into a **[Gtk.Overlay](https://docs.gtk.org/gtk4/class.Overlay.html)** panel on the main shell — same pattern as seek-bar preview (`seek_bar_preview.rs`).
+For **header menus**, do not use a separate Gdk popover surface in theater mode. Reparent the existing popover **child** into a **[Gtk.Overlay](https://docs.gtk.org/gtk4/class.Overlay.html)** panel on the main shell. The small, noninteractive seek preview deliberately uses a separate popup surface so it cannot invalidate shell chrome.
 
 ### Widget tree
 
@@ -51,8 +51,10 @@ Observed failure modes when forcing GtkPopover in theater:
 ApplicationWindow
 └── outer_ovl (gtk::Overlay)          ← shell for dismiss pick + overlay children
     ├── child: root (adw::ToolbarView) — video, header bar, bottom chrome
-    ├── overlay: seek preview frame    (may stack above; menu re-raised on open)
     └── overlay: rp-header-menu-overlay Frame — theater menus only
+
+Seek scale
+└── rp-seek-popover (separate Gdk popup surface)
 ```
 
 Wiring: `chrome_header_menubtns.rs` → `HeaderMenuOverlay::wire(outer_ovl, win, root, header, menus)`.
@@ -71,10 +73,10 @@ Wiring: `chrome_header_menubtns.rs` → `HeaderMenuOverlay::wire(outer_ovl, win,
 2. Move real popover **child** from `Popover` → overlay **`Frame`** panel.
 3. Put invisible **placeholder** (`pop_ph`, zero size, `can_target(false)`) in the detached `Popover`; **`popdown`**.
 4. Anchor panel under the pressed button (`macos_header_menu_overlay_place.rs`: margins on `outer_ovl`).
-5. **`show_panel`** — `can_target(true)` on panel + **`enable_target_tree`** on content; **`raise_panel_top`** (unparent + re-`add_overlay`) so menu sits above seek preview.
+5. **`show_panel`** — `can_target(true)` on panel + **`enable_target_tree`** on content; **`raise_panel_top`** (unparent + re-`add_overlay`).
 6. Open state: CSS **`rp-header-menu-open`** (not `MenuButton.set_active` — avoids fighting overlay toggle).
 7. Speed: **`arm_list_pick_on_open`** (same 300 ms guard as windowed map/show). **Audio / subtitles:** **`header_menu_tracks::refresh_*_on_open`** before panel layout (same synchronous rebuild as windowed **`Popover.connect_show`**).
-8. **`on_overlay_surface_opened`** — compositing refresh (same tail as seek preview in theater).
+8. **`on_overlay_surface_opened`** — compositing refresh for the header menu panel.
 
 **Close menu** — toggle same button, outside click, sibling switch, exit fullscreen, `popdown_all`:
 
@@ -117,7 +119,7 @@ Dismiss controller lives on **`outer_ovl`**, not `ToolbarView`:
 ### Pitfalls (do not reintroduce)
 
 - **Do not** call **`invalidate_window_layers`** synchronously on **header menu** open — use **`on_overlay_surface_opened`** (arm + queue_draw, full invalidate after ~332 ms).
-- **Seek preview in theater** — use **`preview_opened`** (same one-tick + double refresh as close). Do **not** reuse the menu deferred-arm open path — that leaves titlebar ghosts on the video for the hold window (worst when not key).
+- **Seek preview in theater** — separate non-modal popup surface; show/hide must not call shell refresh or **`invalidate_window_layers`**.
 - **Do not** wire outside-dismiss pick on **`ToolbarView`** while overlay is on **`outer_ovl`**.
 - **Do not** leave overlay panel at **`can_target(false)`** while visible — menu items never receive clicks.
 - **Do not** keep popovers attached in theater **only** to avoid grey buttons — use detach + **`rp-header-menu-fs`** instead (orphan popup surface returns).
@@ -127,11 +129,11 @@ Dismiss controller lives on **`outer_ovl`**, not `ToolbarView`:
 
 Rhino on macOS uses a **hybrid render stack**: native mpv video in a **`CAOpenGLLayer`** at index 0 of the AppKit **`contentView`**, with gdk-macos drawing GTK chrome in a sublayer above it. The main video **`GLArea`** is transparent (`theme/macos_transparent.css` + alpha-0 GL clear) so the native layer shows through; header and bottom bars use **widget-level opaque CSS** (`macos_header_menu`, `macos_bottom_bar`).
 
-**Theater overlays** (header menu panel, seek-bar preview frame) are **`GtkOverlay`** children on **`outer_ovl`**, not separate Gdk popup surfaces — same surface as the main window, so no extra compositor window.
+Theater **header menu panels** are **`GtkOverlay`** children on **`outer_ovl`**. Seek preview is not: it has a separate popup surface.
 
 ### Symptom
 
-When an overlay child becomes visible in native fullscreen, gdk-macos can fail to repaint its GTK sublayer. Stale tiles from the header / titlebar (window title text, media-title fragments) appear as **horizontal semi-transparent bands** across the video area. The overlay itself may look correct; the glitch is **behind** it on the video stack. Worst when the window is **not key** (second display).
+When a header menu overlay child becomes visible in native fullscreen, gdk-macos can fail to repaint its GTK sublayer. Stale tiles from the header / titlebar appear as **horizontal semi-transparent bands** across the video area.
 
 Same class of bug as Space cross-fade staleness documented in **`macos_window::invalidate_window_layers`** — but triggered by **overlay show/hide** during theater playback, not only display changes.
 
@@ -146,20 +148,14 @@ Same class of bug as Space cross-fade staleness documented in **`macos_window::i
 | 3 | Open (+332 ms) | refresh again — full pass including **`invalidate_window_layers`** |
 | 4 | Close | cancel pending open settle, disarm, refresh after GTK removes the overlay child, then a second refresh after the hold window |
 
-**Seek preview** — do **not** arm/defer on open. The hold window left ghosts on the video (especially unfocused). Use **`preview_opened`**: same **`flush_overlay_change`** as close (one tick for GTK to commit visibility, refresh, delayed second pass). Close still uses **`overlay_closed`**.
-
-Rapid open/close/open sequences replace the pending settle source.
+**Seek preview** is outside this policy. Its separate popup surface opens and closes without touching the main content-view layer.
 
 ### Call sites
 
 | Overlay | Open | Close |
 |---------|------|-------|
 | Header menu (speed / sound / subtitles) | **`HeaderMenuOverlay::toggle`** after **`show_panel`** → **`on_overlay_surface_opened`** | **`hide_panel`** → **`on_menu_surface_closed`** |
-| Seek-bar preview | **`preview_opened`** (theater reopen) | **`overlay_closed`** — hide is **`set_visible(false)`** only |
-
-Seek preview stays on `outer_ovl` from startup (`deferred_after_present`); menus call **`raise_panel_top`** when opened so they stack above the preview. Preview does **not** re-`add_overlay` (that tore down the preview `GLArea`).
-
-Windowed mode does not call **`on_overlay_surface_opened`** / **`preview_opened`** — popover popup surfaces and normal gdk repaints are sufficient; the stale-tile bug is theater-specific.
+| Seek-bar preview | `GtkPopover::popup` | `GtkPopover::popdown` — no shell compositing |
 
 ### Related helpers
 
@@ -176,8 +172,8 @@ Windowed mode does not call **`on_overlay_surface_opened`** / **`preview_opened`
 | `macos_header_menu_overlay_place.rs` | Anchor math, scrolled max heights, `show_panel` / `hide_panel_widget`, target tree |
 | `macos_header_menu_overlay_input.rs` | Capture gestures, activate block, popover map/show guards |
 | `macos_header_menu_debug.rs` | Temporary stderr trace (remove when stable) |
-| Seek preview (theater) | `seek_bar_preview/macos_compositing.rs` — opaque frame CSS; open → **`preview_opened`**, close → **`overlay_closed`** |
-| `macos_shell_compositing.rs` | Menu deferred open + seek immediate flush + shared close |
+| Seek preview | `seek_bar_preview/macos_popup.rs` — independent non-modal popup surface |
+| `macos_shell_compositing.rs` | Header-menu overlay refresh only |
 | `macos_window_gdk_layout.rs` | Compositing refresh; defers invalidate while menus arm/open |
 | `macos_traffic_vertical.rs` | Stoplight vertical align + one-time X shift |
 | `chrome_macos_header_popovers.rs` | Outside-click dismiss on **`outer_ovl`** |

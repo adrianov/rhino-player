@@ -5,9 +5,10 @@ const VO_PUMP_STEP: Duration = Duration::from_millis(33);
 const PREVIEW_GAP: i32 = 8;
 
 pub struct SeekPreviewState {
-    /// Overlay child — add to the window overlay after [connect], stays on the same
-    /// [`GdkSurface`] so there is no compositor surface creation on show/hide.
+    /// Linux overlay child; macOS hosts it in [`popup`] on a separate surface.
     pub container: gtk::Frame,
+    #[cfg(target_os = "macos")]
+    pub popup: gtk::Popover,
     pub gl: gtk::GLArea,
     pub chapter_lbl: gtk::Label,
     pub time_lbl: gtk::Label,
@@ -28,9 +29,11 @@ pub struct SeekPreviewState {
     pub hover_t: Rc<Cell<f64>>,
     pub last_xy: Rc<RefCell<Option<(f64, f64)>>>,
     pub deb: Rc<RefCell<Option<glib::SourceId>>>,
-    /// User-visible preview; hide uses `set_visible(false)` only.
+    /// User-visible preview state.
     pub shown: Rc<Cell<bool>>,
+    #[cfg(not(target_os = "macos"))]
     pub bottom: gtk::Box,
+    #[cfg(not(target_os = "macos"))]
     pub ovl: gtk::Overlay,
 }
 
@@ -59,15 +62,23 @@ impl SeekPreviewState {
 
     pub(crate) fn show_at(&self, x: f64) {
         let reopening = !self.shown.get();
-        let (margin_start, margin_bottom) = self.show_margins(x);
-        self.container.set_margin_start(margin_start);
-        self.container.set_margin_bottom(margin_bottom);
+        #[cfg(target_os = "macos")]
+        let reopening = reopening || !self.popup.is_visible();
+        #[cfg(not(target_os = "macos"))]
+        {
+            let (margin_start, margin_bottom) = self.show_margins(x);
+            self.container.set_margin_start(margin_start);
+            self.container.set_margin_bottom(margin_bottom);
+        }
         self.container.set_can_target(false);
         self.shown.set(true);
         self.container.set_visible(true);
         #[cfg(target_os = "macos")]
-        if reopening {
-            macos_compositing::on_open(self);
+        {
+            macos_popup::point_at(self, x);
+            if reopening {
+                self.popup.popup();
+            }
         }
         if reopening && self.preview_media_warm() {
             self.gl.queue_render();
@@ -76,6 +87,7 @@ impl SeekPreviewState {
 
     /// Frame placement centered under the cursor, clamped to the seek overlay:
     /// returns (margin_start, margin_bottom).
+    #[cfg(not(target_os = "macos"))]
     fn show_margins(&self, x: f64) -> (i32, i32) {
         // frame: padding 3px + border 1px per side = 8px over gl width; use allocated width when ready.
         let preview_w = self.preview_frame_w();
@@ -88,6 +100,7 @@ impl SeekPreviewState {
 
     /// Allocated preview width (frame padding/border included), at least 1 px.
     /// Padding 3px + border 1px per side = 8px over gl width.
+    #[cfg(not(target_os = "macos"))]
     fn preview_frame_w(&self) -> f64 {
         (self
             .container
@@ -96,6 +109,7 @@ impl SeekPreviewState {
             .max(1)) as f64
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn cursor_x_in_overlay(&self, x: f64) -> f64 {
         self.seek
             .compute_point(&self.ovl, &gtk::graphene::Point::new(x as f32, 0.0))
@@ -110,7 +124,7 @@ impl SeekPreviewState {
         self.container.set_visible(false);
         self.container.set_can_target(false);
         #[cfg(target_os = "macos")]
-        macos_compositing::on_close();
+        self.popup.popdown();
     }
 
     /// Main player opened another file — drop cached load target and hide until re-hover.
@@ -186,6 +200,6 @@ fn main_player_video_dims(player: &Rc<RefCell<Option<MpvBundle>>>) -> (i32, i32)
 include!("preview_frame_pump.rs");
 
 #[cfg(target_os = "macos")]
-mod macos_compositing {
-    include!("macos_compositing.rs");
+mod macos_popup {
+    include!("macos_popup.rs");
 }

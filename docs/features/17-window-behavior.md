@@ -250,6 +250,7 @@ Feature: Window, fullscreen, and presentation
     And the viewer window is not the active window
     When the user hovers the seek bar so the preview appears
     Then the video surface shows no bands of stale window chrome
+    And the header and bottom chrome do not briefly flash or redraw
 ```
 
 ## Notes
@@ -277,5 +278,5 @@ Feature: Window, fullscreen, and presentation
   that screen's size, then `setFrame:display:` with the screen's **global** `frame` (the
   `screen:` initializer treats origin as relative to the target display — feeding the global
   origin left secondary covers shifted so only part of the display went black).
-- **macOS theater overlay compositing (fixed):** showing **`outer_ovl`** children (header menu panel, seek preview) in native fullscreen used to leave stale gdk-macos header tiles on the video; header menus use **`on_overlay_surface_opened`** (arm 300 ms → soft refresh → full invalidate ~332 ms later); seek preview uses **`preview_opened`** (same one-tick + double refresh as close — no arm defer). Close tail **`overlay_closed`**. See [`references-gtk4-macos-header-menus.md`](../references-gtk4-macos-header-menus.md).
+- **macOS theater compositing:** header menu panels remain **`outer_ovl`** children and use the shared shell refresh. Seek preview is an independent non-modal popup surface, so hover show/hide never redraws or invalidates the main shell.
 - **Known macOS glitch (partial):** after programmatic fit-on-open, gdk-macos can leave the **bottom toolbar** transparent until a surface resize; USER-priority bottom CSS + surface-notify refresh + post-fit width nudge mitigate DVD/VOB open. Smooth `vf` does not run that pass (it flashed chrome). Repeated zoom/maximize/fullscreen churn can briefly show video through opaque chrome — **`invalidate_window_layers`** helps Space/cross-fade staleness only.

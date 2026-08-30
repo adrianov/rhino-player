@@ -1,6 +1,8 @@
 pub struct SeekPreviewCtx {
+    #[cfg(not(target_os = "macos"))]
     pub ovl: gtk::Overlay,
-    /// Bottom chrome used for preview lift (`bottom_shell` on macOS, row elsewhere).
+    /// Bottom chrome used for preview lift.
+    #[cfg(not(target_os = "macos"))]
     pub bottom: gtk::Box,
 }
 
@@ -17,9 +19,10 @@ pub fn connect(
     seek: &gtk::Scale,
     seek_adj: &gtk::Adjustment,
     cells: SeekPreviewCells,
-    ctx: SeekPreviewCtx,
+    _ctx: SeekPreviewCtx,
 ) -> Rc<SeekPreviewState> {
-    let SeekPreviewCtx { ovl, bottom } = ctx;
+    #[cfg(not(target_os = "macos"))]
+    let SeekPreviewCtx { ovl, bottom } = _ctx;
     let SeekPreviewCells {
         player,
         last_path,
@@ -30,40 +33,45 @@ pub fn connect(
     let (gl, chapter_lbl, time_lbl, container) = build_preview_widgets();
     let (preview, loaded_path, loaded_target, preview_owner_db) = fresh_preview_slots();
 
-    let st = Rc::new(SeekPreviewState {
-        container,
-        gl,
-        chapter_lbl,
-        time_lbl,
-        preview,
-        loaded_path,
-        loaded_target,
-        preview_owner_db,
-        enabled,
-        seek: seek.clone(),
-        seek_adj: seek_adj.clone(),
-        player,
-        last_path,
-        chapters,
-        dvd_bar,
-        hover_t: cell_f64_slot(),
-        last_xy: xy_slot(),
-        deb: source_slot(),
-        shown: Cell::new(false).into(),
-        bottom,
-        ovl,
-        serial: Cell::new(0).into(),
-        pump: source_slot(),
-    });
-
-    finish_connect(seek, st)
+    finish_connect(
+        seek,
+        Rc::new(SeekPreviewState {
+            #[cfg(target_os = "macos")]
+            popup: macos_popup::build_popup(seek, &container),
+            container,
+            gl,
+            chapter_lbl,
+            time_lbl,
+            preview,
+            loaded_path,
+            loaded_target,
+            preview_owner_db,
+            enabled,
+            seek: seek.clone(),
+            seek_adj: seek_adj.clone(),
+            player,
+            last_path,
+            chapters,
+            dvd_bar,
+            hover_t: cell_f64_slot(),
+            last_xy: xy_slot(),
+            deb: source_slot(),
+            shown: Cell::new(false).into(),
+            #[cfg(not(target_os = "macos"))]
+            bottom,
+            #[cfg(not(target_os = "macos"))]
+            ovl,
+            serial: Cell::new(0).into(),
+            pump: source_slot(),
+        }),
+    )
 }
 
-/// Wires GL hooks, macOS compositing, motion controllers, and global registration.
+/// Wires GL hooks, macOS popup styling, motion controllers, and global registration.
 fn finish_connect(seek: &gtk::Scale, st: Rc<SeekPreviewState>) -> Rc<SeekPreviewState> {
     wire_preview_gl(&st);
     #[cfg(target_os = "macos")]
-    macos_compositing::wire_opaque_frame(&st);
+    macos_popup::wire_opaque_frame(&st);
     wire_motion_controllers(seek, &st);
     register(Rc::clone(&st));
     st

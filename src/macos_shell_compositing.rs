@@ -1,9 +1,9 @@
 //! One gdk-macos hybrid-layer refresh policy for `outer_ovl` children.
 //!
 //! Video lives in a native `CAOpenGLLayer` under gdk-macos's GTK sublayer. Showing or
-//! hiding an overlay child (header menu panel, seek preview) can leave stale chrome
-//! tiles — especially when the window is fullscreen and not key. Callers only report
-//! open/close; timing and invalidate live here.
+//! hiding a header menu panel can leave stale chrome tiles — especially when the
+//! window is fullscreen and not key. Callers only report open/close; timing and
+//! invalidate live here. Seek preview has a separate popup surface.
 
 use std::cell::{Cell, RefCell};
 
@@ -69,10 +69,10 @@ pub fn overlay_opened() {
     settle_open();
 }
 
-/// After an `outer_ovl` child show/hide that can leave stale tiles: wait one tick for
-/// GTK to commit the tree, refresh, then refresh again (one pass can replay a stale
-/// snapshot when the window is not key). Cancels any pending arm/settle first.
-fn flush_overlay_change() {
+/// Overlay child hidden (header menu panel).
+///
+/// Full chrome refresh — menus reparent large panels and need header/bottom redraw.
+pub fn overlay_closed() {
     disarm_hold();
     settle_after(std::time::Duration::ZERO, || {
         refresh();
@@ -81,17 +81,4 @@ fn flush_overlay_change() {
             refresh,
         );
     });
-}
-
-/// Seek preview became visible in theater.
-///
-/// Do **not** use [`overlay_opened`]'s deferred-arm path — that hold leaves titlebar
-/// ghosts on the video (worst when fullscreen and not key). Same flush as close.
-pub fn preview_opened() {
-    flush_overlay_change();
-}
-
-/// Overlay child hidden (menu panel or seek preview).
-pub fn overlay_closed() {
-    flush_overlay_change();
 }

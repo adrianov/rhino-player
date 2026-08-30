@@ -20,6 +20,7 @@ fn connect_seek_preview_after_present(
         },
         wap_seek_preview_ctx(args),
     );
+    #[cfg(not(target_os = "macos"))]
     args.w.outer_ovl.add_overlay(&seek_preview.container);
     (
         Rc::clone(&seek_preview.hover_t),
@@ -28,14 +29,12 @@ fn connect_seek_preview_after_present(
 }
 
 /// Overlay placement context for the seek preview.
-fn wap_seek_preview_ctx(args: &WindowAfterPresentArgs) -> seek_bar_preview::SeekPreviewCtx {
+fn wap_seek_preview_ctx(_args: &WindowAfterPresentArgs) -> seek_bar_preview::SeekPreviewCtx {
     seek_bar_preview::SeekPreviewCtx {
-        ovl: args.w.outer_ovl.clone(),
-        // Lift above the chrome that is actually in the toolbar (shell on macOS).
-        #[cfg(target_os = "macos")]
-        bottom: args.w.bottom_shell.clone(),
         #[cfg(not(target_os = "macos"))]
-        bottom: args.w.bottom.clone(),
+        ovl: _args.w.outer_ovl.clone(),
+        #[cfg(not(target_os = "macos"))]
+        bottom: _args.w.bottom.clone(),
     }
 }
 
