@@ -1,35 +1,68 @@
-//! [`FillSync`] state machine: button visibility and panscan application.
+//! [`FillSync`] state machine: button visibility, panscan, and baked-in bar crop.
 
-use super::{monitor_ar, FillSync, AR_TOLERANCE};
+use crate::black_bars::{
+    apply_video_crop, clear_video_crop, pump_bar_probe, schedule_bar_probe, BarState,
+};
+use super::{monitor_ar, stored_fill_preference, FillSync, AR_TOLERANCE};
 use gtk::prelude::*;
+use std::rc::Rc;
 
 impl FillSync {
-    /// Recheck visibility; apply or reset panscan to match user preference.
+    /// Recheck visibility; apply or reset fill to match user preference.
     pub(super) fn sync(&self) {
         let is_fs = self.win.is_fullscreen();
-        let mismatch = self.aspect_mismatch();
-        let show = is_fs && mismatch;
+        let can_fill = self.can_fill();
+        let show = is_fs && can_fill;
         if show {
-            self.apply_panscan(self.preferred.get());
+            self.apply_fill(self.preferred.get());
         } else if self.active.get() {
-            self.reset_panscan();
+            self.reset_fill_view();
         }
         self.btn.set_visible(show);
-        if is_fs && !mismatch {
-            if let Some(ar) = monitor_ar(&self.win) {
-                eprintln!("[rhino] fill: fullscreen but no AR mismatch (monitor={ar:.3})");
-            }
-        }
     }
 
-    /// New media opened: panscan resets for the runtime view, then `preferred` re-arms from the
-    /// per-video `media.fill_screen` choice so the next fullscreen sync applies it automatically.
+    /// New media opened: clear crop + view, re-arm preferred from DB, start strip probe.
     pub(super) fn reset_preferred(&self) {
-        self.preferred.set(super::stored_fill_preference(&self.player));
+        self.preferred.set(stored_fill_preference(&self.player));
+        self.bars.invalidate();
+        if let Some(b) = self.player.borrow().as_ref() {
+            clear_video_crop(&b.mpv);
+        }
         if self.active.get() {
-            self.reset_panscan();
+            self.reset_fill_view();
         }
         self.btn.set_visible(false);
+        self.kick_bar_probe();
+    }
+
+    /// FileLoaded / reconfig: start or resume strip probe, then sync visibility.
+    pub(super) fn on_media_ready(&self) {
+        match self.bars.state.get() {
+            BarState::Unknown => self.kick_bar_probe(),
+            BarState::Pending => self.resume_bar_probe(),
+            BarState::Clean | BarState::Crop(_) => {}
+        }
+        self.sync();
+    }
+
+    fn kick_bar_probe(&self) {
+        schedule_bar_probe(
+            &self.player,
+            &self.bars,
+            Rc::new(super::request_fill_sync_only),
+        );
+    }
+
+    fn resume_bar_probe(&self) {
+        pump_bar_probe(
+            &self.player,
+            &self.bars,
+            Rc::new(super::request_fill_sync_only),
+        );
+    }
+
+    fn can_fill(&self) -> bool {
+        self.aspect_mismatch() || self.bars.has_crop()
     }
 
     fn aspect_mismatch(&self) -> bool {
@@ -52,13 +85,20 @@ impl FillSync {
         (screen_ar - vw as f64 / vh as f64).abs() > AR_TOLERANCE
     }
 
-    pub(super) fn apply_panscan(&self, on: bool) {
+    pub(super) fn apply_fill(&self, on: bool) {
         self.active.set(on);
         self.preferred.set(on);
         if let Some(b) = self.player.borrow().as_ref() {
-            let v: f64 = if on { 1.0 } else { 0.0 };
-            if let Err(e) = b.mpv.set_property("panscan", v) {
-                eprintln!("[rhino] fill: panscan set failed: {e}");
+            if on {
+                apply_video_crop(&b.mpv, self.bars.crop());
+                if let Err(e) = b.mpv.set_property("panscan", 1.0f64) {
+                    eprintln!("[rhino] fill: panscan set failed: {e}");
+                }
+            } else {
+                clear_video_crop(&b.mpv);
+                if let Err(e) = b.mpv.set_property("panscan", 0.0f64) {
+                    eprintln!("[rhino] fill: panscan set failed: {e}");
+                }
             }
         }
         if on {
@@ -68,9 +108,10 @@ impl FillSync {
         }
     }
 
-    fn reset_panscan(&self) {
+    fn reset_fill_view(&self) {
         self.active.set(false);
         if let Some(b) = self.player.borrow().as_ref() {
+            clear_video_crop(&b.mpv);
             let _ = b.mpv.set_property("panscan", 0.0f64);
         }
         self.btn.remove_css_class("rp-fill-on");

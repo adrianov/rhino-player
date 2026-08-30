@@ -84,20 +84,70 @@ fn raw_frame_to_webp(
     let row_stride = packed_frame_dims_ok(w, h, stride, &pf, fmt, data)?;
     let dark = packed_frame_mostly_black(w, h, row_stride, pf.bpp, fmt, data);
     let flat = !dark && packed_frame_mostly_flat(w, h, row_stride, pf.bpp, fmt, data);
-    if dark && log_blank {
+    log_blank_frame(w, h, fmt, dark, flat, log_blank);
+    let webp = encode_thumb_region(w, h, row_stride, &pf, fmt, data, dark)?;
+    Some(Capture { webp, dark, flat })
+}
+
+fn encode_thumb_region(
+    w: usize,
+    h: usize,
+    row_stride: usize,
+    pf: &MpvPackedFmt,
+    fmt: &str,
+    data: &[u8],
+    dark: bool,
+) -> Option<Vec<u8>> {
+    let (ox, oy, cw, ch) = thumb_encode_crop(w, h, row_stride, pf.bpp, fmt, data, dark);
+    let start = oy * row_stride + ox * pf.bpp;
+    thumb_texture::encode_packed_webp(
+        &data[start..],
+        cw as u32,
+        ch as u32,
+        row_stride / pf.bpp,
+        pf.layout,
+    )
+}
+
+fn log_blank_frame(w: usize, h: usize, fmt: &str, dark: bool, flat: bool, log_blank: bool) {
+    if !log_blank {
+        return;
+    }
+    if dark {
         eprintln!(
             "[rhino] grid_thumb screenshot-raw dark frame {w}x{h} fmt={fmt} (accept when stable)"
         );
     }
-    if flat && log_blank {
+    if flat {
         eprintln!(
             "[rhino] grid_thumb screenshot-raw flat frame {w}x{h} fmt={fmt} (accept when stable)"
         );
     }
-    let stride_pixels = row_stride / pf.bpp;
-    let webp =
-        thumb_texture::encode_packed_webp(data, w as u32, h as u32, stride_pixels, pf.layout)?;
-    Some(Capture { webp, dark, flat })
+}
+
+/// Crop box for encode: strip baked-in bars unless the whole frame is a dark scene.
+fn thumb_encode_crop(
+    w: usize,
+    h: usize,
+    row_stride: usize,
+    bpp: usize,
+    fmt: &str,
+    data: &[u8],
+    dark: bool,
+) -> (usize, usize, usize, usize) {
+    if dark {
+        return (0, 0, w, h);
+    }
+    match crate::black_bars::detect_packed_crop(w, h, row_stride, bpp, fmt, data) {
+        Some(c) => {
+            eprintln!(
+                "[rhino] grid_thumb: crop bars {w}x{h} -> {}x{}+{}+{}",
+                c.w, c.h, c.x, c.y
+            );
+            (c.x as usize, c.y as usize, c.w as usize, c.h as usize)
+        }
+        None => (0, 0, w, h),
+    }
 }
 
 #[cfg(test)]

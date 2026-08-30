@@ -1,10 +1,12 @@
-//! Fill-screen toggle: zoom video to fill the display by panning/scanning (mpv `panscan`).
+//! Fill-screen toggle: zoom video to fill the display by panning/scanning (mpv `panscan`)
+//! and crop baked-in black strips (`video-crop` from a short `cropdetect` probe).
 //!
 //! The button appears in the header only in fullscreen when the video aspect ratio
-//! differs from the screen. `preferred` tracks the user's intent and is restored each
-//! time fullscreen is re-entered, and re-read from the per-video `media.fill_screen`
-//! choice whenever new media opens. Panscan is reset when the button hides (fullscreen
-//! exit or media change), but `preferred` only changes on a user toggle or a media open.
+//! differs from the screen, or when strip detection finds meaningful bars. `preferred`
+//! tracks the user's intent and is restored each time fullscreen is re-entered, and
+//! re-read from the per-video `media.fill_screen` choice whenever new media opens.
+//! Panscan and `video-crop` are reset when the button hides (fullscreen exit or media
+//! change), but `preferred` only changes on a user toggle or a media open.
 
 use gtk::prelude::*;
 use std::cell::Cell;
@@ -15,6 +17,8 @@ use crate::mpv_embed::MpvBundle;
 
 mod fill_sync;
 
+use crate::black_bars::BarProbe;
+
 const ICON: &str = "view-fill-symbolic";
 const TOOLTIP: &str = "Fill Screen";
 /// Aspect ratio difference below this threshold is treated as "already matching".
@@ -23,12 +27,13 @@ const AR_TOLERANCE: f64 = 0.02;
 /// Shared state for the fill button.
 pub struct FillSync {
     btn: gtk::Button,
-    /// Whether panscan is currently applied to mpv.
+    /// Whether fill (panscan / bar crop) is currently applied to mpv.
     active: Cell<bool>,
     /// The user's last explicit choice — restored when re-entering fullscreen.
     preferred: Cell<bool>,
     player: Rc<RefCell<Option<MpvBundle>>>,
     win: adw::ApplicationWindow,
+    bars: Rc<BarProbe>,
 }
 
 /// Returns the aspect ratio of the monitor the window is currently on.
@@ -54,6 +59,7 @@ pub fn build_fill_header(
         preferred: Cell::new(false),
         player: Rc::clone(player),
         win: win.clone(),
+        bars: Rc::new(BarProbe::new()),
     });
     connect_fill_clicked(&btn, &sync);
     connect_fill_resync_on_fullscreen(win, &sync);
@@ -93,7 +99,7 @@ fn connect_fill_clicked(btn: &gtk::Button, sync: &Rc<FillSync>) {
             "fill screen button -> {}",
             if on { "on" } else { "off" }
         ));
-        sc.apply_panscan(on);
+        sc.apply_fill(on);
         if let Some(path) = current_local_media_path(&sc.player) {
             crate::db::media_save_fill_screen(&path, on);
         }
@@ -126,18 +132,33 @@ fn connect_fill_resync_on_fullscreen(win: &adw::ApplicationWindow, sync: &Rc<Fil
 }
 
 fn register_fill_hooks(sync: &Rc<FillSync>) {
-    let st = Rc::clone(sync);
-    FILL_RESYNC.with(|s| *s.borrow_mut() = Some(Rc::new(move || st.sync())));
-    let sr = Rc::clone(sync);
-    FILL_RESET.with(|s| *s.borrow_mut() = Some(Rc::new(move || sr.reset_preferred())));
+    hook_resync(sync);
+    hook_sync_only(sync);
+    hook_reset(sync);
+}
+
+fn hook_resync(sync: &Rc<FillSync>) {
+    let s = Rc::clone(sync);
+    FILL_RESYNC.with(|c| *c.borrow_mut() = Some(Rc::new(move || s.on_media_ready())));
+}
+
+fn hook_sync_only(sync: &Rc<FillSync>) {
+    let s = Rc::clone(sync);
+    FILL_SYNC_ONLY.with(|c| *c.borrow_mut() = Some(Rc::new(move || s.sync())));
+}
+
+fn hook_reset(sync: &Rc<FillSync>) {
+    let s = Rc::clone(sync);
+    FILL_RESET.with(|c| *c.borrow_mut() = Some(Rc::new(move || s.reset_preferred())));
 }
 
 thread_local! {
     static FILL_RESYNC: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+    static FILL_SYNC_ONLY: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     static FILL_RESET: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
 }
 
-/// Called on `VideoReconfig` / `FileLoaded` to recheck fill button visibility.
+/// Called on `VideoReconfig` / `FileLoaded` to recheck fill and (re)try strip detection.
 pub fn request_fill_resync() {
     FILL_RESYNC.with(|s| {
         if let Some(f) = s.borrow().as_ref() {
@@ -146,7 +167,16 @@ pub fn request_fill_resync() {
     });
 }
 
-/// Called on `PathChanged` (new media) to clear the fill preference.
+/// Visibility / apply only (strip probe finished — do not restart detection).
+pub(crate) fn request_fill_sync_only() {
+    FILL_SYNC_ONLY.with(|s| {
+        if let Some(f) = s.borrow().as_ref() {
+            f();
+        }
+    });
+}
+
+/// Called on `PathChanged` (new media) to clear the fill preference and bar probe.
 pub fn request_fill_reset() {
     FILL_RESET.with(|s| {
         if let Some(f) = s.borrow().as_ref() {

@@ -49,7 +49,7 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 29 | [Blu-ray Bob deinterlace (60 fps fields)](features/29-bluray-deinterlace.md) | done |
 | 30 | [DVD unified timeline (all chapter VOBs)](features/30-dvd-unified-timeline.md) | done |
 | 31 | [Playback entity (single file + multi-part DVD)](features/31-playback-entity.md) | done |
-| 32 | [Fill screen (fullscreen crop-to-fill toggle)](features/32-fill-screen.md) | done |
+| 32 | [Fill screen (fullscreen crop-to-fill + baked-in black strips)](features/32-fill-screen.md) | done |
 | 33 | [Sibling search on the continue screen](features/33-continue-sibling-search.md) | done |
 | 34 | [Media files catalog](features/34-files-catalog.md) | wip |
 | 35 | [System diagnostics (CLI)](features/35-system-diagnostics.md) | done |

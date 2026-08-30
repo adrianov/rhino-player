@@ -70,6 +70,7 @@ mod track_menu_label;
 #[cfg(target_os = "macos")]
 mod trash_macos;
 mod trash_xdg;
+mod black_bars;
 mod video_ext;
 mod video_fill;
 mod video_pref;
