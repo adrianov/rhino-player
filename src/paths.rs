@@ -74,12 +74,26 @@ pub fn bundled_data_icons_dir_for_running_exe() -> Option<PathBuf> {
     icons.is_dir().then_some(icons)
 }
 
-/// Prefers **`Contents/Resources/data/icons`** in a `.app`; otherwise the compile-time **`data/icons`** checkout.
+/// Prefers **`.app` Resources**, then **`PREFIX/share/rhino-player/icons`** (Homebrew / `.deb`
+/// layout next to `bin/`), then the compile-time **`data/icons`** checkout.
 pub fn bundled_data_icons_dir_for_runtime() -> Option<PathBuf> {
-    bundled_data_icons_dir_for_running_exe().or_else(|| {
-        let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("data/icons");
-        p.is_dir().then_some(p)
-    })
+    bundled_data_icons_dir_for_running_exe()
+        .or_else(icons_dir_next_to_exe)
+        .or_else(|| {
+            let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("data/icons");
+            p.is_dir().then_some(p)
+        })
+}
+
+/// `PREFIX/share/rhino-player/icons` when the binary lives in **`PREFIX/bin`** (Homebrew, `.deb`).
+fn icons_dir_next_to_exe() -> Option<PathBuf> {
+    for base in share_roots_next_to_exe() {
+        let p = base.join("share/rhino-player/icons");
+        if p.is_dir() {
+            return std::fs::canonicalize(&p).ok().or(Some(p));
+        }
+    }
+    None
 }
 
 /// Bundled `data/vs/…/rhino_60_mvtools.vpy` when **Preferences** → VapourSynth is active and DB

@@ -5,7 +5,7 @@
 use crate::app::APP_ID;
 use crate::paths;
 
-/// Inserts **`Contents/Resources/data/icons`** (shipped `.app`) or **`CARGO_MANIFEST_DIR`/data/icons** at the
+/// Inserts **`.app` Resources**, **`PREFIX/share/rhino-player/icons`**, or **`data/icons`** at the
 /// **front** of the icon search path so bundled **`hicolor`** entries (e.g. `speedometer-symbolic`)
 /// win when the platform theme is incomplete (typical on macOS + Homebrew GTK).
 pub fn register_hicolor_from_manifest() {
