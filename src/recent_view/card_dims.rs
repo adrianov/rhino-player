@@ -1,7 +1,8 @@
 use adw::prelude::*;
 use gtk::prelude::WidgetExt;
 
-pub(crate) const CARD_ASPECT: f64 = 16.0 / 9.0;
+/// Same footprint as grid thumb decode ([crate::thumb_texture::GRID_CARD_ASPECT]).
+pub(crate) const CARD_ASPECT: f64 = crate::thumb_texture::GRID_CARD_ASPECT;
 /// Continue strip shows at most this many history cards (plus Open Video).
 pub(crate) const CONTINUE_DISPLAY_MAX: usize = 5;
 pub(crate) const CARD_MIN_W: i32 = 220;

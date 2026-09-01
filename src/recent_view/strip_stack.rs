@@ -37,8 +37,8 @@ pub fn new_scroll() -> ScrollArea {
 /// Horizontal row that hosts the continue cards.
 fn recent_strip_row() -> gtk::Box {
     let h = gtk::Box::new(gtk::Orientation::Horizontal, 16);
-    // Equal width/height from [sync_card_sizes] (fixed 16:9). Thumbnails use AspectFrame
-    // obey_child=false so a portrait still cannot raise the row and stretch siblings.
+    // Equal width/height from [sync_card_sizes] (fixed 16:9). Stills are cover-cropped and
+    // painted via [crate::thumb_texture] so a portrait WebP cannot raise the row.
     h.set_homogeneous(false);
     h.set_halign(gtk::Align::Center);
     h.set_baseline_position(gtk::BaselinePosition::Top);
