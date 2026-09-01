@@ -9,3 +9,10 @@ rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 # clang + lld on Linux (mold is an alternative; this project uses lld).
 [target.'cfg(target_os = "linux")']
 linker = "clang"
+
+# Match Homebrew GTK/mpv min OS (26.0); rustc defaults to 11.0 on Apple Silicon.
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-mmacosx-version-min=26.0"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-mmacosx-version-min=26.0"]
