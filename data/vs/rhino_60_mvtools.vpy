@@ -25,8 +25,8 @@ _TARGET_NUM = 60
 _TARGET_DEN = 1
 _TARGET_FRAC = Fraction(_TARGET_NUM, _TARGET_DEN)
 _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (extra ME path)
-# MVTools ``Analyse``: ``blksize`` is chosen so the **longest edge** divided by it is **≥ 12**
-# (power-of-2, **16–128**); ``overlap`` is always half of ``blksize``.
+# MVTools ``Analyse``: ``blksize`` is chosen from the **ME** raster (not full decode) so the
+# **longest edge** / ``blksize`` is **≥ 12** (power-of-2, **16–128**); ``overlap`` is always half of ``blksize``.
 # Block grid cost scales with ``blksize`` (smaller ⇒ usually more blocks per frame).
 # **Decode-area budget**: Rhino sets **`RHINO_SMOOTH_MAX_AREA`** (px²) before **`vf add`**; the script reads it via libc ``getenv``.
 # Standalone **mpv** + this script may set **`RHINO_SMOOTH_MAX_AREA`** instead when no snap path exists.
@@ -38,8 +38,7 @@ _MV_GLOBAL_HINT = {"global": True}  # global motion predictor on ``Analyse`` (ex
 _MV_BLK_MAX = 128
 _MV_BLK_MIN = 16
 _MV_BLK_MIN_CELLS = 12
-# aligning to **8** rather than snapping dimensions to ``blksize`` trims less from decode / scaled ME and still validates in practice — **mpv** +
-# **mv.Super/Analyse/FlowFPS** use ``blksize`` / ``overlap`` above.
+# Align ME dims to **8** (chroma-friendly); ``blksize`` / ``overlap`` come from the ME raster size above.
 _ME_GEOMETRY_ALIGN_PX = 8
 # ``Super`` **`levels`**: **0** = MVTools **automatic** pyramid depth from frame size (upstream default).
 _MV_SUPER_LEVELS = 0
@@ -604,7 +603,7 @@ else:
             work_me = core.resize.Bicubic(work, width=_aw, height=_ah)
             _me_path = "scaled"
         _blk, _ov, _pel, _sharp, _search, _fmask, _fblend, _tm, _mv_chroma = (
-            _mv_graph_for_frame_size(_decode_w, _decode_h)
+            _mv_graph_for_frame_size(_aw, _ah)
         )
         _eff_super_lv = _super_levels_effective(work_me.width, work_me.height)
         _super_kw = {
