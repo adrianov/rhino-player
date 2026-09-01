@@ -265,26 +265,12 @@ mod probe_tests {
         );
     }
 }
-// Parse lavfi cropdetect entries from mpv `vf-metadata/<label>` (`MPV_FORMAT_NODE` map).
+// Parse lavfi cropdetect from `vf-metadata/<label>` as `MPV_FORMAT_NODE` only.
+// Per-key `…/lavfi.cropdetect.*` get_property can SIGSEGV in libmpv (`mp_tags_get_bstr`
+// with NULL tags) while Smooth rebuilds the vf chain.
 
 fn read_cropdetect_meta(mpv: &Mpv) -> Option<CropMeta> {
-    if let Some(m) = read_meta_node(mpv) {
-        return Some(m);
-    }
-    let w = prop_i64(mpv, &format!("vf-metadata/{CROPDETECT_LABEL}/lavfi.cropdetect.w"))?;
-    let h = prop_i64(mpv, &format!("vf-metadata/{CROPDETECT_LABEL}/lavfi.cropdetect.h"))?;
-    let x = prop_i64(mpv, &format!("vf-metadata/{CROPDETECT_LABEL}/lavfi.cropdetect.x"))?;
-    let y = prop_i64(mpv, &format!("vf-metadata/{CROPDETECT_LABEL}/lavfi.cropdetect.y"))?;
-    Some(CropMeta { w, h, x, y })
-}
-
-fn prop_i64(mpv: &Mpv, name: &str) -> Option<i64> {
-    if let Ok(v) = mpv.get_property::<i64>(name) {
-        return Some(v);
-    }
-    mpv.get_property::<String>(name)
-        .ok()
-        .and_then(|s| s.trim().parse().ok())
+    read_meta_node(mpv)
 }
 
 fn read_meta_node(mpv: &Mpv) -> Option<CropMeta> {
