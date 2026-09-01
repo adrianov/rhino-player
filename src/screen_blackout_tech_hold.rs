@@ -40,6 +40,7 @@ impl TechHold {
         }
     }
 
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     fn is_live(&self, now: std::time::Instant) -> bool {
         self.depth > 0
             && self

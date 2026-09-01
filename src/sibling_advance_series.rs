@@ -85,6 +85,7 @@ fn stem_from_folded(folded: &str) -> String {
 }
 
 /// Series stem after season / year noise is removed. Empty = season-only label.
+#[cfg(test)]
 pub(super) fn folder_series_stem(name: &str) -> String {
     stem_from_folded(&fold_folder_chars(name))
 }

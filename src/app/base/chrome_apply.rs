@@ -106,6 +106,7 @@ fn log_chrome_layout<R: IsA<gtk::Widget>>(c: &ChromeApplyParts<'_, R>, show: boo
 }
 
 /// Queue surface redraw; macOS layer invalidate when bars toggled or caller forced layers.
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
 fn queue_native_repaint(gl: &gtk::GLArea, invalidate_layers: bool) {
     use gtk::prelude::NativeExt;
 

@@ -60,6 +60,7 @@ struct SpeedWiringCtx<'a> {
     app: &'a adw::Application,
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
 fn connect_speed_picks(
     ctx: SpeedWiringCtx<'_>,
     speed_list: &gtk::ListBox,

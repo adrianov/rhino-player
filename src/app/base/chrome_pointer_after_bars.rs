@@ -29,6 +29,7 @@ fn apply_theater_cursor_hide(
     true
 }
 
+#[cfg(target_os = "macos")]
 fn pointer_in_window_client(win: &adw::ApplicationWindow, x: f64, y: f64) -> bool {
     let w = win.width() as f64;
     let h = win.height() as f64;
@@ -40,6 +41,7 @@ fn pointer_in_window_client(win: &adw::ApplicationWindow, x: f64, y: f64) -> boo
         && y <= h
 }
 
+#[cfg(target_os = "macos")]
 fn pointer_over_video_gl(win: &adw::ApplicationWindow, gl: &gtk::GLArea) -> bool {
     use glib::prelude::Cast;
 
@@ -74,6 +76,7 @@ fn chrome_should_hide_cursor_for_media(player: &Rc<RefCell<Option<MpvBundle>>>) 
     }
 }
 
+#[cfg(target_os = "macos")]
 fn pointer_pick_xy_for_win(win: &adw::ApplicationWindow) -> Option<(f64, f64)> {
     use gtk::gdk::prelude::{DeviceExt, DisplayExt, SeatExt};
     use gtk::prelude::NativeExt;
