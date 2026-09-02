@@ -9,7 +9,7 @@ use gtk::prelude::IsA;
 
 use crate::media_probe::{self, card_data_list, CardData};
 
-/// Session undo: title, **Undo**, close (dismisses without restoring). Placed in [new_scroll] under the card row.
+/// Session undo: title, **Undo**, close (dismisses without restoring). Overlaid under the card row.
 /// Plain [gtk::Box] shell (not [gtk::Revealer]) so GTK does not paint an extra background plane behind the pill.
 pub struct UndoBar {
     /// Wraps the pill; visibility toggles; must stay visually transparent.
@@ -19,7 +19,7 @@ pub struct UndoBar {
     pub close: gtk::Button,
 }
 
-/// Pill-style bar; inserted in the continue [gtk::Box] directly below the thumbnail row.
+/// Pill-style bar; overlaid on the continue bottom spacer.
 fn new_undo_bar() -> UndoBar {
     let label = undo_label();
     let undo = undo_button();

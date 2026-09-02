@@ -34,14 +34,11 @@ fn toast_bar(label: &gtk::Label, close: &gtk::Button) -> gtk::Box {
     bar
 }
 
-/// Hidden-by-default vertical band under the continue strip; [css_classes] extend
-/// `rp-undo-shell`.
+/// Hidden-by-default shrink-wrap around the pill; [css_classes] extend `rp-undo-shell`.
 fn toast_shell(bar: &gtk::Box, css_classes: &[&str]) -> gtk::Box {
     let shell = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    shell.set_hexpand(true);
-    shell.set_halign(gtk::Align::Fill);
+    shell.set_halign(gtk::Align::Center);
     shell.set_valign(gtk::Align::Start);
-    shell.set_vexpand(false);
     shell.set_visible(false);
     shell.set_margin_top(4);
     shell.set_margin_start(16);

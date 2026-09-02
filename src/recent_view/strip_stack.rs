@@ -1,10 +1,10 @@
-// Continue-strip layout assembly: the vertical band (spacer / search row / card scroller /
-// undo + notice pills / spacer) and the horizontal card row with its scroller. The undo pill
-// widget itself stays in `undo_bar_scroll_new_row.rs`.
+// Continue-strip layout: vertical band (search spacer / card scroller / bottom overlay
+// spacer) and the horizontal card row. Undo / notice overlay that bottom spacer so they
+// do not reflow the strip. The undo pill widget stays in `undo_bar_scroll_new_row.rs`.
 
 /// Everything [new_scroll] builds for the continue screen, owned by [WindowWidgets].
 pub struct ScrollArea {
-    /// Vertical band: search row, spacers, card scroller, undo + notice pills.
+    /// Vertical band: search row, spacers, card scroller; undo / notice overlay the bottom.
     pub recent_scrl: gtk::Box,
     /// Horizontal row hosting the cards.
     pub flow_recent: gtk::Box,
@@ -65,11 +65,9 @@ fn recent_card_scroller(h: &gtk::Box) -> gtk::ScrolledWindow {
     card_scr
 }
 
-/// Vertical stack: top spacer (search centered in its free space), card scroller, undo pill
-/// band ([new_undo_bar]), notice band ([new_notice_toast]), bottom spacer. The two
-/// `[gtk::Box]` spacers are the **empty** hit area for main-window double-click fullscreen.
-///
-/// Returns the mounted undo/notice handles so callers wire visibility to the on-screen pills.
+/// Vertical stack: top spacer (search parked above the strip), card scroller, bottom overlay
+/// spacer. Undo / notice sit on that overlay just under the strip. The two `[gtk::Box]`
+/// spacers are the empty hit area for main-window double-click fullscreen.
 fn recent_stack(
     card_scr: &gtk::ScrolledWindow,
     search_row: &gtk::Box,
@@ -82,16 +80,30 @@ fn recent_stack(
     v.add_css_class("rp-recent-vbox");
 
     let sp_top = top_spacer_with_search(search_row);
-    let sp_bot = bottom_spacer();
     let undo_bar = new_undo_bar();
     let notice = new_notice_toast();
+    let (sp_bot, toast_ovl) = bottom_spacer_overlay(&undo_bar.shell, &notice.shell);
     v.append(&sp_top);
     v.append(card_scr);
-    v.append(&undo_bar.shell);
-    v.append(&notice.shell);
-    v.append(&sp_bot);
+    v.append(&toast_ovl);
 
     (v, [sp_top, sp_bot], undo_bar, notice)
+}
+
+/// Bottom expand spacer with undo / notice overlaid at its top. Overlay expand follows
+/// the main child (`gtk_overlay_compute_expand`), and overlay children are not measured,
+/// so showing a pill does not change the vbox split.
+fn bottom_spacer_overlay(undo_shell: &gtk::Box, notice_shell: &gtk::Box) -> (gtk::Box, gtk::Overlay) {
+    let ovl = gtk::Overlay::new();
+    let hit = flex_filler();
+    ovl.set_child(Some(&hit));
+    let band = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    band.set_halign(gtk::Align::Center);
+    band.set_valign(gtk::Align::Start);
+    band.append(undo_shell);
+    band.append(notice_shell);
+    ovl.add_overlay(&band);
+    (hit, ovl)
 }
 
 /// Top expand spacer with the search row parked just above the card strip (stable when
@@ -109,12 +121,6 @@ fn top_spacer_with_search(search_row: &gtk::Box) -> gtk::Box {
     search_row.set_margin_bottom(16);
     sp.append(&above);
     sp.append(search_row);
-    sp
-}
-
-fn bottom_spacer() -> gtk::Box {
-    let sp = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    sp.set_vexpand(true);
     sp
 }
 
