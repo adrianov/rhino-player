@@ -83,7 +83,7 @@ fn raw_frame_to_webp(
     let pf = mpv_packed_fmt(fmt)?;
     let row_stride = packed_frame_dims_ok(w, h, stride, &pf, fmt, data)?;
     let dark = packed_frame_mostly_black(w, h, row_stride, pf.bpp, fmt, data);
-    let flat = !dark && packed_frame_mostly_flat(w, h, row_stride, pf.bpp, fmt, data);
+    let flat = packed_frame_mostly_flat(w, h, row_stride, pf.bpp, fmt, data);
     log_blank_frame(w, h, fmt, dark, flat, log_blank);
     let webp = encode_thumb_region(w, h, row_stride, &pf, fmt, data, dark)?;
     Some(Capture { webp, dark, flat })
@@ -185,7 +185,7 @@ mod tests {
         let data = vec![0u8; w * h * 4];
         let c = raw_frame_to_webp(w, h, (w * 4) as isize, "bgr0", &data, true).unwrap();
         assert!(c.dark);
-        assert!(!c.flat);
+        assert!(c.flat);
         assert!(thumb_texture::thumb_webp_valid(&c.webp));
     }
 }

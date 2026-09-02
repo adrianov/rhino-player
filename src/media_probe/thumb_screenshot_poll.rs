@@ -93,7 +93,7 @@ fn poll_once(m: &mut Mpv, st: &mut PollState, deadline: Instant) -> PollOutcome 
     }
     st.polls += 1;
     if Instant::now() >= deadline {
-        return match timeout_poll_accept(st.polls, st.dark_webp.take()) {
+        return match timeout_poll_accept(st.polls, st.dark_webp.take().or(st.flat_webp.take())) {
             Some(webp) => PollOutcome::Accept(webp),
             None => PollOutcome::Timeout,
         };
@@ -101,11 +101,11 @@ fn poll_once(m: &mut Mpv, st: &mut PollState, deadline: Instant) -> PollOutcome 
     PollOutcome::Continue
 }
 
-/// Deadline hit: prefer a previously captured dark frame, else give up.
-fn timeout_poll_accept(polls: u32, dark_webp: Option<Vec<u8>>) -> Option<Vec<u8>> {
-    if dark_webp.is_some() {
-        eprintln!("[rhino] grid_thumb dark frame accepted at timeout");
-        return dark_webp;
+/// Deadline hit: keep a previously captured dark or flat frame, else give up.
+fn timeout_poll_accept(polls: u32, blank: Option<Vec<u8>>) -> Option<Vec<u8>> {
+    if blank.is_some() {
+        eprintln!("[rhino] grid_thumb blank frame accepted at timeout");
+        return blank;
     }
     eprintln!("[rhino] grid_thumb screenshot-raw capture timeout after {polls} polls");
     None

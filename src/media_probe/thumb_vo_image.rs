@@ -230,20 +230,28 @@ fn vo_image_grab_frame(
         keyframes,
     )
     .ok_or(ThumbFail::Other)?;
+    let cap = vo_image_probe_cap(m, plan);
     vo_image_prefer_nonflat(
         FlatNudgeCtx {
             m,
             src,
             ifo_seek: plan.ifo_seek,
-            cap: plan.cap,
+            cap,
             chain_head: plan.chain_head,
             dvd_vob: plan.dvd_vob,
             wait_secs,
-            keyframes,
         },
         first,
     )
     .ok_or(ThumbFail::Other)
+}
+
+/// DVD chapters stay on the planned chapter cap; other files use demuxer duration after load.
+fn vo_image_probe_cap(m: &Mpv, plan: &VoImagePlan) -> f64 {
+    if plan.dvd_vob {
+        return plan.cap;
+    }
+    vo_image_duration_sec(m).max(plan.cap)
 }
 
 #[cfg(test)]

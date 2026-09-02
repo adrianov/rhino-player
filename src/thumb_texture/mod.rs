@@ -203,6 +203,24 @@ mod tests {
     }
 
     #[test]
+    fn solid_black_samples_are_flat() {
+        let samples = [(0u8, 0, 0); 64];
+        assert!(rgb_samples_mostly_flat(samples));
+    }
+
+    #[test]
+    fn solid_black_webp_is_flat() {
+        let w = 64u32;
+        let h = 36u32;
+        let mut bgra = vec![0u8; w as usize * h as usize * 4];
+        for px in bgra.chunks_mut(4) {
+            px[3] = 255;
+        }
+        let webp = encode_packed_webp(&bgra, w, h, w as usize, PixelLayout::Bgra8).expect("encode");
+        assert!(thumb_webp_is_flat_fill(&webp));
+    }
+
+    #[test]
     fn flat_fill_webp_detected() {
         let w = 64u32;
         let h = 36u32;

@@ -1,12 +1,13 @@
-// Flat-still nudge: if the primary capture is almost uniform, retry nearby seeks.
+// Flat-still nudge: if the primary capture is almost uniform, retry later seeks
+// at doubling offsets (+1s, +2s, +4s, …) until a detailed frame or the duration cap.
 
 use libmpv2::Mpv;
 use std::path::Path;
 
 use super::vo_image_capture_after_seek;
 
-/// Seconds offset from the primary still when that still is almost uniform (title card / solid fill).
-const FLAT_NUDGE_SECS: &[f64] = &[2.5, 7.0, -2.5];
+/// Largest forward offset from the primary still (doubling stops here).
+const FLAT_NUDGE_MAX_SEC: f64 = 64.0;
 
 pub(super) struct FlatNudgeCtx<'a> {
     pub m: &'a mut Mpv,
@@ -16,20 +17,20 @@ pub(super) struct FlatNudgeCtx<'a> {
     pub chain_head: bool,
     pub dvd_vob: bool,
     pub wait_secs: u64,
-    pub keyframes: bool,
 }
 
-/// If `first` is almost uniform, recapture at nearby times; keep `first` only when every nudge is flat.
+/// If `first` is almost uniform, recapture later; keep `first` only when every probe is flat.
 pub(super) fn vo_image_prefer_nonflat(ctx: FlatNudgeCtx<'_>, first: Vec<u8>) -> Option<Vec<u8>> {
     if !crate::thumb_texture::thumb_webp_is_flat_fill(&first) {
         return Some(first);
     }
     eprintln!(
-        "[rhino] grid_thumb flat still at {:.2}s; trying nearby seeks {}",
+        "[rhino] grid_thumb flat still at {:.2}s; trying later seeks {}",
         ctx.ifo_seek,
         ctx.src.display()
     );
     for nudged in flat_nudge_seeks(ctx.ifo_seek, ctx.cap) {
+        // Exact seek: keyframe snaps would collapse +1/+2/+4 onto the same black GOP.
         let Some(b) = vo_image_capture_after_seek(
             ctx.m,
             ctx.src,
@@ -37,7 +38,7 @@ pub(super) fn vo_image_prefer_nonflat(ctx: FlatNudgeCtx<'_>, first: Vec<u8>) -> 
             ctx.chain_head,
             ctx.dvd_vob,
             ctx.wait_secs,
-            ctx.keyframes,
+            false,
         ) else {
             continue;
         };
@@ -55,13 +56,16 @@ pub(super) fn vo_image_prefer_nonflat(ctx: FlatNudgeCtx<'_>, first: Vec<u8>) -> 
 }
 
 fn flat_nudge_seeks(base: f64, cap: f64) -> Vec<f64> {
-    FLAT_NUDGE_SECS
-        .iter()
-        .filter_map(|&d| {
-            let t = crate::seek_bar_preview::cap_preview_seek_time(base + d, cap);
-            ((t - base).abs() >= 0.75).then_some(t)
-        })
-        .collect()
+    let mut out = Vec::new();
+    let mut step = 1.0;
+    while step <= FLAT_NUDGE_MAX_SEC {
+        let t = crate::seek_bar_preview::cap_preview_seek_time(base + step, cap);
+        if (t - base).abs() >= 0.75 && out.last() != Some(&t) {
+            out.push(t);
+        }
+        step *= 2.0;
+    }
+    out
 }
 
 #[cfg(test)]
@@ -69,16 +73,25 @@ mod flat_nudge_tests {
     use super::flat_nudge_seeks;
 
     #[test]
+    fn exponential_steps_from_base() {
+        let times = flat_nudge_seeks(10.0, 120.0);
+        assert_eq!(times, [11.0, 12.0, 14.0, 18.0, 26.0, 42.0, 74.0]);
+    }
+
+    #[test]
     fn nudge_offsets_stay_inside_cap() {
         let times = flat_nudge_seeks(10.0, 60.0);
         assert!(times.iter().all(|&t| (0.0..60.0).contains(&t)));
+        assert!(times.windows(2).all(|w| w[1] > w[0]));
         assert!(times.iter().any(|&t| t > 10.0));
+        assert!(*times.last().unwrap() < 59.0);
     }
 
     #[test]
     fn nudge_near_end_skips_useless_clones() {
         let times = flat_nudge_seeks(58.0, 60.0);
-        assert!(times.iter().all(|&t| (t - 58.0).abs() >= 0.75 || times.is_empty()));
+        assert!(times.iter().all(|&t| (t - 58.0).abs() >= 0.75));
         assert!(times.iter().all(|&t| t <= 59.5));
+        assert_eq!(times.len(), 1);
     }
 }
