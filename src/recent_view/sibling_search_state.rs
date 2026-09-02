@@ -22,7 +22,7 @@ pub(crate) struct SiblingSearchState {
     hint: gtk::Label,
     /// Committed filter (drives strip paint). Entry text is draft until debounce.
     pub(super) query: RefCell<String>,
-    /// Session neighbour index (path + openability); filled once per window.
+    /// Session catalog index (path + openability); filled once per window.
     index: RefCell<Vec<NeighbourEntry>>,
     scanned: Cell<bool>,
     /// I'm Feeling Lucky session (shown / seen / reserved next).
@@ -97,6 +97,34 @@ impl SiblingSearchState {
         super::index_fill_once(&self.scanned, &self.index, super::build_neighbour_index);
     }
 
+    /// Hollow-check a few unclassified neighbours per idle so search stays instant.
+    pub(super) fn pump_openable(self: &Rc<Self>) {
+        const CHUNK: usize = 16;
+        if self
+            .ctx
+            .borrow()
+            .as_ref()
+            .is_some_and(|w| w.upgrade().is_none())
+        {
+            return;
+        }
+        let index = self.index.borrow();
+        let mut n = 0;
+        for e in index.iter() {
+            if e.openable.get().is_some() {
+                continue;
+            }
+            e.is_openable();
+            n += 1;
+            if n >= CHUNK {
+                drop(index);
+                let s = Rc::clone(self);
+                glib::idle_add_local_once(move || s.pump_openable());
+                return;
+            }
+        }
+    }
+
     pub(super) fn roll_lucky(&self) {
         self.ensure_index();
         self.lucky.roll(&self.index.borrow(), CONTINUE_DISPLAY_MAX);
@@ -132,7 +160,7 @@ impl SiblingSearchState {
         else {
             return false;
         };
-        e.openable = openable;
+        e.set_openable(openable);
         true
     }
 

@@ -95,7 +95,7 @@ fn make_move_to_trash_action(d: &TrashUndoDeps) -> gio::SimpleAction {
             let Some(path) = playing_local_file_for_trash(&p) else {
                 return;
             };
-            commit_move_to_trash(&path, &ur, &ut, &dc, &bb);
+            commit_move_to_trash(&path, &p, &ur, &ut, &dc, &bb);
         });
     }
     move_to_trash
@@ -114,31 +114,61 @@ fn playing_local_file_for_trash(p: &Rc<RefCell<Option<MpvBundle>>>) -> Option<st
 
 fn commit_move_to_trash(
     path: &std::path::Path,
+    player: &Rc<RefCell<Option<MpvBundle>>>,
     ur: &Rc<RefCell<Vec<ContinueBarUndo>>>,
     ut: &Rc<RefCell<Option<glib::source::SourceId>>>,
     dc: &Rc<dyn Fn() + 'static>,
     bb: &Rc<dyn Fn(bool)>,
 ) {
     let snap = capture_list_remove_undo(path);
-    let in_trash = match trash_xdg::trash_local_file_for_undo(path) {
+    set_persist_skip(player, true);
+    let Some(in_trash) = trash_playing_file(path) else {
+        set_persist_skip(player, false);
+        return;
+    };
+    if let Some(b) = player.borrow().as_ref() {
+        b.stop_playback();
+    }
+    finish_playing_trash(snap, in_trash, ur, ut, dc, bb);
+}
+
+fn set_persist_skip(player: &Rc<RefCell<Option<MpvBundle>>>, skip: bool) {
+    if let Some(b) = player.borrow().as_ref() {
+        b.set_skip_media_persist(skip);
+    }
+}
+
+fn trash_playing_file(path: &std::path::Path) -> Option<Option<std::path::PathBuf>> {
+    match trash_xdg::trash_local_file_for_undo(path) {
         Err(e) => {
             eprintln!("[rhino] move to trash: {e}");
-            return;
+            None
         }
         Ok(loc) => {
             if loc.is_none() {
                 eprintln!("[rhino] trash: could not locate trashed file for undo");
             }
-            loc
+            Some(loc)
         }
-    };
-    remove_continue_entry(path);
-    crate::recent_view::note_path_trashed(path);
+    }
+}
+
+fn finish_playing_trash(
+    snap: crate::media_probe::ListRemoveUndo,
+    in_trash: Option<std::path::PathBuf>,
+    ur: &Rc<RefCell<Vec<ContinueBarUndo>>>,
+    ut: &Rc<RefCell<Option<glib::source::SourceId>>>,
+    dc: &Rc<dyn Fn() + 'static>,
+    bb: &Rc<dyn Fn(bool)>,
+) {
+    let key = snap.path.clone();
+    remove_continue_entry(&key);
+    crate::recent_view::note_path_trashed(&key);
+    crate::db::forget_file(&key);
     if let Some(t) = in_trash {
         ur.borrow_mut()
             .push(ContinueBarUndo::Trash { snap, in_trash: t });
     }
-    // back_to_browse syncs the undo bar after the push above.
     bb(false);
     if !ur.borrow().is_empty() {
         rearm_undo_dismiss(dc, ut);

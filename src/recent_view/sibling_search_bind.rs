@@ -49,16 +49,18 @@ pub fn card_trashed(path: &Path) -> Option<(crate::media_probe::ListRemoveUndo, 
     let snap = crate::media_probe::capture_list_remove_undo(path);
     let listing = card_listing(path);
     let loc = move_card_to_trash(path)?;
-    crate::media_probe::remove_continue_entry(path);
-    forget_trashed(path, &listing);
+    crate::media_probe::remove_continue_entry(&snap.path);
+    forget_trashed(&snap.path, &listing);
     Some((snap, loc))
 }
 
 fn forget_trashed(path: &Path, listing: &Path) {
+    note_path_trashed(path);
+    crate::db::forget_file(path);
     if listing != path {
-        crate::db::forget_file(path);
+        note_path_trashed(listing);
+        crate::db::forget_file(listing);
     }
-    note_path_trashed(listing);
 }
 
 fn move_card_to_trash(path: &Path) -> Option<Option<PathBuf>> {

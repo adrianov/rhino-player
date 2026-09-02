@@ -1,17 +1,34 @@
 //! Platform trash helpers: session **Undo** restores via [untrash_to_target].
 //! - **Linux:** [gio::File::trash] plus Freedesktop `Trash/files` lookup ([find_trash_files_stored_path]).
-//! - **macOS:** Finder Trash via [`crate::trash_macos`] (`NSFileManager::trashItemAtURL`); [untrash_to_target]
+//! - **macOS:** Finder Trash via [`crate::trash_macos`] (`NSWorkspace::recycleURLs`); [untrash_to_target]
 //!   restores with `rename` from `in_trash` when the path is under `.Trash`/`.Trashes`.
 
 #[cfg(not(target_os = "macos"))]
 mod linux;
 use std::path::{Path, PathBuf};
 
-/// Moves [path] to the user's Trash (**Err** = move failed).
+/// Catalog / history key while [path] still exists (canonicalize works).
+fn catalog_key_before_trash(path: &Path) -> PathBuf {
+    crate::db::history_key(path)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| path.to_path_buf())
+}
+
+/// Moves [path] to the user's Trash (**Err** = move failed) and drops it from the catalog.
 ///
 /// **Ok(Some(p))**: path inside Trash for Undo. **Ok(None)** (Linux only): trashed copy not found under
 /// Freedesktop `Trash/files`.
 pub fn trash_local_file_for_undo(path: &Path) -> Result<Option<PathBuf>, String> {
+    let key = catalog_key_before_trash(path);
+    let loc = trash_platform(path)?;
+    crate::db::forget_file(&key);
+    if path != key.as_path() {
+        crate::db::forget_file(path);
+    }
+    Ok(loc)
+}
+
+fn trash_platform(path: &Path) -> Result<Option<PathBuf>, String> {
     #[cfg(target_os = "macos")]
     {
         crate::trash_macos::move_to_trash_ns(path).map(Some)

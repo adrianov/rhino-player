@@ -1,4 +1,4 @@
-// Unit tests for the neighbour-search pure logic (scan, filter). Included from
+// Unit tests for the neighbour-search pure logic (filter). Included from
 // `sibling_search.rs`'s `mod tests`.
 
 fn scratch(name: &str) -> PathBuf {
@@ -15,17 +15,6 @@ fn scratch(name: &str) -> PathBuf {
 
 fn touch(dir: &Path, name: &str) {
     std::fs::write(dir.join(name), b"x").unwrap();
-}
-
-/// Two sibling show folders under `root/Shows`, each with one video.
-fn two_show_dirs(root: &Path) -> (PathBuf, PathBuf) {
-    let a = root.join("Shows/ShowA");
-    let b = root.join("Shows/ShowB");
-    std::fs::create_dir_all(&a).unwrap();
-    std::fs::create_dir_all(&b).unwrap();
-    touch(&a, "seed.mkv");
-    touch(&b, "neighbour.mkv");
-    (a, b)
 }
 
 #[test]
@@ -48,42 +37,6 @@ fn scan_lists_only_video_files_naturally() {
     let names: Vec<String> = videos.iter().map(|p| file_name_lower(p)).collect();
     assert_eq!(names, vec!["ep2.mkv", "ep10.mkv"]);
     std::fs::remove_dir_all(&dir).ok();
-}
-
-#[test]
-fn sibling_dirs_under_shared_parent_are_scanned() {
-    let root = scratch("sibs");
-    let (a, _) = two_show_dirs(&root);
-    let names: Vec<_> = scan_sibling_universe(&[a.join("seed.mkv")])
-        .iter()
-        .map(|p| file_name_lower(p))
-        .collect();
-    assert!(names.iter().any(|n| n == "seed.mkv"));
-    assert!(names.iter().any(|n| n == "neighbour.mkv"));
-    std::fs::remove_dir_all(&root).ok();
-}
-
-#[test]
-fn top_level_dirs_under_root_are_not_siblings() {
-    // Simulate /LibA and /LibB by using a fake root whose parent is missing from the
-    // sibling walk: we only assert the pure helper never enqueues siblings when
-    // grandparent is fs root. Build two dirs under a temp "root" and call
-    // enqueue_sibling_dirs with grandparent marked via is_fs_root on Path::new("/").
-    assert!(is_fs_root(Path::new("/")));
-    assert!(!is_fs_root(Path::new("/Users")));
-    assert!(!is_fs_root(Path::new("/Users/me/Video")));
-
-    let mut queue = VecDeque::new();
-    let mut seen = HashSet::new();
-    // dir = /Video → grandparent = / → no sibling enqueue
-    enqueue_sibling_dirs(&mut queue, &mut seen, Path::new("/Video"));
-    assert!(queue.is_empty());
-    // Still allow scanning /Video itself when seeded
-    enqueue_scan_dir(&mut queue, &mut seen, Path::new("/Video"));
-    assert_eq!(queue.len(), 1);
-    // Never scan /
-    enqueue_scan_dir(&mut queue, &mut seen, Path::new("/"));
-    assert_eq!(queue.len(), 1);
 }
 
 #[test]
@@ -123,10 +76,21 @@ fn present_hits_rank_by_trigram_score() {
 }
 
 fn entry(path: &str, openable: bool) -> NeighbourEntry {
-    NeighbourEntry {
-        path: PathBuf::from(path),
-        openable,
-    }
+    NeighbourEntry::known(PathBuf::from(path), openable)
+}
+
+#[test]
+fn pending_hollow_is_omitted_from_hits() {
+    let dir = scratch("pending-hollow");
+    let hollow = write_hollow(&dir, "show.mkv");
+    let ok = dir.join("show2.mkv");
+    std::fs::write(&ok, b"RIFF....AVI \x01\x02\x03\x04").unwrap();
+    let entries = vec![
+        NeighbourEntry::pending(hollow),
+        NeighbourEntry::pending(ok.clone()),
+    ];
+    assert_eq!(present_name_hits(&entries, "show"), vec![ok]);
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
@@ -170,10 +134,7 @@ fn fill_counted(
 ) -> Vec<NeighbourEntry> {
     index_fill_once(scanned, index, || {
         builds.set(builds.get() + 1);
-        vec![NeighbourEntry {
-            path,
-            openable: true,
-        }]
+        vec![NeighbourEntry::known(path, true)]
     });
     index.borrow().clone()
 }

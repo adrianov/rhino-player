@@ -1,6 +1,6 @@
 // Neighbour (sibling) search for the continue screen — feature hub.
 // See docs/features/33-continue-sibling-search.md. Split across:
-//   sibling_search.rs          — BFS scan, hit filter, strip plan, tests
+//   sibling_search.rs          — catalog index, hit filter, strip plan, tests
 //   lucky/                     — I'm Feeling Lucky owner (`recent_view::lucky`)
 //   sibling_search_score.rs    — Jaccard trigrams (`#[path]`)
 //   sibling_search_state.rs    — query / index / paint / lucky dismiss (`#[path]`)
@@ -21,14 +21,54 @@ pub(crate) use sibling_search_state::*;
 mod sibling_search_bind;
 pub(crate) use sibling_search_bind::*;
 
-/// One neighbour path plus openability learned when the session index was built (or refreshed).
+/// One neighbour path plus cached name and openability (hollow preflight is lazy).
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct NeighbourEntry {
     path: PathBuf,
-    openable: bool,
+    name_lower: String,
+    /// `None` until missing/hollow preflight runs; search ranks names first.
+    openable: Cell<Option<bool>>,
 }
 
-/// Fill `index` from `build` at most once (session neighbour scan).
+impl NeighbourEntry {
+    fn pending(path: PathBuf) -> Self {
+        let name_lower = file_name_lower(&path);
+        Self {
+            path,
+            name_lower,
+            openable: Cell::new(None),
+        }
+    }
+
+    #[cfg(test)]
+    fn known(path: PathBuf, openable: bool) -> Self {
+        let name_lower = file_name_lower(&path);
+        Self {
+            path,
+            name_lower,
+            openable: Cell::new(Some(openable)),
+        }
+    }
+
+    fn is_openable(&self) -> bool {
+        if let Some(v) = self.openable.get() {
+            return v;
+        }
+        let v = classify_openable(&self.path);
+        self.openable.set(Some(v));
+        v
+    }
+
+    fn set_openable(&self, openable: bool) {
+        self.openable.set(Some(openable));
+    }
+
+    fn known_unopenable(&self) -> bool {
+        self.openable.get() == Some(false)
+    }
+}
+
+/// Fill `index` from `build` at most once (session catalog index).
 fn index_fill_once(
     scanned: &Cell<bool>,
     index: &RefCell<Vec<NeighbourEntry>>,
@@ -46,7 +86,7 @@ fn classify_openable(path: &Path) -> bool {
 }
 
 use std::cell::Cell;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 /// Result cards shown at most; a huge library folder must not flood the strip.
@@ -98,80 +138,15 @@ pub(crate) fn strip_plan(search: Option<&SiblingSearchState>, fallback: Vec<Path
     }
 }
 
-/// Filesystem root (`/` / drive root) — never scanned; its children are not sibling dirs.
-fn is_fs_root(p: &Path) -> bool {
-    p.parent().is_none()
-}
-
-/// Parent dirs of catalog paths, plus each parent’s sibling dirs when the grandparent is not root.
-/// BFS over the dir queue; each dir is listed once (non-recursive video files).
-fn scan_sibling_universe(seeds: &[PathBuf]) -> Vec<PathBuf> {
-    let mut queue = VecDeque::new();
-    let mut seen_dirs = HashSet::new();
-    for seed in seeds {
-        let Some(dir) = seed.parent() else {
-            continue;
-        };
-        enqueue_scan_dir(&mut queue, &mut seen_dirs, dir);
-        enqueue_sibling_dirs(&mut queue, &mut seen_dirs, dir);
-    }
-    let mut files = Vec::new();
-    let mut seen_files = HashSet::new();
-    while let Some(dir) = queue.pop_front() {
-        let Some(videos) = crate::video_ext::list_videos_in_dir(&dir) else {
-            continue;
-        };
-        for v in videos {
-            if seen_files.insert(v.clone()) {
-                files.push(v);
-            }
-        }
-    }
-    sort_neighbours(&mut files);
-    files
-}
-
-fn enqueue_sibling_dirs(queue: &mut VecDeque<PathBuf>, seen: &mut HashSet<PathBuf>, dir: &Path) {
-    let Some(grand) = dir.parent() else {
-        return;
-    };
-    if is_fs_root(grand) {
-        return;
-    }
-    let Ok(rd) = std::fs::read_dir(grand) else {
-        return;
-    };
-    for ent in rd.filter_map(Result::ok) {
-        let Ok(ft) = ent.file_type() else {
-            continue;
-        };
-        if ft.is_dir() {
-            enqueue_scan_dir(queue, seen, &ent.path());
-        }
-    }
-}
-
-fn enqueue_scan_dir(queue: &mut VecDeque<PathBuf>, seen: &mut HashSet<PathBuf>, dir: &Path) {
-    if is_fs_root(dir) {
-        return;
-    }
-    let owned = dir.to_path_buf();
-    if seen.insert(owned.clone()) {
-        queue.push_back(owned);
-    }
-}
-
-/// Build the session neighbour index from the files catalog (once per [SiblingSearchState]).
+/// Build the session index from the files catalog (once per [SiblingSearchState]).
+/// Paths and names only — no folder walk; hollow-byte preflight runs later on candidates.
 fn build_neighbour_index() -> Vec<NeighbourEntry> {
-    let files = scan_sibling_universe(&crate::db::list_file_paths());
-    crate::db::ensure_files(&files);
-    files
-        .into_iter()
-        .map(|path| NeighbourEntry {
-            openable: classify_openable(&path),
-            path,
-        })
-        .collect()
+    let files = crate::db::list_file_paths();
+    eprintln!(
+        "[rhino] search: index n={} (catalog, no folder walk)",
+        files.len()
+    );
+    files.into_iter().map(NeighbourEntry::pending).collect()
 }
 
 /// Score, in-progress flag, lowercased file name, index into the neighbour list.
@@ -180,23 +155,20 @@ type ScoredHit = (f64, bool, String, usize);
 /// Name hits among openable index entries. In-memory only: no canonicalize or entity resolve.
 #[cfg(test)]
 fn present_name_hits(entries: &[NeighbourEntry], q: &str) -> Vec<PathBuf> {
-    let mut scored = score_openable_hits(entries, q);
+    let mut scored = score_name_hits(entries, q);
     sort_scored_hits(&mut scored);
+    scored.retain(|h| entries[h.3].is_openable());
     hit_paths(entries, scored)
 }
 
 /// Same ranking as [present_name_hits], but only the strip cap is cloned (wide one-letter queries).
 fn capped_name_hits(entries: &[NeighbourEntry], q: &str) -> (Vec<PathBuf>, bool) {
-    let mut scored = score_openable_hits(entries, q);
-    let capped = scored.len() > SEARCH_MAX_HITS;
-    if capped {
-        scored.select_nth_unstable_by(SEARCH_MAX_HITS, hit_ord);
-        scored.truncate(SEARCH_MAX_HITS);
-    }
+    let mut scored = score_name_hits(entries, q);
     sort_scored_hits(&mut scored);
-    (hit_paths(entries, scored), capped)
+    take_openable_hits(entries, scored)
 }
 
+#[cfg(test)]
 fn hit_paths(entries: &[NeighbourEntry], scored: Vec<ScoredHit>) -> Vec<PathBuf> {
     scored
         .into_iter()
@@ -204,28 +176,45 @@ fn hit_paths(entries: &[NeighbourEntry], scored: Vec<ScoredHit>) -> Vec<PathBuf>
         .collect()
 }
 
-fn score_openable_hits(entries: &[NeighbourEntry], q: &str) -> Vec<ScoredHit> {
+/// Rank every name that is not already known-unopenable; preflight runs in [take_openable_hits].
+fn score_name_hits(entries: &[NeighbourEntry], q: &str) -> Vec<ScoredHit> {
     let q_tri = query_trigrams(q);
     let progress = progress_name_keys(&crate::db::load_time_pos_map());
     entries
         .iter()
         .enumerate()
-        .filter(|(_, e)| e.openable)
-        .filter_map(|(i, e)| score_openable_hit(e, i, q, &q_tri, &progress))
+        .filter(|(_, e)| !e.known_unopenable())
+        .filter_map(|(i, e)| score_name_hit(e, i, q, &q_tri, &progress))
         .collect()
 }
 
-fn score_openable_hit(
+fn take_openable_hits(entries: &[NeighbourEntry], scored: Vec<ScoredHit>) -> (Vec<PathBuf>, bool) {
+    let mut hits = Vec::new();
+    let mut capped = false;
+    for h in scored {
+        if !entries[h.3].is_openable() {
+            continue;
+        }
+        if hits.len() < SEARCH_MAX_HITS {
+            hits.push(entries[h.3].path.clone());
+        } else {
+            capped = true;
+            break;
+        }
+    }
+    (hits, capped)
+}
+
+fn score_name_hit(
     e: &NeighbourEntry,
     idx: usize,
     q: &str,
     q_tri: &HashSet<(char, char, char)>,
     progress: &HashSet<String>,
 ) -> Option<ScoredHit> {
-    let name = file_name_lower(&e.path);
-    let score = name_match_score(&name, q, q_tri)?;
-    let started = name_in_progress(&e.path, &name, progress);
-    Some((score, started, name, idx))
+    let score = name_match_score(&e.name_lower, q, q_tri)?;
+    let started = name_in_progress(&e.path, &e.name_lower, progress);
+    Some((score, started, e.name_lower.clone(), idx))
 }
 
 /// Resume keys and their lowercased file names — lookup only, no disk.
@@ -263,10 +252,6 @@ fn file_name_lower(p: &Path) -> String {
     p.file_name()
         .map(|n| n.to_string_lossy().to_lowercase())
         .unwrap_or_default()
-}
-
-fn sort_neighbours(v: &mut [PathBuf]) {
-    v.sort_by(|a, b| lexical_sort::natural_lexical_cmp(&file_name_lower(a), &file_name_lower(b)));
 }
 
 #[cfg(test)]
@@ -316,10 +301,7 @@ mod rank_tests {
     #[test]
     fn capped_hits_keep_only_the_strip_limit() {
         let entries: Vec<_> = (0..SEARCH_MAX_HITS + 5)
-            .map(|i| NeighbourEntry {
-                path: PathBuf::from(format!("/store/pick{i}.mkv")),
-                openable: true,
-            })
+            .map(|i| NeighbourEntry::known(PathBuf::from(format!("/store/pick{i}.mkv")), true))
             .collect();
         let (hits, capped) = capped_name_hits(&entries, "pick");
         assert!(capped);

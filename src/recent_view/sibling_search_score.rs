@@ -37,13 +37,16 @@ fn jaccard(a: &HashSet<Trigram>, b: &HashSet<Trigram>) -> f64 {
     }
 }
 
-/// Best Jaccard of `q_tri` against the full name and each alphanumeric token.
-fn best_token_jaccard(q_tri: &HashSet<Trigram>, name: &str) -> f64 {
+/// Best Jaccard of `q_tri` against the full name and each similar-length token.
+fn best_token_jaccard(q_tri: &HashSet<Trigram>, name: &str, q_chars: usize) -> f64 {
     let mut best = jaccard(q_tri, &char_trigrams(name));
     for token in name
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty())
     {
+        if token.chars().count().abs_diff(q_chars) > 2 {
+            continue;
+        }
         let score = jaccard(q_tri, &char_trigrams(token));
         if score > best {
             best = score;
@@ -66,7 +69,7 @@ pub(super) fn name_match_score(name_lower: &str, q: &str, q_tri: &HashSet<Trigra
     if q.chars().count() < 3 {
         return None;
     }
-    let score = best_token_jaccard(q_tri, name_lower);
+    let score = best_token_jaccard(q_tri, name_lower, q.chars().count());
     (score >= TRIGRAM_MIN_SCORE).then_some(score)
 }
 

@@ -33,7 +33,7 @@ pub(super) fn group_index(entries: &[NeighbourEntry]) -> HashMap<String, Vec<Pat
 pub(super) fn openable_set(entries: &[NeighbourEntry]) -> HashSet<&Path> {
     entries
         .iter()
-        .filter(|e| e.openable)
+        .filter(|e| e.is_openable())
         .map(|e| e.path.as_path())
         .collect()
 }

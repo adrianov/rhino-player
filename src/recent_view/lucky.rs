@@ -9,7 +9,7 @@ pub(super) use super::NeighbourEntry;
 
 mod progress;
 mod titles;
-use titles::{lucky_titles, openable_set};
+use titles::lucky_titles;
 mod gap;
 mod session;
 pub(crate) use session::LuckySession;
@@ -153,12 +153,9 @@ pub(super) fn same_shown(a: &Path, b: &Path) -> bool {
 
 /// Drop snapshot paths that the live index now marks unopenable (trash).
 pub(super) fn keep_openable(paths: &[PathBuf], index: &[NeighbourEntry]) -> Vec<PathBuf> {
-    let open = openable_set(index);
     paths
         .iter()
-        .filter(|p| {
-            open.contains(p.as_path()) || index.iter().any(|e| e.openable && same_shown(&e.path, p))
-        })
+        .filter(|p| index.iter().any(|e| same_shown(&e.path, p) && e.is_openable()))
         .cloned()
         .collect()
 }
@@ -186,10 +183,7 @@ mod tests {
     use super::*;
 
     fn entry(path: &str, openable: bool) -> NeighbourEntry {
-        NeighbourEntry {
-            path: PathBuf::from(path),
-            openable,
-        }
+        NeighbourEntry::known(PathBuf::from(path), openable)
     }
 
     fn empty_maps() -> (HashMap<String, f64>, HashMap<String, f64>) {

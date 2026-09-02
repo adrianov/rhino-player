@@ -11,7 +11,7 @@ use crate::trash_xdg;
 pub enum ContinueBarUndo {
     /// Only history + resume/DB; file stayed on disk.
     ListRemove(ListRemoveUndo),
-    /// File lives in Trash (`files/…` on XDG, `~/.Trash` / `.Trashes/<uid>` on macOS).
+    /// File lives in the platform trash (XDG `files/…`, or Finder Trash on macOS).
     Trash {
         snap: ListRemoveUndo,
         in_trash: PathBuf,

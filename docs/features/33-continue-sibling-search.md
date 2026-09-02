@@ -8,15 +8,13 @@ related: [07, 21, 34]
 ---
 
 ## Use cases
-- Find the next episode sitting next to something already known to the player without going back through **Open Video**.
-- Jump straight to any neighbouring video whose file name matches a typed fragment — exact pieces or close name similarity — including files already on the continue list.
-- Reach videos in a folder next to a known title’s folder (same parent), without scanning the whole disk or other top-level libraries.
-- Surprise-browse a handful of playable titles from that collected neighbour list without typing a query — a series shows the episode already in progress, or its first episode if none is.
-- Draw another lucky handful without seeing the same titles again until every playable collected title has appeared once this session.
+- Find a video the player already knows by typing a name fragment — exact pieces or close name similarity — including files already on the continue list.
+- Surprise-browse a handful of playable catalogued titles without typing a query — a series shows the episode already in progress, or its first episode if none is.
+- Draw another lucky handful without seeing the same titles again until every playable catalogued title has appeared once this session.
 - Dismiss a lucky pick from the strip without moving the file to the platform trash.
 
 ## Description
-The browse screen grows a **search box above the video card strip**, with an **I'm Feeling Lucky** control beside it. Once per session the player gathers searchable neighbours from every path in the media files catalog: video files in each known file’s folder and in that folder’s sibling folders (folders that share the same parent). It never lists the filesystem root and never treats top-level folders as siblings of each other (for example it will not walk from one library root to another under `/`). Typing matches neighbour file names case-insensitively: names that contain the query always qualify, and close name similarity can qualify the rest. Results appear as regular cards in the same horizontal strip, closer matches first; when names match equally, titles with a stored playback position appear before unstarted ones. **I'm Feeling Lucky** instead fills the strip with a small random handful of playable collected neighbours: a television series contributes one card — the episode that already has playback progress, or the first episode of that series if none does. Later lucky draws in the same session skip titles already shown until every playable collected title has appeared; then a new cycle may draw from the full list again. After each lucky handful the player prepares the next one off-screen and captures stills for it, so a later lucky click can show pictures that are already stored. Trashing or removing a lucky card puts another unused collected title in that slot when one remains. The strip switches between plain watch-later cards and those result cards in place — no navigation, no extra screen.
+The browse screen grows a **search box above the video card strip**, with an **I'm Feeling Lucky** control beside it. Search and I'm Feeling Lucky use only paths already in the media files catalog. They do not walk folders or discover videos that were never opened or otherwise registered. Typing matches catalogued file names case-insensitively: names that contain the query always qualify, and close name similarity can qualify the rest. Results appear as regular cards in the same horizontal strip, closer matches first; when names match equally, titles with a stored playback position appear before unstarted ones. **I'm Feeling Lucky** instead fills the strip with a small random handful of playable catalogued titles: a television series contributes one card — the episode that already has playback progress, or the first episode of that series if none does. Later lucky draws in the same session skip titles already shown until every playable catalogued title has appeared; then a new cycle may draw from the full list again. After each lucky handful the player prepares the next one off-screen and captures stills for it, so a later lucky click can show pictures that are already stored. Trashing or removing a lucky card puts another unused catalogued title in that slot when one remains. The strip switches between plain watch-later cards and those result cards in place — no navigation, no extra screen.
 
 Result cards open like continue cards, including the hover resolution class tag after played percent. Present playable files show **Move to Trash** on hover like continue cards; **Remove from list** sits on the plain continue strip and on **I'm Feeling Lucky** cards (name-search hits omit it). Removing a lucky card leaves the file in place and keeps any stored playback position. Empty, hollow, or missing files are omitted from results. Missing stills are filled in the background like continue cards, and each card updates when its thumbnail is ready. Hovering a result updates the seek bar from stored length and resume like continue cards (no background load). While a query or I'm Feeling Lucky is active the strip shows only those result cards; clearing the box (or pressing Escape) restores the plain continue list. After the viewer closes a video, those cards show the latest stored progress, and a series lucky card is the episode now in progress. The strip and Open Video tile stay put while typing; cards update only after filtering settles.
 
@@ -51,33 +49,31 @@ Feature: Sibling search on the continue screen
     And the Open Video tile does not disappear or rebuild
 
   Scenario: Settled typing swaps the strip to matching neighbour cards
-    Given the media files catalog holds a path inside a folder that also holds other video files
-    When the user types a fragment of one of those neighbour file names and filtering finishes
+    Given the media files catalog holds several video paths
+    When the user types a fragment of one of those file names and filtering finishes
     Then the strip replaces the watch-later cards with one card per matching file
     And the Open Video tile remains the first tile without flashing away
     And each card carries that file's title and progress from the store when known
 
-  Scenario: Sibling folders of a known folder are searchable
-    Given the catalog holds a video under one show folder
-    And another show folder sits beside it under the same non-root parent
-    And that sibling folder holds a differently named video
-    When the user types a fragment of the sibling folder's video name and filtering finishes
-    Then that sibling video appears among the result cards
+  Scenario: Search uses only catalogued paths
+    Given the catalog holds one video
+    And another video sits in the same folder but is not in the catalog
+    When the user types a fragment of that other file's name and filtering finishes
+    Then that other file does not appear among the result cards
 
-  Scenario: Top-level library roots are not treated as siblings
-    Given the catalog holds a video under one top-level library folder
-    And another top-level library folder exists beside it under the filesystem root
-    When the user searches
-    Then videos under that other top-level library do not appear solely because the folders share the root
-    And the filesystem root itself is never scanned for videos
+  Scenario: Search and Lucky do not walk folders
+    Given the catalog already holds several video paths
+    When the user searches or activates I'm Feeling Lucky
+    Then matching and picks use those catalogued paths
+    And the player does not walk folders to discover more videos
 
-  Scenario: Neighbour folders are not rescanned for every query
-    Given the player has already gathered searchable neighbours this session
+  Scenario: The catalog index is reused for every query
+    Given the player has already loaded catalogued paths for search this session
     When the user changes the search fragment and filtering finishes again
-    Then matching uses the neighbours already gathered without walking those folders again
+    Then matching uses those same catalogued paths without reading the catalog again
 
   Scenario: Matching ignores letter case
-    Given neighbour folders contain video files with mixed-case names
+    Given the catalog holds video files with mixed-case names
     When the user types a fragment differing only in letter case
     Then every neighbour whose file name contains that fragment ignoring case appears
     And neighbours that neither contain the fragment nor resemble it closely enough do not appear
@@ -164,34 +160,34 @@ Feature: Sibling search on the continue screen
     And no text caret, typed character, or input-method mark from the search box appears over the video
 
   Scenario: Feeling Lucky fills the strip from the collected library
-    Given the media files catalog has gathered several playable neighbour videos
+    Given the media files catalog holds several playable videos
     When the user activates I'm Feeling Lucky
     Then the strip replaces the watch-later cards with a small handful of those playable videos
     And the Open Video tile remains the first tile
     And the shown titles need not match any typed fragment
 
   Scenario: Feeling Lucky skips unplayable neighbours
-    Given the collected neighbour list includes playable files and hollow or missing files
+    Given the catalog holds playable files and hollow or missing files
     When the user activates I'm Feeling Lucky
     Then only playable neighbours appear among the result cards
     And the match hint counts only those playable picks
 
   Scenario: Feeling Lucky shows the in-progress episode of a series
-    Given the collected neighbour list includes several episodes of one series
+    Given the catalog holds several episodes of one series
     And the viewer has playback progress on one of those episodes
     When the user activates I'm Feeling Lucky
     Then a result card for that series is the episode with progress
     And other episodes of that series do not appear as extra lucky cards
 
   Scenario: Feeling Lucky shows the first episode when a series is unstarted
-    Given the collected neighbour list includes several episodes of one series
+    Given the catalog holds several episodes of one series
     And none of those episodes have playback progress
     When the user activates I'm Feeling Lucky
     Then a result card for that series is the first episode of that series
     And later episodes of that series do not appear as extra lucky cards
 
   Scenario: Feeling Lucky collapses episodes labeled with a number then an episode word
-    Given the collected neighbour list includes several episodes of one series
+    Given the catalog holds several episodes of one series
     And those file names put an episode number before an episode word
     And none of those episodes have playback progress
     When the user activates I'm Feeling Lucky
@@ -199,7 +195,8 @@ Feature: Sibling search on the continue screen
     And later episodes of that series do not appear as extra lucky cards
 
   Scenario: Feeling Lucky collapses episodes that each sit in their own neighbouring folder
-    Given each episode of one series sits in its own folder beside the others
+    Given the catalog holds several episodes of one series
+    And each episode sits in its own folder beside the others
     And those folder names include the series title and an episode label
     And none of those episodes have playback progress
     When the user activates I'm Feeling Lucky
@@ -284,7 +281,7 @@ Feature: Sibling search on the continue screen
     Then the persistent store still holds that playback position
 
   Scenario: Feeling Lucky with nothing playable stays on Open Video
-    Given the collected neighbour list has no playable videos
+    Given the catalog has no playable videos
     When the user activates I'm Feeling Lucky
     Then the strip keeps only the Open Video tile
     And a short inline hint states that nothing could be picked
@@ -303,13 +300,11 @@ Feature: Sibling search on the continue screen
 ```
 
 ## Notes
-- Scope: catalog paths → each file’s parent dir + that dir’s sibling dirs (BFS queue of dirs, then non-recursive video listing per dir). Skip the filesystem root as a scan dir; do not list children of the root as sibling dirs. See [34](34-files-catalog.md) for the catalog; [07](07-sibling-folder-queue.md) for playback folder-advance (different feature).
-- Seeds: `db::list_file_paths()` (table `files`). Discoveries from the session scan call `db::ensure_files` (one transaction) so later sessions grow the catalog.
-- Reuses `video_ext::list_videos_in_dir` (`.ts` only when `ts_file_is_video`, see [34](34-files-catalog.md)). Hit order: name score descending; equal scores prefer a non-zero stored resume looked up in `load_time_pos_map` by listing path or file name (`progress_name_keys` — no canonicalize / entity resolve while filtering); then natural lexical name (`lexical_sort`).
-- Scoring: `name_match_score` in `sibling_search_score.rs`. A name that contains the query ranks with `substring_score` (token/name prefix first) and never builds trigram sets. Trigram Jaccard (`TRIGRAM_MIN_SCORE`, best of the full name and each alphanumeric token) runs only for queries of three or more characters that are not a substring, so a misspelled word still hits. Results capped (`SEARCH_MAX_HITS` via `capped_name_hits`); hint notes the cap. Hits may include continue-list members. Openability is classified once when the session neighbour index is built (`NeighbourEntry.openable` via `media_open_fail::preflight_user_message`); settled queries filter that flag only. Trash/restore go through `recent_view::card_trashed` / `note_path_trashed` / `search_note_restored` (catalog forget + strip context owns the index). Search-strip chrome shows Move to Trash for present files; omits Remove (list membership) for name-search hits (`StripKind::NeighbourHits`). Lucky cards use `StripKind::Lucky` (Trash + Remove); Remove calls `card_removed` (`fill_lucky_gap` without `forget_file` or an openability drop) so the file and any resume stay.
-- Index: built once per window/session on continue-search bind (one idle) or on first committed query if still empty; typing never rescans and never clones the index to filter. Filter debounce: `TYPE_DEBOUNCE_MS` in `src/recent_view/sibling_search_state.rs`; empty draft commits immediately.
+- Scope: search and I'm Feeling Lucky read `db::list_file_paths()` (table `files`) only. No folder walk, no `list_videos_in_dir`, no `ensure_files`. See [34](34-files-catalog.md) for the catalog; [07](07-sibling-folder-queue.md) for playback folder-advance (different feature).
+- Index: one in-memory list of those catalog paths plus lowercased names; built once per window on continue-search bind (one idle) or on first committed query if still empty. Typing never rereads the catalog and never clones the index to filter. Hit order: name score descending; equal scores prefer a non-zero stored resume looked up in `load_time_pos_map` by listing path or file name (`progress_name_keys` — no canonicalize / entity resolve while filtering); then natural lexical name (`lexical_sort`). Filter debounce: `TYPE_DEBOUNCE_MS` in `src/recent_view/sibling_search_state.rs`; empty draft commits immediately.
+- Scoring: `name_match_score` in `sibling_search_score.rs`. A name that contains the query ranks with `substring_score` (token/name prefix first) and never builds trigram sets. Trigram Jaccard (`TRIGRAM_MIN_SCORE`, best of the full name and each alphanumeric token) runs only for queries of three or more characters that are not a substring, so a misspelled word still hits. Results capped (`SEARCH_MAX_HITS` via `capped_name_hits`); hint notes the cap. Hits may include continue-list members. Hollow-byte preflight (`media_open_fail::preflight_user_message`) is cached on `NeighbourEntry` after the first check. A settled query ranks names first, then preflights only the candidates that could fill the strip. An idle pump (`pump_openable`) fills the rest so I'm Feeling Lucky does not stall. Trash/restore go through `recent_view::card_trashed` / `note_path_trashed` / `search_note_restored` (catalog forget + strip context owns the index). Search-strip chrome shows Move to Trash for present files; omits Remove (list membership) for name-search hits (`StripKind::NeighbourHits`). Lucky cards use `StripKind::Lucky` (Trash + Remove); Remove calls `card_removed` (`fill_lucky_gap` without `forget_file` or an openability drop) so the file and any resume stay.
 - Placement: search row centered horizontally, parked just above the card strip; **I'm Feeling Lucky** sits to the right of the entry (`lucky_button` in `sibling_search_widgets.rs`) with an invisible twin on the left so the field stays centered; match hint sits under the field. Undo / notice pills overlay the bottom spacer ([21](21-recent-videos-launch.md)) so they do not shift this row. macOS header-compositing band stays clear. Placeholder: `Search your video library…`. First map clears initial focus from the entry (GTK would otherwise focus the first focusable field). Playback uses `dismiss_search_for_playback` before the continue strip hides — including at the start of a warm-reveal beat — then `hide_continue_strip` unmaps the strip. Dismiss drops window focus, sets the inner text `im-module` to `gtk-im-context-none` (tears down IBus / gdk-macos IM so the status mark cannot orphan over video), then unmaps the row; an idle repeats the IM drop after unmap. Strip `notify::visible` restores the default IM module and remaps the row when browse returns.
-- **I'm Feeling Lucky:** `LuckySession` (`src/recent_view/lucky.rs`) groups session-index paths into titles once (`titles::group_index`, cached for the window) and filters `NeighbourEntry.openable` when picking. Episode-like names (`SxxExx` / `Sxx.Exx` / `NxNN` / Episode / `серия` / `сер.` with the number before or after, including `(11 сер.)`) share one title; season-named parent folders use `folder_series_stem` / `folder_looks_seasonal` (`sibling_advance` series helpers, same stem rules as [07](07-sibling-folder-queue.md)); a parent folder whose own name carries an episode marker groups sibling episode folders under the enclosing directory. Each series title picks the in-progress episode from `load_time_pos_map` / `load_duration_map` by listing path or file name (same store keys as search `progress_name_keys` — no canonicalize / entity resolve), skipping `past_done_mark`, or else the first path in natural lexical order; standalones stay one file each. Returning to browse retargets only the shown and reserved handfuls (`LuckySession::retarget` / `titles::retarget_lists`) so a series card follows the watching episode. One shuffle of the title list yields the shown handful and the reserved next (`take_ready_then_next`), each capped at `CONTINUE_DISPLAY_MAX`. `LuckySession` skips titles already drawn until the unused pool is empty, then clears and draws from the full list again. After each shown handful it reserves the following draw (same pick rules) and `RecentContext::schedule_thumbs` appends those paths to `ThumbBackfill::schedule` after the visible strip so stills land in the store before the next click; ready-path flush is a no-op for cards not on screen. A later lucky click consumes the reserved handful (then reserves again) instead of rolling a new sample. Trash or Remove on a shown lucky card calls `fill_lucky_gap` (`lucky/gap.rs`): the gone path leaves the snapshot, a replacement is taken from `lucky_next` when possible (already warming) or `take_one_title` (unseen first, never an on-screen duplicate), inserted in the same slot, and `lucky_next` is topped up. Card actions keep the listing path (`card_data_list`) so `card_trashed` / `card_removed` match the lucky snapshot after canonicalize. Trash also forgets the catalog path; Remove does not. Search hits still omit the trashed path only. Paint-time `keep_openable` drops snapshot paths marked unopenable so Undo restore can show a search card again. Enter opens the first pick without committing an empty query (that would dismiss lucky). Clearing the box / Escape drops lucky mode and restores watch-later (session seen stays); a typed query replaces lucky cards with name hits. Hint strings live next to the sample (`lucky_hint` / `search_hint`). Styling: `button.rp-recent-lucky` in `src/theme/continue_grid.css`.
+- **I'm Feeling Lucky:** `LuckySession` (`src/recent_view/lucky.rs`) groups session-index paths into titles once (`titles::group_index`, cached for the window) and filters cached `NeighbourEntry` openability when picking. Episode-like names (`SxxExx` / `Sxx.Exx` / `NxNN` / Episode / `серия` / `сер.` with the number before or after, including `(11 сер.)`) share one title; season-named parent folders use `folder_series_stem` / `folder_looks_seasonal` (`sibling_advance` series helpers, same stem rules as [07](07-sibling-folder-queue.md)); a parent folder whose own name carries an episode marker groups sibling episode folders under the enclosing directory. Each series title picks the in-progress episode from `load_time_pos_map` / `load_duration_map` by listing path or file name (same store keys as search `progress_name_keys` — no canonicalize / entity resolve), skipping `past_done_mark`, or else the first path in natural lexical order; standalones stay one file each. Returning to browse retargets only the shown and reserved handfuls (`LuckySession::retarget` / `titles::retarget_lists`) so a series card follows the watching episode. One shuffle of the title list yields the shown handful and the reserved next (`take_ready_then_next`), each capped at `CONTINUE_DISPLAY_MAX`. `LuckySession` skips titles already drawn until the unused pool is empty, then clears and draws from the full list again. After each shown handful it reserves the following draw (same pick rules) and `RecentContext::schedule_thumbs` appends those paths to `ThumbBackfill::schedule` after the visible strip so stills land in the store before the next click; ready-path flush is a no-op for cards not on screen. A later lucky click consumes the reserved handful (then reserves again) instead of rolling a new sample. Trash or Remove on a shown lucky card calls `fill_lucky_gap` (`lucky/gap.rs`): the gone path leaves the snapshot, a replacement is taken from `lucky_next` when possible (already warming) or `take_one_title` (unseen first, never an on-screen duplicate), inserted in the same slot, and `lucky_next` is topped up. Card actions keep the listing path (`card_data_list`) so `card_trashed` / `card_removed` match the lucky snapshot after canonicalize. Trash also forgets the catalog path; Remove does not. Search hits still omit the trashed path only. Paint-time `keep_openable` drops snapshot paths marked unopenable so Undo restore can show a search card again. Enter opens the first pick without committing an empty query (that would dismiss lucky). Clearing the box / Escape drops lucky mode and restores watch-later (session seen stays); a typed query replaces lucky cards with name hits. Hint strings live next to the sample (`lucky_hint` / `search_hint`). Styling: `button.rp-recent-lucky` in `src/theme/continue_grid.css`.
 - Paint path: `RecentContext::apply_strip` / `ensure_apply_strip` (arms `ThumbBackfill::schedule`); ready stills hop via coalesced `MainContext::invoke` in `live_card` (no refill poll) → in-place `apply_ready_thumbs`; draft vs committed query; skip neighbour paints only when paths **and** stored resume/duration match (`sibling_search_paint.rs`); `fill_row` keeps Open Video. Lucky / search neighbours are usually never-watched so they miss the SQLite still cache; the same backfill as continue cards fills them, with parallel workers so the handful is not one-file-at-a-time. A still that cannot be parsed drops the path (`forget_file` + index drop) and refills a lucky slot like trash.
 - Escape while a text widget has focus proceeds to the search box (clear), not strip/playback shortcuts.
 - Styling: `entry.search.rp-recent-search-entry` in `src/theme/continue_grid.css`. No-thumb placeholder uses bundled `camera-video-symbolic`.

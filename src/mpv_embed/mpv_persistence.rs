@@ -84,7 +84,8 @@ impl MpvBundle {
         let _ = self.mpv.command("stop", &[]);
     }
 
-    /// Close / quit / back-from-playback: always persist the open file.
+    /// Close / quit / back-from-playback: persist the open file unless the shell asked to skip
+    /// (warm preload, or playing-file trash — Finder recycle pumps the main loop).
     pub fn save_playback_state_for_close(&self) {
         self.save_playback_state_for_close_with_bar(None);
     }
@@ -94,7 +95,9 @@ impl MpvBundle {
         &self,
         bar: Option<&crate::dvd_vob_timeline::DvdBarState>,
     ) {
-        self.set_skip_media_persist(false);
+        if !self.may_persist_media_rows() {
+            return;
+        }
         let Some((total, global)) = self.entity_bar_snapshot_now(bar) else {
             self.snapshot_playback_inner();
             return;

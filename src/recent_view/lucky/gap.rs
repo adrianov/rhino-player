@@ -117,10 +117,7 @@ mod tests {
     use super::*;
 
     fn entry(path: &str, openable: bool) -> NeighbourEntry {
-        NeighbourEntry {
-            path: PathBuf::from(path),
-            openable,
-        }
+        NeighbourEntry::known(PathBuf::from(path), openable)
     }
 
     fn p(s: &str) -> PathBuf {

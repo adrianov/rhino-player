@@ -1,5 +1,5 @@
 // Path-only media files catalog (`files` table) — feature 34 (partial).
-// Tech columns and forget-on-miss stay planned; neighbour search seeds from [list_file_paths].
+// Tech columns and forget-on-miss stay planned; search / Lucky read [list_file_paths] only.
 // [forget_file] drops an unparseable path from files, history, and media.
 
 use std::path::{Path, PathBuf};
@@ -77,31 +77,6 @@ pub fn ensure_file(path: &Path) {
     });
 }
 
-/// Register many paths in one transaction (neighbour-folder scan discoveries).
-pub fn ensure_files(paths: &[PathBuf]) {
-    if paths.is_empty() {
-        return;
-    }
-    let now = unix_now();
-    let _ = with_files_conn(|c| insert_files_tx(c, paths, now));
-}
-
-fn insert_files_tx(conn: &Connection, paths: &[PathBuf], now: i64) -> rusqlite::Result<()> {
-    with_immediate_tx(conn, |c| {
-        let mut stmt =
-            c.prepare("INSERT OR IGNORE INTO files (path, discovered_at) VALUES (?1, ?2)")?;
-        for p in paths {
-            if !crate::video_ext::is_video_path(p) {
-                continue;
-            }
-            if let Some(key) = history_key(p) {
-                stmt.execute(params![key, now])?;
-            }
-        }
-        Ok(())
-    })
-}
-
 /// Manual BEGIN/COMMIT keeps a single journal sync without needing &mut Connection.
 fn with_immediate_tx(
     conn: &Connection,
@@ -118,18 +93,38 @@ fn with_immediate_tx(
 }
 
 /// Drop one catalog path and its continue / media rows (unparseable still, gone file).
+///
+/// Deletes both [history_key] and the exact path string so a post-trash miss (canonicalize
+/// fails, macOS `/var` vs `/private/var`) still removes the stored row.
 pub fn forget_file(path: &Path) {
-    let Some(key) = history_key(path) else {
+    let keys = forget_path_keys(path);
+    if keys.is_empty() {
+        eprintln!("[rhino] db: forget skipped (no key) path={}", path.display());
         return;
-    };
+    }
     let _ = with_files_conn(|c| {
         with_immediate_tx(c, |c| {
-            c.execute("DELETE FROM files WHERE path = ?1", params![key])?;
-            c.execute("DELETE FROM history WHERE path = ?1", params![key])?;
-            c.execute("DELETE FROM media WHERE path = ?1", params![key])?;
+            for key in &keys {
+                c.execute("DELETE FROM files WHERE path = ?1", params![key])?;
+                c.execute("DELETE FROM history WHERE path = ?1", params![key])?;
+                c.execute("DELETE FROM media WHERE path = ?1", params![key])?;
+            }
             Ok(())
         })
     });
+}
+
+fn forget_path_keys(path: &Path) -> Vec<String> {
+    let mut keys = Vec::new();
+    if let Some(k) = history_key(path) {
+        keys.push(k);
+    }
+    if let Some(s) = path.to_str() {
+        if !keys.iter().any(|k| k == s) {
+            keys.push(s.to_string());
+        }
+    }
+    keys
 }
 
 /// Every catalog path (order stable by path text). Empty when the DB is unavailable.
