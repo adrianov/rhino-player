@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 mod dvd_pick;
 mod folder_scan;
 mod optical_disc;
+mod ts_mime;
 mod video_ts;
 
 pub(crate) use folder_scan::list_videos_in_dir;
@@ -27,7 +28,8 @@ pub(crate) fn resolve_dvd_main_vts(vts_dir: &Path, srpt_vts: u32, bytes_vts: u32
 
 /// Lowercase extensions (no leading dot) for “is this a video file?” in a directory.
 /// Kept in sync with the **Open Video** filter; extend here only.
-/// **`ts`**: MPEG transport stream → `video/mp2t` on the desktop entry.
+/// **`ts`**: MPEG transport stream (`video/mp2t`) — TypeScript sources share this suffix;
+/// listing and catalog scan keep the file only when [ts_mime::ts_file_is_video] agrees.
 /// **`mpg` / `mpeg` / `vob`**: MPEG program stream → `video/mpeg` + macOS `public.mpeg` /
 /// `jp.co.dvdfllc.vob`.
 /// **`dctmp`**: in-progress Direct Connect download (often `name.mkv.<id>.dctmp`) →
@@ -39,12 +41,19 @@ pub const SUFFIX: &[&str] = &[
 ];
 
 /// `true` for a regular file whose extension is in [SUFFIX] (case-insensitive).
+/// `.ts` also needs a video content type (TypeScript uses the same suffix).
 pub fn is_video_path(p: &Path) -> bool {
-    p.is_file()
-        && p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-            let l = e.to_ascii_lowercase();
-            SUFFIX.contains(&l.as_str())
-        })
+    if !p.is_file() {
+        return false;
+    }
+    let Some(ext) = p.extension().and_then(|e| e.to_str()) else {
+        return false;
+    };
+    let ext = ext.to_ascii_lowercase();
+    if !SUFFIX.contains(&ext.as_str()) {
+        return false;
+    }
+    ext != "ts" || ts_mime::ts_file_is_video(p)
 }
 
 /// Local path acceptable for **Open**, CLI boot, and external `open` handlers.
