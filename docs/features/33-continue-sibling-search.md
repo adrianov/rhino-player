@@ -11,11 +11,12 @@ related: [07, 21, 34]
 - Find the next episode sitting next to something already known to the player without going back through **Open Video**.
 - Jump straight to any neighbouring video whose file name matches a typed fragment — exact pieces or close name similarity — including files already on the continue list.
 - Reach videos in a folder next to a known title’s folder (same parent), without scanning the whole disk or other top-level libraries.
+- Surprise-browse a handful of playable titles from that collected neighbour list without typing a query.
 
 ## Description
-The browse screen grows a **search box above the video card strip**. Once per session the player gathers searchable neighbours from every path in the media files catalog: video files in each known file’s folder and in that folder’s sibling folders (folders that share the same parent). It never lists the filesystem root and never treats top-level folders as siblings of each other (for example it will not walk from one library root to another under `/`). Typing matches neighbour file names case-insensitively: names that contain the query always qualify, and close name similarity can qualify the rest. Results appear as regular cards in the same horizontal strip, closer matches first; when names match equally, titles with a stored playback position appear before unstarted ones. The strip switches between plain watch-later cards and search-result cards in place — no navigation, no extra screen.
+The browse screen grows a **search box above the video card strip**, with an **I'm Feeling Lucky** control beside it. Once per session the player gathers searchable neighbours from every path in the media files catalog: video files in each known file’s folder and in that folder’s sibling folders (folders that share the same parent). It never lists the filesystem root and never treats top-level folders as siblings of each other (for example it will not walk from one library root to another under `/`). Typing matches neighbour file names case-insensitively: names that contain the query always qualify, and close name similarity can qualify the rest. Results appear as regular cards in the same horizontal strip, closer matches first; when names match equally, titles with a stored playback position appear before unstarted ones. **I'm Feeling Lucky** instead fills the strip with a small random handful of playable collected neighbours. The strip switches between plain watch-later cards and those result cards in place — no navigation, no extra screen.
 
-Result cards open like continue cards. Present playable files show **Move to Trash** on hover like continue cards; **Remove from list** stays on the plain continue strip only. Empty, hollow, or missing files are omitted from results. Missing stills are filled in the background like continue cards, and each card updates when its thumbnail is ready. Hovering a result updates the seek bar from stored length and resume like continue cards (no background load). While a query is active the strip shows only results; clearing the box (or pressing Escape while typing) restores the plain continue list. The strip and Open Video tile stay put while typing; cards update only after filtering settles.
+Result cards open like continue cards. Present playable files show **Move to Trash** on hover like continue cards; **Remove from list** stays on the plain continue strip only. Empty, hollow, or missing files are omitted from results. Missing stills are filled in the background like continue cards, and each card updates when its thumbnail is ready. Hovering a result updates the seek bar from stored length and resume like continue cards (no background load). While a query or I'm Feeling Lucky is active the strip shows only those result cards; clearing the box (or pressing Escape) restores the plain continue list. The strip and Open Video tile stay put while typing; cards update only after filtering settles.
 
 ## Behavior
 
@@ -31,6 +32,7 @@ Feature: Sibling search on the continue screen
     When the window paints
     Then a search box is visible centered horizontally
     And the search box sits just above the video card strip
+    And an I'm Feeling Lucky control sits beside the search box
     And the search box is not focused
     And the search box placeholder invites searching the video library
     And the strip below still shows the Open Video tile plus watch-later cards
@@ -134,6 +136,12 @@ Feature: Sibling search on the continue screen
     When the user presses Enter in the search box
     Then the first result card loads exactly as if clicked
 
+  Scenario: Pressing Enter after Feeling Lucky opens the first pick
+    Given I'm Feeling Lucky filled the strip with at least one playable video
+    When the user presses Enter in the search box
+    Then the first result card loads exactly as if clicked
+    And the lucky handful is not cleared first
+
   Scenario: Zero matches reports clearly
     Given the user typed a fragment matching no searchable neighbour
     When the strip repaints
@@ -144,7 +152,43 @@ Feature: Sibling search on the continue screen
     Given the search box has focus
     When the user opens a video and the continue strip hides
     Then the search box is not visible
+    And the I'm Feeling Lucky control is not visible
     And no text caret or typed character from the search box appears over the video
+
+  Scenario: Feeling Lucky fills the strip from the collected library
+    Given the media files catalog has gathered several playable neighbour videos
+    When the user activates I'm Feeling Lucky
+    Then the strip replaces the watch-later cards with a small handful of those playable videos
+    And the Open Video tile remains the first tile
+    And the shown titles need not match any typed fragment
+
+  Scenario: Feeling Lucky skips unplayable neighbours
+    Given the collected neighbour list includes playable files and hollow or missing files
+    When the user activates I'm Feeling Lucky
+    Then only playable neighbours appear among the result cards
+    And the match hint counts only those playable picks
+
+  Scenario: Feeling Lucky again offers another handful
+    Given I'm Feeling Lucky already filled the strip
+    And the collected playable list is larger than one handful
+    When the user activates I'm Feeling Lucky again
+    Then the strip shows another handful drawn from that list
+
+  Scenario: Escape after Feeling Lucky restores the continue list
+    Given I'm Feeling Lucky filled the strip
+    When the user clears the search box or presses Escape while typing
+    Then the strip shows the Open Video tile followed by the usual watch-later cards
+
+  Scenario: Typing after Feeling Lucky searches as usual
+    Given I'm Feeling Lucky filled the strip
+    When the user types a fragment of a neighbour file name and filtering finishes
+    Then the strip replaces the lucky picks with one card per matching file
+
+  Scenario: Feeling Lucky with nothing playable stays on Open Video
+    Given the collected neighbour list has no playable videos
+    When the user activates I'm Feeling Lucky
+    Then the strip keeps only the Open Video tile
+    And a short inline hint states that nothing could be picked
 ```
 
 ## Notes
@@ -153,7 +197,8 @@ Feature: Sibling search on the continue screen
 - Reuses `video_ext::list_videos_in_dir`. Hit order: trigram Jaccard score descending; equal scores prefer a non-zero resume from the same maps as card progress (`card_resume_duration` / `load_time_pos_map` + `load_duration_map`); then natural lexical name (`lexical_sort`).
 - Scoring: padded character trigrams + Jaccard (`sibling_search_score.rs`). Score is the best Jaccard of the query against the full lowercased file name and each alphanumeric token (so a misspelled word inside a long name still ranks without sliding-window noise); minimum `TRIGRAM_MIN_SCORE`. Substring containment always keeps a hit even when Jaccard is low. Results capped (`SEARCH_MAX_HITS`); hint notes the cap. Hits may include continue-list members. Openability is classified once when the session neighbour index is built (`NeighbourEntry.openable` via `media_open_fail::preflight_user_message`); settled queries filter that flag only. Trash/restore go through `recent_view::search_note_removed` / `search_note_restored` (strip context owns the index). Search-strip chrome shows Move to Trash for present files; omits Remove (list membership) for every hit.
 - Index: built once per window/session on continue-search bind (one idle) or on first committed query if still empty; typing never rescans. Filter debounce: `TYPE_DEBOUNCE_MS` in `src/recent_view/sibling_search_state.rs`; empty draft commits immediately.
-- Placement: search row centered horizontally, parked just above the card strip; hint side slot mirrored by an invisible twin of the widest hint. macOS header-compositing band stays clear. Placeholder: `Search your video library…`. First map clears initial focus from the entry (GTK would otherwise focus the first focusable field). Playback uses `dismiss_search_for_playback` (focus drop + search-row unmap) before the continue strip hides — including at the start of a warm-reveal beat — then `hide_continue_strip` unmaps the strip. Strip `notify::visible` restores the row when browse returns.
+- Placement: search row centered horizontally, parked just above the card strip; **I'm Feeling Lucky** sits to the right of the entry (`lucky_button` in `sibling_search_widgets.rs`) with an invisible twin on the left so the field stays centered; match hint sits under the field. macOS header-compositing band stays clear. Placeholder: `Search your video library…`. First map clears initial focus from the entry (GTK would otherwise focus the first focusable field). Playback uses `dismiss_search_for_playback` (focus drop + search-row unmap) before the continue strip hides — including at the start of a warm-reveal beat — then `hide_continue_strip` unmaps the strip. Strip `notify::visible` restores the row when browse returns.
+- **I'm Feeling Lucky:** `lucky_picks` (`sibling_search_lucky.rs`) samples openable session-index paths (same `NeighbourEntry.openable` gate as search), shuffles, then caps at `CONTINUE_DISPLAY_MAX` so the handful matches the usual continue-strip card count. Another click reshuffles. Paint-time `keep_openable` drops snapshot paths marked unopenable (trash) so Undo restore shows the card again. Enter opens the first pick without committing an empty query (that would dismiss lucky). Clearing the box / Escape drops lucky mode and restores watch-later; a typed query replaces lucky cards with name hits. Hint strings live next to the sample (`lucky_hint` / `search_hint`). Styling: `button.rp-recent-lucky` in `src/theme/continue_grid.css`.
 - Paint path: `RecentContext::apply_strip` / `ensure_apply_strip` (arms `ThumbBackfill::schedule`); ready stills hop via coalesced `MainContext::invoke` in `live_card` (no refill poll) → in-place `apply_ready_thumbs`; draft vs committed query; skip identical neighbour paints; `fill_row` keeps Open Video.
 - Escape while a text widget has focus proceeds to the search box (clear), not strip/playback shortcuts.
 - Styling: `entry.search.rp-recent-search-entry` in `src/theme/continue_grid.css`. No-thumb placeholder uses bundled `camera-video-symbolic`.

@@ -9,9 +9,10 @@ use std::rc::{Rc, Weak};
 use gtk::glib::prelude::CastNone;
 use gtk::prelude::{GtkWindowExt, IsA, WidgetExt};
 
+use super::sibling_search_lucky::{keep_openable, lucky_hint, lucky_picks, search_hint};
 use super::{
     build_neighbour_index, classify_openable, index_fill_once, present_name_hits, take_capped,
-    NeighbourEntry,
+    NeighbourEntry, CONTINUE_DISPLAY_MAX,
 };
 
 /// Settled filter delay after typing stops (feature 33).
@@ -50,11 +51,15 @@ pub(crate) struct SiblingSearchState {
     /// Session neighbour index (path + openability); filled once per window.
     index: RefCell<Vec<NeighbourEntry>>,
     scanned: Cell<bool>,
+    /// I'm Feeling Lucky handful; takes the strip when the query is empty.
+    lucky: RefCell<Option<Vec<PathBuf>>>,
     last_hits: RefCell<Option<(usize, bool)>>,
     /// Last neighbour paths painted; identical commits skip [fill_row].
     painted: RefCell<Option<Vec<PathBuf>>>,
     pub(super) ctx: CtxSlot,
     pub(super) debounce: RefCell<Option<glib::SourceId>>,
+    /// Skip [on_changed] while Lucky clears the entry so the strip does not flash watch-later.
+    pub(super) mute_change: Cell<bool>,
 }
 
 #[path = "sibling_search_input.rs"]
@@ -69,15 +74,17 @@ impl SiblingSearchState {
             query: RefCell::new(String::new()),
             index: RefCell::default(),
             scanned: Cell::new(false),
+            lucky: RefCell::new(None),
             last_hits: RefCell::new(None),
             painted: RefCell::new(None),
             ctx: RefCell::new(None),
             debounce: RefCell::new(None),
+            mute_change: Cell::new(false),
         })
     }
 
     pub(crate) fn searching(&self) -> bool {
-        !self.query.borrow().is_empty()
+        !self.query.borrow().is_empty() || self.lucky.borrow().is_some()
     }
 
     pub(crate) fn typing_pending(&self) -> bool {
@@ -98,15 +105,29 @@ impl SiblingSearchState {
     }
 
     pub(crate) fn current_hits(&self) -> Option<Vec<PathBuf>> {
+        let hits = self.hits_for_strip();
+        *self.last_hits.borrow_mut() = hits.as_ref().map(|(h, c)| (h.len(), *c));
+        hits.map(|(h, _)| h)
+    }
+
+    fn hits_for_strip(&self) -> Option<(Vec<PathBuf>, bool)> {
         let q = self.query.borrow().trim().to_lowercase();
-        if q.is_empty() {
-            *self.last_hits.borrow_mut() = None;
-            return None;
+        if !q.is_empty() {
+            return Some(take_capped(present_name_hits(&self.neighbour_index(), &q)));
         }
-        let files = self.neighbour_index();
-        let (hits, capped) = take_capped(present_name_hits(&files, &q));
-        *self.last_hits.borrow_mut() = Some((hits.len(), capped));
-        Some(hits)
+        let lucky = self.lucky.borrow();
+        Some((keep_openable(lucky.as_ref()?, &self.index.borrow()), false))
+    }
+
+    pub(super) fn roll_lucky(&self) {
+        let picks = lucky_picks(&self.neighbour_index(), CONTINUE_DISPLAY_MAX);
+        *self.lucky.borrow_mut() = Some(picks);
+        self.query.borrow_mut().clear();
+        self.clear_hits_paint();
+    }
+
+    pub(super) fn drop_lucky(&self) {
+        self.lucky.borrow_mut().take();
     }
 
     pub(super) fn neighbour_index(&self) -> Vec<NeighbourEntry> {
@@ -115,12 +136,7 @@ impl SiblingSearchState {
 
     /// Mark a path unopenable after trash / removal so the next filter skips it without FS I/O.
     pub(crate) fn note_path_removed(&self, path: &std::path::Path) {
-        if let Some(e) = self
-            .index
-            .borrow_mut()
-            .iter_mut()
-            .find(|e| e.path == path)
-        {
+        if let Some(e) = self.index.borrow_mut().iter_mut().find(|e| e.path == path) {
             e.openable = false;
         }
         self.clear_hits_paint();
@@ -128,24 +144,27 @@ impl SiblingSearchState {
 
     /// Re-run open preflight for one indexed path (e.g. undo trash restore).
     pub(crate) fn refresh_path_openability(&self, path: &std::path::Path) {
-        if let Some(e) = self
-            .index
-            .borrow_mut()
-            .iter_mut()
-            .find(|e| e.path == path)
-        {
+        if let Some(e) = self.index.borrow_mut().iter_mut().find(|e| e.path == path) {
             e.openable = classify_openable(&e.path);
         }
         self.clear_hits_paint();
     }
 
     pub(crate) fn note_repaint(&self) {
-        self.hint.set_text(&match (*self.last_hits.borrow()).filter(|_| self.searching()) {
-            None => String::new(),
-            Some((n, true)) => format!("{n}+ matches"),
-            Some((0, false)) => "No matches".to_string(),
-            Some((n, false)) => format!("{n} match{}", if n == 1 { "" } else { "es" }),
-        });
+        self.hint.set_text(&self.hint_text());
+    }
+
+    fn hint_text(&self) -> String {
+        let Some((n, capped)) = *self.last_hits.borrow() else {
+            return String::new();
+        };
+        if !self.searching() {
+            return String::new();
+        }
+        if self.lucky.borrow().is_some() && self.query.borrow().is_empty() {
+            return lucky_hint(n);
+        }
+        search_hint(n, capped)
     }
 
     /// Browse strip shown ↔ search row mapped. Hide path drops focus then unmaps the row so

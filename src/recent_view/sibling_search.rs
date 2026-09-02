@@ -1,20 +1,22 @@
 // Neighbour (sibling) search for the continue screen — feature hub.
 // See docs/features/33-continue-sibling-search.md. Split across:
 //   sibling_search.rs          — BFS scan, hit filter, strip plan, tests
+//   sibling_search_lucky.rs    — I'm Feeling Lucky sample (`#[path]`)
 //   sibling_search_score.rs    — Jaccard trigrams (`#[path]`)
-//   sibling_search_state.rs    — query / index / paint (`#[path]`)
-//   sibling_search_input.rs    — debounce / commit (`#[path]` from state)
-//   sibling_search_widgets.rs  — search-row widgets
+//   sibling_search_state.rs    — query / index / lucky / paint (`#[path]`)
+//   sibling_search_input.rs    — debounce / commit / lucky click (`#[path]` from state)
+//   sibling_search_widgets.rs  — search-row widgets + I'm Feeling Lucky
 // NOTE: include!'d into `recent_view`; shares its imports (glib, Rc, RefCell, Path, Duration).
 
 include!("sibling_search_widgets.rs");
 #[path = "sibling_search_score.rs"]
 mod sibling_search_score;
 use sibling_search_score::{name_match_score, query_trigrams};
+#[path = "sibling_search_lucky.rs"]
+mod sibling_search_lucky;
 #[path = "sibling_search_state.rs"]
 mod sibling_search_state;
 pub(crate) use sibling_search_state::*;
-
 
 fn take_capped(mut hits: Vec<PathBuf>) -> (Vec<PathBuf>, bool) {
     let capped = hits.len() > SEARCH_MAX_HITS;
@@ -62,10 +64,7 @@ pub(crate) struct StripPlan {
 }
 
 /// Resolve strip contents: neighbour hits while a query is active, else the fallback list.
-pub(crate) fn strip_plan(
-    search: Option<&SiblingSearchState>,
-    fallback: Vec<PathBuf>,
-) -> StripPlan {
+pub(crate) fn strip_plan(search: Option<&SiblingSearchState>, fallback: Vec<PathBuf>) -> StripPlan {
     match search.and_then(|s| s.current_hits()) {
         Some(paths) => StripPlan {
             paths,
@@ -113,11 +112,7 @@ fn scan_sibling_universe(seeds: &[PathBuf]) -> Vec<PathBuf> {
     files
 }
 
-fn enqueue_sibling_dirs(
-    queue: &mut VecDeque<PathBuf>,
-    seen: &mut HashSet<PathBuf>,
-    dir: &Path,
-) {
+fn enqueue_sibling_dirs(queue: &mut VecDeque<PathBuf>, seen: &mut HashSet<PathBuf>, dir: &Path) {
     let Some(grand) = dir.parent() else {
         return;
     };
@@ -183,11 +178,19 @@ fn score_openable_hit(
 ) -> Option<(f64, bool, PathBuf)> {
     let name = file_name_lower(&e.path);
     let score = name_match_score(&name, q, q_tri)?;
-    Some((score, path_has_progress(&e.path, tpos, durs), e.path.clone()))
+    Some((
+        score,
+        path_has_progress(&e.path, tpos, durs),
+        e.path.clone(),
+    ))
 }
 
 /// Same resume source as continue/search card progress (`card_resume_duration`).
-fn path_has_progress(path: &Path, tpos: &HashMap<String, f64>, durs: &HashMap<String, f64>) -> bool {
+fn path_has_progress(
+    path: &Path,
+    tpos: &HashMap<String, f64>,
+    durs: &HashMap<String, f64>,
+) -> bool {
     let entity = crate::playback_entity::db_path_for(path);
     let (resume, _) = crate::playback_entity::card_resume_duration(&entity, durs, tpos);
     resume.is_finite() && resume > 0.0

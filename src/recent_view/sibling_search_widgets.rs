@@ -1,8 +1,10 @@
-// Neighbour-search row widgets: entry + inline hint. Split out of `sibling_search.rs`
-// to keep both sides reviewable; state and repaint decisions live in [SiblingSearchState].
+// Neighbour-search row widgets: entry, I'm Feeling Lucky, inline hint.
+// State and repaint decisions live in [SiblingSearchState].
 
-/// Widest usual hint; both side slots measure this so the entry stays window-centered.
-const HINT_SIDE: &str = "40+ matches";
+/// Widest usual hint; floors the label so the row does not jump when the hint fills in.
+const HINT_SIDE: &str = "Nothing to pick";
+
+const LUCKY_LABEL: &str = "I'm Feeling Lucky";
 
 /// Search row widgets; all repaint decisions live in [SiblingSearchState].
 pub struct SiblingSearch {
@@ -14,8 +16,10 @@ impl SiblingSearch {
     pub(super) fn new() -> Self {
         let entry = search_entry();
         let hint = hint_label();
-        let shell = search_row_shell(&entry, &hint);
+        let lucky = lucky_button();
+        let shell = search_row_shell(&entry, &hint, &lucky);
         let state = SiblingSearchState::new(shell.clone(), entry, hint);
+        state.wire_lucky(&lucky);
         SiblingSearch { shell, state }
     }
 
@@ -41,6 +45,25 @@ fn search_entry() -> gtk::SearchEntry {
     entry
 }
 
+fn lucky_button() -> gtk::Button {
+    let btn = gtk::Button::with_label(LUCKY_LABEL);
+    btn.add_css_class("rp-recent-lucky");
+    btn.set_valign(gtk::Align::Center);
+    btn.set_hexpand(false);
+    btn.set_tooltip_text(Some("Show random videos from your library"));
+    btn.set_cursor_from_name(Some("pointer"));
+    btn
+}
+
+/// Invisible twin of the lucky button so the search field stays window-centered.
+fn lucky_balance() -> gtk::Button {
+    let bal = lucky_button();
+    bal.set_opacity(0.0);
+    bal.set_can_target(false);
+    bal.set_can_focus(false);
+    bal
+}
+
 /// GTK focuses the first focusable field on map; drop that so launch leaves the entry idle.
 fn clear_initial_search_focus(entry: &gtk::SearchEntry) {
     let once = std::cell::Cell::new(true);
@@ -64,33 +87,28 @@ fn clear_initial_search_focus(entry: &gtk::SearchEntry) {
 fn hint_label() -> gtk::Label {
     let hint = gtk::Label::new(None);
     hint.add_css_class("rp-recent-search-hint");
+    hint.set_halign(gtk::Align::Center);
     hint.set_valign(gtk::Align::Center);
-    hint.set_xalign(0.0);
+    hint.set_xalign(0.5);
     hint.set_hexpand(false);
-    // Floor width to the longest hint so an empty side still matches the balancer.
     hint.set_width_chars(HINT_SIDE.chars().count() as i32);
     hint
 }
 
-/// Invisible twin of the widest hint — empty Label + opacity often collapses to 0 width.
-fn hint_balance() -> gtk::Label {
-    let bal = gtk::Label::new(Some(HINT_SIDE));
-    bal.add_css_class("rp-recent-search-hint");
-    bal.set_valign(gtk::Align::Center);
-    bal.set_opacity(0.0);
-    bal.set_can_target(false);
-    bal.set_hexpand(false);
-    bal
-}
+fn search_row_shell(entry: &gtk::SearchEntry, hint: &gtk::Label, lucky: &gtk::Button) -> gtk::Box {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    row.set_halign(gtk::Align::Center);
+    row.set_valign(gtk::Align::Center);
+    row.set_hexpand(false);
+    row.append(&lucky_balance());
+    row.append(entry);
+    row.append(lucky);
 
-fn search_row_shell(entry: &gtk::SearchEntry, hint: &gtk::Label) -> gtk::Box {
-    let shell = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let shell = gtk::Box::new(gtk::Orientation::Vertical, 4);
     shell.set_halign(gtk::Align::Center);
     shell.set_valign(gtk::Align::Center);
     shell.set_hexpand(false);
-    // balance | entry | hint — equal side slots keep the field centered when the hint has text.
-    shell.append(&hint_balance());
-    shell.append(entry);
+    shell.append(&row);
     shell.append(hint);
     shell
 }

@@ -12,7 +12,7 @@ pub struct ScrollArea {
     pub spacers: [gtk::Box; 2],
     pub undo_bar: UndoBar,
     pub notice_toast: NoticeToast,
-    /// Neighbour-search box mounted atop the strip (feature 33).
+    /// Neighbour-search box + I'm Feeling Lucky mounted atop the strip (feature 33).
     pub search: SiblingSearch,
 }
 

@@ -151,7 +151,7 @@ pub struct StripActions {
 pub enum StripKind {
     /// Watch-later entries plus the Open Video tile (default).
     ContinueList,
-    /// Neighbour-substring search results (feature 33): Trash on present files, no Remove.
+    /// Neighbour search or I'm Feeling Lucky (feature 33): Trash on present files, no Remove.
     NeighbourHits,
 }
 

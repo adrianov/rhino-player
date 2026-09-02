@@ -3,7 +3,7 @@
 
 use std::rc::{Rc, Weak};
 
-use gtk::prelude::{EditableExt, WidgetExt};
+use gtk::prelude::{ButtonExt, EditableExt, WidgetExt};
 
 use super::SiblingSearchState;
 
@@ -23,6 +23,23 @@ impl SiblingSearchState {
         });
     }
 
+    pub(crate) fn wire_lucky(self: &Rc<Self>, lucky: &gtk::Button) {
+        let s = Rc::clone(self);
+        lucky.connect_clicked(move |_| s.on_lucky());
+    }
+
+    fn on_lucky(self: &Rc<Self>) {
+        crate::glib_source_drop::drop_glib_source(&self.debounce);
+        crate::user_action_log::act("continue lucky");
+        if !self.entry.text().is_empty() {
+            self.mute_change.set(true);
+            self.entry.set_text("");
+            self.mute_change.set(false);
+        }
+        self.roll_lucky();
+        self.refill_now();
+    }
+
     fn wire_enter(&self, act: impl Fn() + 'static) {
         let k = gtk::EventControllerKey::new();
         k.connect_key_pressed(move |_, key, _, _| {
@@ -36,6 +53,9 @@ impl SiblingSearchState {
     }
 
     fn on_changed(self: &Rc<Self>) {
+        if self.mute_change.get() {
+            return;
+        }
         crate::glib_source_drop::drop_glib_source(&self.debounce);
         if Self::draft_text(&self.entry).is_empty() {
             self.commit_and_refill(String::new());
@@ -69,10 +89,11 @@ impl SiblingSearchState {
     }
 
     fn commit_and_refill(&self, next: String) {
-        if *self.query.borrow() == next {
+        if *self.query.borrow() == next && self.lucky.borrow().is_none() {
             self.note_repaint();
             return;
         }
+        self.drop_lucky();
         *self.query.borrow_mut() = next;
         self.refill_now();
     }
@@ -86,9 +107,9 @@ impl SiblingSearchState {
 
     fn open_first_hit(self: &Rc<Self>) {
         crate::glib_source_drop::drop_glib_source(&self.debounce);
-        self.commit_and_refill(Self::draft_text(&self.entry));
-        if !self.searching() {
-            return;
+        let draft = Self::draft_text(&self.entry);
+        if !draft.is_empty() {
+            self.commit_and_refill(draft);
         }
         let Some(first) = self.current_hits().and_then(|h| h.into_iter().next()) else {
             return;

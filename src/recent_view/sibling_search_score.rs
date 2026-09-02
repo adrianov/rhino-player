@@ -40,7 +40,10 @@ fn jaccard(a: &HashSet<Trigram>, b: &HashSet<Trigram>) -> f64 {
 /// Best Jaccard of `q_tri` against the full name and each alphanumeric token.
 fn best_token_jaccard(q_tri: &HashSet<Trigram>, name: &str) -> f64 {
     let mut best = jaccard(q_tri, &char_trigrams(name));
-    for token in name.split(|c: char| !c.is_alphanumeric()).filter(|t| !t.is_empty()) {
+    for token in name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+    {
         let score = jaccard(q_tri, &char_trigrams(token));
         if score > best {
             best = score;
