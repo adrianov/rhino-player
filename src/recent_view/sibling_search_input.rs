@@ -19,7 +19,7 @@ impl SiblingSearchState {
         // One idle: build the session index before the user finishes typing (feature 33).
         let s4 = Rc::clone(self);
         glib::idle_add_local_once(move || {
-            let _ = s4.neighbour_index();
+            s4.ensure_index();
         });
     }
 

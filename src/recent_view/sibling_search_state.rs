@@ -98,8 +98,8 @@ impl SiblingSearchState {
     }
 
     pub(super) fn roll_lucky(&self) {
-        self.lucky
-            .roll(&self.neighbour_index(), CONTINUE_DISPLAY_MAX);
+        self.ensure_index();
+        self.lucky.roll(&self.index.borrow(), CONTINUE_DISPLAY_MAX);
         self.query.borrow_mut().clear();
         self.clear_hits_paint();
     }
@@ -110,11 +110,6 @@ impl SiblingSearchState {
 
     pub(super) fn drop_lucky(&self) {
         self.lucky.deactivate();
-    }
-
-    pub(super) fn neighbour_index(&self) -> Vec<NeighbourEntry> {
-        self.ensure_index();
-        self.index.borrow().clone()
     }
 
     pub(crate) fn index_path_for(&self, path: &std::path::Path) -> std::path::PathBuf {

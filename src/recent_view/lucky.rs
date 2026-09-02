@@ -1,17 +1,21 @@
 // I'm Feeling Lucky owner (feature 33): sample, series collapse, session reserve, trash/remove refill.
 
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+#[cfg(test)]
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 pub(super) use super::NeighbourEntry;
 
+mod progress;
 mod titles;
-use titles::{lucky_titles, retarget_paths};
+use titles::{lucky_titles, openable_set};
 mod gap;
 mod session;
 pub(crate) use session::LuckySession;
 
 /// Openable titles, unseen this session first; series collapse to continue-or-first.
+#[cfg(test)]
 pub(super) fn lucky_picks(
     entries: &[NeighbourEntry],
     max: usize,
@@ -23,6 +27,7 @@ pub(super) fn lucky_picks(
 }
 
 /// Use a reserved handful when it still has playable paths; otherwise roll a new sample.
+#[cfg(test)]
 pub(super) fn take_ready_or_roll(
     ready: &mut Option<Vec<PathBuf>>,
     entries: &[NeighbourEntry],
@@ -38,16 +43,6 @@ pub(super) fn take_ready_or_roll(
     lucky_picks(entries, max, seen)
 }
 
-/// Reserve the next handful (marks those titles seen).
-pub(super) fn reserve_lucky(
-    entries: &[NeighbourEntry],
-    max: usize,
-    seen: &mut HashSet<String>,
-) -> Option<Vec<PathBuf>> {
-    let next = lucky_picks(entries, max, seen);
-    (!next.is_empty()).then_some(next)
-}
-
 fn lucky_seed() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -55,6 +50,7 @@ fn lucky_seed() -> u64 {
         .unwrap_or(1)
 }
 
+#[cfg(test)]
 fn lucky_picks_with_seed(
     entries: &[NeighbourEntry],
     max: usize,
@@ -63,29 +59,75 @@ fn lucky_picks_with_seed(
     tpos: &HashMap<String, f64>,
     durs: &HashMap<String, f64>,
 ) -> Vec<PathBuf> {
-    let mut titles = lucky_titles(entries, tpos, durs);
-    titles.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut pool = drain_unseen(titles, seen);
+    take_from_titles(lucky_titles(entries, tpos, durs), max, seed, seen)
+}
+
+/// Shown + reserved from one title list (one shuffle).
+pub(super) fn take_ready_then_next(
+    ready: &mut Option<Vec<PathBuf>>,
+    titles: Vec<(String, PathBuf)>,
+    max: usize,
+    seen: &mut HashSet<String>,
+    index: &[NeighbourEntry],
+) -> (Vec<PathBuf>, Option<Vec<PathBuf>>) {
+    if let Some(paths) = ready.take() {
+        let open = keep_openable(&paths, index);
+        if !open.is_empty() {
+            let next = take_from_titles(titles, max, lucky_seed(), seen);
+            return (open, nonempty(next));
+        }
+    }
+    let mut pool = prepare_pool(titles, seen);
+    fisher_yates(&mut pool, lucky_seed());
+    let shown = take_mark(&mut pool, max, seen);
+    let next = take_mark(&mut pool, max, seen);
+    (shown, nonempty(next))
+}
+
+fn take_from_titles(
+    titles: Vec<(String, PathBuf)>,
+    max: usize,
+    seed: u64,
+    seen: &mut HashSet<String>,
+) -> Vec<PathBuf> {
+    let mut pool = prepare_pool(titles, seen);
     fisher_yates(&mut pool, seed);
-    pool.truncate(max);
-    remember_seen(&pool, seen);
-    pool.into_iter().map(|(_, p)| p).collect()
+    take_mark(&mut pool, max, seen)
+}
+
+fn prepare_pool(
+    mut titles: Vec<(String, PathBuf)>,
+    seen: &mut HashSet<String>,
+) -> Vec<(String, PathBuf)> {
+    titles.sort_by(|a, b| a.0.cmp(&b.0));
+    drain_unseen(titles, seen)
+}
+
+fn take_mark(
+    pool: &mut Vec<(String, PathBuf)>,
+    max: usize,
+    seen: &mut HashSet<String>,
+) -> Vec<PathBuf> {
+    let n = max.min(pool.len());
+    let taken: Vec<_> = pool.drain(..n).collect();
+    remember_seen(&taken, seen);
+    taken.into_iter().map(|(_, p)| p).collect()
+}
+
+fn nonempty(paths: Vec<PathBuf>) -> Option<Vec<PathBuf>> {
+    (!paths.is_empty()).then_some(paths)
 }
 
 fn drain_unseen(
-    titles: Vec<(String, PathBuf)>,
+    mut titles: Vec<(String, PathBuf)>,
     seen: &mut HashSet<String>,
 ) -> Vec<(String, PathBuf)> {
-    let unused: Vec<_> = titles
-        .iter()
-        .filter(|(id, _)| !seen.contains(id))
-        .cloned()
-        .collect();
-    if unused.is_empty() {
-        seen.clear();
+    if titles.iter().any(|(id, _)| !seen.contains(id)) {
+        titles.retain(|(id, _)| !seen.contains(id));
         titles
     } else {
-        unused
+        seen.clear();
+        titles
     }
 }
 
@@ -104,32 +146,19 @@ fn fisher_yates<T>(items: &mut [T], seed: u64) {
     }
 }
 
-/// Point shown/reserved lucky paths at each title's current continue-or-first episode.
-pub(super) fn retarget_lucky(
-    shown: &mut Option<Vec<PathBuf>>,
-    next: &mut Option<Vec<PathBuf>>,
-    index: &[NeighbourEntry],
-) {
-    let tpos = crate::db::load_time_pos_map();
-    let durs = crate::db::load_duration_map();
-    if let Some(paths) = shown.as_mut() {
-        retarget_paths(paths, index, &tpos, &durs);
-    }
-    if let Some(paths) = next.as_mut() {
-        retarget_paths(paths, index, &tpos, &durs);
-    }
-}
-
 /// Same title on the lucky strip (listing path vs canonical card path).
-pub(super) fn same_shown(a: &std::path::Path, b: &std::path::Path) -> bool {
+pub(super) fn same_shown(a: &Path, b: &Path) -> bool {
     crate::video_ext::paths_same_file(a, b)
 }
 
 /// Drop snapshot paths that the live index now marks unopenable (trash).
 pub(super) fn keep_openable(paths: &[PathBuf], index: &[NeighbourEntry]) -> Vec<PathBuf> {
+    let open = openable_set(index);
     paths
         .iter()
-        .filter(|p| index.iter().any(|e| e.openable && same_shown(&e.path, p)))
+        .filter(|p| {
+            open.contains(p.as_path()) || index.iter().any(|e| e.openable && same_shown(&e.path, p))
+        })
         .cloned()
         .collect()
 }
@@ -299,6 +328,22 @@ mod tests {
         let mut durs = HashMap::new();
         tpos.insert(e2.to_string(), 180.0);
         durs.insert(e2.to_string(), 2400.0);
+        let picks = draw(&entries, 5, 1, &mut HashSet::new(), &tpos, &durs);
+        assert_eq!(picks, vec![PathBuf::from(e2)]);
+    }
+
+    #[test]
+    fn series_in_progress_matches_store_by_file_name() {
+        let e2 = "/t/Show/Show.S01E02.mkv";
+        let entries = [
+            entry("/t/Show/Show.S01E01.mkv", true),
+            entry(e2, true),
+            entry("/t/Show/Show.S01E03.mkv", true),
+        ];
+        let mut tpos = HashMap::new();
+        let mut durs = HashMap::new();
+        tpos.insert("Show.S01E02.mkv".into(), 180.0);
+        durs.insert("Show.S01E02.mkv".into(), 2400.0);
         let picks = draw(&entries, 5, 1, &mut HashSet::new(), &tpos, &durs);
         assert_eq!(picks, vec![PathBuf::from(e2)]);
     }

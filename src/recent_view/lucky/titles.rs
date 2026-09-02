@@ -1,12 +1,13 @@
 // Collapse neighbour paths to one lucky title per series or standalone file.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use lexical_sort::natural_lexical_cmp;
 use regex::Regex;
 
+use super::progress::ProgressLookup;
 use super::NeighbourEntry;
 
 pub(super) fn lucky_titles(
@@ -14,32 +15,110 @@ pub(super) fn lucky_titles(
     tpos: &HashMap<String, f64>,
     durs: &HashMap<String, f64>,
 ) -> Vec<(String, PathBuf)> {
+    titles_from_groups(&group_index(entries), &openable_set(entries), tpos, durs)
+}
+
+/// Title id → listing paths (built once per lucky session).
+pub(super) fn group_index(entries: &[NeighbourEntry]) -> HashMap<String, Vec<PathBuf>> {
     let mut groups: HashMap<String, Vec<PathBuf>> = HashMap::new();
-    for e in entries.iter().filter(|e| e.openable) {
+    for e in entries {
         groups
             .entry(title_id(&e.path))
             .or_default()
             .push(e.path.clone());
     }
     groups
-        .into_iter()
-        .map(|(id, paths)| (id, pick_title(&paths, tpos, durs)))
+}
+
+pub(super) fn openable_set(entries: &[NeighbourEntry]) -> HashSet<&Path> {
+    entries
+        .iter()
+        .filter(|e| e.openable)
+        .map(|e| e.path.as_path())
         .collect()
 }
 
+pub(super) fn titles_from_groups(
+    groups: &HashMap<String, Vec<PathBuf>>,
+    open: &HashSet<&Path>,
+    tpos: &HashMap<String, f64>,
+    durs: &HashMap<String, f64>,
+) -> Vec<(String, PathBuf)> {
+    let store = ProgressLookup::new(tpos, durs);
+    groups
+        .iter()
+        .filter_map(|(id, paths)| playable_pick(paths, open, &store).map(|p| (id.clone(), p)))
+        .collect()
+}
+
+/// Rewrite shown/reserved paths to each title's current continue-or-first episode.
+pub(super) fn retarget_lists(
+    shown: &mut Option<Vec<PathBuf>>,
+    next: &mut Option<Vec<PathBuf>>,
+    groups: &HashMap<String, Vec<PathBuf>>,
+    open: &HashSet<&Path>,
+    tpos: &HashMap<String, f64>,
+    durs: &HashMap<String, f64>,
+) {
+    let store = ProgressLookup::new(tpos, durs);
+    rewrite_list(shown, groups, open, &store);
+    rewrite_list(next, groups, open, &store);
+}
+
+fn rewrite_list(
+    paths: &mut Option<Vec<PathBuf>>,
+    groups: &HashMap<String, Vec<PathBuf>>,
+    open: &HashSet<&Path>,
+    store: &ProgressLookup<'_>,
+) {
+    if let Some(paths) = paths.as_mut() {
+        rewrite_slice(paths, groups, open, store);
+    }
+}
+
+fn rewrite_slice(
+    paths: &mut [PathBuf],
+    groups: &HashMap<String, Vec<PathBuf>>,
+    open: &HashSet<&Path>,
+    store: &ProgressLookup<'_>,
+) {
+    for p in paths {
+        if let Some(fresh) = groups
+            .get(&title_id(p))
+            .and_then(|members| playable_pick(members, open, store))
+        {
+            *p = fresh;
+        }
+    }
+}
+
+fn playable_pick(
+    paths: &[PathBuf],
+    open: &HashSet<&Path>,
+    store: &ProgressLookup<'_>,
+) -> Option<PathBuf> {
+    let playable: Vec<&PathBuf> = paths
+        .iter()
+        .filter(|p| open.contains(p.as_path()))
+        .collect();
+    (!playable.is_empty()).then(|| pick_title(&playable, store))
+}
+
 /// Rewrite each path to that title's current continue-or-first episode.
+#[cfg(test)]
 pub(super) fn retarget_paths(
     paths: &mut [PathBuf],
     index: &[NeighbourEntry],
     tpos: &HashMap<String, f64>,
     durs: &HashMap<String, f64>,
 ) {
-    let by_id: HashMap<_, _> = lucky_titles(index, tpos, durs).into_iter().collect();
-    for p in paths {
-        if let Some(fresh) = by_id.get(&title_id(p)) {
-            *p = fresh.clone();
-        }
-    }
+    let groups = group_index(index);
+    rewrite_slice(
+        paths,
+        &groups,
+        &openable_set(index),
+        &ProgressLookup::new(tpos, durs),
+    );
 }
 
 fn title_id(path: &Path) -> String {
@@ -107,44 +186,19 @@ fn file_series_stem(name: &str) -> Option<String> {
     (!stem.is_empty()).then_some(stem)
 }
 
-fn pick_title(
-    paths: &[PathBuf],
-    tpos: &HashMap<String, f64>,
-    durs: &HashMap<String, f64>,
-) -> PathBuf {
-    watching_latest(paths, tpos, durs).unwrap_or_else(|| first_path(paths))
-}
-
-fn watching_latest(
-    paths: &[PathBuf],
-    tpos: &HashMap<String, f64>,
-    durs: &HashMap<String, f64>,
-) -> Option<PathBuf> {
+fn pick_title(paths: &[&PathBuf], store: &ProgressLookup<'_>) -> PathBuf {
     paths
         .iter()
-        .filter(|p| is_watching(p, tpos, durs))
+        .copied()
+        .filter(|p| store.is_watching(p))
         .max_by(|a, b| path_ord(a, b))
-        .cloned()
-}
-
-fn first_path(paths: &[PathBuf]) -> PathBuf {
-    paths
-        .iter()
-        .min_by(|a, b| path_ord(a, b))
-        .cloned()
-        .unwrap_or_else(|| paths[0].clone())
+        .or_else(|| paths.iter().copied().min_by(|a, b| path_ord(a, b)))
+        .expect("non-empty title group")
+        .clone()
 }
 
 fn path_ord(a: &Path, b: &Path) -> std::cmp::Ordering {
     natural_lexical_cmp(&a.to_string_lossy(), &b.to_string_lossy())
-}
-
-fn is_watching(path: &Path, tpos: &HashMap<String, f64>, durs: &HashMap<String, f64>) -> bool {
-    let (resume, dur) = crate::playback_entity::card_resume_duration(path, durs, tpos);
-    if !(resume.is_finite() && resume > 0.0) {
-        return false;
-    }
-    dur <= 0.0 || !crate::media_probe::past_done_mark(resume, dur)
 }
 
 #[cfg(test)]
