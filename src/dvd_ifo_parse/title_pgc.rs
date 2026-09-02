@@ -39,7 +39,9 @@ fn load_vts_tables(ifo_path: &std::path::Path) -> Option<VtsTables> {
     }
     Some(VtsTables {
         pgcit: parse_pgcit(&buf, pgcit_sec, BLOCK)?,
-        ptt: VtsPtt { titles: ptt::parse_titles(&buf, ptt_sec)? },
+        ptt: VtsPtt {
+            titles: ptt::parse_titles(&buf, ptt_sec)?,
+        },
     })
 }
 

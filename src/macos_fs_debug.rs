@@ -31,7 +31,5 @@ pub(crate) fn log_win_state(tag: &str, win: &adw::ApplicationWindow) {
     let ns = crate::macos_window::nswindow_for_widget(win.upcast_ref::<gtk::Widget>())
         .is_some_and(|w| crate::macos_window::ns_window_is_native_fullscreen(&w));
     let armed = crate::macos_fs_exit::exit_armed();
-    eprintln!(
-        "[rhino] macos-fs: {tag} gtk_fullscreen={gtk} ns_fullscreen={ns} exit_armed={armed}"
-    );
+    eprintln!("[rhino] macos-fs: {tag} gtk_fullscreen={gtk} ns_fullscreen={ns} exit_armed={armed}");
 }

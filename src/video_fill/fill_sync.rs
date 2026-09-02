@@ -1,9 +1,9 @@
 //! [`FillSync`] state machine: button visibility, panscan, and baked-in bar crop.
 
+use super::{stored_fill_preference, viewport_ar, FillSync, AR_TOLERANCE};
 use crate::black_bars::{
     apply_video_crop, clear_video_crop, pump_bar_probe, schedule_bar_probe, BarState,
 };
-use super::{stored_fill_preference, viewport_ar, FillSync, AR_TOLERANCE};
 use gtk::prelude::*;
 use std::rc::Rc;
 

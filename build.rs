@@ -44,7 +44,9 @@ fn macos_libmpv_search() {
     }
     let roots = homebrew_lib_roots();
     if roots.is_empty() {
-        println!("cargo:warning=No Homebrew lib directory found. Install libmpv: `brew install mpv`.");
+        println!(
+            "cargo:warning=No Homebrew lib directory found. Install libmpv: `brew install mpv`."
+        );
         return;
     }
     println!(

@@ -117,9 +117,7 @@ fn connect_fill_clicked(btn: &gtk::Button, sync: &Rc<FillSync>) {
 }
 
 /// Local path of the media currently open in mpv (`None` for streams / no media).
-fn current_local_media_path(
-    player: &Rc<RefCell<Option<MpvBundle>>>,
-) -> Option<std::path::PathBuf> {
+fn current_local_media_path(player: &Rc<RefCell<Option<MpvBundle>>>) -> Option<std::path::PathBuf> {
     let g = player.borrow();
     let b = g.as_ref()?;
     crate::media_probe::local_file_from_mpv(&b.mpv)

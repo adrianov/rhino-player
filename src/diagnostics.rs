@@ -83,9 +83,9 @@ fn probe_mvtools() -> Result<String, String> {
     }
     match crate::paths::mvtools_lib_search() {
         Some(p) => Ok(p.display().to_string()),
-        None => Err(
-            "not found (macOS: brew vapoursynth-mvtools / .app vendor; Linux: vsrepo)".into(),
-        ),
+        None => {
+            Err("not found (macOS: brew vapoursynth-mvtools / .app vendor; Linux: vsrepo)".into())
+        }
     }
 }
 
