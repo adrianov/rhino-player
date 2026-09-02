@@ -49,6 +49,6 @@ Feature: Move current file to trash
 
 ## Notes
 - Menu / shortcut action id: `app.move-to-trash` (`Delete` / `KP_Delete`).
-- Implementation calls `gio::File::trash` with no cancellable. On success: `media_probe::capture_list_remove_undo`, then `media_probe::remove_continue_entry`, then `recent_view::note_path_trashed` (`forget_file` + neighbour-index drop), then push a Trash entry on the session undo stack when `trash_xdg::find_trash_files_stored_path` resolves the copy (XDG `Trash/files/…`, or macOS `~/.Trash` / `<volume>/.Trashes/<uid>` using size + basename after trash).
+- Implementation calls `gio::File::trash` with no cancellable. On success: `media_probe::capture_list_remove_undo`, then `media_probe::remove_continue_entry`, then `recent_view::note_path_trashed` (`forget_file` + neighbour-index drop), then push a Trash entry on the session undo stack when `trash_xdg::find_trash_files_stored_path` resolves the copy (XDG `Trash/files/…`, or macOS `~/.Trash` / `<volume>/.Trashes/<uid>` using size + basename after trash). Continue-card hover trash uses `recent_view::card_trashed` (listing pin, catalog forget, lucky/search refill) and then the same undo stack.
 - The browse transition matches **Close Video** but does not clear the session undo stack, so the snackbar can offer untrash.
 - The trash control on continue cards lives in [21-recent-videos-launch](21-recent-videos-launch.md).

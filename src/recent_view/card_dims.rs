@@ -96,6 +96,36 @@ pub(crate) fn sync_card_sizes(card_row: &gtk::Box, cards: &[gtk::Overlay]) {
     }
 }
 
+pub(crate) fn wire_card_size_sync(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
+    wire_width_notify(row, cards);
+    schedule_first_size_sync(row, cards);
+}
+
+fn wire_width_notify(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
+    let hrow = row.clone();
+    if let Some(parent) = hrow.parent() {
+        let h = hrow.clone();
+        let c = Rc::clone(cards);
+        parent.connect_notify_local(Some("width"), move |_, _| {
+            sync_card_sizes(&h, &c.borrow());
+        });
+    } else {
+        let c = Rc::clone(cards);
+        row.connect_notify_local(Some("width"), move |r, _| {
+            sync_card_sizes(r, &c.borrow());
+        });
+    }
+}
+
+fn schedule_first_size_sync(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
+    let hrow = row.clone();
+    let c3 = Rc::clone(cards);
+    let _ = glib::idle_add_local(move || {
+        sync_card_sizes(&hrow, &c3.borrow());
+        glib::ControlFlow::Break
+    });
+}
+
 #[cfg(test)]
 mod card_width_tests {
     use super::*;

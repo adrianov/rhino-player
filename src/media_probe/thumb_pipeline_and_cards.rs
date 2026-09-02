@@ -275,8 +275,9 @@ fn card_one(path: &Path, durs: &HashMap<String, f64>, tpos: &HashMap<String, f64
     let (resume, duration) = crate::playback_entity::card_resume_duration(&entity, durs, tpos);
     let pct = percent_from_resume(Some(resume), Some(duration));
     let thumb = cached_thumbnail_for_display(&entity);
+    // Strip identity stays the listing path; canonicalize is only for resume / stills.
     CardData {
-        path: std::fs::canonicalize(&entity).unwrap_or(entity),
+        path: path.to_path_buf(),
         percent: pct,
         thumb,
         missing: false,
@@ -290,4 +291,27 @@ pub fn card_data_list(paths: &[PathBuf]) -> Vec<CardData> {
     let durs = db::load_duration_map();
     let tpos = db::load_time_pos_map();
     paths.iter().map(|p| card_one(p, &durs, &tpos)).collect()
+}
+
+#[cfg(test)]
+mod card_data_path_tests {
+    use super::card_data_list;
+    use std::path::PathBuf;
+
+    #[test]
+    fn card_data_keeps_strip_path() {
+        let p = std::env::temp_dir().join(format!("rhino-card-path-{}.bin", std::process::id()));
+        std::fs::write(&p, [0u8; 1]).unwrap();
+        let listed = card_data_list(std::slice::from_ref(&p));
+        std::fs::remove_file(&p).ok();
+        assert_eq!(listed[0].path, p);
+    }
+
+    #[test]
+    fn card_data_missing_keeps_given_path() {
+        let p = PathBuf::from("/no/such/rhino-card-path-missing.mkv");
+        let listed = card_data_list(std::slice::from_ref(&p));
+        assert!(listed[0].missing);
+        assert_eq!(listed[0].path, p);
+    }
 }

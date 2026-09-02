@@ -1,11 +1,11 @@
-// Fill a trashed lucky slot from the reserved next handful or one unused title.
+// Fill a trashed or removed lucky slot from the reserved next handful or one unused title.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use super::{fisher_yates, keep_openable, lucky_seed, lucky_titles, NeighbourEntry};
+use super::{fisher_yates, keep_openable, lucky_seed, lucky_titles, same_shown, NeighbourEntry};
 
-/// Replace a trashed lucky card in-place; prefers a reserved next path, then one unused title.
+/// Replace a trashed or removed lucky card in-place; prefers a reserved next path, then one unused title.
 pub(crate) fn fill_lucky_gap(
     lucky: &mut Vec<PathBuf>,
     next: &mut Option<Vec<PathBuf>>,
@@ -27,8 +27,8 @@ fn fill_lucky_gap_maps(
     tpos: &HashMap<String, f64>,
     durs: &HashMap<String, f64>,
 ) {
-    let Some(at) = lucky.iter().position(|p| p == gone) else {
-        lucky.retain(|p| p != gone);
+    let Some(at) = lucky.iter().position(|p| same_shown(p, gone)) else {
+        lucky.retain(|p| !same_shown(p, gone));
         return;
     };
     lucky.remove(at);

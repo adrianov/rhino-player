@@ -1,4 +1,4 @@
-// I'm Feeling Lucky owner (feature 33): sample, series collapse, session reserve, trash refill.
+// I'm Feeling Lucky owner (feature 33): sample, series collapse, session reserve, trash/remove refill.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -120,11 +120,16 @@ pub(super) fn retarget_lucky(
     }
 }
 
+/// Same title on the lucky strip (listing path vs canonical card path).
+pub(super) fn same_shown(a: &std::path::Path, b: &std::path::Path) -> bool {
+    crate::video_ext::paths_same_file(a, b)
+}
+
 /// Drop snapshot paths that the live index now marks unopenable (trash).
 pub(super) fn keep_openable(paths: &[PathBuf], index: &[NeighbourEntry]) -> Vec<PathBuf> {
     paths
         .iter()
-        .filter(|p| index.iter().any(|e| e.path == **p && e.openable))
+        .filter(|p| index.iter().any(|e| e.openable && same_shown(&e.path, p)))
         .cloned()
         .collect()
 }
@@ -308,6 +313,38 @@ mod tests {
         let (tpos, durs) = empty_maps();
         let picks = draw(&entries, 5, 3, &mut HashSet::new(), &tpos, &durs);
         assert_eq!(picks, vec![PathBuf::from("/lib/Show Season 1/e01.mkv")]);
+    }
+
+    #[test]
+    fn russian_ser_abbrev_collapses_to_first() {
+        let entries = [
+            entry("/t/Экспроприатор (11 сер.).mkv", true),
+            entry("/t/Экспроприатор (07 сер.).mkv", true),
+            entry("/t/Movie.mkv", true),
+        ];
+        let (tpos, durs) = empty_maps();
+        let picks = draw(&entries, 5, 1, &mut HashSet::new(), &tpos, &durs);
+        assert_eq!(picks.len(), 2);
+        assert!(picks
+            .iter()
+            .any(|p| p.ends_with("Экспроприатор (07 сер.).mkv")));
+        assert!(!picks
+            .iter()
+            .any(|p| p.ends_with("Экспроприатор (11 сер.).mkv")));
+    }
+
+    #[test]
+    fn episode_named_folders_collapse_to_first() {
+        let entries = [
+            entry("/lib/Экспроприатор (11 сер.)/video.mkv", true),
+            entry("/lib/Экспроприатор (07 сер.)/video.mkv", true),
+        ];
+        let (tpos, durs) = empty_maps();
+        let picks = draw(&entries, 5, 3, &mut HashSet::new(), &tpos, &durs);
+        assert_eq!(
+            picks,
+            vec![PathBuf::from("/lib/Экспроприатор (07 сер.)/video.mkv")]
+        );
     }
 
     #[test]

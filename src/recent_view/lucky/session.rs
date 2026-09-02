@@ -70,15 +70,20 @@ impl LuckySession {
         }
     }
 
-    /// After trash: drop the gone path and fill that slot from the reserved next handful.
-    pub(crate) fn refill_slot(&self, gone: &Path, index: &[NeighbourEntry]) {
+    /// After trash or Remove: drop the gone path and fill that slot from the reserved next handful.
+    /// `false` when lucky is inactive or `gone` is not on the shown handful.
+    pub(crate) fn refill_slot(&self, gone: &Path, index: &[NeighbourEntry]) -> bool {
         let mut shown = self.shown.borrow_mut();
         let Some(lucky) = shown.as_mut() else {
-            return;
+            return false;
         };
+        if !lucky.iter().any(|p| super::same_shown(p, gone)) {
+            return false;
+        }
         let mut next = self.next.borrow_mut();
         let mut seen = self.seen.borrow_mut();
         fill_lucky_gap(lucky, &mut next, gone, index, &mut seen);
+        true
     }
 }
 

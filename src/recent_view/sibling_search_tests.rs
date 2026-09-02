@@ -116,7 +116,10 @@ fn present_hits_rank_by_trigram_score() {
         entry("/store/somm.2012.mkv", true),
     ];
     let hits = present_name_hits(&entries, "somm");
-    assert_eq!(hits.first().map(|p| file_name_lower(p)).as_deref(), Some("somm.2012.mkv"));
+    assert_eq!(
+        hits.first().map(|p| file_name_lower(p)).as_deref(),
+        Some("somm.2012.mkv")
+    );
 }
 
 fn entry(path: &str, openable: bool) -> NeighbourEntry {
@@ -171,7 +174,8 @@ fn fill_counted(
             path,
             openable: true,
         }]
-    })
+    });
+    index.borrow().clone()
 }
 
 #[test]

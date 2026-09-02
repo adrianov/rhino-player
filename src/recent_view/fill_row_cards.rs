@@ -107,52 +107,12 @@ fn append_open_pick_tile(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>)
     row.append(&wrap_pick);
 }
 
-
-fn wire_card_size_sync(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
-    wire_width_notify(row, cards);
-    schedule_first_size_sync(row, cards);
-}
-
-fn wire_width_notify(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
-    let hrow = row.clone();
-    if let Some(parent) = hrow.parent() {
-        let h = hrow.clone();
-        let c = Rc::clone(cards);
-        parent.connect_notify_local(Some("width"), move |_, _| {
-            sync_card_sizes(&h, &c.borrow());
-        });
-    } else {
-        let c = Rc::clone(cards);
-        row.connect_notify_local(Some("width"), move |r, _| {
-            sync_card_sizes(r, &c.borrow());
-        });
-    }
-}
-
-fn schedule_first_size_sync(row: &gtk::Box, cards: &Rc<RefCell<Vec<gtk::Overlay>>>) {
-    let hrow = row.clone();
-    let c3 = Rc::clone(cards);
-    let _ = glib::idle_add_local(move || {
-        sync_card_sizes(&hrow, &c3.borrow());
-        glib::ControlFlow::Break
-    });
-}
-
 /// Card action wiring shared by every card of one strip paint ([fill_row]).
 pub struct StripActions {
     pub on_open: Rc<dyn Fn(&Path)>,
     pub on_remove: Rc<dyn Fn(&Path)>,
     pub on_trash: Rc<dyn Fn(&Path)>,
     pub warm_hover: Option<WarmHoverHooks>,
-}
-
-/// Which population a strip paint carries (affects hover chrome: Remove vs Trash-only).
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum StripKind {
-    /// Watch-later entries plus the Open Video tile (default).
-    ContinueList,
-    /// Neighbour search or I'm Feeling Lucky (feature 33): Trash on present files, no Remove.
-    NeighbourHits,
 }
 
 /// Replace trailing history cards; keeps the leading Open Video tile when present.

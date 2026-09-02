@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 
-use super::{HistoryCardHandlers, StripKind, card_action_btn};
+use super::{HistoryCardHandlers, card_action_btn};
 
 /// Logs the continue-strip verb, then runs [act].
 fn wire_logged_action(
@@ -20,8 +20,8 @@ fn wire_logged_action(
     });
 }
 
-/// Top-right overlay buttons. Trash for present files on either strip; Remove only on the
-/// continue list. Returns the overlay box plus the buttons that toggle with hover.
+/// Top-right overlay buttons. Trash for present files on either strip; Remove on the
+/// continue list and on I'm Feeling Lucky cards (name-search hits omit it).
 pub(super) fn top_action_buttons(
     c: &Path,
     h: &HistoryCardHandlers<'_>,
@@ -30,18 +30,43 @@ pub(super) fn top_action_buttons(
     let top_actions = action_overlay_box();
     let mut hover_btns = Vec::new();
     if !miss && c.is_file() {
-        let trash = card_action_btn("user-trash-symbolic", "Move to Trash");
-        wire_logged_action(&trash, c.to_path_buf(), h.on_trash.clone(), "trash");
-        top_actions.append(&trash);
-        hover_btns.push(trash);
+        push_action(
+            &top_actions,
+            &mut hover_btns,
+            c,
+            h.on_trash.clone(),
+            "user-trash-symbolic",
+            "Move to Trash",
+            "trash",
+        );
     }
-    if h.kind == StripKind::ContinueList {
-        let remove = card_action_btn("window-close-symbolic", "Remove from list");
-        wire_logged_action(&remove, c.to_path_buf(), h.on_remove.clone(), "remove");
-        top_actions.append(&remove);
-        hover_btns.push(remove);
+    if h.kind.shows_remove() {
+        push_action(
+            &top_actions,
+            &mut hover_btns,
+            c,
+            h.on_remove.clone(),
+            "window-close-symbolic",
+            "Remove from list",
+            "remove",
+        );
     }
     (top_actions, hover_btns)
+}
+
+fn push_action(
+    top: &gtk::Box,
+    hover: &mut Vec<gtk::Button>,
+    c: &Path,
+    act: Rc<dyn Fn(&Path)>,
+    icon: &str,
+    tip: &str,
+    verb: &'static str,
+) {
+    let btn = card_action_btn(icon, tip);
+    wire_logged_action(&btn, c.to_path_buf(), act, verb);
+    top.append(&btn);
+    hover.push(btn);
 }
 
 fn action_overlay_box() -> gtk::Box {

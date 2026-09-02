@@ -6,38 +6,13 @@ use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 
-use gtk::prelude::{IsA, WidgetExt};
-
 use super::lucky::{lucky_hint, search_hint, LuckySession};
-use super::{
-    build_neighbour_index, classify_openable, index_fill_once, present_name_hits, take_capped,
-    NeighbourEntry, CONTINUE_DISPLAY_MAX,
-};
+use super::{classify_openable, NeighbourEntry, CONTINUE_DISPLAY_MAX};
 
 /// Settled filter delay after typing stops (feature 33).
 pub(super) const TYPE_DEBOUNCE_MS: u64 = 200;
 
 type CtxSlot = RefCell<Option<Weak<crate::recent_view::RecentContext>>>;
-
-thread_local! {
-    /// Bound from continue-strip wiring; [dismiss_search_for_playback] / [hide_continue_strip].
-    static STRIP_SEARCH: RefCell<Option<Weak<SiblingSearchState>>> = const { RefCell::new(None) };
-}
-
-/// Drop search IM and unmap the row while the continue strip may still be visible.
-pub fn dismiss_search_for_playback() {
-    STRIP_SEARCH.with(|c| {
-        if let Some(s) = c.borrow().as_ref().and_then(Weak::upgrade) {
-            s.sync_browse_visible(false);
-        }
-    });
-}
-
-/// Hide the continue strip for playback: dismiss neighbour-search first, then unmap the strip.
-pub fn hide_continue_strip(recent: &impl IsA<gtk::Widget>) {
-    dismiss_search_for_playback();
-    recent.set_visible(false);
-}
 
 /// Query text, sibling-file index, and result bookkeeping for one window.
 pub(crate) struct SiblingSearchState {
@@ -109,11 +84,17 @@ impl SiblingSearchState {
 
     fn hits_for_strip(&self) -> Option<(Vec<PathBuf>, bool)> {
         let q = self.query.borrow().trim().to_lowercase();
+        self.ensure_index();
+        let index = self.index.borrow();
         if !q.is_empty() {
-            return Some(take_capped(present_name_hits(&self.neighbour_index(), &q)));
+            return Some(super::capped_name_hits(&index, &q));
         }
-        self.lucky.retarget(&self.index.borrow());
-        Some((self.lucky.strip_hits(&self.index.borrow())?, false))
+        self.lucky.retarget(&index);
+        Some((self.lucky.strip_hits(&index)?, false))
+    }
+
+    fn ensure_index(&self) {
+        super::index_fill_once(&self.scanned, &self.index, super::build_neighbour_index);
     }
 
     pub(super) fn roll_lucky(&self) {
@@ -132,22 +113,70 @@ impl SiblingSearchState {
     }
 
     pub(super) fn neighbour_index(&self) -> Vec<NeighbourEntry> {
-        index_fill_once(&self.scanned, &self.index, build_neighbour_index)
+        self.ensure_index();
+        self.index.borrow().clone()
+    }
+
+    pub(crate) fn index_path_for(&self, path: &std::path::Path) -> std::path::PathBuf {
+        self.listed(path).unwrap_or_else(|| path.to_path_buf())
+    }
+
+    fn listed(&self, path: &std::path::Path) -> Option<std::path::PathBuf> {
+        self.index
+            .borrow()
+            .iter()
+            .find(|e| crate::video_ext::paths_same_file(&e.path, path))
+            .map(|e| e.path.clone())
+    }
+
+    fn set_openable(&self, path: &std::path::Path, openable: bool) -> bool {
+        let mut index = self.index.borrow_mut();
+        let Some(e) = index
+            .iter_mut()
+            .find(|e| crate::video_ext::paths_same_file(&e.path, path))
+        else {
+            return false;
+        };
+        e.openable = openable;
+        true
     }
 
     /// Mark a path unopenable after trash / removal so the next filter skips it without FS I/O.
     pub(crate) fn note_path_removed(&self, path: &std::path::Path) {
-        if let Some(e) = self.index.borrow_mut().iter_mut().find(|e| e.path == path) {
-            e.openable = false;
+        if !self.set_openable(path, false) && self.searching() {
+            eprintln!("[rhino] search: trash miss (index) path={}", path.display());
         }
-        self.lucky.refill_slot(path, &self.index.borrow());
+        if self.lucky.is_active() && !self.lucky.refill_slot(path, &self.index.borrow()) {
+            eprintln!("[rhino] lucky: trash refill missed path={}", path.display());
+        }
         self.clear_hits_paint();
+    }
+
+    pub(crate) fn lucky_cards_showing(&self) -> bool {
+        self.lucky.is_active() && self.query.borrow().trim().is_empty()
+    }
+
+    pub(crate) fn hits_kind(&self) -> super::StripKind {
+        if self.lucky_cards_showing() {
+            super::StripKind::Lucky
+        } else {
+            super::StripKind::NeighbourHits
+        }
+    }
+
+    /// Drop a lucky card and refill the slot; file and catalog stay. `false` when not lucky.
+    pub(crate) fn dismiss_lucky_card(&self, path: &std::path::Path) -> bool {
+        if !self.lucky_cards_showing() || !self.lucky.refill_slot(path, &self.index.borrow()) {
+            return false;
+        }
+        self.clear_hits_paint();
+        true
     }
 
     /// Re-run open preflight for one indexed path (e.g. undo trash restore).
     pub(crate) fn refresh_path_openability(&self, path: &std::path::Path) {
-        if let Some(e) = self.index.borrow_mut().iter_mut().find(|e| e.path == path) {
-            e.openable = classify_openable(&e.path);
+        if let Some(listed) = self.listed(path) {
+            self.set_openable(&listed, classify_openable(&listed));
         }
         self.clear_hits_paint();
     }
@@ -163,7 +192,7 @@ impl SiblingSearchState {
         if !self.searching() {
             return String::new();
         }
-        if self.lucky.is_active() && self.query.borrow().is_empty() {
+        if self.lucky_cards_showing() {
             return lucky_hint(n);
         }
         search_hint(n, capped)
@@ -177,26 +206,6 @@ impl SiblingSearchState {
 
     /// Remember this row for [hide_continue_strip] (one window).
     pub(crate) fn bind_strip_hide(self: &Rc<Self>) {
-        STRIP_SEARCH.with(|c| *c.borrow_mut() = Some(Rc::downgrade(self)));
-    }
-}
-
-/// Drop a trashed path from the catalog and the neighbour index (card or playing-file trash).
-pub fn note_path_trashed(path: &std::path::Path) {
-    crate::db::forget_file(path);
-    STRIP_SEARCH.with(|c| {
-        if let Some(s) = c.borrow().as_ref().and_then(Weak::upgrade) {
-            s.note_path_removed(path);
-        }
-    });
-}
-
-/// Neighbour-search openability: reclassify after undo-trash restore.
-pub fn search_note_restored(
-    cell: &Rc<RefCell<Option<Rc<crate::recent_view::RecentContext>>>>,
-    path: &std::path::Path,
-) {
-    if let Some(s) = cell.borrow().as_ref().and_then(|c| c.search.as_ref()) {
-        s.refresh_path_openability(path);
+        super::sibling_search_bind::bind_strip(self);
     }
 }

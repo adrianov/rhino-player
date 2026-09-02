@@ -80,7 +80,7 @@ impl RecentContext {
         if self.search.as_ref().is_some_and(|s| s.typing_pending()) {
             return;
         }
-        if kind == StripKind::NeighbourHits {
+        if kind.hits_strip() {
             let Some(s) = &self.search else {
                 return;
             };

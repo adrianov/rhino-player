@@ -55,16 +55,39 @@ fn best_token_jaccard(q_tri: &HashSet<Trigram>, name: &str) -> f64 {
     best
 }
 
-/// Score of a file name against query `q` (both should already be lowercased). `None` = not a hit.
+/// Score of a file name against query `q` (callers lowercase first). `None` = not a hit.
+/// Letterlike capitals can stay uppercase after `to_lowercase()` — do not assert otherwise
+/// (this runs from a GLib timeout that cannot unwind).
+/// Containment uses a cheap prefix rank (no HashSet). Trigram fuzzy needs 3+ characters.
 pub(super) fn name_match_score(name_lower: &str, q: &str, q_tri: &HashSet<Trigram>) -> Option<f64> {
-    debug_assert!(!name_lower.chars().any(|c| c.is_uppercase()));
-    debug_assert!(!q.chars().any(|c| c.is_uppercase()));
-    let score = best_token_jaccard(q_tri, name_lower);
-    if name_lower.contains(q) || score >= TRIGRAM_MIN_SCORE {
-        Some(score)
-    } else {
-        None
+    if name_lower.contains(q) {
+        return Some(substring_score(name_lower, q));
     }
+    if q.chars().count() < 3 {
+        return None;
+    }
+    let score = best_token_jaccard(q_tri, name_lower);
+    (score >= TRIGRAM_MIN_SCORE).then_some(score)
+}
+
+/// Exact token / name prefix outranks a later substring (one-letter queries stay cheap).
+fn substring_score(name: &str, q: &str) -> f64 {
+    if name.starts_with(q) {
+        return 1.0;
+    }
+    let mut best = 0.5_f64;
+    for token in name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+    {
+        if token == q {
+            return 1.0;
+        }
+        if token.starts_with(q) {
+            best = best.max(0.9);
+        }
+    }
+    best
 }
 
 /// Trigram set for a settled query string (call once per filter).
@@ -126,5 +149,31 @@ mod score_tests {
         let q = "cats";
         let q_tri = query_trigrams(q);
         assert!(name_match_score("summer.vacation.mkv", q, &q_tri).is_none());
+    }
+
+    #[test]
+    fn one_letter_matches_containment_only() {
+        let q = "z";
+        let q_tri = query_trigrams(q);
+        assert!(name_match_score("lazy.dog.mkv", q, &q_tri).is_some());
+        assert!(name_match_score("apple.mkv", q, &q_tri).is_none());
+    }
+
+    #[test]
+    fn prefix_outranks_later_substring() {
+        let q = "s";
+        let q_tri = query_trigrams(q);
+        let prefix = name_match_score("show.mkv", q, &q_tri).unwrap();
+        let later = name_match_score("episode.mkv", q, &q_tri).unwrap();
+        assert!(prefix > later);
+    }
+
+    #[test]
+    fn leftover_uppercase_after_fold_does_not_panic() {
+        let name = "show.ℝ.mkv".to_lowercase();
+        let q = "show";
+        let q_tri = query_trigrams(q);
+        assert!(name.chars().any(|c| c.is_uppercase()));
+        assert!(name_match_score(&name, q, &q_tri).is_some());
     }
 }

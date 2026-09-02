@@ -8,7 +8,7 @@ fn build_card_actions(h: &UndoBarHandles, do_commit: &Rc<dyn Fn()>) -> (RcPathFn
     (on_remove, on_trash)
 }
 
-/// Continue-card **Trash**: capture an undo snapshot, move the file to Trash, refresh cards.
+/// Continue-card **Trash**: feature trash, then undo-bar update and card refresh.
 fn build_on_trash(h: &UndoBarHandles, do_commit: &Rc<dyn Fn()>) -> RcPathFn {
     let hh = h.clone();
     let dc = do_commit.clone();
@@ -17,37 +17,32 @@ fn build_on_trash(h: &UndoBarHandles, do_commit: &Rc<dyn Fn()>) -> RcPathFn {
     })
 }
 
-/// Continue-card **Trash** click body: snapshot, trash, undo-bar update, card refresh.
+/// Continue-card **Trash** click body: feature trash, then undo-bar update and card refresh.
 fn trash_card_action(h: &UndoBarHandles, do_commit: &Rc<dyn Fn()>, path: &Path) {
-    if !path.is_file() {
+    let Some((snap, in_trash)) = recent_view::card_trashed(path) else {
         return;
-    }
-    let snap = capture_list_remove_undo(path);
-    let in_trash = match trash_xdg::trash_local_file_for_undo(path) {
-        Err(e) => {
-            eprintln!("[rhino] move to trash (continue card): {e}");
-            return;
-        }
-        Ok(loc) => {
-            if loc.is_none() {
-                eprintln!("[rhino] trash: could not locate trashed file for undo");
-            }
-            loc
-        }
     };
-    remove_continue_entry(path);
-    if let Some(t) = in_trash {
-        h.stack
-            .borrow_mut()
-            .push(ContinueBarUndo::Trash { snap, in_trash: t });
-        sync_undo_bar(&h.label, &h.btn, &h.shell, &h.stack);
-        rearm_undo_dismiss(do_commit, &h.timer);
-    }
-    recent_view::note_path_trashed(path);
+    push_card_trash_undo(h, do_commit, snap, in_trash);
     schedule_refresh_continue_cards(h);
 }
 
-/// Continue-card **Remove**: capture an undo snapshot, drop the entry from the list, refresh cards.
+fn push_card_trash_undo(
+    h: &UndoBarHandles,
+    do_commit: &Rc<dyn Fn()>,
+    snap: crate::media_probe::ListRemoveUndo,
+    in_trash: Option<std::path::PathBuf>,
+) {
+    let Some(t) = in_trash else {
+        return;
+    };
+    h.stack
+        .borrow_mut()
+        .push(ContinueBarUndo::Trash { snap, in_trash: t });
+    sync_undo_bar(&h.label, &h.btn, &h.shell, &h.stack);
+    rearm_undo_dismiss(do_commit, &h.timer);
+}
+
+/// Continue-card **Remove**: feature remove, then undo-bar update and card refresh.
 fn build_on_remove(h: &UndoBarHandles, do_commit: &Rc<dyn Fn()>) -> RcPathFn {
     let hh = h.clone();
     let dc = do_commit.clone();
@@ -56,13 +51,13 @@ fn build_on_remove(h: &UndoBarHandles, do_commit: &Rc<dyn Fn()>) -> RcPathFn {
     })
 }
 
-/// Continue-card **Remove** click body: snapshot, list drop, undo-bar update, card refresh, re-arm.
+/// Continue-card **Remove** click body: feature remove, then undo-bar update and card refresh.
 fn remove_card_action(h: &UndoBarHandles, do_commit: &Rc<dyn Fn()>, path: &Path) {
-    let u = capture_list_remove_undo(path);
-    remove_continue_entry(path);
-    h.stack.borrow_mut().push(ContinueBarUndo::ListRemove(u));
-    sync_undo_bar(&h.label, &h.btn, &h.shell, &h.stack);
-    rearm_undo_dismiss(do_commit, &h.timer);
+    if let Some(u) = recent_view::card_removed(path) {
+        h.stack.borrow_mut().push(ContinueBarUndo::ListRemove(u));
+        sync_undo_bar(&h.label, &h.btn, &h.shell, &h.stack);
+        rearm_undo_dismiss(do_commit, &h.timer);
+    }
     schedule_refresh_continue_cards(h);
 }
 
