@@ -39,6 +39,20 @@ fn glued_source_and_resolution() {
 }
 
 #[test]
+fn surround_sound_tech_tag_stripped() {
+    assert_eq!(
+        human_media_title("Movie.Name.2013.1080p.BluRay.DD5.1.x264.mkv"),
+        "Movie Name 2013"
+    );
+    assert_eq!(human_media_title("Movie Name DD5.1.mkv"), "Movie Name");
+    assert_eq!(
+        human_media_title("Show.S01E02.DDP5.1.mkv"),
+        "Show — Season 1, Episode 2"
+    );
+    assert_eq!(human_media_title("Film.DD+5.1.mkv"), "Film");
+}
+
+#[test]
 fn clean_name_unchanged() {
     assert_eq!(human_media_title("My Home Video.mp4"), "My Home Video");
 }

@@ -16,6 +16,7 @@ pub(super) struct FlatNudgeCtx<'a> {
     pub chain_head: bool,
     pub dvd_vob: bool,
     pub wait_secs: u64,
+    pub keyframes: bool,
 }
 
 /// If `first` is almost uniform, recapture at nearby times; keep `first` only when every nudge is flat.
@@ -36,6 +37,7 @@ pub(super) fn vo_image_prefer_nonflat(ctx: FlatNudgeCtx<'_>, first: Vec<u8>) -> 
             ctx.chain_head,
             ctx.dvd_vob,
             ctx.wait_secs,
+            ctx.keyframes,
         ) else {
             continue;
         };

@@ -1,9 +1,10 @@
 // Neighbour (sibling) search for the continue screen — feature hub.
 // See docs/features/33-continue-sibling-search.md. Split across:
 //   sibling_search.rs          — BFS scan, hit filter, strip plan, tests
-//   sibling_search_lucky.rs    — I'm Feeling Lucky sample (`#[path]`)
+//   lucky/                     — I'm Feeling Lucky owner (`recent_view::lucky`)
 //   sibling_search_score.rs    — Jaccard trigrams (`#[path]`)
-//   sibling_search_state.rs    — query / index / lucky / paint (`#[path]`)
+//   sibling_search_state.rs    — query / index / paint (`#[path]`)
+//   sibling_search_paint.rs    — neighbour paint key (`#[path]` from state)
 //   sibling_search_input.rs    — debounce / commit / lucky click (`#[path]` from state)
 //   sibling_search_widgets.rs  — search-row widgets + I'm Feeling Lucky
 // NOTE: include!'d into `recent_view`; shares its imports (glib, Rc, RefCell, Path, Duration).
@@ -12,8 +13,6 @@ include!("sibling_search_widgets.rs");
 #[path = "sibling_search_score.rs"]
 mod sibling_search_score;
 use sibling_search_score::{name_match_score, query_trigrams};
-#[path = "sibling_search_lucky.rs"]
-mod sibling_search_lucky;
 #[path = "sibling_search_state.rs"]
 mod sibling_search_state;
 pub(crate) use sibling_search_state::*;

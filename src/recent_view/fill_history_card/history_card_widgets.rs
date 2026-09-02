@@ -59,7 +59,7 @@ fn card_title_label(label_txt: &str, c: &Path) -> gtk::Label {
     label
 }
 
-fn progress_row(p: f64) -> gtk::Box {
+fn progress_row(p: f64, quality: Option<&str>) -> (gtk::Box, Option<gtk::Label>) {
     let pro = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     no_target(&pro);
     pro.add_css_class("rp-recent-progress-row");
@@ -68,7 +68,20 @@ fn progress_row(p: f64) -> gtk::Box {
     let lp = progress_percent_label(p);
     pro.append(&bar);
     pro.append(&lp);
-    pro
+    let hover_quality = quality.map(quality_label);
+    if let Some(ref q) = hover_quality {
+        pro.append(q);
+    }
+    (pro, hover_quality)
+}
+
+fn quality_label(tag: &str) -> gtk::Label {
+    let q = gtk::Label::new(Some(tag));
+    no_target(&q);
+    q.add_css_class("rp-recent-quality");
+    q.set_visible(false);
+    q.set_hexpand(false);
+    q
 }
 
 fn progress_bar(p: f64) -> gtk::ProgressBar {

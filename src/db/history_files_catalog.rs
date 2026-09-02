@@ -1,5 +1,6 @@
 // Path-only media files catalog (`files` table) — feature 34 (partial).
 // Tech columns and forget-on-miss stay planned; neighbour search seeds from [list_file_paths].
+// [forget_file] drops an unparseable path from files, history, and media.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -86,25 +87,49 @@ pub fn ensure_files(paths: &[PathBuf]) {
 }
 
 fn insert_files_tx(conn: &Connection, paths: &[PathBuf], now: i64) -> rusqlite::Result<()> {
-    // Manual BEGIN/COMMIT keeps a single journal sync without needing &mut Connection.
-    conn.execute_batch("BEGIN IMMEDIATE")?;
-    let result = (|| {
+    with_immediate_tx(conn, |c| {
         let mut stmt =
-            conn.prepare("INSERT OR IGNORE INTO files (path, discovered_at) VALUES (?1, ?2)")?;
+            c.prepare("INSERT OR IGNORE INTO files (path, discovered_at) VALUES (?1, ?2)")?;
         for p in paths {
+            if !crate::video_ext::is_video_path(p) {
+                continue;
+            }
             if let Some(key) = history_key(p) {
                 stmt.execute(params![key, now])?;
             }
         }
         Ok(())
-    })();
-    match result {
+    })
+}
+
+/// Manual BEGIN/COMMIT keeps a single journal sync without needing &mut Connection.
+fn with_immediate_tx(
+    conn: &Connection,
+    f: impl FnOnce(&Connection) -> rusqlite::Result<()>,
+) -> rusqlite::Result<()> {
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+    match f(conn) {
         Ok(()) => conn.execute_batch("COMMIT"),
         Err(e) => {
             let _ = conn.execute_batch("ROLLBACK");
             Err(e)
         }
     }
+}
+
+/// Drop one catalog path and its continue / media rows (unparseable still, gone file).
+pub fn forget_file(path: &Path) {
+    let Some(key) = history_key(path) else {
+        return;
+    };
+    let _ = with_files_conn(|c| {
+        with_immediate_tx(c, |c| {
+            c.execute("DELETE FROM files WHERE path = ?1", params![key])?;
+            c.execute("DELETE FROM history WHERE path = ?1", params![key])?;
+            c.execute("DELETE FROM media WHERE path = ?1", params![key])?;
+            Ok(())
+        })
+    });
 }
 
 /// Every catalog path (order stable by path text). Empty when the DB is unavailable.

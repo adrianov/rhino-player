@@ -9,6 +9,9 @@ use std::thread::JoinHandle;
 
 static THUMB_ID: AtomicU64 = AtomicU64::new(1);
 
+/// Concurrent libmpv captures (Lucky / search often need a still per card).
+const THUMB_WORKERS: usize = 3;
+
 /// Worker → main coalescing inbox + generation/cancel for thumbnail backfill.
 pub(crate) struct ThumbBackfill {
     cancel: Arc<AtomicBool>,
@@ -17,15 +20,20 @@ pub(crate) struct ThumbBackfill {
     inbox: Arc<ThumbInbox>,
 }
 
+enum ThumbNote {
+    Ready(std::path::PathBuf),
+    Drop(std::path::PathBuf),
+}
+
 struct ThumbInbox {
     /// Stable id for the main-thread flush registry (per [RecentContext]).
     id: u64,
-    pending: Mutex<Vec<std::path::PathBuf>>,
+    pending: Mutex<Vec<ThumbNote>>,
     /// True while a main-context flush is scheduled or running.
     flush_armed: AtomicBool,
 }
 
-type ThumbFlushFn = Box<dyn Fn(Vec<std::path::PathBuf>)>;
+type ThumbFlushFn = Box<dyn Fn(Vec<ThumbNote>)>;
 
 thread_local! {
     /// Main-thread only: inbox id → apply hook for that window's [RecentContext].
@@ -53,12 +61,7 @@ impl ThumbBackfill {
         THUMB_FLUSHES.with(|m| {
             m.borrow_mut().insert(
                 id,
-                Box::new(move |paths| {
-                    if c.search.as_ref().is_some_and(|s| s.typing_pending()) {
-                        return;
-                    }
-                    apply_ready_thumbs(&c.cards.borrow(), &c.media_paths.borrow(), &paths);
-                }),
+                Box::new(move |notes| apply_thumb_notes(&c, notes)),
             );
         });
     }
@@ -70,17 +73,25 @@ impl ThumbBackfill {
         });
     }
 
-    /// Capture missing stills on a worker. Ready paths coalesce into one main-context invoke.
+    /// Capture missing stills on workers. Ready paths coalesce into one main-context invoke.
+    /// Several workers so a Lucky / search handful of never-watched files is not strictly serial.
     pub(crate) fn schedule(&self, paths: Vec<std::path::PathBuf>) {
         if paths.is_empty() {
             return;
         }
         let gen = self.gen.fetch_add(1, Ordering::AcqRel) + 1;
-        let inbox = Arc::clone(&self.inbox);
-        let c = self.cancel.clone();
-        let gen_watch = self.gen.clone();
-        let h = std::thread::spawn(move || run_thumb_worker(paths, gen, c, inbox, gen_watch));
-        self.workers.borrow_mut().push(h);
+        self.spawn_workers(paths, gen);
+    }
+
+    fn spawn_workers(&self, paths: Vec<std::path::PathBuf>, gen: u64) {
+        self.workers.borrow_mut().retain(|h| !h.is_finished());
+        for chunk in thumb_chunks(&paths) {
+            let inbox = Arc::clone(&self.inbox);
+            let c = self.cancel.clone();
+            let gen_watch = self.gen.clone();
+            let h = std::thread::spawn(move || run_thumb_worker(chunk, gen, c, inbox, gen_watch));
+            self.workers.borrow_mut().push(h);
+        }
     }
 
     pub(crate) fn shutdown(&self) {
@@ -103,10 +114,13 @@ impl ThumbBackfill {
     }
 }
 
-fn note_thumb_ready(inbox: &Arc<ThumbInbox>, path: std::path::PathBuf) {
+fn note_thumb(inbox: &Arc<ThumbInbox>, note: ThumbNote) {
     if let Ok(mut g) = inbox.pending.lock() {
-        if !g.iter().any(|q| q == &path) {
-            g.push(path);
+        let path = match &note {
+            ThumbNote::Ready(p) | ThumbNote::Drop(p) => p,
+        };
+        if !g.iter().any(|q| note_path(q) == path) {
+            g.push(note);
         }
     } else {
         eprintln!("[rhino] recent: thumb inbox lock poisoned");
@@ -117,6 +131,12 @@ fn note_thumb_ready(inbox: &Arc<ThumbInbox>, path: std::path::PathBuf) {
     }
     let inbox = Arc::clone(inbox);
     glib::MainContext::default().invoke(move || flush_thumb_inbox(&inbox));
+}
+
+fn note_path(note: &ThumbNote) -> &std::path::Path {
+    match note {
+        ThumbNote::Ready(p) | ThumbNote::Drop(p) => p,
+    }
 }
 
 fn flush_thumb_inbox(inbox: &ThumbInbox) {
@@ -137,6 +157,14 @@ fn flush_thumb_inbox(inbox: &ThumbInbox) {
             f(ready);
         }
     });
+}
+
+fn thumb_chunks(paths: &[std::path::PathBuf]) -> impl Iterator<Item = Vec<std::path::PathBuf>> + '_ {
+    let n = THUMB_WORKERS.min(paths.len()).max(1);
+    (0..n).filter_map(move |i| {
+        let chunk: Vec<_> = paths.iter().skip(i).step_by(n).cloned().collect();
+        (!chunk.is_empty()).then_some(chunk)
+    })
 }
 
 fn thumb_gen_cancelled(gen_watch: &std::sync::atomic::AtomicU64, gen: u64, c: &AtomicBool) -> bool {
@@ -163,10 +191,14 @@ fn run_thumb_worker(
         if media_probe::thumb_backfill_satisfied(&can) {
             continue;
         }
-        let _ = media_probe::ensure_thumbnail(&can);
+        let note = match media_probe::ensure_thumbnail(&can) {
+            media_probe::GridThumb::Ready => ThumbNote::Ready(can),
+            media_probe::GridThumb::Unparseable => ThumbNote::Drop(can),
+            media_probe::GridThumb::Miss => continue,
+        };
         if thumb_gen_cancelled(&gen_watch, gen, &c) {
             return;
         }
-        note_thumb_ready(&inbox, can);
+        note_thumb(&inbox, note);
     }
 }

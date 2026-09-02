@@ -49,6 +49,7 @@ mod series {
 }
 use dvd::{dvd_disc_sibling, is_dvd_queue_path};
 use series::same_series_dirs;
+pub(crate) use series::{folder_looks_seasonal, folder_series_stem};
 
 /// Sibling entries after `idx` (step > 0) or before it, reversed (step < 0); [None] for step 0.
 fn step_ordered(subs: &[PathBuf], idx: usize, step: isize) -> Option<Vec<&PathBuf>> {

@@ -125,7 +125,8 @@
             min-height: 18px;
             min-width: 0;
         }
-        label.rp-recent-percent {
+        label.rp-recent-percent,
+        label.rp-recent-quality {
             min-width: 42px;
             padding: 2px 7px;
             border-radius: 9999px;

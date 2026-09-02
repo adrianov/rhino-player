@@ -1,20 +1,79 @@
+/// Grid still outcome. [Self::Unparseable] means load/demux failed — drop the catalog path.
+#[derive(Debug)]
+pub enum GridThumb {
+    Ready,
+    Unparseable,
+    Miss,
+}
+
+enum ThumbFail {
+    Unparseable,
+    Other,
+}
+
 /// WebP in [crate::db] `media.thumb_webp`, rebuilt when the source file’s mtime changes.
 /// Calls [run_libmpv_image_frame] on a **cache miss**; keep that work off the UI thread (see [crate::recent_view::schedule_thumb_backfill]).
-pub fn ensure_thumbnail(path: &Path) -> Option<Vec<u8>> {
+pub fn ensure_thumbnail(path: &Path) -> GridThumb {
     let entity = crate::playback_entity::db_path_for(path);
-    let db_key = crate::db::history_key(&entity)?;
-    let target = grid_thumb_target(&entity)?;
-    if let Some(t) = db_thumb_for_entity_key(&db_key, &target.load, target.cache_time) {
-        return Some(t);
+    let Some(db_key) = crate::db::history_key(&entity) else {
+        return GridThumb::Miss;
+    };
+    let Some(target) = grid_thumb_target(&entity) else {
+        return GridThumb::Miss;
+    };
+    if db_thumb_for_entity_key(&db_key, &target.load, target.cache_time).is_some() {
+        return GridThumb::Ready;
     }
     // Resume still at start but a still exists — keep it (do not re-seek to the 2s fallback).
-    if let Some(b) = stored_thumb_while_at_start(path) {
-        return Some(b);
+    if stored_thumb_while_at_start(path).is_some() {
+        return GridThumb::Ready;
     }
-    let mtime = db::file_mtime_sec(&target.load)?;
-    let b = run_libmpv_image_frame(&target.load, target.seek_sec, target.chapter_dur)?;
-    persist_grid_thumb(&db_key, &b, mtime, &target);
-    Some(b)
+    let Some(mtime) = db::file_mtime_sec(&target.load) else {
+        return GridThumb::Miss;
+    };
+    match run_libmpv_image_frame(
+        &target.load,
+        target.seek_sec,
+        target.chapter_dur,
+        target.keyframes,
+    ) {
+        Ok(b) => {
+            persist_grid_thumb(&db_key, &b, mtime, &target);
+            GridThumb::Ready
+        }
+        Err(ThumbFail::Unparseable) => forget_unparseable(path),
+        Err(ThumbFail::Other) => GridThumb::Miss,
+    }
+}
+
+fn forget_unparseable(path: &Path) -> GridThumb {
+    if !should_forget_unparseable(path) {
+        return GridThumb::Miss;
+    }
+    eprintln!("[rhino] catalog: drop unparseable {}", path.display());
+    crate::history::remove(path);
+    crate::db::forget_file(path);
+    GridThumb::Unparseable
+}
+
+fn should_forget_unparseable(path: &Path) -> bool {
+    !crate::human_media_title::is_incomplete_download_path(path)
+        && !crate::video_ext::is_optical_disc_path(path)
+        && !video_ts_vob_name(path)
+}
+
+/// Parent is `VIDEO_TS` and the name is a `.vob` (file need not exist — tests / gone chapters).
+fn video_ts_vob_name(path: &Path) -> bool {
+    let vob = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("vob"));
+    let ts = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.eq_ignore_ascii_case("VIDEO_TS"));
+    vob && ts
 }
 
 /// Write the captured still; mark flat fills so a second worker pass will accept them.
@@ -26,13 +85,20 @@ fn persist_grid_thumb(db_key: &str, b: &[u8], mtime: i64, target: &GridThumbTarg
 }
 
 /// Thumbnail: resume-position seek + small scale for continue cards.
-fn run_libmpv_image_frame(src: &Path, start_sec: f64, chapter_dur: f64) -> Option<Vec<u8>> {
+/// Unstarted titles use a keyframe seek so Lucky / first-open stills land faster.
+fn run_libmpv_image_frame(
+    src: &Path,
+    start_sec: f64,
+    chapter_dur: f64,
+    keyframes: bool,
+) -> Result<Vec<u8>, ThumbFail> {
     run_vo_image_one_frame(
         src,
         start_sec,
         chapter_dur,
         &format!("scale={GRID_THUMB_W}:-2:force_original_aspect_ratio=decrease:flags=bilinear"),
         12,
+        keyframes,
     )
 }
 
@@ -99,6 +165,31 @@ mod open_media_path_tests {
         );
         assert!(local_path_no_stat("https://host/clip.mkv").is_none());
         assert!(local_path_no_stat("bd://0").is_none());
+    }
+}
+
+#[cfg(test)]
+mod unparseable_forget_tests {
+    use super::should_forget_unparseable;
+    use std::path::Path;
+
+    #[test]
+    fn forgets_ordinary_file() {
+        assert!(should_forget_unparseable(Path::new("/store/broken.mkv")));
+    }
+
+    #[test]
+    fn keeps_incomplete_download() {
+        assert!(!should_forget_unparseable(Path::new(
+            "/dl/clip.mkv.RSRXEZ4AWN67MGBANBT6YLR32JW32GVZSZLYN2Y.dctmp"
+        )));
+    }
+
+    #[test]
+    fn keeps_dvd_chapter_vob() {
+        assert!(!should_forget_unparseable(Path::new(
+            "/disc/VIDEO_TS/VTS_01_1.VOB"
+        )));
     }
 }
 

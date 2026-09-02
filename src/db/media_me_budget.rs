@@ -42,6 +42,12 @@ pub(crate) fn media_sync_decode_size(path: &std::path::Path, w: i32, h: i32) {
     });
 }
 
+/// Stored decode width/height for [path] (canonical key). Used by continue-card quality tags.
+pub fn media_decode_size(path: &std::path::Path) -> Option<(i32, i32)> {
+    let key = history_key(path)?;
+    with_conn(|c| stored_decode_dims(c, &key)).flatten()
+}
+
 /// Stored positive `decode_w`×`decode_h` for one path key (`None` when absent or not positive).
 fn stored_decode_dims(c: &rusqlite::Connection, key: &str) -> rusqlite::Result<Option<(i32, i32)>> {
     Ok(c.query_row(

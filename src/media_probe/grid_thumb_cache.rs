@@ -27,16 +27,17 @@ struct GridThumbTarget {
     chapter_dur: f64,
     /// Whole-title seconds stored in `thumb_time_pos_sec` for cache freshness.
     cache_time: f64,
+    /// Unstarted titles only — keyframe seek. Resume stills stay exact.
+    keyframes: bool,
 }
 
-/// Continue state for an entity db key: cache key time, duration, and the duration map
-/// reused by unified-timeline still mapping.
-fn entity_continue_state(db_key: &Path) -> (f64, f64, std::collections::HashMap<String, f64>) {
+/// Continue state: cache key time, duration, resume, and the duration map for still mapping.
+fn entity_continue_state(db_key: &Path) -> (f64, f64, f64, std::collections::HashMap<String, f64>) {
     let durs = db::load_duration_map();
     let tpos = db::load_time_pos_map();
     let (resume, duration) = crate::playback_entity::card_resume_duration(db_key, &durs, &tpos);
     let cache_time = grid_thumb_cache_time(resume, duration);
-    (cache_time, duration, durs)
+    (cache_time, duration, resume, durs)
 }
 
 /// Unified-timeline branch of [grid_thumb_target]: map the chapter probe to a still frame.
@@ -45,6 +46,7 @@ fn grid_thumb_target_unified(
     open_hint: &Path,
     cache_time: f64,
     durs: &std::collections::HashMap<String, f64>,
+    keyframes: bool,
 ) -> Option<GridThumbTarget> {
     let probe = crate::dvd_entity::timeline_chapter_probe(open_hint)
         .unwrap_or_else(|| open_hint.to_path_buf());
@@ -65,6 +67,7 @@ fn grid_thumb_target_unified(
         seek_sec,
         chapter_dur: still.chapter_dur,
         cache_time,
+        keyframes,
     })
 }
 
@@ -74,10 +77,11 @@ fn grid_thumb_target(entity: &Path) -> Option<GridThumbTarget> {
         return None;
     }
     let pe = crate::playback_entity::PlaybackEntity::resolve(entity);
-    let (cache_time, duration, durs) = entity_continue_state(&pe.db_path());
+    let (cache_time, duration, resume, durs) = entity_continue_state(&pe.db_path());
     let open_hint = crate::video_ext::resolve_open_media_path(entity);
+    let keyframes = resume <= 0.0;
     if pe.has_unified_timeline() {
-        return grid_thumb_target_unified(&pe, &open_hint, cache_time, &durs);
+        return grid_thumb_target_unified(&pe, &open_hint, cache_time, &durs, keyframes);
     }
     let load = std::fs::canonicalize(open_hint).ok()?;
     Some(GridThumbTarget {
@@ -85,6 +89,7 @@ fn grid_thumb_target(entity: &Path) -> Option<GridThumbTarget> {
         seek_sec: cache_time,
         chapter_dur: duration,
         cache_time,
+        keyframes,
     })
 }
 
@@ -122,7 +127,7 @@ pub fn thumb_backfill_satisfied(path: &Path) -> bool {
 /// Stored card art when continue is still at 0 (avoids rebuilding from the start fallback).
 fn stored_thumb_while_at_start(path: &Path) -> Option<Vec<u8>> {
     let entity = crate::playback_entity::db_path_for(path);
-    let (resume, _, _) = entity_continue_state(&entity);
+    let (_, _, resume, _) = entity_continue_state(&entity);
     if resume > 0.0 {
         return None;
     }

@@ -89,7 +89,7 @@ impl SiblingSearchState {
     }
 
     fn commit_and_refill(&self, next: String) {
-        if *self.query.borrow() == next && self.lucky.borrow().is_none() {
+        if *self.query.borrow() == next && !self.lucky.is_active() {
             self.note_repaint();
             return;
         }

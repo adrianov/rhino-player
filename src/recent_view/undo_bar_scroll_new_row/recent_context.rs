@@ -75,7 +75,7 @@ impl RecentContext {
     }
 
     /// Rebuild the strip. No-op while a search draft is settling; neighbour paints with the
-    /// same paths are skipped inside [SiblingSearchState].
+    /// same paths and stored progress are skipped inside [SiblingSearchState].
     pub(crate) fn paint(&self, paths: Vec<PathBuf>, kind: StripKind) {
         if self.search.as_ref().is_some_and(|s| s.typing_pending()) {
             return;
@@ -105,6 +105,14 @@ impl RecentContext {
     /// Paint the query-aware strip and arm thumb workers for those paths.
     pub(crate) fn apply_strip(self: &Rc<Self>) {
         let paths = self.paint_strip();
+        self.schedule_thumbs(paths);
+    }
+
+    /// Visible strip first, then a reserved next lucky handful (feature 33).
+    pub(crate) fn schedule_thumbs(&self, mut paths: Vec<PathBuf>) {
+        if let Some(s) = &self.search {
+            s.append_lucky_warm(&mut paths);
+        }
         self.thumbs.schedule(paths);
     }
 

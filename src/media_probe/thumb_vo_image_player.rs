@@ -60,7 +60,7 @@ fn vo_image_spawn(vf: &str) -> Option<Mpv> {
     .ok()
 }
 
-/// Spawn, log the DVD seek plan, and loadfile; None on load failure.
+/// Spawn, log the DVD seek plan, and loadfile. Load failure is unparseable; spawn failure is not.
 fn vo_image_start(
     src: &Path,
     src_s: &str,
@@ -69,8 +69,8 @@ fn vo_image_start(
     cap: f64,
     chain_head: bool,
     dvd_vob: bool,
-) -> Option<Mpv> {
-    let m = vo_image_spawn(vf)?;
+) -> Result<Mpv, ThumbFail> {
+    let m = vo_image_spawn(vf).ok_or(ThumbFail::Other)?;
     if dvd_vob {
         vo_image_seek_log(
             src,
@@ -79,36 +79,46 @@ fn vo_image_start(
     }
     if m.command("loadfile", &[src_s, "replace"]).is_err() {
         eprintln!("[rhino] grid_thumb loadfile failed {}", src.display());
-        return None;
+        return Err(ThumbFail::Unparseable);
     }
-    Some(m)
+    Ok(m)
 }
 
 /// Wait until the loaded source is playable: chain-head duration mapping or plain demuxer ready.
-/// `None` means the wait failed and capture must abort.
 fn vo_image_wait_loaded(
     m: &mut Mpv,
     src: &Path,
     cap: f64,
     chain_head: bool,
     wait_secs: u64,
-) -> Option<()> {
+) -> Result<(), ThumbFail> {
     if chain_head {
         let ifo_seg = crate::dvd_vob_timeline::chain_head_ifo_seg(src).unwrap_or(cap);
         if !vo_image_wait_chain_head(m, src, wait_secs) {
             let mpv_dur = vo_image_duration_sec(m);
             if crate::dvd_vob_timeline::chain_head_stretched(mpv_dur, ifo_seg) {
                 vo_image_seek_log(src, "chain-head duration timeout".into());
-                return None;
+                return Err(ThumbFail::Other);
             }
             vo_image_seek_log(
                 src,
                 format!("chain-head natural dur={mpv_dur:.2} ifo={ifo_seg:.2}"),
             );
         }
-    } else if !vo_image_wait_demuxer(m, wait_secs) {
-        eprintln!("[rhino] grid_thumb demuxer timeout {}", src.display());
-        return None;
+    } else if let Err(e) = vo_image_wait_demuxer(m, wait_secs) {
+        log_demux_wait(src, &e);
+        return Err(e);
     }
-    Some(())
+    Ok(())
+}
+
+fn log_demux_wait(src: &Path, e: &ThumbFail) {
+    match e {
+        ThumbFail::Unparseable => {
+            eprintln!("[rhino] grid_thumb demux failed {}", src.display());
+        }
+        ThumbFail::Other => {
+            eprintln!("[rhino] grid_thumb demuxer timeout {}", src.display());
+        }
+    }
 }

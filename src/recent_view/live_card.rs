@@ -1,5 +1,5 @@
 // In-place continue-strip thumbnail refresh (feature owner).
-// Delivery: live_card/thumb_backfill.rs (worker → inbox → MainContext::invoke).
+// Delivery: live_card/thumb_backfill.rs (workers → inbox → MainContext::invoke).
 // See docs/features/21-recent-videos-launch.md (thumbnail scroll scenario).
 
 use std::path::Path;
@@ -23,9 +23,47 @@ fn apply_ready_thumbs(
 
 fn media_index(media_paths: &[std::path::PathBuf], path: &Path) -> Option<usize> {
     let key = crate::db::history_key(path);
-    media_paths.iter().position(|cp| {
-        cp == path || (key.is_some() && crate::db::history_key(cp) == key)
-    })
+    media_paths
+        .iter()
+        .position(|cp| cp == path || (key.is_some() && crate::db::history_key(cp) == key))
+}
+
+fn apply_thumb_notes(c: &Rc<RecentContext>, notes: Vec<ThumbNote>) {
+    let (ready, drops) = split_thumb_notes(notes);
+    apply_thumb_drops(c, &drops);
+    if drops.is_empty() && !search_typing(c) {
+        apply_ready_thumbs(&c.cards.borrow(), &c.media_paths.borrow(), &ready);
+    }
+}
+
+fn split_thumb_notes(notes: Vec<ThumbNote>) -> (Vec<std::path::PathBuf>, Vec<std::path::PathBuf>) {
+    let mut ready = Vec::new();
+    let mut drops = Vec::new();
+    for n in notes {
+        match n {
+            ThumbNote::Ready(p) => ready.push(p),
+            ThumbNote::Drop(p) => drops.push(p),
+        }
+    }
+    (ready, drops)
+}
+
+fn apply_thumb_drops(c: &Rc<RecentContext>, drops: &[std::path::PathBuf]) {
+    if drops.is_empty() {
+        return;
+    }
+    for p in drops {
+        if let Some(s) = &c.search {
+            s.note_path_removed(p);
+        }
+    }
+    if !search_typing(c) {
+        c.apply_strip();
+    }
+}
+
+fn search_typing(c: &RecentContext) -> bool {
+    c.search.as_ref().is_some_and(|s| s.typing_pending())
 }
 
 fn apply_live_thumb(card: &gtk::Overlay, path: &Path) {
@@ -46,5 +84,5 @@ include!("live_card/thumb_backfill.rs");
 
 /// Public entry used by strip paint and browse-back.
 pub fn schedule_thumb_backfill(ctx: Rc<RecentContext>, paths: Vec<std::path::PathBuf>) {
-    ctx.thumbs.schedule(paths);
+    ctx.schedule_thumbs(paths);
 }

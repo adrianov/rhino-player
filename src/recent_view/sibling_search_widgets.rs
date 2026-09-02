@@ -1,6 +1,8 @@
 // Neighbour-search row widgets: entry, I'm Feeling Lucky, inline hint.
 // State and repaint decisions live in [SiblingSearchState].
 
+use gtk::prelude::EditableExt;
+
 /// Widest usual hint; floors the label so the row does not jump when the hint fills in.
 const HINT_SIDE: &str = "Nothing to pick";
 
@@ -45,6 +47,54 @@ fn search_entry() -> gtk::SearchEntry {
     entry
 }
 
+fn search_text(entry: &gtk::SearchEntry) -> Option<gtk::Text> {
+    entry.delegate()?.downcast().ok()
+}
+
+/// Focus out + disable IM so IBus / gdk-macos cannot leave a status mark over video.
+fn drop_search_im(entry: &gtk::SearchEntry) {
+    entry.set_can_focus(false);
+    if let Some(win) = entry.root().and_downcast::<gtk::Window>() {
+        gtk::prelude::GtkWindowExt::set_focus(&win, gtk::Widget::NONE);
+    }
+    match search_text(entry) {
+        Some(text) => text.set_im_module(Some("gtk-im-context-none")),
+        None => eprintln!("[rhino] search: no text delegate; IM mark may linger"),
+    }
+}
+
+/// Restore default IM and focusability when the continue strip is shown again.
+fn restore_search_im(entry: &gtk::SearchEntry) {
+    if let Some(text) = search_text(entry) {
+        text.set_im_module(None);
+    }
+    entry.set_can_focus(true);
+}
+
+/// Map the search row for browse, or tear down IM and unmap it for playback.
+pub(super) fn set_search_browse_visible(shell: &gtk::Box, entry: &gtk::SearchEntry, visible: bool) {
+    if visible {
+        shell.set_visible(true);
+        let entry = entry.clone();
+        let shell = shell.clone();
+        glib::idle_add_local_once(move || {
+            if shell.is_visible() {
+                restore_search_im(&entry);
+            }
+        });
+        return;
+    }
+    drop_search_im(entry);
+    shell.set_visible(false);
+    let entry = entry.clone();
+    let shell = shell.clone();
+    glib::idle_add_local_once(move || {
+        if !shell.is_visible() {
+            drop_search_im(&entry);
+        }
+    });
+}
+
 fn lucky_button() -> gtk::Button {
     let btn = gtk::Button::with_label(LUCKY_LABEL);
     btn.add_css_class("rp-recent-lucky");
@@ -73,15 +123,18 @@ fn clear_initial_search_focus(entry: &gtk::SearchEntry) {
         }
         let e = e.clone();
         glib::idle_add_local_once(move || {
-            if !e.has_focus() {
-                return;
-            }
-            let Some(win) = e.root().and_downcast::<gtk::Window>() else {
-                return;
-            };
-            gtk::prelude::GtkWindowExt::set_focus(&win, gtk::Widget::NONE);
+            clear_search_focus(&e);
         });
     });
+}
+
+fn clear_search_focus(entry: &gtk::SearchEntry) {
+    if !entry.has_focus() && !search_text(entry).is_some_and(|t| t.has_focus()) {
+        return;
+    }
+    if let Some(win) = entry.root().and_downcast::<gtk::Window>() {
+        gtk::prelude::GtkWindowExt::set_focus(&win, gtk::Widget::NONE);
+    }
 }
 
 fn hint_label() -> gtk::Label {

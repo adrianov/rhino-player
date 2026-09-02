@@ -133,6 +133,7 @@ fn commit_move_to_trash(
         }
     };
     remove_continue_entry(path);
+    crate::recent_view::note_path_trashed(path);
     if let Some(t) = in_trash {
         ur.borrow_mut()
             .push(ContinueBarUndo::Trash { snap, in_trash: t });
