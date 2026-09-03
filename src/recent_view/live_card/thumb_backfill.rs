@@ -182,18 +182,10 @@ fn run_thumb_worker(
         if thumb_gen_cancelled(&gen_watch, gen, &c) {
             return;
         }
-        if !p.exists() {
-            continue;
-        }
-        let Ok(can) = std::fs::canonicalize(&p) else {
-            continue;
-        };
-        if media_probe::thumb_backfill_satisfied(&can) {
-            continue;
-        }
-        let note = match media_probe::ensure_thumbnail(&can) {
-            media_probe::GridThumb::Ready => ThumbNote::Ready(can),
-            media_probe::GridThumb::Unparseable => ThumbNote::Drop(can),
+        let (thumb, key) = media_probe::ensure_listed_thumbnail(&p);
+        let note = match thumb {
+            media_probe::GridThumb::Ready => ThumbNote::Ready(key),
+            media_probe::GridThumb::Unparseable => ThumbNote::Drop(key),
             media_probe::GridThumb::Miss => continue,
         };
         if thumb_gen_cancelled(&gen_watch, gen, &c) {

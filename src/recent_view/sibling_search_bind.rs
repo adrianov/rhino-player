@@ -78,14 +78,17 @@ fn move_card_to_trash(path: &Path) -> Option<Option<PathBuf>> {
     }
 }
 
-/// Continue-card **Remove**. `None` when lucky dismissed the pick (file and resume stay).
+/// Continue-card **Remove**. `None` when lucky dismissed the pick (file and resume stay),
+/// or when a missing path was dropped from the catalog (nothing to undo).
 pub fn card_removed(path: &Path) -> Option<crate::media_probe::ListRemoveUndo> {
     if with_bound_search(|s| s.dismiss_lucky_card(path)).unwrap_or(false) {
         return None;
     }
-    let snap = crate::media_probe::capture_list_remove_undo(path);
-    crate::media_probe::remove_continue_entry(path);
-    Some(snap)
+    let undo = crate::media_probe::dismiss_continue_path(path);
+    if undo.is_none() {
+        with_bound_search(|s| s.note_path_removed(path));
+    }
+    undo
 }
 
 /// Drop a trashed path from the catalog and the neighbour index (card or playing-file trash).

@@ -51,29 +51,21 @@ fn forget_unparseable(path: &Path) -> GridThumb {
         return GridThumb::Miss;
     }
     eprintln!("[rhino] catalog: drop unparseable {}", path.display());
-    crate::history::remove(path);
-    crate::db::forget_file(path);
+    drop_catalog_path(path);
     GridThumb::Unparseable
 }
 
-fn should_forget_unparseable(path: &Path) -> bool {
-    !crate::human_media_title::is_incomplete_download_path(path)
-        && !crate::video_ext::is_optical_disc_path(path)
-        && !video_ts_vob_name(path)
-}
-
-/// Parent is `VIDEO_TS` and the name is a `.vob` (file need not exist — tests / gone chapters).
-fn video_ts_vob_name(path: &Path) -> bool {
-    let vob = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("vob"));
-    let ts = path
-        .parent()
-        .and_then(|p| p.file_name())
-        .and_then(|n| n.to_str())
-        .is_some_and(|n| n.eq_ignore_ascii_case("VIDEO_TS"));
-    vob && ts
+/// Listed strip path → still outcome. Forgets catalog when the path is absent (feature 34).
+pub(crate) fn ensure_listed_thumbnail(path: &Path) -> (GridThumb, PathBuf) {
+    if !path.exists() {
+        let _ = forget_missing(path);
+        return (GridThumb::Unparseable, path.to_path_buf());
+    }
+    let can = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if thumb_backfill_satisfied(&can) {
+        return (GridThumb::Miss, can);
+    }
+    (ensure_thumbnail(&can), can)
 }
 
 /// Write the captured still; mark flat fills so a second worker pass will accept them.
@@ -261,6 +253,7 @@ pub fn record_playback_for_current(
 
 fn card_one(path: &Path, durs: &HashMap<String, f64>, tpos: &HashMap<String, f64>) -> CardData {
     if !path.exists() {
+        let _ = forget_missing(path);
         return CardData {
             path: path.to_path_buf(),
             percent: 0.0,

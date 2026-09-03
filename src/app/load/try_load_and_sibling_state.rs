@@ -137,8 +137,8 @@ fn fail_open(o: &LoadOpts, path: &Path, err: String) -> Result<(), String> {
     eprintln!("[rhino] open failed: {msg} ({})", path.display());
     // User-initiated open (toast callback present): drop hollow/corrupt continue cards.
     // Warm preload leaves `on_open_fail` unset and must not rewrite history.
-    if o.on_open_fail.is_some() && crate::media_open_fail::should_drop_from_continue(&msg) {
-        remove_continue_entry(path);
+    if o.on_open_fail.is_some() {
+        crate::media_probe::drop_after_open_fail(path, &msg);
     }
     if let Some(f) = o.on_open_fail.as_ref() {
         f(msg.clone());

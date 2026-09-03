@@ -5,4 +5,5 @@ mod grid_thumb_flat_capture;
 
 include!("media_probe/card_data_resume_thumbs.rs");
 include!("media_probe/grid_thumb_cache.rs");
+include!("media_probe/catalog_miss.rs");
 include!("media_probe/thumb_pipeline_and_cards.rs");

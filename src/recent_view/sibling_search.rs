@@ -193,7 +193,7 @@ fn index_fill_once(
 
 /// True when open preflight would allow a load (no missing / empty / hollow stub).
 fn classify_openable(path: &Path) -> bool {
-    crate::media_open_fail::preflight_user_message(path).is_none()
+    crate::media_probe::path_is_openable(path)
 }
 
 /// Result cards shown at most; a huge library folder must not flood the strip.

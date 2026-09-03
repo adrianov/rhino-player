@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 
 const MAX: usize = 20;
 
-/// Ordered recent paths (newest first), up to [MAX] entries. Missing paths are dropped from
-/// history and resume — unless an incomplete download was renamed to a finished sibling, in which
+/// Ordered recent paths (newest first), up to [MAX] entries. Missing paths leave history
+/// and the files catalog — unless an incomplete download was renamed to a finished sibling, in which
 /// case the persistent store adopts that finished path and the entry is kept.
 pub fn load() -> Vec<PathBuf> {
     let raw = crate::db::list_history(MAX);
@@ -37,23 +37,7 @@ fn adopt_finished_download(p: PathBuf) -> Option<PathBuf> {
     if p.exists() {
         return Some(p);
     }
-    if let Some(finished) = crate::human_media_title::finished_download_path(&p) {
-        if crate::db::rekey_continue_path(&p, &finished) {
-            eprintln!(
-                "[rhino] history: incomplete download finished {} -> {}",
-                p.display(),
-                finished.display()
-            );
-            return Some(finished);
-        }
-        eprintln!(
-            "[rhino] history: could not adopt finished download {} -> {}",
-            p.display(),
-            finished.display()
-        );
-    }
-    crate::media_probe::remove_continue_entry(&p);
-    None
+    crate::media_probe::forget_missing(&p)
 }
 
 /// Insert at front, dedupe, trim; one row per DVD title (not per chapter `.vob`).
