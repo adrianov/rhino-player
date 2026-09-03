@@ -1,12 +1,15 @@
 // Neighbour (sibling) search for the continue screen — feature hub.
 // See docs/features/33-continue-sibling-search.md. Split across:
-//   sibling_search.rs          — NeighbourEntry, CatalogMem (snap/search/Lucky API), strip plan
+//   sibling_search.rs          — NeighbourEntry, CatalogMem, background filter_name_hits, strip plan
 //   lucky/                     — I'm Feeling Lucky picks (`recent_view::lucky`; maps from CatalogMem)
 //   sibling_search_score.rs    — Jaccard trigrams (`#[path]`)
-//   sibling_search_state.rs    — query / strip wiring (`#[path]`)
+//   sibling_search_state.rs    — query / hit cache / strip wiring (`#[path]`)
 //   sibling_search_bind.rs     — card trash/remove API + hide (`#[path]`)
 //   sibling_search_paint.rs    — paint-key compare (`#[path]` from state)
-//   sibling_search_input.rs    — debounce / commit / lucky click (`#[path]` from state)
+//   sibling_search_input.rs    — debounce / filter worker / lucky click (`#[path]` from state)
+//   sibling_search_filter_hop.rs — worker → MainContext inbox (`#[path]` from state)
+//   sibling_search_commit.rs   — cache reuse / Enter open-first (`#[path]` from state)
+//   sibling_search_path_ops.rs — trash / lucky / openability (`#[path]` from state)
 //   sibling_search_widgets.rs  — search-row widgets + I'm Feeling Lucky
 // NOTE: include!'d into `recent_view`; shares its imports (glib, Rc, RefCell, Path, Duration).
 
@@ -72,6 +75,21 @@ use std::cell::Cell;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+/// Path + lowercased name for Send filter workers (no openability Cell).
+#[derive(Clone, Debug)]
+struct FilterRow {
+    path: PathBuf,
+    name_lower: String,
+}
+
+/// Worker result: strip hits plus openability learned without touching SQLite.
+struct FilterOutcome {
+    hits: Vec<PathBuf>,
+    capped: bool,
+    learned: Vec<(PathBuf, bool)>,
+    missing: Vec<PathBuf>,
+}
+
 /// Session catalog + progress for search / Lucky (feature 33).
 /// Sole owner of SQLite load/refresh; selection, Lucky, and paint keys go through this API.
 type ProgressMaps = (HashMap<String, f64>, HashMap<String, f64>);
@@ -79,6 +97,8 @@ type PaintKey = Vec<(PathBuf, u64, u64)>;
 
 struct CatalogMem {
     index: RefCell<Vec<NeighbourEntry>>,
+    /// Shared name snap for background filters (built with [ensure]).
+    filter_snap: RefCell<Option<std::sync::Arc<Vec<FilterRow>>>>,
     scanned: Cell<bool>,
     progress: RefCell<ProgressMaps>,
     /// Resume path/name keys derived from [progress]; rebuilt only when progress reloads.
@@ -89,6 +109,7 @@ impl CatalogMem {
     fn new() -> Self {
         Self {
             index: RefCell::default(),
+            filter_snap: RefCell::new(None),
             scanned: Cell::new(false),
             progress: RefCell::default(),
             progress_keys: RefCell::default(),
@@ -104,7 +125,9 @@ impl CatalogMem {
             "[rhino] search: index n={} (catalog snap, in-memory filter)",
             paths.len()
         );
-        *self.index.borrow_mut() = paths.into_iter().map(NeighbourEntry::pending).collect();
+        let (entries, snap) = index_from_paths(paths);
+        *self.index.borrow_mut() = entries;
+        *self.filter_snap.borrow_mut() = Some(snap);
         self.store_progress(
             crate::db::load_time_pos_map(),
             crate::db::load_duration_map(),
@@ -136,11 +159,24 @@ impl CatalogMem {
         self.index.borrow_mut()
     }
 
-    /// Name-search hits from the in-memory catalog (no SQLite).
-    fn name_hits(&self, q: &str) -> (Vec<PathBuf>, bool) {
-        let index = self.index.borrow();
-        let keys = self.progress_keys.borrow();
-        capped_name_hits(&index, q, &keys)
+    /// Name snap + progress keys + known-unopenable paths for a filter worker.
+    fn filter_job(&self) -> FilterJob {
+        self.ensure();
+        let snap = self
+            .filter_snap
+            .borrow()
+            .as_ref()
+            .expect("filter snap after ensure")
+            .clone();
+        let progress = self.progress_keys.borrow().clone();
+        let bad = self
+            .index
+            .borrow()
+            .iter()
+            .filter(|e| e.known_unopenable())
+            .map(|e| e.path.clone())
+            .collect();
+        (snap, progress, bad)
     }
 
     /// Retarget Lucky titles then return the openable shown handful.
@@ -176,6 +212,45 @@ impl CatalogMem {
             })
             .collect()
     }
+}
+
+/// Shared name snap + progress + known-bad paths handed to a filter worker.
+type FilterJob = (
+    std::sync::Arc<Vec<FilterRow>>,
+    HashSet<String>,
+    HashSet<PathBuf>,
+);
+
+/// Catalog load for a filter worker when [CatalogMem] is not ready yet (keeps UI free).
+fn filter_job_from_db() -> FilterJob {
+    let paths = crate::db::list_file_paths();
+    let progress = progress_name_keys(&crate::db::load_time_pos_map());
+    let snap = std::sync::Arc::new(
+        paths
+            .into_iter()
+            .map(|path| FilterRow {
+                name_lower: file_name_lower(&path),
+                path,
+            })
+            .collect(),
+    );
+    (snap, progress, HashSet::new())
+}
+
+fn index_from_paths(
+    paths: Vec<PathBuf>,
+) -> (Vec<NeighbourEntry>, std::sync::Arc<Vec<FilterRow>>) {
+    let entries: Vec<_> = paths.into_iter().map(NeighbourEntry::pending).collect();
+    let snap = std::sync::Arc::new(
+        entries
+            .iter()
+            .map(|e| FilterRow {
+                path: e.path.clone(),
+                name_lower: e.name_lower.clone(),
+            })
+            .collect(),
+    );
+    (entries, snap)
 }
 
 /// Fill `index` from `build` at most once (session catalog index).
@@ -255,7 +330,7 @@ const RANK_BATCH: usize = SEARCH_MAX_HITS;
 #[cfg(test)]
 fn present_name_hits(entries: &[NeighbourEntry], q: &str) -> Vec<PathBuf> {
     let mut scored = score_name_hits(entries, q, &HashSet::new());
-    sort_scored_hits(entries, &mut scored);
+    sort_scored_hits(|i| entries[i].name_lower.as_str(), &mut scored);
     scored.retain(|h| entries[h.2].is_openable());
     hit_paths(entries, scored)
 }
@@ -267,17 +342,98 @@ fn capped_name_hits(
     q: &str,
     progress: &HashSet<String>,
 ) -> (Vec<PathBuf>, bool) {
-    let mut pool = collect_name_hits(entries, q, progress);
+    let outcome = rank_fill_hits(
+        entries.len(),
+        |i| entries[i].name_lower.as_str(),
+        |i| entries[i].path.as_path(),
+        |i| entries[i].known_unopenable(),
+        |i| entries[i].is_openable(),
+        q,
+        progress,
+    );
+    (outcome.hits, outcome.capped)
+}
+
+/// Background name filter: score + FS preflight; no SQLite (caller forgets missing on main).
+fn filter_name_hits(
+    rows: &[FilterRow],
+    known_bad: &HashSet<PathBuf>,
+    q: &str,
+    progress: &HashSet<String>,
+) -> FilterOutcome {
+    let mut cache: Vec<Option<bool>> = vec![None; rows.len()];
+    let mut learned = Vec::new();
+    let mut missing = Vec::new();
+    let mut outcome = rank_fill_hits(
+        rows.len(),
+        |i| rows[i].name_lower.as_str(),
+        |i| rows[i].path.as_path(),
+        |i| known_bad.contains(&rows[i].path),
+        |i| probe_filter_row(rows, i, &mut cache, &mut learned, &mut missing),
+        q,
+        progress,
+    );
+    outcome.learned = learned;
+    outcome.missing = missing;
+    outcome
+}
+
+fn probe_filter_row(
+    rows: &[FilterRow],
+    i: usize,
+    cache: &mut [Option<bool>],
+    learned: &mut Vec<(PathBuf, bool)>,
+    missing: &mut Vec<PathBuf>,
+) -> bool {
+    if let Some(v) = cache[i] {
+        return v;
+    }
+    let (open, miss) = classify_openable_fs(&rows[i].path);
+    cache[i] = Some(open);
+    learned.push((rows[i].path.clone(), open));
+    if miss {
+        missing.push(rows[i].path.clone());
+    }
+    open
+}
+
+/// Shared rank + openability fill used by sync tests and the filter worker.
+fn rank_fill_hits<'a>(
+    len: usize,
+    name: impl Fn(usize) -> &'a str,
+    path: impl Fn(usize) -> &'a Path,
+    skip: impl Fn(usize) -> bool,
+    mut openable: impl FnMut(usize) -> bool,
+    q: &str,
+    progress: &HashSet<String>,
+) -> FilterOutcome {
+    let mut pool = collect_scored(len, &name, &path, &skip, q, progress);
     let mut hits = Vec::with_capacity(SEARCH_MAX_HITS.min(pool.len()));
     while hits.len() < SEARCH_MAX_HITS && !pool.is_empty() {
-        let n = pool.len().min(RANK_BATCH);
-        partition_best(entries, &mut pool, n);
-        sort_scored_hits(entries, &mut pool[..n]);
-        let examined = fill_hits_from_batch(entries, &pool[..n], &mut hits);
-        pool.drain(..examined);
+        take_ranked_batch(&name, &path, &skip, &mut openable, &mut pool, &mut hits);
     }
-    let capped = hits.len() == SEARCH_MAX_HITS && has_openable_left(entries, &pool);
-    (hits, capped)
+    let capped = hits.len() == SEARCH_MAX_HITS && has_openable_left(&skip, &mut openable, &pool);
+    FilterOutcome {
+        hits,
+        capped,
+        learned: Vec::new(),
+        missing: Vec::new(),
+    }
+}
+
+fn take_ranked_batch<'a>(
+    name: &impl Fn(usize) -> &'a str,
+    path: &impl Fn(usize) -> &'a Path,
+    skip: &impl Fn(usize) -> bool,
+    openable: &mut impl FnMut(usize) -> bool,
+    pool: &mut Vec<ScoredHit>,
+    hits: &mut Vec<PathBuf>,
+) {
+    let n = pool.len().min(RANK_BATCH);
+    partition_best(name, pool, n);
+    sort_scored_hits(name, &mut pool[..n]);
+    let examined = fill_hits_batch(path, skip, openable, &pool[..n], hits);
+    pool.drain(..examined);
 }
 
 #[cfg(test)]
@@ -289,8 +445,11 @@ fn hit_paths(entries: &[NeighbourEntry], scored: Vec<ScoredHit>) -> Vec<PathBuf>
 }
 
 /// Every name match (not yet openability-checked); known-unopenable skipped.
-fn collect_name_hits(
-    entries: &[NeighbourEntry],
+fn collect_scored<'a>(
+    len: usize,
+    name: impl Fn(usize) -> &'a str,
+    path: impl Fn(usize) -> &'a Path,
+    skip: impl Fn(usize) -> bool,
     q: &str,
     progress: &HashSet<String>,
 ) -> Vec<ScoredHit> {
@@ -299,12 +458,30 @@ fn collect_name_hits(
     } else {
         HashSet::new()
     };
-    entries
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| !e.known_unopenable())
-        .filter_map(|(i, e)| score_name_hit(e, i, q, &q_tri, progress))
+    (0..len)
+        .filter(|&i| !skip(i))
+        .filter_map(|i| {
+            let score = name_match_score(name(i), q, &q_tri)?;
+            let started = name_in_progress(path(i), name(i), progress);
+            Some((score, started, i))
+        })
         .collect()
+}
+
+#[cfg(test)]
+fn collect_name_hits(
+    entries: &[NeighbourEntry],
+    q: &str,
+    progress: &HashSet<String>,
+) -> Vec<ScoredHit> {
+    collect_scored(
+        entries.len(),
+        |i| entries[i].name_lower.as_str(),
+        |i| entries[i].path.as_path(),
+        |i| entries[i].known_unopenable(),
+        q,
+        progress,
+    )
 }
 
 #[cfg(test)]
@@ -317,17 +494,19 @@ fn score_name_hits(
 }
 
 /// Move the best `n` hits (by [hit_ord]) to the front of `pool`.
-fn partition_best(entries: &[NeighbourEntry], pool: &mut [ScoredHit], n: usize) {
+fn partition_best<'a>(name: impl Fn(usize) -> &'a str, pool: &mut [ScoredHit], n: usize) {
     if n == 0 || pool.len() <= n {
         return;
     }
-    pool.select_nth_unstable_by(n - 1, |a, b| hit_ord(entries, a, b));
+    pool.select_nth_unstable_by(n - 1, |a, b| hit_ord(&name, a, b));
 }
 
 /// Preflight batch members in rank order until the strip is full.
 /// Returns how many batch slots were examined (unexamined stay in the pool).
-fn fill_hits_from_batch(
-    entries: &[NeighbourEntry],
+fn fill_hits_batch<'a>(
+    path: impl Fn(usize) -> &'a Path,
+    skip: impl Fn(usize) -> bool,
+    mut openable: impl FnMut(usize) -> bool,
     batch: &[ScoredHit],
     hits: &mut Vec<PathBuf>,
 ) -> usize {
@@ -337,35 +516,32 @@ fn fill_hits_from_batch(
             break;
         }
         examined += 1;
-        let e = &entries[h.2];
-        if e.known_unopenable() {
+        if skip(h.2) {
             continue;
         }
-        if e.is_openable() {
-            hits.push(e.path.clone());
+        if openable(h.2) {
+            hits.push(path(h.2).to_path_buf());
         }
     }
     examined
 }
 
 /// Whether any remaining name match is playable (stops at the first yes).
-fn has_openable_left(entries: &[NeighbourEntry], pool: &[ScoredHit]) -> bool {
-    pool.iter().any(|h| {
-        let e = &entries[h.2];
-        !e.known_unopenable() && e.is_openable()
-    })
+fn has_openable_left(
+    skip: impl Fn(usize) -> bool,
+    mut openable: impl FnMut(usize) -> bool,
+    pool: &[ScoredHit],
+) -> bool {
+    pool.iter().any(|h| !skip(h.2) && openable(h.2))
 }
 
-fn score_name_hit(
-    e: &NeighbourEntry,
-    idx: usize,
-    q: &str,
-    q_tri: &HashSet<(char, char, char)>,
-    progress: &HashSet<String>,
-) -> Option<ScoredHit> {
-    let score = name_match_score(&e.name_lower, q, q_tri)?;
-    let started = name_in_progress(&e.path, &e.name_lower, progress);
-    Some((score, started, idx))
+/// FS-only openability for workers (no catalog forget — main thread applies missing).
+fn classify_openable_fs(path: &Path) -> (bool, bool) {
+    match crate::media_open_fail::preflight_user_message(path) {
+        None => (true, false),
+        Some(crate::media_open_fail::msg::MISSING) => (false, true),
+        Some(_) => (false, false),
+    }
 }
 
 /// Resume keys and their lowercased file names — lookup only, no disk.
@@ -388,17 +564,15 @@ fn name_in_progress(path: &Path, name_lower: &str, keys: &HashSet<String>) -> bo
 }
 
 /// Score ↓, then in-progress before unstarted, then natural file name.
-fn hit_ord(entries: &[NeighbourEntry], a: &ScoredHit, b: &ScoredHit) -> std::cmp::Ordering {
+fn hit_ord<'a>(name: impl Fn(usize) -> &'a str, a: &ScoredHit, b: &ScoredHit) -> std::cmp::Ordering {
     b.0.partial_cmp(&a.0)
         .unwrap_or(std::cmp::Ordering::Equal)
         .then_with(|| b.1.cmp(&a.1))
-        .then_with(|| {
-            lexical_sort::natural_lexical_cmp(&entries[a.2].name_lower, &entries[b.2].name_lower)
-        })
+        .then_with(|| lexical_sort::natural_lexical_cmp(name(a.2), name(b.2)))
 }
 
-fn sort_scored_hits(entries: &[NeighbourEntry], scored: &mut [ScoredHit]) {
-    scored.sort_by(|a, b| hit_ord(entries, a, b));
+fn sort_scored_hits<'a>(name: impl Fn(usize) -> &'a str, scored: &mut [ScoredHit]) {
+    scored.sort_by(|a, b| hit_ord(&name, a, b));
 }
 
 fn file_name_lower(p: &Path) -> String {
@@ -429,7 +603,7 @@ mod rank_tests {
             (0.5, true, 1usize),
             (0.5, false, 2usize),
         ];
-        sort_scored_hits(&entries, &mut scored);
+        sort_scored_hits(|i| entries[i].name_lower.as_str(), &mut scored);
         assert_eq!(scored[0].2, 1);
         assert!(scored[0].1);
     }

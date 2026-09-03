@@ -1,15 +1,18 @@
-// Neighbour-search reactive input: debounce, commit, Enter / Escape clear.
+// Neighbour-search reactive input: debounce, background filter, lucky click.
 // `#[path]` submodule of [sibling_search_state.rs].
 
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
 
 use gtk::prelude::{ButtonExt, EditableExt, WidgetExt};
 
+use super::filter_hop::{install_filter_flush, note_filter_done};
 use super::SiblingSearchState;
 
 impl SiblingSearchState {
     pub(crate) fn bind_ctx(self: &Rc<Self>, ctx: Weak<crate::recent_view::RecentContext>) {
         *self.ctx.borrow_mut() = Some(ctx);
+        install_filter_flush(self);
         let s = Rc::clone(self);
         self.entry.connect_changed(move |_| s.on_changed());
         let s2 = Rc::clone(self);
@@ -57,6 +60,8 @@ impl SiblingSearchState {
             return;
         }
         crate::glib_source_drop::drop_glib_source(&self.debounce);
+        // Newer draft supersedes any in-flight filter.
+        self.cancel_filter();
         if Self::draft_text(&self.entry).is_empty() {
             self.commit_and_refill(String::new());
             return;
@@ -77,6 +82,7 @@ impl SiblingSearchState {
 
     fn clear_query(self: &Rc<Self>) {
         crate::glib_source_drop::drop_glib_source(&self.debounce);
+        self.cancel_filter();
         if self.entry.text().is_empty() {
             self.commit_and_refill(String::new());
             return;
@@ -84,38 +90,63 @@ impl SiblingSearchState {
         self.entry.set_text("");
     }
 
-    fn draft_text(entry: &gtk::SearchEntry) -> String {
-        entry.text().trim().to_string()
+    pub(super) fn start_filter(self: &Rc<Self>, draft: String) {
+        let gen = self.bump_filter_gen();
+        self.filter_pending.set(true);
+        let prepared = self.catalog.ready().then(|| self.catalog.filter_job());
+        self.spawn_filter(gen, draft, prepared);
     }
 
-    fn commit_and_refill(&self, next: String) {
-        if *self.query.borrow() == next && !self.lucky.is_active() {
-            self.note_repaint();
+    fn spawn_filter(
+        self: &Rc<Self>,
+        gen: u64,
+        draft: String,
+        prepared: Option<super::super::FilterJob>,
+    ) {
+        let q = draft.to_lowercase();
+        let inbox = Arc::clone(&self.filter_inbox);
+        if let Err(e) = std::thread::Builder::new()
+            .name("rhino-search-filter".into())
+            .spawn(move || {
+                let (rows, progress, bad) = match prepared {
+                    Some(job) => job,
+                    None => super::super::filter_job_from_db(),
+                };
+                let outcome = super::super::filter_name_hits(&rows, &bad, &q, &progress);
+                note_filter_done(&inbox, gen, draft, outcome);
+            })
+        {
+            eprintln!("[rhino] search: filter spawn: {e}");
+            self.filter_pending.set(false);
+        }
+    }
+
+    fn bump_filter_gen(&self) -> u64 {
+        let gen = self.filter_gen.get().wrapping_add(1);
+        self.filter_gen.set(gen);
+        gen
+    }
+
+    pub(super) fn on_filter_done(
+        self: &Rc<Self>,
+        gen: u64,
+        draft: String,
+        outcome: super::super::FilterOutcome,
+    ) {
+        if gen != self.filter_gen.get() {
             return;
         }
-        self.drop_lucky();
-        *self.query.borrow_mut() = next;
+        self.filter_pending.set(false);
+        // Worker may have filtered before CatalogMem was filled; install it before openability.
+        if !self.catalog.ready() {
+            self.ensure_index();
+        }
+        let open_first = self.open_first.get();
+        self.open_first.set(false);
+        self.apply_filter_outcome(draft, outcome);
         self.refill_now();
-    }
-
-    fn refill_now(&self) {
-        if let Some(c) = self.ctx.borrow().as_ref().and_then(|w| w.upgrade()) {
-            c.apply_strip();
-        }
-        self.note_repaint();
-    }
-
-    fn open_first_hit(self: &Rc<Self>) {
-        crate::glib_source_drop::drop_glib_source(&self.debounce);
-        let draft = Self::draft_text(&self.entry);
-        if !draft.is_empty() {
-            self.commit_and_refill(draft);
-        }
-        let Some(first) = self.current_hits().and_then(|h| h.into_iter().next()) else {
-            return;
-        };
-        if let Some(c) = self.ctx.borrow().as_ref().and_then(|w| w.upgrade()) {
-            c.open_path(&first);
+        if open_first {
+            self.open_first_now();
         }
     }
 }
