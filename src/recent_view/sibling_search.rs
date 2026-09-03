@@ -100,6 +100,8 @@ struct CatalogMem {
     /// Shared name snap for background filters (built with [ensure]).
     filter_snap: RefCell<Option<std::sync::Arc<Vec<FilterRow>>>>,
     scanned: Cell<bool>,
+    /// [crate::db::files_catalog_epoch] when [index] was last loaded.
+    epoch: Cell<u64>,
     progress: RefCell<ProgressMaps>,
     /// Resume path/name keys derived from [progress]; rebuilt only when progress reloads.
     progress_keys: RefCell<HashSet<String>>,
@@ -111,15 +113,21 @@ impl CatalogMem {
             index: RefCell::default(),
             filter_snap: RefCell::new(None),
             scanned: Cell::new(false),
+            epoch: Cell::new(0),
             progress: RefCell::default(),
             progress_keys: RefCell::default(),
         }
     }
 
     fn ensure(&self) {
-        if self.scanned.get() {
+        let cur = crate::db::files_catalog_epoch();
+        if self.scanned.get() && self.epoch.get() == cur {
             return;
         }
+        self.reload_from_db(cur);
+    }
+
+    fn reload_from_db(&self, epoch: u64) {
         let paths = crate::db::list_file_paths();
         eprintln!(
             "[rhino] search: index n={} (catalog snap, in-memory filter)",
@@ -132,6 +140,7 @@ impl CatalogMem {
             crate::db::load_time_pos_map(),
             crate::db::load_duration_map(),
         );
+        self.epoch.set(epoch);
         self.scanned.set(true);
     }
 

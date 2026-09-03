@@ -30,6 +30,7 @@ fn try_load(
     *o.last_path.borrow_mut() = std::fs::canonicalize(&path).ok();
     if o.record {
         history::record(&path);
+        db::ensure_open_siblings(&path);
     }
     settle_loaded_ui(player, win, gl, recent_layer, o, &path, warm_hit);
     Ok(())

@@ -46,7 +46,7 @@ fn ensure_files_ready(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-fn with_files_conn<T, F>(f: F) -> Option<T>
+pub(super) fn with_files_conn<T, F>(f: F) -> Option<T>
 where
     F: FnOnce(&Connection) -> rusqlite::Result<T>,
 {
@@ -56,7 +56,7 @@ where
     })
 }
 
-fn unix_now() -> i64 {
+pub(super) fn unix_now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -78,7 +78,7 @@ pub fn ensure_file(path: &Path) {
 }
 
 /// Manual BEGIN/COMMIT keeps a single journal sync without needing &mut Connection.
-fn with_immediate_tx(
+pub(super) fn with_immediate_tx(
     conn: &Connection,
     f: impl FnOnce(&Connection) -> rusqlite::Result<()>,
 ) -> rusqlite::Result<()> {
@@ -136,3 +136,7 @@ pub fn list_file_paths() -> Vec<PathBuf> {
     })
     .unwrap_or_default()
 }
+
+#[path = "history_files_catalog_siblings.rs"]
+mod siblings;
+pub use siblings::{ensure_open_siblings, files_catalog_epoch};
