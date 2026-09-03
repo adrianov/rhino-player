@@ -4,6 +4,38 @@ use zenwebp::PixelLayout;
 
 use crate::thumb_texture;
 
+thread_local! {
+    /// Source path for the in-flight grid-thumb capture (worker thread).
+    static THUMB_SRC: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+fn thumb_src_set(path: &Path) {
+    THUMB_SRC.with(|s| *s.borrow_mut() = path.display().to_string());
+}
+
+fn thumb_src_clear() {
+    THUMB_SRC.with(|s| s.borrow_mut().clear());
+}
+
+fn thumb_src_suffix() -> String {
+    THUMB_SRC.with(|s| {
+        let s = s.borrow();
+        if s.is_empty() {
+            String::new()
+        } else {
+            format!(" {s}")
+        }
+    })
+}
+
+/// Clears [THUMB_SRC] when the capture scope ends (including early `?` returns).
+struct ThumbSrcGuard;
+impl Drop for ThumbSrcGuard {
+    fn drop(&mut self) {
+        thumb_src_clear();
+    }
+}
+
 /// Validated packed-frame geometry; returns the positive row stride in bytes.
 fn packed_frame_dims_ok(
     w: usize,
@@ -115,12 +147,14 @@ fn log_blank_frame(w: usize, h: usize, fmt: &str, dark: bool, flat: bool, log_bl
     }
     if dark {
         eprintln!(
-            "[rhino] grid_thumb screenshot-raw dark frame {w}x{h} fmt={fmt} (accept when stable)"
+            "[rhino] grid_thumb screenshot-raw dark frame {w}x{h} fmt={fmt} (accept when stable){}",
+            thumb_src_suffix()
         );
     }
     if flat {
         eprintln!(
-            "[rhino] grid_thumb screenshot-raw flat frame {w}x{h} fmt={fmt} (accept when stable)"
+            "[rhino] grid_thumb screenshot-raw flat frame {w}x{h} fmt={fmt} (accept when stable){}",
+            thumb_src_suffix()
         );
     }
 }
@@ -141,8 +175,12 @@ fn thumb_encode_crop(
     match crate::black_bars::detect_packed_crop(w, h, row_stride, bpp, fmt, data) {
         Some(c) => {
             eprintln!(
-                "[rhino] grid_thumb: crop bars {w}x{h} -> {}x{}+{}+{}",
-                c.w, c.h, c.x, c.y
+                "[rhino] grid_thumb: crop bars {w}x{h} -> {}x{}+{}+{}{}",
+                c.w,
+                c.h,
+                c.x,
+                c.y,
+                thumb_src_suffix()
             );
             (c.x as usize, c.y as usize, c.w as usize, c.h as usize)
         }

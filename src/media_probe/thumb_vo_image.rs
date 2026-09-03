@@ -200,6 +200,13 @@ fn run_vo_image_one_frame(
 ) -> Result<Vec<u8>, ThumbFail> {
     let src_s = src.to_str().ok_or(ThumbFail::Other)?;
     let plan = vo_image_plan(src, start_sec, chapter_dur);
+    eprintln!(
+        "[rhino] grid_thumb: creating {} seek={:.2}",
+        src.display(),
+        plan.ifo_seek
+    );
+    thumb_src_set(src);
+    let _src_guard = ThumbSrcGuard;
     let mut m = vo_image_start(
         src,
         src_s,

@@ -55,15 +55,17 @@ impl PollState {
     fn stable_accept(&self) -> Option<Vec<u8>> {
         if self.dark_run >= DARK_STABLE_POLLS {
             eprintln!(
-                "[rhino] grid_thumb dark frame accepted after {} stable polls",
-                self.dark_run
+                "[rhino] grid_thumb dark frame accepted after {} stable polls{}",
+                self.dark_run,
+                thumb_src_suffix()
             );
             return self.dark_webp.clone();
         }
         if self.flat_run >= FLAT_STABLE_POLLS {
             eprintln!(
-                "[rhino] grid_thumb flat frame accepted after {} stable polls",
-                self.flat_run
+                "[rhino] grid_thumb flat frame accepted after {} stable polls{}",
+                self.flat_run,
+                thumb_src_suffix()
             );
             return self.flat_webp.clone();
         }
@@ -104,10 +106,16 @@ fn poll_once(m: &mut Mpv, st: &mut PollState, deadline: Instant) -> PollOutcome 
 /// Deadline hit: keep a previously captured dark or flat frame, else give up.
 fn timeout_poll_accept(polls: u32, blank: Option<Vec<u8>>) -> Option<Vec<u8>> {
     if blank.is_some() {
-        eprintln!("[rhino] grid_thumb blank frame accepted at timeout");
+        eprintln!(
+            "[rhino] grid_thumb blank frame accepted at timeout{}",
+            thumb_src_suffix()
+        );
         return blank;
     }
-    eprintln!("[rhino] grid_thumb screenshot-raw capture timeout after {polls} polls");
+    eprintln!(
+        "[rhino] grid_thumb screenshot-raw capture timeout after {polls} polls{}",
+        thumb_src_suffix()
+    );
     None
 }
 
