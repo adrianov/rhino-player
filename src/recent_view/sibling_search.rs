@@ -239,19 +239,17 @@ impl CatalogMem {
             .collect()
     }
 
-    /// Search / Lucky cards from cached progress — no exists/canonicalize/SQLite.
+    /// Search / Lucky cards from cached progress + any already-stored still (no exists walk).
     fn strip_cards(&self, paths: &[PathBuf]) -> Vec<crate::media_probe::CardData> {
         let (tpos, durs) = &*self.progress.borrow();
         paths
             .iter()
             .map(|p| {
                 let (resume, duration) = listing_progress(p, tpos, durs);
-                let percent = listing_percent(resume, duration);
                 crate::media_probe::CardData {
                     path: p.clone(),
-                    percent,
-                    // Still applied by thumb workers so paint stays off the disk/SQLite path.
-                    thumb: None,
+                    percent: listing_percent(resume, duration),
+                    thumb: crate::media_probe::cached_thumbnail_for_display(p),
                     missing: false,
                     resume_sec: resume,
                     duration_sec: duration,

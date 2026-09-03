@@ -103,7 +103,7 @@ impl SiblingSearchState {
             || self.settle_pending.get()
     }
 
-    /// Memory-only cards for a settled search / Lucky strip (no disk or SQLite).
+    /// Settled search / Lucky cards: cached progress + any already-stored still.
     pub(crate) fn strip_cards(&self, paths: &[PathBuf]) -> Vec<crate::media_probe::CardData> {
         self.catalog.strip_cards(paths)
     }
