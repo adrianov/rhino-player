@@ -7,7 +7,7 @@ use std::path::Path;
 use super::vo_image_capture_after_seek;
 
 /// Largest forward offset from the primary still (doubling stops here).
-const FLAT_NUDGE_MAX_SEC: f64 = 64.0;
+const FLAT_NUDGE_MAX_SEC: f64 = 8.0;
 
 pub(super) struct FlatNudgeCtx<'a> {
     pub m: &'a mut Mpv,
@@ -75,7 +75,7 @@ mod flat_nudge_tests {
     #[test]
     fn exponential_steps_from_base() {
         let times = flat_nudge_seeks(10.0, 120.0);
-        assert_eq!(times, [11.0, 12.0, 14.0, 18.0, 26.0, 42.0, 74.0]);
+        assert_eq!(times, [11.0, 12.0, 14.0, 18.0]);
     }
 
     #[test]

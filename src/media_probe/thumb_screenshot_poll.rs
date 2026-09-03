@@ -13,8 +13,9 @@ struct Capture {
 /// (legit dark scene at the continue position) rather than an undecoded buffer.
 const DARK_STABLE_POLLS: u32 = 20;
 
-/// Same stability window for flat placeholder frames after hr-seek.
-const FLAT_STABLE_POLLS: u32 = 20;
+/// Stability window for flat placeholder frames after hr-seek (shorter than dark — once decode
+/// lands a solid slide, waiting longer only delays the flat-nudge pass).
+const FLAT_STABLE_POLLS: u32 = 8;
 
 /// Stable-run trackers for the screenshot poll loop.
 struct PollState {

@@ -37,42 +37,74 @@ fn channel_order(fmt: &str) -> (usize, usize, usize) {
     }
 }
 
-/// Mostly near-black samples: a real dark scene or an undecoded / empty VO buffer.
-/// The caller decides via poll stability ([DARK_STABLE_POLLS]).
-/// Offsets of the 8x8-grid sample pixels that fit inside `data` (shared by the dark/flat samplers).
-fn packed_sample_offsets(
+/// Geometry + bytes for one `screenshot-raw` packed frame.
+struct PackedView<'a> {
     w: usize,
     h: usize,
     row_stride: usize,
     bpp: usize,
-    last_channel: usize,
-    data: &[u8],
-) -> impl Iterator<Item = usize> + '_ {
-    let step_y = (h / 8).max(1);
-    let step_x = (w / 8).max(1);
-    (0..h)
-        .step_by(step_y)
-        .flat_map(move |y| {
-            let row = y * row_stride;
-            (0..w).step_by(step_x).map(move |x| row + x * bpp)
-        })
-        .filter(move |&i| i + last_channel < data.len())
+    fmt: &'a str,
+    data: &'a [u8],
 }
 
-fn packed_frame_mostly_black(
+/// Sub-rectangle inside a [PackedView] (full frame or bar-cropped picture).
+#[derive(Clone, Copy)]
+struct SampleRect {
+    x: usize,
+    y: usize,
     w: usize,
     h: usize,
-    row_stride: usize,
-    bpp: usize,
-    fmt: &str,
-    data: &[u8],
-) -> bool {
-    let (ri, gi, bi) = channel_order(fmt);
+}
+
+/// Offsets of the 8×8-grid sample pixels inside a packed region (shared by dark/flat samplers).
+fn packed_sample_offsets(
+    view: &PackedView<'_>,
+    r: SampleRect,
+    last_channel: usize,
+) -> Vec<usize> {
+    let step_y = (r.h / 8).max(1);
+    let step_x = (r.w / 8).max(1);
+    let mut out = Vec::new();
+    let mut y = 0;
+    while y < r.h {
+        let row = (r.y + y) * view.row_stride;
+        let mut x = 0;
+        while x < r.w {
+            let i = row + (r.x + x) * view.bpp;
+            if i + last_channel < view.data.len() {
+                out.push(i);
+            }
+            x += step_x;
+        }
+        y += step_y;
+    }
+    out
+}
+
+/// Mostly near-black samples on the full frame (skip bar crop on dark scenes).
+fn packed_view_mostly_black(view: &PackedView<'_>) -> bool {
+    packed_region_mostly_black(
+        view,
+        SampleRect {
+            x: 0,
+            y: 0,
+            w: view.w,
+            h: view.h,
+        },
+    )
+}
+
+fn packed_region_mostly_black(view: &PackedView<'_>, r: SampleRect) -> bool {
+    let (ri, gi, bi) = channel_order(view.fmt);
     let mut samples = 0u32;
     let mut bright = 0u32;
-    for i in packed_sample_offsets(w, h, row_stride, bpp, bi, data) {
+    for i in packed_sample_offsets(view, r, bi) {
         samples += 1;
-        if data[i + ri].max(data[i + gi]).max(data[i + bi]) > 12 {
+        if view.data[i + ri]
+            .max(view.data[i + gi])
+            .max(view.data[i + bi])
+            > 12
+        {
             bright += 1;
         }
     }
@@ -80,17 +112,15 @@ fn packed_frame_mostly_black(
 }
 
 /// Solid fill, single-hue gradient / mesh, or mpv vo=null placeholder — not a real picture.
-fn packed_frame_mostly_flat(
-    w: usize,
-    h: usize,
-    row_stride: usize,
-    bpp: usize,
-    fmt: &str,
-    data: &[u8],
-) -> bool {
-    let (ri, gi, bi) = channel_order(fmt);
+fn packed_region_mostly_flat(view: &PackedView<'_>, r: SampleRect) -> bool {
+    let (ri, gi, bi) = channel_order(view.fmt);
     crate::thumb_texture::rgb_samples_mostly_flat(
-        packed_sample_offsets(w, h, row_stride, bpp, bi, data)
-            .map(|i| (data[i + ri], data[i + gi], data[i + bi])),
+        packed_sample_offsets(view, r, bi).into_iter().map(|i| {
+            (
+                view.data[i + ri],
+                view.data[i + gi],
+                view.data[i + bi],
+            )
+        }),
     )
 }

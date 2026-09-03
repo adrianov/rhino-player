@@ -125,7 +125,8 @@ fn vo_image_capture_after_seek(
         eprintln!("[rhino] grid_thumb frame timeout {}", src.display());
         return None;
     }
-    capture_screenshot_webp(m, wait_secs)
+    // Same cap as seek / demuxer waits — flat/dark stability exits earlier when possible.
+    capture_screenshot_webp(m, wait_secs.min(VO_IMAGE_WAIT_CAP_SEC))
 }
 
 /// Issue the mapped mpv seek; None on failure.

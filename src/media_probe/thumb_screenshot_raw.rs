@@ -114,31 +114,37 @@ fn raw_frame_to_webp(
 ) -> Option<Capture> {
     let pf = mpv_packed_fmt(fmt)?;
     let row_stride = packed_frame_dims_ok(w, h, stride, &pf, fmt, data)?;
-    let dark = packed_frame_mostly_black(w, h, row_stride, pf.bpp, fmt, data);
-    let flat = packed_frame_mostly_flat(w, h, row_stride, pf.bpp, fmt, data);
-    log_blank_frame(w, h, fmt, dark, flat, log_blank);
-    let webp = encode_thumb_region(w, h, row_stride, &pf, fmt, data, dark)?;
-    Some(Capture { webp, dark, flat })
+    let view = PackedView {
+        w,
+        h,
+        row_stride,
+        bpp: pf.bpp,
+        fmt,
+        data,
+    };
+    encode_thumb_capture(&view, pf.layout, log_blank)
 }
 
-fn encode_thumb_region(
-    w: usize,
-    h: usize,
-    row_stride: usize,
-    pf: &MpvPackedFmt,
-    fmt: &str,
-    data: &[u8],
-    dark: bool,
-) -> Option<Vec<u8>> {
-    let (ox, oy, cw, ch) = thumb_encode_crop(w, h, row_stride, pf.bpp, fmt, data, dark);
-    let start = oy * row_stride + ox * pf.bpp;
-    thumb_texture::encode_packed_webp(
-        &data[start..],
-        cw as u32,
-        ch as u32,
-        row_stride / pf.bpp,
-        pf.layout,
-    )
+fn encode_thumb_capture(
+    view: &PackedView<'_>,
+    layout: PixelLayout,
+    log_blank: bool,
+) -> Option<Capture> {
+    // Skip bar crop on a dark full frame (real dark scene / empty VO).
+    let crop = thumb_encode_crop(view, packed_view_mostly_black(view), log_blank);
+    // Stability flags use the encoded region so side pillars do not skew flat/dark.
+    let dark = packed_region_mostly_black(view, crop);
+    let flat = packed_region_mostly_flat(view, crop);
+    log_blank_frame(crop.w, crop.h, view.fmt, dark, flat, log_blank);
+    let start = crop.y * view.row_stride + crop.x * view.bpp;
+    let webp = thumb_texture::encode_packed_webp(
+        &view.data[start..],
+        crop.w as u32,
+        crop.h as u32,
+        view.row_stride / view.bpp,
+        layout,
+    )?;
+    Some(Capture { webp, dark, flat })
 }
 
 fn log_blank_frame(w: usize, h: usize, fmt: &str, dark: bool, flat: bool, log_blank: bool) {
@@ -160,31 +166,49 @@ fn log_blank_frame(w: usize, h: usize, fmt: &str, dark: bool, flat: bool, log_bl
 }
 
 /// Crop box for encode: strip baked-in bars unless the whole frame is a dark scene.
-fn thumb_encode_crop(
-    w: usize,
-    h: usize,
-    row_stride: usize,
-    bpp: usize,
-    fmt: &str,
-    data: &[u8],
-    dark: bool,
-) -> (usize, usize, usize, usize) {
+fn thumb_encode_crop(view: &PackedView<'_>, dark: bool, log_crop: bool) -> SampleRect {
     if dark {
-        return (0, 0, w, h);
+        return SampleRect {
+            x: 0,
+            y: 0,
+            w: view.w,
+            h: view.h,
+        };
     }
-    match crate::black_bars::detect_packed_crop(w, h, row_stride, bpp, fmt, data) {
+    match crate::black_bars::detect_packed_crop(
+        view.w,
+        view.h,
+        view.row_stride,
+        view.bpp,
+        view.fmt,
+        view.data,
+    ) {
         Some(c) => {
-            eprintln!(
-                "[rhino] grid_thumb: crop bars {w}x{h} -> {}x{}+{}+{}{}",
-                c.w,
-                c.h,
-                c.x,
-                c.y,
-                thumb_src_suffix()
-            );
-            (c.x as usize, c.y as usize, c.w as usize, c.h as usize)
+            if log_crop {
+                eprintln!(
+                    "[rhino] grid_thumb: crop bars {}x{} -> {}x{}+{}+{}{}",
+                    view.w,
+                    view.h,
+                    c.w,
+                    c.h,
+                    c.x,
+                    c.y,
+                    thumb_src_suffix()
+                );
+            }
+            SampleRect {
+                x: c.x as usize,
+                y: c.y as usize,
+                w: c.w as usize,
+                h: c.h as usize,
+            }
         }
-        None => (0, 0, w, h),
+        None => SampleRect {
+            x: 0,
+            y: 0,
+            w: view.w,
+            h: view.h,
+        },
     }
 }
 
@@ -225,5 +249,36 @@ mod tests {
         assert!(c.dark);
         assert!(c.flat);
         assert!(thumb_texture::thumb_webp_valid(&c.webp));
+    }
+
+    fn write_detail_px(data: &mut [u8], i: usize, x: usize, y: usize) {
+        data[i] = (x.wrapping_mul(17).wrapping_add(y.wrapping_mul(3))) as u8;
+        data[i + 1] = (x.wrapping_mul(9).wrapping_add(y.wrapping_mul(11))) as u8;
+        data[i + 2] = (x.wrapping_mul(5).wrapping_add(y.wrapping_mul(23))) as u8;
+        data[i + 3] = 255;
+    }
+
+    fn pillarboxed_bgr0(w: usize, h: usize, bar: usize) -> Vec<u8> {
+        let mut data = vec![0u8; w * h * 4];
+        for n in 0..(w * h) {
+            let x = n % w;
+            if x < bar || x >= w - bar {
+                continue;
+            }
+            write_detail_px(&mut data, n * 4, x, n / w);
+        }
+        data
+    }
+
+    /// Side pillars must not make a detailed center look flat (stability samples the crop).
+    #[test]
+    fn pillarboxed_detail_not_flat() {
+        let (w, h) = (64usize, 32usize);
+        let data = pillarboxed_bgr0(w, h, 8);
+        let c = raw_frame_to_webp(w, h, (w * 4) as isize, "bgr0", &data, false).unwrap();
+        assert!(!c.dark && !c.flat);
+        let (_, dw, dh) = zenwebp::oneshot::decode_rgb(&c.webp).unwrap();
+        assert_eq!(dh, h as u32);
+        assert!(dw < w as u32, "expected pillar crop, got {dw}x{dh}");
     }
 }
