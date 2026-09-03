@@ -31,9 +31,11 @@ pub(super) fn group_index(entries: &[NeighbourEntry]) -> HashMap<String, Vec<Pat
 }
 
 pub(super) fn openable_set(entries: &[NeighbourEntry]) -> HashSet<&Path> {
+    // Known-openable or not yet checked — never force hollow preflight on the whole catalog.
+    // Strip paint / keep_openable still preflight the handful that is shown.
     entries
         .iter()
-        .filter(|e| e.is_openable())
+        .filter(|e| !e.known_unopenable())
         .map(|e| e.path.as_path())
         .collect()
 }

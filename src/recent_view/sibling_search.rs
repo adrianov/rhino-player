@@ -1,11 +1,11 @@
 // Neighbour (sibling) search for the continue screen — feature hub.
 // See docs/features/33-continue-sibling-search.md. Split across:
-//   sibling_search.rs          — catalog index, hit filter, strip plan, tests
-//   lucky/                     — I'm Feeling Lucky owner (`recent_view::lucky`)
+//   sibling_search.rs          — NeighbourEntry, CatalogMem (snap/search/Lucky API), strip plan
+//   lucky/                     — I'm Feeling Lucky picks (`recent_view::lucky`; maps from CatalogMem)
 //   sibling_search_score.rs    — Jaccard trigrams (`#[path]`)
-//   sibling_search_state.rs    — query / index / paint / lucky dismiss (`#[path]`)
+//   sibling_search_state.rs    — query / strip wiring (`#[path]`)
 //   sibling_search_bind.rs     — card trash/remove API + hide (`#[path]`)
-//   sibling_search_paint.rs    — neighbour paint key (`#[path]` from state)
+//   sibling_search_paint.rs    — paint-key compare (`#[path]` from state)
 //   sibling_search_input.rs    — debounce / commit / lucky click (`#[path]` from state)
 //   sibling_search_widgets.rs  — search-row widgets + I'm Feeling Lucky
 // NOTE: include!'d into `recent_view`; shares its imports (glib, Rc, RefCell, Path, Duration).
@@ -68,7 +68,110 @@ impl NeighbourEntry {
     }
 }
 
+/// Session catalog + progress for search / Lucky (feature 33).
+/// Sole owner of SQLite load/refresh; selection, Lucky, and paint keys go through this API.
+type ProgressMaps = (HashMap<String, f64>, HashMap<String, f64>);
+type PaintKey = Vec<(PathBuf, u64, u64)>;
+
+struct CatalogMem {
+    index: RefCell<Vec<NeighbourEntry>>,
+    scanned: Cell<bool>,
+    progress: RefCell<ProgressMaps>,
+}
+
+impl CatalogMem {
+    fn new() -> Self {
+        Self {
+            index: RefCell::default(),
+            scanned: Cell::new(false),
+            progress: RefCell::default(),
+        }
+    }
+
+    fn ensure(&self) {
+        if self.scanned.get() {
+            return;
+        }
+        let paths = crate::db::list_file_paths();
+        eprintln!(
+            "[rhino] search: index n={} (catalog snap, in-memory filter)",
+            paths.len()
+        );
+        *self.index.borrow_mut() = paths.into_iter().map(NeighbourEntry::pending).collect();
+        *self.progress.borrow_mut() = (
+            crate::db::load_time_pos_map(),
+            crate::db::load_duration_map(),
+        );
+        self.scanned.set(true);
+    }
+
+    fn refresh_progress(&self) {
+        *self.progress.borrow_mut() = (
+            crate::db::load_time_pos_map(),
+            crate::db::load_duration_map(),
+        );
+    }
+
+    fn ready(&self) -> bool {
+        self.scanned.get()
+    }
+
+    fn index(&self) -> std::cell::Ref<'_, Vec<NeighbourEntry>> {
+        self.index.borrow()
+    }
+
+    fn index_mut(&self) -> std::cell::RefMut<'_, Vec<NeighbourEntry>> {
+        self.index.borrow_mut()
+    }
+
+    /// Name-search hits from the in-memory catalog (no SQLite).
+    fn name_hits(&self, q: &str) -> (Vec<PathBuf>, bool) {
+        let index = self.index.borrow();
+        let (tpos, _) = &*self.progress.borrow();
+        capped_name_hits(&index, q, tpos)
+    }
+
+    /// Retarget Lucky titles then return the openable shown handful.
+    fn lucky_hits(&self, lucky: &lucky::LuckySession) -> Option<Vec<PathBuf>> {
+        let index = self.index.borrow();
+        let (tpos, durs) = &*self.progress.borrow();
+        lucky.retarget(&index, tpos, durs);
+        lucky.strip_hits(&index)
+    }
+
+    fn lucky_roll(&self, lucky: &lucky::LuckySession, max: usize) {
+        self.ensure();
+        self.refresh_progress();
+        let index = self.index.borrow();
+        let (tpos, durs) = &*self.progress.borrow();
+        lucky.roll(&index, max, tpos, durs);
+    }
+
+    fn lucky_refill(&self, lucky: &lucky::LuckySession, gone: &Path) -> bool {
+        let index = self.index.borrow();
+        let (tpos, durs) = &*self.progress.borrow();
+        lucky.refill_slot(gone, &index, tpos, durs)
+    }
+
+    fn lucky_warm(&self, lucky: &lucky::LuckySession, paths: &mut Vec<PathBuf>) {
+        lucky.append_warm(paths, &self.index.borrow());
+    }
+
+    /// Paint skip-key from cached resume/duration (no SQLite).
+    fn paint_key(&self, paths: &[PathBuf]) -> PaintKey {
+        let (tpos, durs) = &*self.progress.borrow();
+        paths
+            .iter()
+            .map(|p| {
+                let (resume, dur) = crate::playback_entity::card_resume_duration(p, durs, tpos);
+                (p.clone(), resume.to_bits(), dur.to_bits())
+            })
+            .collect()
+    }
+}
+
 /// Fill `index` from `build` at most once (session catalog index).
+#[cfg(test)]
 fn index_fill_once(
     scanned: &Cell<bool>,
     index: &RefCell<Vec<NeighbourEntry>>,
@@ -138,32 +241,25 @@ pub(crate) fn strip_plan(search: Option<&SiblingSearchState>, fallback: Vec<Path
     }
 }
 
-/// Build the session index from the files catalog (once per [SiblingSearchState]).
-/// Paths and names only — no folder walk; hollow-byte preflight runs later on candidates.
-fn build_neighbour_index() -> Vec<NeighbourEntry> {
-    let files = crate::db::list_file_paths();
-    eprintln!(
-        "[rhino] search: index n={} (catalog, no folder walk)",
-        files.len()
-    );
-    files.into_iter().map(NeighbourEntry::pending).collect()
-}
-
 /// Score, in-progress flag, lowercased file name, index into the neighbour list.
 type ScoredHit = (f64, bool, String, usize);
 
 /// Name hits among openable index entries. In-memory only: no canonicalize or entity resolve.
 #[cfg(test)]
 fn present_name_hits(entries: &[NeighbourEntry], q: &str) -> Vec<PathBuf> {
-    let mut scored = score_name_hits(entries, q);
+    let mut scored = score_name_hits(entries, q, &HashMap::new());
     sort_scored_hits(&mut scored);
     scored.retain(|h| entries[h.3].is_openable());
     hit_paths(entries, scored)
 }
 
 /// Same ranking as [present_name_hits], but only the strip cap is cloned (wide one-letter queries).
-fn capped_name_hits(entries: &[NeighbourEntry], q: &str) -> (Vec<PathBuf>, bool) {
-    let mut scored = score_name_hits(entries, q);
+fn capped_name_hits(
+    entries: &[NeighbourEntry],
+    q: &str,
+    tpos: &HashMap<String, f64>,
+) -> (Vec<PathBuf>, bool) {
+    let mut scored = score_name_hits(entries, q, tpos);
     sort_scored_hits(&mut scored);
     take_openable_hits(entries, scored)
 }
@@ -177,9 +273,13 @@ fn hit_paths(entries: &[NeighbourEntry], scored: Vec<ScoredHit>) -> Vec<PathBuf>
 }
 
 /// Rank every name that is not already known-unopenable; preflight runs in [take_openable_hits].
-fn score_name_hits(entries: &[NeighbourEntry], q: &str) -> Vec<ScoredHit> {
+fn score_name_hits(
+    entries: &[NeighbourEntry],
+    q: &str,
+    tpos: &HashMap<String, f64>,
+) -> Vec<ScoredHit> {
     let q_tri = query_trigrams(q);
-    let progress = progress_name_keys(&crate::db::load_time_pos_map());
+    let progress = progress_name_keys(tpos);
     entries
         .iter()
         .enumerate()
@@ -303,7 +403,7 @@ mod rank_tests {
         let entries: Vec<_> = (0..SEARCH_MAX_HITS + 5)
             .map(|i| NeighbourEntry::known(PathBuf::from(format!("/store/pick{i}.mkv")), true))
             .collect();
-        let (hits, capped) = capped_name_hits(&entries, "pick");
+        let (hits, capped) = capped_name_hits(&entries, "pick", &std::collections::HashMap::new());
         assert!(capped);
         assert_eq!(hits.len(), SEARCH_MAX_HITS);
     }

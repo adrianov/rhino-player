@@ -40,7 +40,12 @@ impl LuckySession {
     }
 
     /// Re-pick continue-or-first for each title already on the strip or reserved.
-    pub(crate) fn retarget(&self, index: &[NeighbourEntry]) {
+    pub(crate) fn retarget(
+        &self,
+        index: &[NeighbourEntry],
+        tpos: &HashMap<String, f64>,
+        durs: &HashMap<String, f64>,
+    ) {
         if self.shown.borrow().is_none() {
             return;
         }
@@ -49,22 +54,24 @@ impl LuckySession {
         let Some(groups) = groups.as_ref() else {
             return;
         };
-        let tpos = crate::db::load_time_pos_map();
-        let durs = crate::db::load_duration_map();
         retarget_lists(
             &mut self.shown.borrow_mut(),
             &mut self.next.borrow_mut(),
             groups,
             &openable_set(index),
-            &tpos,
-            &durs,
+            tpos,
+            durs,
         );
     }
 
-    pub(crate) fn roll(&self, index: &[NeighbourEntry], max: usize) {
-        let tpos = crate::db::load_time_pos_map();
-        let durs = crate::db::load_duration_map();
-        let titles = self.current_titles(index, &tpos, &durs);
+    pub(crate) fn roll(
+        &self,
+        index: &[NeighbourEntry],
+        max: usize,
+        tpos: &HashMap<String, f64>,
+        durs: &HashMap<String, f64>,
+    ) {
+        let titles = self.current_titles(index, tpos, durs);
         let (picks, reserved) = {
             let mut ready = self.next.borrow_mut();
             let mut seen = self.seen.borrow_mut();
@@ -88,7 +95,13 @@ impl LuckySession {
 
     /// After trash or Remove: drop the gone path and fill that slot from the reserved next handful.
     /// `false` when lucky is inactive or `gone` is not on the shown handful.
-    pub(crate) fn refill_slot(&self, gone: &Path, index: &[NeighbourEntry]) -> bool {
+    pub(crate) fn refill_slot(
+        &self,
+        gone: &Path,
+        index: &[NeighbourEntry],
+        tpos: &HashMap<String, f64>,
+        durs: &HashMap<String, f64>,
+    ) -> bool {
         let mut shown = self.shown.borrow_mut();
         let Some(lucky) = shown.as_mut() else {
             return false;
@@ -98,7 +111,7 @@ impl LuckySession {
         }
         let mut next = self.next.borrow_mut();
         let mut seen = self.seen.borrow_mut();
-        fill_lucky_gap(lucky, &mut next, gone, index, &mut seen);
+        fill_lucky_gap(lucky, &mut next, gone, index, &mut seen, tpos, durs);
         true
     }
 

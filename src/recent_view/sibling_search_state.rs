@@ -1,13 +1,13 @@
-// [SiblingSearchState] — neighbour-search query, index, and strip paint bookkeeping.
-// Reactive typing (debounce / commit) lives in [sibling_search_input.rs].
-// Loaded as `#[path]` from sibling_search so module-ABC stays off the scan hub.
+// [SiblingSearchState] — neighbour-search query and strip bookkeeping.
+// CatalogMem owns SQLite snap + Lucky/search coordination (feature 33).
+// Reactive typing lives in [sibling_search_input.rs]; paint key in [sibling_search_paint.rs].
 
 use std::cell::{Cell, RefCell};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 
 use super::lucky::{lucky_hint, search_hint, LuckySession};
-use super::{classify_openable, NeighbourEntry, CONTINUE_DISPLAY_MAX};
+use super::{classify_openable, CatalogMem, StripKind, CONTINUE_DISPLAY_MAX};
 
 /// Settled filter delay after typing stops (feature 33).
 pub(super) const TYPE_DEBOUNCE_MS: u64 = 200;
@@ -22,13 +22,12 @@ pub(crate) struct SiblingSearchState {
     hint: gtk::Label,
     /// Committed filter (drives strip paint). Entry text is draft until debounce.
     pub(super) query: RefCell<String>,
-    /// Session catalog index (path + openability); filled once per window.
-    index: RefCell<Vec<NeighbourEntry>>,
-    scanned: Cell<bool>,
+    /// In-memory catalog + progress (one SQLite load per window).
+    catalog: CatalogMem,
     /// I'm Feeling Lucky session (shown / seen / reserved next).
     lucky: LuckySession,
     last_hits: RefCell<Option<(usize, bool)>>,
-    /// Last neighbour paint key (path + stored resume/duration); matching skips [fill_row].
+    /// Last neighbour paint key; matching skips [fill_row].
     painted: RefCell<paint::HitsPaint>,
     pub(super) ctx: CtxSlot,
     pub(super) debounce: RefCell<Option<glib::SourceId>>,
@@ -48,8 +47,7 @@ impl SiblingSearchState {
             entry,
             hint,
             query: RefCell::new(String::new()),
-            index: RefCell::default(),
-            scanned: Cell::new(false),
+            catalog: CatalogMem::new(),
             lucky: LuckySession::new(),
             last_hits: RefCell::new(None),
             painted: RefCell::new(None),
@@ -69,7 +67,7 @@ impl SiblingSearchState {
 
     /// `false` when the strip already shows these neighbour paths at the same stored progress.
     pub(crate) fn begin_hits_paint(&self, paths: &[PathBuf]) -> bool {
-        paint::take_if_new(&self.painted, paths)
+        paint::take_if_new(&self.painted, self.catalog.paint_key(paths))
     }
 
     pub(crate) fn clear_hits_paint(&self) {
@@ -85,16 +83,14 @@ impl SiblingSearchState {
     fn hits_for_strip(&self) -> Option<(Vec<PathBuf>, bool)> {
         let q = self.query.borrow().trim().to_lowercase();
         self.ensure_index();
-        let index = self.index.borrow();
         if !q.is_empty() {
-            return Some(super::capped_name_hits(&index, &q));
+            return Some(self.catalog.name_hits(&q));
         }
-        self.lucky.retarget(&index);
-        Some((self.lucky.strip_hits(&index)?, false))
+        Some((self.catalog.lucky_hits(&self.lucky)?, false))
     }
 
-    fn ensure_index(&self) {
-        super::index_fill_once(&self.scanned, &self.index, super::build_neighbour_index);
+    pub(super) fn ensure_index(&self) {
+        self.catalog.ensure();
     }
 
     /// Hollow-check a few unclassified neighbours per idle so search stays instant.
@@ -108,7 +104,7 @@ impl SiblingSearchState {
         {
             return;
         }
-        let index = self.index.borrow();
+        let index = self.catalog.index();
         let mut n = 0;
         for e in index.iter() {
             if e.openable.get().is_some() {
@@ -126,34 +122,33 @@ impl SiblingSearchState {
     }
 
     pub(super) fn roll_lucky(&self) {
-        self.ensure_index();
-        self.lucky.roll(&self.index.borrow(), CONTINUE_DISPLAY_MAX);
+        self.catalog.lucky_roll(&self.lucky, CONTINUE_DISPLAY_MAX);
         self.query.borrow_mut().clear();
         self.clear_hits_paint();
     }
 
     pub(crate) fn append_lucky_warm(&self, paths: &mut Vec<PathBuf>) {
-        self.lucky.append_warm(paths, &self.index.borrow());
+        self.catalog.lucky_warm(&self.lucky, paths);
     }
 
     pub(super) fn drop_lucky(&self) {
         self.lucky.deactivate();
     }
 
-    pub(crate) fn index_path_for(&self, path: &std::path::Path) -> std::path::PathBuf {
+    pub(crate) fn index_path_for(&self, path: &Path) -> PathBuf {
         self.listed(path).unwrap_or_else(|| path.to_path_buf())
     }
 
-    fn listed(&self, path: &std::path::Path) -> Option<std::path::PathBuf> {
-        self.index
-            .borrow()
+    fn listed(&self, path: &Path) -> Option<PathBuf> {
+        self.catalog
+            .index()
             .iter()
             .find(|e| crate::video_ext::paths_same_file(&e.path, path))
             .map(|e| e.path.clone())
     }
 
-    fn set_openable(&self, path: &std::path::Path, openable: bool) -> bool {
-        let mut index = self.index.borrow_mut();
+    fn set_openable(&self, path: &Path, openable: bool) -> bool {
+        let mut index = self.catalog.index_mut();
         let Some(e) = index
             .iter_mut()
             .find(|e| crate::video_ext::paths_same_file(&e.path, path))
@@ -165,11 +160,11 @@ impl SiblingSearchState {
     }
 
     /// Mark a path unopenable after trash / removal so the next filter skips it without FS I/O.
-    pub(crate) fn note_path_removed(&self, path: &std::path::Path) {
+    pub(crate) fn note_path_removed(&self, path: &Path) {
         if !self.set_openable(path, false) && self.searching() {
             eprintln!("[rhino] search: trash miss (index) path={}", path.display());
         }
-        if self.lucky.is_active() && !self.lucky.refill_slot(path, &self.index.borrow()) {
+        if self.lucky.is_active() && !self.catalog.lucky_refill(&self.lucky, path) {
             eprintln!("[rhino] lucky: trash refill missed path={}", path.display());
         }
         self.clear_hits_paint();
@@ -179,17 +174,17 @@ impl SiblingSearchState {
         self.lucky.is_active() && self.query.borrow().trim().is_empty()
     }
 
-    pub(crate) fn hits_kind(&self) -> super::StripKind {
+    pub(crate) fn hits_kind(&self) -> StripKind {
         if self.lucky_cards_showing() {
-            super::StripKind::Lucky
+            StripKind::Lucky
         } else {
-            super::StripKind::NeighbourHits
+            StripKind::NeighbourHits
         }
     }
 
     /// Drop a lucky card and refill the slot; file and catalog stay. `false` when not lucky.
-    pub(crate) fn dismiss_lucky_card(&self, path: &std::path::Path) -> bool {
-        if !self.lucky_cards_showing() || !self.lucky.refill_slot(path, &self.index.borrow()) {
+    pub(crate) fn dismiss_lucky_card(&self, path: &Path) -> bool {
+        if !self.lucky_cards_showing() || !self.catalog.lucky_refill(&self.lucky, path) {
             return false;
         }
         self.clear_hits_paint();
@@ -197,7 +192,7 @@ impl SiblingSearchState {
     }
 
     /// Re-run open preflight for one indexed path (e.g. undo trash restore).
-    pub(crate) fn refresh_path_openability(&self, path: &std::path::Path) {
+    pub(crate) fn refresh_path_openability(&self, path: &Path) {
         if let Some(listed) = self.listed(path) {
             self.set_openable(&listed, classify_openable(&listed));
         }
@@ -224,6 +219,9 @@ impl SiblingSearchState {
     /// Browse strip shown ↔ search row mapped. Hide path drops IM then unmaps the row so
     /// IBus / gdk-macos cannot leave a status mark over the video.
     pub(crate) fn sync_browse_visible(&self, visible: bool) {
+        if visible && self.catalog.ready() {
+            self.catalog.refresh_progress();
+        }
         super::set_search_browse_visible(&self.shell, &self.entry, visible);
     }
 

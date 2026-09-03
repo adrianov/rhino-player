@@ -12,18 +12,6 @@ pub(crate) fn fill_lucky_gap(
     gone: &std::path::Path,
     entries: &[NeighbourEntry],
     seen: &mut HashSet<String>,
-) {
-    let tpos = crate::db::load_time_pos_map();
-    let durs = crate::db::load_duration_map();
-    fill_lucky_gap_maps(lucky, next, gone, entries, seen, &tpos, &durs);
-}
-
-fn fill_lucky_gap_maps(
-    lucky: &mut Vec<PathBuf>,
-    next: &mut Option<Vec<PathBuf>>,
-    gone: &std::path::Path,
-    entries: &[NeighbourEntry],
-    seen: &mut HashSet<String>,
     tpos: &HashMap<String, f64>,
     durs: &HashMap<String, f64>,
 ) {
@@ -138,7 +126,7 @@ mod tests {
         let (tpos, durs) = empty_maps();
         let mut lucky = vec![p("/a.mkv"), p("/b.mkv")];
         let mut next = Some(vec![p("/c.mkv")]);
-        fill_lucky_gap_maps(
+        fill_lucky_gap(
             &mut lucky,
             &mut next,
             &p("/a.mkv"),
@@ -162,7 +150,7 @@ mod tests {
         let mut seen = HashSet::from(["f:/a.mkv".into(), "f:/b.mkv".into()]);
         let mut lucky = vec![p("/a.mkv"), p("/b.mkv")];
         let mut next = None;
-        fill_lucky_gap_maps(
+        fill_lucky_gap(
             &mut lucky,
             &mut next,
             &p("/a.mkv"),
@@ -179,7 +167,7 @@ mod tests {
         let entries = [entry("/a.mkv", false), entry("/b.mkv", true)];
         let (tpos, durs) = empty_maps();
         let mut lucky = vec![p("/a.mkv"), p("/b.mkv")];
-        fill_lucky_gap_maps(
+        fill_lucky_gap(
             &mut lucky,
             &mut None,
             &p("/a.mkv"),
