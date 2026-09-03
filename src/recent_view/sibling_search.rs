@@ -82,12 +82,22 @@ struct FilterRow {
     name_lower: String,
 }
 
+/// Worker-built catalog snap so the main thread never rereads SQLite after a filter.
+struct CatalogBoot {
+    paths: Vec<PathBuf>,
+    tpos: HashMap<String, f64>,
+    durs: HashMap<String, f64>,
+    epoch: u64,
+}
+
 /// Worker result: strip hits plus openability learned without touching SQLite.
 struct FilterOutcome {
     hits: Vec<PathBuf>,
     capped: bool,
     learned: Vec<(PathBuf, bool)>,
     missing: Vec<PathBuf>,
+    /// Present when the worker loaded the catalog (main installs once).
+    catalog: Option<CatalogBoot>,
 }
 
 /// Session catalog + progress for search / Lucky (feature 33).
@@ -124,23 +134,23 @@ impl CatalogMem {
         if self.scanned.get() && self.epoch.get() == cur {
             return;
         }
-        self.reload_from_db(cur);
+        self.install(catalog_boot_from_db(cur));
     }
 
-    fn reload_from_db(&self, epoch: u64) {
-        let paths = crate::db::list_file_paths();
+    /// Install a worker-built snap (no SQLite on the main thread).
+    fn install(&self, boot: CatalogBoot) {
+        if self.scanned.get() && self.epoch.get() >= boot.epoch {
+            return;
+        }
         eprintln!(
             "[rhino] search: index n={} (catalog snap, in-memory filter)",
-            paths.len()
+            boot.paths.len()
         );
-        let (entries, snap) = index_from_paths(paths);
+        let (entries, snap) = index_from_paths(boot.paths);
         *self.index.borrow_mut() = entries;
         *self.filter_snap.borrow_mut() = Some(snap);
-        self.store_progress(
-            crate::db::load_time_pos_map(),
-            crate::db::load_duration_map(),
-        );
-        self.epoch.set(epoch);
+        self.store_progress(boot.tpos, boot.durs);
+        self.epoch.set(boot.epoch);
         self.scanned.set(true);
     }
 
@@ -168,24 +178,31 @@ impl CatalogMem {
         self.index.borrow_mut()
     }
 
-    /// Name snap + progress keys + known-unopenable paths for a filter worker.
-    fn filter_job(&self) -> FilterJob {
-        self.ensure();
-        let snap = self
-            .filter_snap
-            .borrow()
-            .as_ref()
-            .expect("filter snap after ensure")
-            .clone();
-        let progress = self.progress_keys.borrow().clone();
-        let bad = self
-            .index
+    /// Name snap for a worker when the in-memory index is current (never SQLite here).
+    fn try_filter_job(&self) -> Option<FilterJob> {
+        if !self.filter_snap_current() {
+            return None;
+        }
+        Some((
+            self.filter_snap.borrow().as_ref().unwrap().clone(),
+            self.progress_keys.borrow().clone(),
+            self.known_bad_paths(),
+        ))
+    }
+
+    fn filter_snap_current(&self) -> bool {
+        self.scanned.get()
+            && self.filter_snap.borrow().is_some()
+            && self.epoch.get() == crate::db::files_catalog_epoch()
+    }
+
+    fn known_bad_paths(&self) -> HashSet<PathBuf> {
+        self.index
             .borrow()
             .iter()
             .filter(|e| e.known_unopenable())
             .map(|e| e.path.clone())
-            .collect();
-        (snap, progress, bad)
+            .collect()
     }
 
     /// Retarget Lucky titles then return the openable shown handful.
@@ -210,16 +227,63 @@ impl CatalogMem {
         lucky.refill_slot(gone, &index, tpos, durs)
     }
 
-    /// Paint skip-key from cached resume/duration (no SQLite).
+    /// Paint skip-key from cached resume/duration (listing path keys only — no disk).
     fn paint_key(&self, paths: &[PathBuf]) -> PaintKey {
         let (tpos, durs) = &*self.progress.borrow();
         paths
             .iter()
             .map(|p| {
-                let (resume, dur) = crate::playback_entity::card_resume_duration(p, durs, tpos);
+                let (resume, dur) = listing_progress(p, tpos, durs);
                 (p.clone(), resume.to_bits(), dur.to_bits())
             })
             .collect()
+    }
+
+    /// Search / Lucky cards from cached progress — no exists/canonicalize/SQLite.
+    fn strip_cards(&self, paths: &[PathBuf]) -> Vec<crate::media_probe::CardData> {
+        let (tpos, durs) = &*self.progress.borrow();
+        paths
+            .iter()
+            .map(|p| {
+                let (resume, duration) = listing_progress(p, tpos, durs);
+                let percent = listing_percent(resume, duration);
+                crate::media_probe::CardData {
+                    path: p.clone(),
+                    percent,
+                    // Still applied by thumb workers so paint stays off the disk/SQLite path.
+                    thumb: None,
+                    missing: false,
+                    resume_sec: resume,
+                    duration_sec: duration,
+                }
+            })
+            .collect()
+    }
+}
+
+/// Resume / duration by listing path string (catalog + progress maps share those keys).
+fn listing_progress(
+    path: &Path,
+    tpos: &HashMap<String, f64>,
+    durs: &HashMap<String, f64>,
+) -> (f64, f64) {
+    let Some(s) = path.to_str() else {
+        return (0.0, 0.0);
+    };
+    (
+        tpos.get(s).copied().unwrap_or(0.0),
+        durs.get(s).copied().unwrap_or(0.0),
+    )
+}
+
+fn listing_percent(resume: f64, duration: f64) -> f64 {
+    if duration <= 0.0 {
+        return 0.0;
+    }
+    if resume >= duration - crate::media_probe::NEAR_END_SEC && duration > 5.0 {
+        100.0
+    } else {
+        (100.0 * resume / duration).clamp(0.0, 100.0)
     }
 }
 
@@ -230,20 +294,30 @@ type FilterJob = (
     HashSet<PathBuf>,
 );
 
+/// Full catalog + progress for a worker (and optional main-thread install).
+fn catalog_boot_from_db(epoch: u64) -> CatalogBoot {
+    CatalogBoot {
+        paths: crate::db::list_file_paths(),
+        tpos: crate::db::load_time_pos_map(),
+        durs: crate::db::load_duration_map(),
+        epoch,
+    }
+}
+
 /// Catalog load for a filter worker when [CatalogMem] is not ready yet (keeps UI free).
-fn filter_job_from_db() -> FilterJob {
-    let paths = crate::db::list_file_paths();
-    let progress = progress_name_keys(&crate::db::load_time_pos_map());
+fn filter_job_from_db() -> (FilterJob, CatalogBoot) {
+    let boot = catalog_boot_from_db(crate::db::files_catalog_epoch());
+    let progress = progress_name_keys(&boot.tpos);
     let snap = std::sync::Arc::new(
-        paths
-            .into_iter()
+        boot.paths
+            .iter()
             .map(|path| FilterRow {
-                name_lower: file_name_lower(&path),
-                path,
+                name_lower: file_name_lower(path),
+                path: path.clone(),
             })
             .collect(),
     );
-    (snap, progress, HashSet::new())
+    ((snap, progress, HashSet::new()), boot)
 }
 
 fn index_from_paths(
@@ -428,6 +502,7 @@ fn rank_fill_hits<'a>(
         capped,
         learned: Vec::new(),
         missing: Vec::new(),
+        catalog: None,
     }
 }
 

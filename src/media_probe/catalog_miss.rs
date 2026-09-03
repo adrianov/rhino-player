@@ -5,15 +5,43 @@
 /// Returns the adopted path when rekey succeeds. No-op for paths that still exist or optical /
 /// VIDEO_TS `.vob` identities.
 pub(crate) fn forget_missing(path: &Path) -> Option<PathBuf> {
-    if path.exists() || should_keep_missing(path) {
-        return None;
+    forget_missing_paths(&[path.to_path_buf()])
+        .into_iter()
+        .next()
+}
+
+/// Pack many missing-path forgets: one log line, one SQLite transaction when dropping.
+/// Returns adopted finished-download paths (same order as successful adopts).
+pub(crate) fn forget_missing_paths(paths: &[PathBuf]) -> Vec<PathBuf> {
+    let mut adopted = Vec::new();
+    let mut gone = Vec::new();
+    for path in paths {
+        if path.exists() || should_keep_missing(path) {
+            continue;
+        }
+        if let Some(finished) = adopt_finished_download(path) {
+            adopted.push(finished);
+            continue;
+        }
+        gone.push(path.clone());
     }
-    if let Some(finished) = adopt_finished_download(path) {
-        return Some(finished);
+    if !gone.is_empty() {
+        log_drop_missing(&gone);
+        drop_catalog_paths(&gone);
     }
-    eprintln!("[rhino] catalog: drop missing {}", path.display());
-    drop_catalog_path(path);
-    None
+    adopted
+}
+
+fn log_drop_missing(gone: &[PathBuf]) {
+    if gone.len() == 1 {
+        eprintln!("[rhino] catalog: drop missing {}", gone[0].display());
+        return;
+    }
+    eprintln!(
+        "[rhino] catalog: drop missing n={} first={}",
+        gone.len(),
+        gone[0].display()
+    );
 }
 
 /// Open preflight for search / Lucky: true when a load may proceed.
@@ -74,8 +102,18 @@ fn adopt_finished_download(path: &Path) -> Option<PathBuf> {
 }
 
 fn drop_catalog_path(path: &Path) {
-    crate::history::remove(path);
-    crate::db::forget_file(path);
+    drop_catalog_paths(&[path.to_path_buf()]);
+}
+
+fn drop_catalog_paths(paths: &[PathBuf]) {
+    // Packed delete covers files/history/media keys. DVD title sets still need chapter-row purge.
+    for path in paths {
+        if video_ts_vob_name(path) || crate::video_ext::is_optical_disc_path(path) {
+            crate::db::remove_history_matching_entity(path);
+            crate::playback_entity::purge_extra_db_rows(path);
+        }
+    }
+    crate::db::forget_files(paths);
 }
 
 fn should_forget_unparseable(path: &Path) -> bool {

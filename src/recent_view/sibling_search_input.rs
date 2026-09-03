@@ -19,11 +19,9 @@ impl SiblingSearchState {
         self.wire_enter(move || s2.open_first_hit());
         let s3 = Rc::clone(self);
         self.entry.connect_stop_search(move |_| s3.clear_query());
-        // One idle: build the session index before the user finishes typing (feature 33).
+        // Warm the session index off the UI thread (feature 33).
         let s4 = Rc::clone(self);
-        glib::idle_add_local_once(move || {
-            s4.ensure_index();
-        });
+        s4.warm_catalog();
     }
 
     pub(crate) fn wire_lucky(self: &Rc<Self>, lucky: &gtk::Button) {
@@ -32,6 +30,7 @@ impl SiblingSearchState {
     }
 
     fn on_lucky(self: &Rc<Self>) {
+        self.cancel_settle();
         crate::glib_source_drop::drop_glib_source(&self.debounce);
         crate::user_action_log::act("continue lucky");
         if !self.entry.text().is_empty() {
@@ -60,8 +59,9 @@ impl SiblingSearchState {
             return;
         }
         crate::glib_source_drop::drop_glib_source(&self.debounce);
-        // Newer draft supersedes any in-flight filter.
+        // Newer draft supersedes any in-flight filter / deferred paint.
         self.cancel_filter();
+        self.cancel_settle();
         if Self::draft_text(&self.entry).is_empty() {
             self.commit_and_refill(String::new());
             return;
@@ -83,6 +83,7 @@ impl SiblingSearchState {
     fn clear_query(self: &Rc<Self>) {
         crate::glib_source_drop::drop_glib_source(&self.debounce);
         self.cancel_filter();
+        self.cancel_settle();
         if self.entry.text().is_empty() {
             self.commit_and_refill(String::new());
             return;
@@ -90,10 +91,40 @@ impl SiblingSearchState {
         self.entry.set_text("");
     }
 
+    /// Load catalog on a worker so first keystrokes never wait on SQLite.
+    fn warm_catalog(self: &Rc<Self>) {
+        if self.catalog.ready() {
+            return;
+        }
+        // Do not bump filter_gen — a warm must not cancel an in-flight typed filter.
+        let gen = self.filter_gen.get();
+        let inbox = Arc::clone(&self.filter_inbox);
+        if let Err(e) = std::thread::Builder::new()
+            .name("rhino-search-catalog".into())
+            .spawn(move || {
+                let boot = super::super::catalog_boot_from_db(crate::db::files_catalog_epoch());
+                note_filter_done(
+                    &inbox,
+                    gen,
+                    String::new(),
+                    super::super::FilterOutcome {
+                        hits: Vec::new(),
+                        capped: false,
+                        learned: Vec::new(),
+                        missing: Vec::new(),
+                        catalog: Some(boot),
+                    },
+                );
+            })
+        {
+            eprintln!("[rhino] search: catalog warm spawn: {e}");
+        }
+    }
+
     pub(super) fn start_filter(self: &Rc<Self>, draft: String) {
         let gen = self.bump_filter_gen();
         self.filter_pending.set(true);
-        let prepared = self.catalog.ready().then(|| self.catalog.filter_job());
+        let prepared = self.catalog.try_filter_job();
         self.spawn_filter(gen, draft, prepared);
     }
 
@@ -108,11 +139,15 @@ impl SiblingSearchState {
         if let Err(e) = std::thread::Builder::new()
             .name("rhino-search-filter".into())
             .spawn(move || {
-                let (rows, progress, bad) = match prepared {
-                    Some(job) => job,
-                    None => super::super::filter_job_from_db(),
+                let ((rows, progress, bad), catalog) = match prepared {
+                    Some(job) => (job, None),
+                    None => {
+                        let (job, boot) = super::super::filter_job_from_db();
+                        (job, Some(boot))
+                    }
                 };
-                let outcome = super::super::filter_name_hits(&rows, &bad, &q, &progress);
+                let mut outcome = super::super::filter_name_hits(&rows, &bad, &q, &progress);
+                outcome.catalog = catalog;
                 note_filter_done(&inbox, gen, draft, outcome);
             })
         {
@@ -131,15 +166,18 @@ impl SiblingSearchState {
         self: &Rc<Self>,
         gen: u64,
         draft: String,
-        outcome: super::super::FilterOutcome,
+        mut outcome: super::super::FilterOutcome,
     ) {
+        let boot = outcome.catalog.take();
         if gen != self.filter_gen.get() {
+            self.take_catalog_boot(boot);
             return;
         }
         self.filter_pending.set(false);
-        // Worker may have filtered before CatalogMem was filled; install it before openability.
-        if !self.catalog.ready() {
-            self.ensure_index();
+        self.take_catalog_boot(boot);
+        // Catalog-only warm (empty draft): index ready; strip unchanged.
+        if draft.is_empty() && self.query.borrow().is_empty() && !self.lucky.is_active() {
+            return;
         }
         let open_first = self.open_first.get();
         self.open_first.set(false);
@@ -147,6 +185,12 @@ impl SiblingSearchState {
         self.refill_now();
         if open_first {
             self.open_first_now();
+        }
+    }
+
+    fn take_catalog_boot(&self, boot: Option<super::super::CatalogBoot>) {
+        if let Some(boot) = boot {
+            self.catalog.install(boot);
         }
     }
 }

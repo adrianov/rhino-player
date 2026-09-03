@@ -84,7 +84,7 @@ impl RecentContext {
         }
         fill_row(
             &self.row,
-            card_data_list(&plan.paths),
+            self.paint_items(plan),
             self.strip_actions(),
             Some(&self.chrome_cache),
             plan.kind,
@@ -129,6 +129,15 @@ impl RecentContext {
             self.note_search_hint();
         }
         plan.paths
+    }
+
+    fn paint_items(&self, plan: &StripPlan) -> Vec<CardData> {
+        if plan.searching {
+            if let Some(s) = &self.search {
+                return s.strip_cards(&plan.paths);
+            }
+        }
+        card_data_list(&plan.paths)
     }
 
     pub(crate) fn open_path(&self, p: &std::path::Path) {

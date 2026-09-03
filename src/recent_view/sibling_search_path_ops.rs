@@ -91,14 +91,11 @@ impl SiblingSearchState {
         self.open_first.set(false);
     }
 
-    pub(super) fn apply_filter_outcome(&self, draft: String, outcome: FilterOutcome) {
+    pub(super) fn apply_filter_outcome(self: &Rc<Self>, draft: String, outcome: FilterOutcome) {
         for (p, open) in &outcome.learned {
             self.set_openable(p, *open);
         }
-        for p in &outcome.missing {
-            let _ = crate::media_probe::forget_missing(p);
-            self.set_openable(p, false);
-        }
+        self.mark_missing_unopenable(&outcome.missing);
         let q = draft.trim().to_lowercase();
         *self.hit_cache.borrow_mut() = Some(super::HitCache {
             q,
@@ -107,6 +104,20 @@ impl SiblingSearchState {
         });
         *self.query.borrow_mut() = draft;
         self.clear_hits_paint();
+    }
+
+    fn mark_missing_unopenable(&self, missing: &[std::path::PathBuf]) {
+        for p in missing {
+            self.set_openable(p, false);
+        }
+        if missing.is_empty() {
+            return;
+        }
+        // Packed catalog forget — keep the search box free after settle.
+        let gone = missing.to_vec();
+        glib::idle_add_local_once(move || {
+            let _ = crate::media_probe::forget_missing_paths(&gone);
+        });
     }
 
     /// Remember this row for [hide_continue_strip] (one window).

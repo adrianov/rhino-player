@@ -55,12 +55,16 @@ pub(crate) struct SiblingSearchState {
     filter_gen: Cell<u64>,
     /// True while a name-filter worker has not yet applied.
     filter_pending: Cell<bool>,
+    /// True from settled commit until the deferred strip paint runs.
+    settle_pending: Cell<bool>,
     /// Open the first hit when the in-flight filter lands (Enter while filtering).
     open_first: Cell<bool>,
     /// Worker → main filter result inbox.
     filter_inbox: Arc<FilterInbox>,
     pub(super) ctx: CtxSlot,
     pub(super) debounce: RefCell<Option<glib::SourceId>>,
+    /// Deferred strip paint after filter / clear (yields to keystrokes).
+    pub(super) paint_idle: RefCell<Option<glib::SourceId>>,
     /// Skip [on_changed] while Lucky clears the entry so the strip does not flash watch-later.
     pub(super) mute_change: Cell<bool>,
 }
@@ -79,10 +83,12 @@ impl SiblingSearchState {
             hit_cache: RefCell::new(None),
             filter_gen: Cell::new(0),
             filter_pending: Cell::new(false),
+            settle_pending: Cell::new(false),
             open_first: Cell::new(false),
             filter_inbox: FilterInbox::new(),
             ctx: RefCell::new(None),
             debounce: RefCell::new(None),
+            paint_idle: RefCell::new(None),
             mute_change: Cell::new(false),
         })
     }
@@ -92,7 +98,14 @@ impl SiblingSearchState {
     }
 
     pub(crate) fn typing_pending(&self) -> bool {
-        self.debounce.borrow().is_some() || self.filter_pending.get()
+        self.debounce.borrow().is_some()
+            || self.filter_pending.get()
+            || self.settle_pending.get()
+    }
+
+    /// Memory-only cards for a settled search / Lucky strip (no disk or SQLite).
+    pub(crate) fn strip_cards(&self, paths: &[PathBuf]) -> Vec<crate::media_probe::CardData> {
+        self.catalog.strip_cards(paths)
     }
 
     /// `false` when the strip already shows these neighbour paths at the same stored progress.

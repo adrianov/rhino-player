@@ -97,9 +97,16 @@ pub(super) fn with_immediate_tx(
 /// Deletes both [history_key] and the exact path string so a post-trash miss (canonicalize
 /// fails, macOS `/var` vs `/private/var`) still removes the stored row.
 pub fn forget_file(path: &Path) {
-    let keys = forget_path_keys(path);
+    forget_files(&[path.to_path_buf()]);
+}
+
+/// Drop many catalog paths in one transaction (search miss packs).
+pub fn forget_files(paths: &[PathBuf]) {
+    let keys = forget_files_keys(paths);
     if keys.is_empty() {
-        eprintln!("[rhino] db: forget skipped (no key) path={}", path.display());
+        if let Some(p) = paths.first() {
+            eprintln!("[rhino] db: forget skipped (no key) path={}", p.display());
+        }
         return;
     }
     let _ = with_files_conn(|c| {
@@ -112,6 +119,18 @@ pub fn forget_file(path: &Path) {
             Ok(())
         })
     });
+}
+
+fn forget_files_keys(paths: &[PathBuf]) -> Vec<String> {
+    let mut keys = Vec::new();
+    for path in paths {
+        for k in forget_path_keys(path) {
+            if !keys.iter().any(|e| e == &k) {
+                keys.push(k);
+            }
+        }
+    }
+    keys
 }
 
 fn forget_path_keys(path: &Path) -> Vec<String> {
