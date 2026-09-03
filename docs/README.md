@@ -46,7 +46,7 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 26 | [~60 fps motion (VapourSynth)](features/26-sixty-fps-motion.md) | done |
 | 27 | [Move current file to trash](features/27-move-to-trash.md) | done |
 | 28 | [Playback speed: fixed steps + digit keys (3 → 1.5×, else N×)](features/28-playback-speed.md) | done |
-| 29 | [Blu-ray Bob deinterlace (60 fps fields)](features/29-bluray-deinterlace.md) | done |
+| 29 | [Bob deinterlace (60 fps fields)](features/29-bluray-deinterlace.md) | done |
 | 30 | [DVD unified timeline (all chapter VOBs)](features/30-dvd-unified-timeline.md) | done |
 | 31 | [Playback entity (single file + multi-part DVD)](features/31-playback-entity.md) | done |
 | 32 | [Fill screen (viewport crop-to-fill + baked-in black strips)](features/32-fill-screen.md) | done |

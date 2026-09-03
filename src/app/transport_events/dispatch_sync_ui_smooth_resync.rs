@@ -118,8 +118,11 @@ fn skip_when_smooth_off_and_vf_gone(ctx: &Rc<TransportCtx>) -> bool {
     if ctx.video_pref.borrow().smooth_60 {
         return false;
     }
-    let vf_gone = ctx.player.borrow().as_ref().map_or(true, |b| {
-        !crate::video_pref::vf_chain_has_vapoursynth(&b.mpv)
-    });
-    vf_gone
+    ctx.player.borrow().as_ref().map_or(true, |b| {
+        if crate::video_pref::vf_chain_has_vapoursynth(&b.mpv) {
+            return false;
+        }
+        // Bob (Blu-ray / local 1080i) still needs apply when Smooth is off.
+        !crate::video_pref::bob_needs_apply_when_smooth_off(&b.mpv, Some(b))
+    })
 }

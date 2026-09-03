@@ -83,25 +83,63 @@ fn apply_mpv_video_impl(
         return MpvVideoApply::default();
     }
     let plan = SmoothApplyPlan::probe(mpv, bundle, v, speed_hint);
-    if let Some(outcome) = apply_plan_fast_path(mpv, bundle, v, speed_hint, &plan, vlog) {
-        return outcome;
+    let open = mpv_has_open_media(mpv);
+    if open {
+        bob_prepare_apply(mpv, bundle);
     }
-    if !mpv_has_open_media(mpv) {
-        let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle, plan.cadence_hz);
-        return finish_smooth_apply(disabled_60, mpv, v, plan.want_60, vlog);
-    }
-
-    let mut p = SmoothVfParams {
+    let outcome = apply_mpv_video_body(ApplyBody {
         mpv,
         bundle,
+        player,
         v,
         speed_hint,
-        cadence_hz: plan.cadence_hz,
-        want_60: plan.want_60,
-        had_vapoursynth: plan.had_vapoursynth,
+        plan: &plan,
+        open,
         vlog,
+    });
+    if open {
+        bob_finish_apply(mpv, bundle, plan.want_60, speed_hint, vlog);
+    }
+    outcome
+}
+
+struct ApplyBody<'a> {
+    mpv: &'a Mpv,
+    bundle: Option<&'a MpvBundle>,
+    player: Option<&'a Rc<RefCell<Option<MpvBundle>>>>,
+    v: &'a mut VideoPrefs,
+    speed_hint: Option<f64>,
+    plan: &'a SmoothApplyPlan,
+    open: bool,
+    vlog: bool,
+}
+
+fn apply_mpv_video_body(p: ApplyBody<'_>) -> MpvVideoApply {
+    if let Some(outcome) =
+        apply_plan_fast_path(p.mpv, p.bundle, p.v, p.speed_hint, p.plan, p.vlog)
+    {
+        return outcome;
+    }
+    if !p.open {
+        return finish_smooth_apply(
+            add_smooth_60(p.mpv, p.v, p.speed_hint, p.bundle, p.plan.cadence_hz),
+            p.mpv,
+            p.v,
+            p.plan.want_60,
+            p.vlog,
+        );
+    }
+    let mut sp = SmoothVfParams {
+        mpv: p.mpv,
+        bundle: p.bundle,
+        v: p.v,
+        speed_hint: p.speed_hint,
+        cadence_hz: p.plan.cadence_hz,
+        want_60: p.plan.want_60,
+        had_vapoursynth: p.plan.had_vapoursynth,
+        vlog: p.vlog,
     };
-    apply_smooth_vf_with_media(player, &mut p)
+    apply_smooth_vf_with_media(p.player, &mut sp)
 }
 
 /// Branches that finish without touching a Smooth vf chain: display resampling and
@@ -160,9 +198,13 @@ fn apply_smooth_vf_with_media(
         }
     }
 
-    let disabled_60 =
-        rebuild_smooth_vf_chain(pl, p.mpv, p.bundle, p.v, p.speed_hint, p.cadence_hz, p.vlog);
-    finish_smooth_apply(disabled_60, p.mpv, p.v, p.want_60, p.vlog)
+    finish_smooth_apply(
+        rebuild_smooth_vf_chain(pl, p.mpv, p.bundle, p.v, p.speed_hint, p.cadence_hz, p.vlog),
+        p.mpv,
+        p.v,
+        p.want_60,
+        p.vlog,
+    )
 }
 
 include!("smooth_vf_refresh_matched.rs");

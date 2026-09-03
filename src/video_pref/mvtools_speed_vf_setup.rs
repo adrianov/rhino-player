@@ -59,12 +59,11 @@ fn vf_smooth_script_matches(vf: &str, script_path: &str) -> bool {
     vf.contains(&esc) || vf.contains(script) || base_matches
 }
 
-/// Fixed queue depth + `concurrent-frames=auto`, plus Blu-ray bob-deinterlace when wanted.
+/// Fixed queue depth + `concurrent-frames=auto`, plus Bob deinterlace when wanted.
 fn vf_smooth_opts_match(mpv: &Mpv, vf: &str, bundle: Option<&crate::mpv_embed::MpvBundle>) -> bool {
-    if wants_bluray_bob_deinterlace(mpv, bundle) && !bluray_deinterlace_in_vf(vf) {
-        return false;
-    }
-    vf_smooth_queue_chain_ok(vf) && vf_concurrent_frames_matches(vf, "auto")
+    bob_vf_matches_want(mpv, bundle, vf)
+        && vf_smooth_queue_chain_ok(vf)
+        && vf_concurrent_frames_matches(vf, "auto")
 }
 
 /// Bundled ME px² env / applied-marker agree with current prefs for the open media.

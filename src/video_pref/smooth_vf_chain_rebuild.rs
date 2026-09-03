@@ -163,8 +163,8 @@ fn apply_mpv_video_without_mvtools(
     MpvVideoApply::default()
 }
 
-/// Interleaved cadence → display-resample; Smooth off → Blu-ray deinterlace sync and
-/// present-opts restore (unless just stripped or a disc is playing).
+/// Interleaved cadence → display-resample; Smooth off → present-opts restore
+/// (unless just stripped or a disc is playing).
 fn apply_non_smooth_present_mode(
     mpv: &Mpv,
     bundle: Option<&MpvBundle>,
@@ -176,10 +176,7 @@ fn apply_non_smooth_present_mode(
 ) {
     if want_60 && eligible_1x && display_only {
         apply_interleaved_display_resample(mpv, bundle, vlog);
-    } else if !want_60 {
-        sync_bluray_deinterlace_mpv(mpv, bundle);
-        if !bluray_playback_active(mpv, bundle) && !stripped_vf {
-            restore_non_smooth_present_opts(mpv);
-        }
+    } else if !want_60 && !bluray_playback_active(mpv, bundle) && !stripped_vf {
+        restore_non_smooth_present_opts(mpv);
     }
 }

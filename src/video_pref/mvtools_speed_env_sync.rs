@@ -39,7 +39,8 @@ pub fn set_playback_speed_env_from_mpv(mpv: &Mpv) {
 /// [vf] is omitted; **Smooth 60** pref may stay on for when the user returns to 1.0×.
 /// [speed_hint] is used when [Some] (e.g. header row) so we do not read [get_property] before it matches
 /// the value just sent with [set_property] — that race skipped re-adding the [vf] when going 1.5/2.0 → 1.0.
-/// Bundled/custom VapourSynth graph — skipped when interleaved cadence needs display-resample only.
+/// Bundled/custom VapourSynth graph — skipped when interleaved cadence needs display-resample only,
+/// or when local 1080i Bob already supplies ~60 field frames.
 pub(crate) fn smooth_wants_vapoursynth_vf(
     mpv: &Mpv,
     bundle: Option<&crate::mpv_embed::MpvBundle>,
@@ -48,6 +49,7 @@ pub(crate) fn smooth_wants_vapoursynth_vf(
     !smooth_load_hold_active()
         && mvtools_vf_eligible(mpv, speed_hint)
         && !smooth_prefers_display_resample_bundle(mpv, bundle)
+        && !bob_blocks_smooth_vf(mpv, bundle)
 }
 
 pub(crate) fn mvtools_vf_eligible(mpv: &Mpv, speed_hint: Option<f64>) -> bool {
