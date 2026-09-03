@@ -49,6 +49,8 @@ pub struct BarProbe {
     past_delay: Cell<bool>,
     /// True once cropdetect was inserted for this gen (blocks double insert).
     gathering: Cell<bool>,
+    /// Finished probe saw Bob (`rhino-deint`) in the vf chain (else re-arm after Bob attaches).
+    saw_deint: Cell<bool>,
 }
 
 impl BarProbe {
@@ -59,6 +61,7 @@ impl BarProbe {
             ready_left: Cell::new(0),
             past_delay: Cell::new(false),
             gathering: Cell::new(false),
+            saw_deint: Cell::new(false),
         }
     }
 
@@ -68,6 +71,7 @@ impl BarProbe {
         self.ready_left.set(0);
         self.past_delay.set(false);
         self.gathering.set(false);
+        self.saw_deint.set(false);
     }
 
     fn start_gen(&self) -> u64 {
@@ -77,6 +81,7 @@ impl BarProbe {
         self.ready_left.set(READY_RETRY_MAX);
         self.past_delay.set(false);
         self.gathering.set(false);
+        self.saw_deint.set(false);
         gen
     }
 
@@ -85,6 +90,19 @@ impl BarProbe {
             BarState::Crop(r) => Some(r),
             _ => None,
         }
+    }
+
+    /// True when a finished probe should run again because Bob attached after it.
+    pub fn needs_deint_reprobe(&self, mpv: &Mpv) -> bool {
+        if self.saw_deint.get() {
+            return false;
+        }
+        if !matches!(self.state.get(), BarState::Clean | BarState::Crop(_)) {
+            return false;
+        }
+        crate::video_pref::bob_deinterlace_in_vf(
+            &mpv.get_property::<String>("vf").unwrap_or_default(),
+        )
     }
 }
 

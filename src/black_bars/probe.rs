@@ -87,14 +87,10 @@ enum ReadyState {
 }
 
 fn video_ready_state(player: &Player) -> ReadyState {
-    let guard = player.borrow();
-    let Some(b) = guard.as_ref() else {
-        return ReadyState::NoPlayer;
-    };
-    if video_ready(&b.mpv) {
-        ReadyState::Ready
-    } else {
-        ReadyState::Waiting
+    match player.borrow().as_ref() {
+        None => ReadyState::NoPlayer,
+        Some(b) if video_ready(&b.mpv) => ReadyState::Ready,
+        Some(_) => ReadyState::Waiting,
     }
 }
 
@@ -127,24 +123,24 @@ fn defer_until_video_ready(
     });
 }
 
-/// Insert labeled cropdetect. `None` = vf add failed (caller marks Clean).
+/// Append cropdetect after any Bob/Smooth filters so detection sees progressive frames.
 fn insert_cropdetect(player: &Player) -> Option<Option<String>> {
-    let guard = player.borrow();
-    let b = guard.as_ref()?;
-    let mpv = &b.mpv;
-    remove_cropdetect(mpv);
-    let hw_backup = pause_noncopy_hwdec(mpv);
-    let spec = format!(
-        "@{CROPDETECT_LABEL}:cropdetect=limit={DETECT_LIMIT}:round={DETECT_ROUND}:reset=0"
-    );
-    match mpv.command("vf", &["pre", &spec]) {
-        Ok(()) => Some(hw_backup),
-        Err(e) => {
-            eprintln!("[rhino] bars: cropdetect insert failed: {e}");
-            restore_hwdec(mpv, hw_backup.as_deref());
-            None
+    player.borrow().as_ref().and_then(|b| {
+        let mpv = &b.mpv;
+        remove_cropdetect(mpv);
+        let hw_backup = pause_noncopy_hwdec(mpv);
+        let spec = format!(
+            "@{CROPDETECT_LABEL}:cropdetect=limit={DETECT_LIMIT}:round={DETECT_ROUND}:reset=0"
+        );
+        match mpv.command("vf", &["add", &spec]) {
+            Ok(()) => Some(hw_backup),
+            Err(e) => {
+                eprintln!("[rhino] bars: cropdetect insert failed: {e}");
+                restore_hwdec(mpv, hw_backup.as_deref());
+                None
+            }
         }
-    }
+    })
 }
 
 fn finish_cropdetect(
@@ -158,8 +154,9 @@ fn finish_cropdetect(
         abort_stale_probe(player, hw_backup.as_deref());
         return;
     }
-    let state = take_probe_result(player, hw_backup.as_deref());
+    let (state, saw_deint) = take_probe_result(player, hw_backup.as_deref());
     probe.gathering.set(false);
+    probe.saw_deint.set(saw_deint);
     probe.state.set(state);
     on_done();
 }
@@ -171,34 +168,35 @@ fn abort_stale_probe(player: &Player, hw_backup: Option<&str>) {
     }
 }
 
-fn take_probe_result(player: &Player, hw_backup: Option<&str>) -> BarState {
-    let guard = player.borrow();
-    let Some(b) = guard.as_ref() else {
-        return BarState::Clean;
-    };
-    let mpv = &b.mpv;
-    let meta = read_cropdetect_meta(mpv);
-    remove_cropdetect(mpv);
-    restore_hwdec(mpv, hw_backup);
-    match meta.and_then(|m| crop_from_meta(mpv, m)) {
-        Some(rect) => {
-            eprintln!(
-                "[rhino] bars: detected crop={}x{}+{}+{}",
-                rect.w, rect.h, rect.x, rect.y
-            );
-            BarState::Crop(rect)
-        }
-        None => {
-            eprintln!("[rhino] bars: probe clean (no strips)");
-            BarState::Clean
-        }
-    }
+fn take_probe_result(player: &Player, hw_backup: Option<&str>) -> (BarState, bool) {
+    player.borrow().as_ref().map_or((BarState::Clean, false), |b| {
+        let mpv = &b.mpv;
+        let saw_deint = crate::video_pref::bob_deinterlace_in_vf(
+            &mpv.get_property::<String>("vf").unwrap_or_default(),
+        );
+        let meta = read_cropdetect_meta(mpv);
+        remove_cropdetect(mpv);
+        restore_hwdec(mpv, hw_backup);
+        let state = match meta.and_then(|m| crop_from_meta(mpv, m)) {
+            Some(rect) => {
+                eprintln!(
+                    "[rhino] bars: detected crop={}x{}+{}+{}",
+                    rect.w, rect.h, rect.x, rect.y
+                );
+                BarState::Crop(rect)
+            }
+            None => {
+                eprintln!("[rhino] bars: probe clean (no strips)");
+                BarState::Clean
+            }
+        };
+        (state, saw_deint)
+    })
 }
 
 fn video_ready(mpv: &Mpv) -> bool {
-    let w = mpv.get_property::<i64>("width").unwrap_or(0);
-    let h = mpv.get_property::<i64>("height").unwrap_or(0);
-    w > 0 && h > 0
+    mpv.get_property::<i64>("width").unwrap_or(0) > 0
+        && mpv.get_property::<i64>("height").unwrap_or(0) > 0
 }
 
 fn pause_noncopy_hwdec(mpv: &Mpv) -> Option<String> {
@@ -226,8 +224,11 @@ fn restore_hwdec(mpv: &Mpv, backup: Option<&str>) {
 }
 
 fn remove_cropdetect(mpv: &Mpv) {
-    let vf = mpv.get_property::<String>("vf").unwrap_or_default();
-    if !vf.contains(CROPDETECT_LABEL) {
+    if !mpv
+        .get_property::<String>("vf")
+        .unwrap_or_default()
+        .contains(CROPDETECT_LABEL)
+    {
         return;
     }
     let label = format!("@{CROPDETECT_LABEL}");
@@ -237,8 +238,10 @@ fn remove_cropdetect(mpv: &Mpv) {
 }
 
 pub fn apply_video_crop(mpv: &Mpv, rect: Option<CropRect>) {
-    let value = rect.map(CropRect::as_video_crop).unwrap_or_default();
-    if let Err(e) = mpv.set_property("video-crop", value.as_str()) {
+    if let Err(e) = mpv.set_property(
+        "video-crop",
+        rect.map(CropRect::as_video_crop).unwrap_or_default().as_str(),
+    ) {
         eprintln!("[rhino] bars: video-crop set failed: {e}");
     }
 }
@@ -265,15 +268,12 @@ mod probe_tests {
         );
     }
 }
+
 // Parse lavfi cropdetect from `vf-metadata/<label>` as `MPV_FORMAT_NODE` only.
 // Per-key `…/lavfi.cropdetect.*` get_property can SIGSEGV in libmpv (`mp_tags_get_bstr`
 // with NULL tags) while Smooth rebuilds the vf chain.
 
 fn read_cropdetect_meta(mpv: &Mpv) -> Option<CropMeta> {
-    read_meta_node(mpv)
-}
-
-fn read_meta_node(mpv: &Mpv) -> Option<CropMeta> {
     let name = CString::new(format!("vf-metadata/{CROPDETECT_LABEL}")).ok()?;
     let mut root = std::mem::MaybeUninit::<libmpv2_sys::mpv_node>::uninit();
     let err = unsafe {
@@ -349,8 +349,11 @@ fn node_number(vn: &libmpv2_sys::mpv_node) -> Option<i64> {
         if sp.is_null() {
             return None;
         }
-        let s = unsafe { CStr::from_ptr(sp) }.to_string_lossy();
-        return s.trim().parse().ok();
+        return unsafe { CStr::from_ptr(sp) }
+            .to_string_lossy()
+            .trim()
+            .parse()
+            .ok();
     }
     None
 }
@@ -379,19 +382,24 @@ unsafe fn map_keys_values(
 fn crop_from_meta(mpv: &Mpv, meta: CropMeta) -> Option<CropRect> {
     let width = mpv.get_property::<i64>("width").ok()?;
     let height = mpv.get_property::<i64>("height").ok()?;
-    if width <= 0 || height <= 0 {
-        return None;
-    }
-    if !crop_meaningful(width, height, meta.w, meta.h) {
-        return None;
-    }
-    if meta.x == 0 && meta.y == 0 && meta.w == width && meta.h == height {
-        return None;
-    }
-    Some(CropRect {
+    let ok = width > 0
+        && height > 0
+        && crop_meta_in_frame(width, height, meta)
+        && crop_meaningful(width, height, meta.w, meta.h)
+        && !(meta.x == 0 && meta.y == 0 && meta.w == width && meta.h == height);
+    ok.then_some(CropRect {
         w: meta.w,
         h: meta.h,
         x: meta.x,
         y: meta.y,
     })
+}
+
+fn crop_meta_in_frame(width: i64, height: i64, meta: CropMeta) -> bool {
+    meta.x >= 0
+        && meta.y >= 0
+        && meta.w > 0
+        && meta.h > 0
+        && meta.x + meta.w <= width
+        && meta.y + meta.h <= height
 }

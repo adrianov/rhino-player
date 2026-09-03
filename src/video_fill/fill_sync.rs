@@ -23,7 +23,10 @@ impl FillSync {
 
     /// Recheck visibility; apply or reset fill to match user preference.
     pub(super) fn sync(&self) {
-        let show = self.aspect_mismatch();
+        // Unknown content AR (decode size missing during Bob/reconfig) — do not clear panscan.
+        let Some(show) = self.aspect_mismatch() else {
+            return;
+        };
         if show {
             let want = self.preferred.get();
             // Re-apply when on so a late strip crop attaches; skip no-op fitted syncs.
@@ -55,7 +58,14 @@ impl FillSync {
         match self.bars.state.get() {
             BarState::Unknown => self.kick_bar_probe(),
             BarState::Pending => self.resume_bar_probe(),
-            BarState::Clean | BarState::Crop(_) => {}
+            BarState::Clean | BarState::Crop(_) => {
+                if let Some(b) = self.player.borrow().as_ref() {
+                    if self.bars.needs_deint_reprobe(&b.mpv) {
+                        eprintln!("[rhino] bars: re-probe after Bob deinterlace attached");
+                        self.kick_bar_probe();
+                    }
+                }
+            }
         }
         self.sync();
     }
@@ -77,33 +87,22 @@ impl FillSync {
     }
 
     /// Viewport vs content aspect (strip crop when known, else decode size).
-    fn aspect_mismatch(&self) -> bool {
-        let guard = self.viewport.borrow();
-        let Some(viewport) = guard.as_ref() else {
-            return false;
-        };
-        let Some(view_ar) = viewport_ar(viewport) else {
-            return false;
-        };
-        let Some(content_ar) = self.content_ar() else {
-            return false;
-        };
-        (view_ar - content_ar).abs() > AR_TOLERANCE
+    /// `None` = sizes not ready yet (keep current fill; do not treat as "matched").
+    fn aspect_mismatch(&self) -> Option<bool> {
+        let view_ar = viewport_ar(self.viewport.borrow().as_ref()?)?;
+        let content_ar = self.content_ar()?;
+        Some((view_ar - content_ar).abs() > AR_TOLERANCE)
     }
 
     fn content_ar(&self) -> Option<f64> {
         if let Some(c) = self.bars.crop() {
             return (c.w > 0 && c.h > 0).then(|| c.w as f64 / c.h as f64);
         }
-        let guard = self.player.borrow();
-        let b = guard.as_ref()?;
-        let Ok(vw) = b.mpv.get_property::<i64>("dwidth") else {
-            return None;
-        };
-        let Ok(vh) = b.mpv.get_property::<i64>("dheight") else {
-            return None;
-        };
-        (vw > 0 && vh > 0).then(|| vw as f64 / vh as f64)
+        self.player.borrow().as_ref().and_then(|b| {
+            let vw = b.mpv.get_property::<i64>("dwidth").ok()?;
+            let vh = b.mpv.get_property::<i64>("dheight").ok()?;
+            (vw > 0 && vh > 0).then(|| vw as f64 / vh as f64)
+        })
     }
 
     pub(super) fn apply_fill(&self, on: bool) {
