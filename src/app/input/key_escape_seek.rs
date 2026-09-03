@@ -3,11 +3,14 @@ fn propagation_escape_key(
     recent: &gtk::Box,
     player: &Rc<RefCell<Option<MpvBundle>>>,
     browse_back: &Rc<dyn Fn(bool)>,
+    app: &adw::Application,
 ) -> Option<glib::Propagation> {
     if key != gtk::gdk::Key::Escape {
         return None;
     }
+    // Browse / warm-preload sheet: same quit policy as Close Video (`close-video` when visible).
     if recent.is_visible() {
+        app.activate_action("close-video", None);
         return Some(glib::Propagation::Stop);
     }
     if player.borrow().is_none() {

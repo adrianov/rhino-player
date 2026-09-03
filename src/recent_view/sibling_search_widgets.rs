@@ -80,6 +80,9 @@ pub(super) fn set_search_browse_visible(shell: &gtk::Box, entry: &gtk::SearchEnt
         glib::idle_add_local_once(move || {
             if shell.is_visible() {
                 restore_search_im(&entry);
+                // Match launch: remount must not leave the entry focused, or the next Escape
+                // clears the box (Proceed) instead of quitting on the continue grid.
+                clear_search_focus(&entry);
             }
         });
         return;

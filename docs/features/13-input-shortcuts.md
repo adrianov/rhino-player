@@ -13,7 +13,7 @@ related: [02, 07, 17, 21, 22, 27, 28, 33]
 - Mouse maps match typical player expectations.
 
 ## Description
-Window-scope shortcuts run in a capture-phase key controller so focused chrome does not steal playback chords. Application accelerators are not also forwarded to the playback engine (avoids double-handling). Mouse maps cover primary double-click (toggle fullscreen), right-click (toggle pause), and scroll on the video surface (volume). **Enter**, **KP_Enter**, **f**, and **F** share one fullscreen toggle like typical players. **Escape** returns to the continue grid during playback and does **not** exit fullscreen (use Enter, **f**, **F**, or double-click for that).
+Window-scope shortcuts run in a capture-phase key controller so focused chrome does not steal playback chords. Application accelerators are not also forwarded to the playback engine (avoids double-handling). Mouse maps cover primary double-click (toggle fullscreen), right-click (toggle pause), and scroll on the video surface (volume). **Enter**, **KP_Enter**, **f**, and **F** share one fullscreen toggle like typical players. **Escape** returns to the continue grid during playback; a further **Escape** on the continue grid quits the app. It does **not** exit fullscreen (use Enter, **f**, **F**, or double-click for that).
 
 ## Behavior
 
@@ -51,6 +51,13 @@ Feature: Keyboard and pointer input
     When the user presses Escape once
     Then playback pauses promptly
     And the continue grid appears via the browse-back path when history supports it
+
+  Scenario: Escape on continue grid quits
+    Given the continue grid is visible
+    And focus is not in a text entry
+    When the user presses Escape
+    Then a resume snapshot is written
+    And the application exits
 
   Scenario: Escape shows continue grid without leaving fullscreen
     Given playback is active and the continue grid is hidden
@@ -145,7 +152,7 @@ Feature: Keyboard and pointer input
 - Default bindings load from a memory `input.conf`; an optional user `input.conf` under `~/.config/rhino/` is reserved for later (TBD).
 - Empty-area double-click on the recent grid spacers also toggles fullscreen (see [21-recent-videos-launch](21-recent-videos-launch.md)). Double-click primary on the top toolbar exits fullscreen anytime, or enters fullscreen during playback while the overlay is hidden (same rules as GL double-click).
 - **f** / **F** toggles fullscreen like Enter or KP_Enter.
-- **Escape** opens the continue grid (browse-back) during playback and is swallowed when the grid is already visible; it does **not** exit fullscreen.
+- **Escape** opens the continue grid (browse-back) during playback; when the grid is already visible and focus is not in a text entry, it activates `app.close-video` (which quits on browse — `key_escape_seek.rs`). It does **not** exit fullscreen.
 - Tab focuses chrome temporarily.
 - Arrow Left / Right (and keypad arrows) step **playback position** five seconds when the seek bar is enabled and the continue grid is hidden; implementation shares the transport seek path ([04-transport-and-progress](04-transport-and-progress.md)).
 - Ctrl+Left / Ctrl+Right load the previous / next sibling file like the bottom bar ([07-sibling-folder-queue](07-sibling-folder-queue.md)).

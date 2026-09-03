@@ -58,7 +58,9 @@ impl KeyDispatch {
             // consumes Escape itself — clear text, not strip-escape / fullscreen exits.
             return glib::Propagation::Proceed;
         }
-        if let Some(r) = propagation_escape_key(key, &self.recent_esc, &self.p, &self.browse_back) {
+        if let Some(r) =
+            propagation_escape_key(key, &self.recent_esc, &self.p, &self.browse_back, &self.app)
+        {
             return r;
         }
         let nav = self.nav_refs();
