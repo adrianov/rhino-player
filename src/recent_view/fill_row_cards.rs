@@ -125,7 +125,8 @@ pub fn fill_row(
     cards: &Rc<RefCell<Vec<gtk::Overlay>>>,
     size_wired: &std::cell::Cell<bool>,
 ) {
-    if let Some(cache) = chrome_cache.filter(|_| kind == StripKind::ContinueList) {
+    // Seek-bar hover snaps for every strip kind (continue, search, lucky).
+    if let Some(cache) = chrome_cache {
         crate::media_probe::continue_grid_cache_refresh(cache, &items);
     }
     cards.borrow_mut().clear();

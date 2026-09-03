@@ -64,6 +64,11 @@ fn execute_preview_seek(st: &Rc<SeekPreviewState>, run_id: u64) -> glib::Control
         }
         return glib::ControlFlow::Break;
     }
+    if st.recent_visible.get() {
+        crate::preview_debug::info("debounce aborted: continue browse");
+        st.hide();
+        return glib::ControlFlow::Break;
+    }
     crate::preview_debug::info(format!(
         "debounce fire run={run_id} hover={:.2}",
         st.hover_t.get()
@@ -160,7 +165,10 @@ pub(crate) fn run_preview_seek_now(st: &Rc<SeekPreviewState>) {
 }
 
 fn execute_preview_seek_instant(st: &Rc<SeekPreviewState>, run_id: u64) {
-    if st.serial.get() != run_id || !st.enabled.get() {
+    if st.serial.get() != run_id || !st.enabled.get() || st.recent_visible.get() {
+        if st.recent_visible.get() {
+            st.hide();
+        }
         return;
     }
     let Some((load_s, content_dur, t)) = instant_seek_plan(st) else {

@@ -4,7 +4,6 @@ include!("undo_button.rs");
 
 fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
     let RecentUndoCtx {
-        player,
         recent: recent_scrl,
         flow: flow_recent,
         undo_shell,
@@ -18,8 +17,7 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
         search,
     } = ctx;
     let recent_backfill: Rc<RefCell<Option<Rc<RecentContext>>>> = Rc::new(RefCell::new(None));
-    let (pending_recent_backfill, recent_backfill_start) =
-        wire_recent_backfill(&recent_backfill, &player, &recent_scrl);
+    let pending_recent_backfill = wire_recent_backfill(&recent_backfill, &recent_scrl);
 
     let mut h = wire_undo_handles(
         undo_shell,
@@ -34,14 +32,7 @@ fn wire_recent_undo(ctx: RecentUndoCtx) -> RecentUndoWiring {
     let (do_commit, on_remove, on_trash) = build_undo_actions(&mut h, &undo_close);
     seed_neighbour_search(&h, &on_remove, &on_trash, &warm_hover, &search);
     if want_recent {
-        fill_initial_continue_strip(
-            &h,
-            &on_remove,
-            &on_trash,
-            &warm_hover,
-            &search,
-            recent_backfill_start,
-        );
+        fill_initial_continue_strip(&h, &on_remove, &on_trash, &warm_hover, &search);
     }
 
     RecentUndoWiring {
@@ -67,18 +58,11 @@ fn build_undo_actions(
     (do_commit, on_remove, on_trash)
 }
 
-type RecentBackfillChannel = (
-    Rc<RefCell<Option<RecentBackfillJob>>>,
-    Rc<dyn Fn(Rc<RecentContext>, Vec<PathBuf>)>,
-);
-
-/// Recent-backfill channel: deferred job slot + start hook; the grid destroy drops the pending
-/// job and shuts the backfill context down.
+/// Recent-backfill pending slot (drained after mpv realize); destroy shuts the context down.
 fn wire_recent_backfill(
     rbf: &Rc<RefCell<Option<Rc<RecentContext>>>>,
-    player: &Rc<RefCell<Option<MpvBundle>>>,
     recent_scrl: &gtk::Box,
-) -> RecentBackfillChannel {
+) -> Rc<RefCell<Option<RecentBackfillJob>>> {
     let pending_recent_backfill: Rc<RefCell<Option<RecentBackfillJob>>> =
         Rc::new(RefCell::new(None));
     {
@@ -88,12 +72,7 @@ fn wire_recent_backfill(
             shutdown_recent_backfill(&rb, &pending);
         });
     }
-    let p = player.clone();
-    let pending = pending_recent_backfill.clone();
-    let start = Rc::new(move |ctx: Rc<RecentContext>, paths: Vec<PathBuf>| {
-        schedule_or_defer_recent_backfill(&p, &pending, ctx, paths)
-    });
-    (pending_recent_backfill, start)
+    pending_recent_backfill
 }
 
 /// Drop a queued backfill job and stop the running backfill context.
@@ -122,15 +101,9 @@ fn fill_initial_continue_strip(
     on_trash: &RcPathFn,
     warm_hover: &Option<recent_view::WarmHoverHooks>,
     search: &Option<Rc<crate::recent_view::SiblingSearchState>>,
-    recent_backfill_start: Rc<dyn Fn(Rc<RecentContext>, Vec<PathBuf>)>,
 ) {
-    let paths5: Vec<PathBuf> = history::load()
-        .into_iter()
-        .take(crate::recent_view::CONTINUE_DISPLAY_MAX)
-        .collect();
     recent_view::fill_continue_strip(
         &h.flow,
-        paths5,
         recent_view::ContinueStripHooks {
             on_open: h.on_open.clone(),
             on_remove: on_remove.clone(),
@@ -140,7 +113,6 @@ fn fill_initial_continue_strip(
             search: search.clone(),
         },
         h.rbf.clone(),
-        recent_backfill_start,
     );
 }
 

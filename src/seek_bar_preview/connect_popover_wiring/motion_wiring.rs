@@ -60,8 +60,13 @@ fn reveal_preview(st: &Rc<SeekPreviewState>, x: f64) {
     show_and_seek(st, x);
 }
 
-/// Logs and hides when no openable target is ready for the aux player.
+/// Logs and hides when browse is active or no openable target is ready for the aux player.
 fn open_target_ready(st: &Rc<SeekPreviewState>) -> bool {
+    if st.recent_visible.get() {
+        crate::preview_debug::info("motion: continue browse — no framed preview");
+        st.hide();
+        return false;
+    }
     if preview_open_path(&st.player, &st.last_path).is_none() {
         crate::preview_debug::warn("motion: open target not ready — hide");
         st.hide();

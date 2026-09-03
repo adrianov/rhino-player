@@ -11,13 +11,7 @@ fn connect_seek_preview_after_present(
     let seek_preview = seek_bar_preview::connect(
         &args.w.seek,
         &args.w.seek_adj,
-        seek_bar_preview::SeekPreviewCells {
-            player: Rc::clone(&args.player),
-            last_path: Rc::clone(&args.last_path),
-            enabled: Rc::clone(&args.seek_bar_on),
-            chapters: Rc::clone(&args.seek_chapters),
-            dvd_bar: Rc::clone(&args.dvd_bar),
-        },
+        seek_preview_cells(args),
         wap_seek_preview_ctx(args),
     );
     #[cfg(not(target_os = "macos"))]
@@ -26,6 +20,17 @@ fn connect_seek_preview_after_present(
         Rc::clone(&seek_preview.hover_t),
         Rc::clone(&seek_preview.preview),
     )
+}
+
+fn seek_preview_cells(args: &WindowAfterPresentArgs) -> seek_bar_preview::SeekPreviewCells {
+    seek_bar_preview::SeekPreviewCells {
+        player: Rc::clone(&args.player),
+        last_path: Rc::clone(&args.last_path),
+        enabled: Rc::clone(&args.seek_bar_on),
+        recent_visible: Rc::clone(&args.recent_visible),
+        chapters: Rc::clone(&args.seek_chapters),
+        dvd_bar: Rc::clone(&args.dvd_bar),
+    }
 }
 
 /// Overlay placement context for the seek preview.

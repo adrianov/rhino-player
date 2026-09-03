@@ -11,6 +11,8 @@ pub struct SeekPreviewCells {
     pub player: Rc<RefCell<Option<MpvBundle>>>,
     pub last_path: Rc<RefCell<Option<PathBuf>>>,
     pub enabled: Rc<Cell<bool>>,
+    /// Continue strip visible → browse; framed preview only when this is false.
+    pub recent_visible: Rc<Cell<bool>>,
     pub chapters: Rc<RefCell<Vec<(f64, String)>>>,
     pub dvd_bar: Rc<RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
 }
@@ -27,6 +29,7 @@ pub fn connect(
         player,
         last_path,
         enabled,
+        recent_visible,
         chapters,
         dvd_bar,
     } = cells;
@@ -47,6 +50,7 @@ pub fn connect(
             loaded_target,
             preview_owner_db,
             enabled,
+            recent_visible,
             seek: seek.clone(),
             seek_adj: seek_adj.clone(),
             player,

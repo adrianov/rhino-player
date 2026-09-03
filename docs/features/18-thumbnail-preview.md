@@ -12,7 +12,7 @@ scope: portable
 - Scrub the timeline visually before seeking, especially on long local files.
 
 ## Description
-Hovering over the seek bar shows a framed video preview and the corresponding playback time. Moving along the bar updates the preview without changing the current playback position.
+Hovering over the seek bar shows a framed video preview and the corresponding playback time while media is open for playback (playing or paused). Moving along the bar updates the preview without changing the current playback position. The framed preview does not appear on the continue screen when no video is open for playback.
 
 The preview can be disabled in Preferences. It is available for media the application can preview locally and does not interrupt playback.
 
@@ -28,6 +28,14 @@ Feature: Thumbnails: seek bar preview
     When the user hovers the seek bar at any position
     Then a thumbnail above the bar shows the video at the hovered time
     And the preview shows the formatted hover time
+
+  Scenario: No preview thumbnail while browsing without open playback
+    Given seek bar preview is on
+    And the continue screen is visible
+    And no video is open for playback (playing or paused)
+    When the user hovers the seek bar
+    Then no preview thumbnail appears
+    And the hover time label may still update
 
   Scenario: Keep unavailable media unchanged
     Given the open media cannot be previewed locally
@@ -79,6 +87,7 @@ Feature: Thumbnails: seek bar preview
 - Hover time is `(x / width) * bar_upper` capped by [seek_bar_label_time]. Pointer release on the seek bar (trough or thumb drag) seeks the main player to that hover time, not the raw GtkRange thumb value; preview off falls back to capped thumb time ([`seek_wiring`](../../src/app/seek_wiring.rs)).
 - Linux: preview **`GtkFrame`** on **`outer_ovl`** above the bottom bar. macOS: the same frame is inside an independent non-modal **`GtkPopover`** surface anchored to the seek bar.
 - Thumbnail sizing follows the source aspect and the bounds in `state_and_vo_pump.rs`.
+- Framed preview opens only when the continue strip is hidden (`recent_visible` false) and an openable target is ready — warm preload behind the browse grid does not count as open playback. Returning to browse dismisses any open framed preview (`dismiss_for_browse`).
 - Motion coalescing uses `PREVIEW_DEBOUNCE`; the debounce and frame pump run at default GLib priority.
 - The `Progress Bar Preview` row is the only preview-related preference; no separate preferences window.
 - Recent grid thumbnails use `screenshot-raw` plus DB WebP cache via `media_probe` / `thumb_texture`; this feature does not feed the grid.

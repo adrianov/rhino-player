@@ -1,6 +1,5 @@
 type UnitFn = Rc<dyn Fn(()) + 'static>;
 type RcPathFn = Rc<dyn Fn(&Path) + 'static>;
-type BackfillFn = Rc<dyn Fn(Rc<RecentContext>, Vec<PathBuf>) + 'static>;
 type WarmHoverLeave = Rc<dyn Fn()>;
 
 /// Debounced warm-preload hooks for continue-card pointer enter/leave.
@@ -74,45 +73,48 @@ impl RecentContext {
         }
     }
 
-    /// Rebuild the strip. No-op while a search draft is settling; neighbour paints with the
-    /// same paths and stored progress are skipped inside [SiblingSearchState].
-    pub(crate) fn paint(&self, paths: Vec<PathBuf>, kind: StripKind) {
+    /// Rebuild the strip from a [StripPlan]. No-op while a search draft is settling;
+    /// neighbour paints with the same paths and stored progress are skipped.
+    pub(crate) fn paint(&self, plan: &StripPlan) {
         if self.search.as_ref().is_some_and(|s| s.typing_pending()) {
             return;
         }
-        if kind.hits_strip() {
-            let Some(s) = &self.search else {
-                return;
-            };
-            if !s.begin_hits_paint(&paths) {
-                return;
-            }
-        } else if let Some(s) = &self.search {
-            s.clear_hits_paint();
+        if !self.arm_paint(plan) {
+            return;
         }
         fill_row(
             &self.row,
-            card_data_list(&paths),
+            card_data_list(&plan.paths),
             self.strip_actions(),
             Some(&self.chrome_cache),
-            kind,
+            plan.kind,
             &self.cards,
             &self.size_wired,
         );
-        *self.media_paths.borrow_mut() = paths;
+        *self.media_paths.borrow_mut() = plan.paths.clone();
     }
 
-    /// Paint the query-aware strip and arm thumb workers for those paths.
+    /// Neighbour paint-skip / clear; continue list always paints.
+    fn arm_paint(&self, plan: &StripPlan) -> bool {
+        let Some(s) = &self.search else {
+            return true;
+        };
+        if plan.kind.hits_strip() {
+            s.begin_hits_paint(&plan.paths)
+        } else {
+            s.clear_hits_paint();
+            true
+        }
+    }
+
+    /// Paint the query-aware strip and arm thumb workers for those paths only.
     pub(crate) fn apply_strip(self: &Rc<Self>) {
         let paths = self.paint_strip();
         self.schedule_thumbs(paths);
     }
 
-    /// Visible strip first, then a reserved next lucky handful (feature 33).
-    pub(crate) fn schedule_thumbs(&self, mut paths: Vec<PathBuf>) {
-        if let Some(s) = &self.search {
-            s.append_lucky_warm(&mut paths);
-        }
+    /// Thumbnail workers for the painted strip cards (no off-screen lucky warm).
+    pub(crate) fn schedule_thumbs(&self, paths: Vec<PathBuf>) {
         self.thumbs.schedule(paths);
     }
 
@@ -122,7 +124,7 @@ impl RecentContext {
             .take(CONTINUE_DISPLAY_MAX)
             .collect();
         let plan = strip_plan(self.search.as_deref(), fallback);
-        self.paint(plan.paths.clone(), plan.kind);
+        self.paint(&plan);
         if plan.searching {
             self.note_search_hint();
         }

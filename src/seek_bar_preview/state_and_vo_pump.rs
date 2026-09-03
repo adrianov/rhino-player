@@ -20,6 +20,8 @@ pub struct SeekPreviewState {
     /// [`PlaybackEntity::db_path`] for the clip loaded in the auxiliary player.
     pub preview_owner_db: Rc<RefCell<Option<PathBuf>>>,
     pub enabled: Rc<Cell<bool>>,
+    /// True while the continue strip is shown (browse); framed preview stays off then.
+    pub recent_visible: Rc<Cell<bool>>,
     pub seek: gtk::Scale,
     pub seek_adj: gtk::Adjustment,
     pub player: Rc<RefCell<Option<MpvBundle>>>,

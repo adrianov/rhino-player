@@ -93,42 +93,10 @@ impl SiblingSearchState {
         self.catalog.ensure();
     }
 
-    /// Hollow-check a few unclassified neighbours per idle so search stays instant.
-    pub(super) fn pump_openable(self: &Rc<Self>) {
-        const CHUNK: usize = 16;
-        if self
-            .ctx
-            .borrow()
-            .as_ref()
-            .is_some_and(|w| w.upgrade().is_none())
-        {
-            return;
-        }
-        let index = self.catalog.index();
-        let mut n = 0;
-        for e in index.iter() {
-            if e.openable.get().is_some() {
-                continue;
-            }
-            e.is_openable();
-            n += 1;
-            if n >= CHUNK {
-                drop(index);
-                let s = Rc::clone(self);
-                glib::idle_add_local_once(move || s.pump_openable());
-                return;
-            }
-        }
-    }
-
     pub(super) fn roll_lucky(&self) {
         self.catalog.lucky_roll(&self.lucky, CONTINUE_DISPLAY_MAX);
         self.query.borrow_mut().clear();
         self.clear_hits_paint();
-    }
-
-    pub(crate) fn append_lucky_warm(&self, paths: &mut Vec<PathBuf>) {
-        self.catalog.lucky_warm(&self.lucky, paths);
     }
 
     pub(super) fn drop_lucky(&self) {

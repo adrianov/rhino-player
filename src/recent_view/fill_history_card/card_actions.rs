@@ -20,7 +20,7 @@ fn wire_logged_action(
     });
 }
 
-/// Top-right overlay buttons. Trash for present files on either strip; Remove on the
+/// Top-right overlay buttons. Trash for present files on every strip; Remove on the
 /// continue list and on I'm Feeling Lucky cards (name-search hits omit it).
 pub(super) fn top_action_buttons(
     c: &Path,

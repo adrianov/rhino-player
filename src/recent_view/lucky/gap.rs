@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use super::{fisher_yates, keep_openable, lucky_seed, lucky_titles, same_shown, NeighbourEntry};
+use super::{fisher_yates, lucky_seed, lucky_titles, same_shown, NeighbourEntry};
 
 /// Replace a trashed or removed lucky card in-place; prefers a reserved next path, then one unused title.
 pub(crate) fn fill_lucky_gap(
@@ -38,14 +38,20 @@ fn pop_next(
     entries: &[NeighbourEntry],
 ) -> Option<PathBuf> {
     let v = next.as_mut()?;
-    let pick = keep_openable(v, entries)
-        .into_iter()
-        .find(|p| !skip.contains(p))?;
-    v.retain(|p| p != &pick);
+    let i = v.iter().position(|p| slot_candidate(p, skip, entries))?;
+    let p = v.remove(i);
     if v.is_empty() {
         *next = None;
     }
-    Some(pick)
+    Some(p)
+}
+
+fn slot_candidate(path: &std::path::Path, skip: &[PathBuf], entries: &[NeighbourEntry]) -> bool {
+    !skip.iter().any(|s| same_shown(s, path))
+        && entries
+            .iter()
+            .find(|e| same_shown(&e.path, path))
+            .is_some_and(NeighbourEntry::is_openable)
 }
 
 fn top_up_next(

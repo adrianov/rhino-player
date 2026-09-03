@@ -78,6 +78,10 @@ fn substring_score(name: &str, q: &str) -> f64 {
     if name.starts_with(q) {
         return 1.0;
     }
+    // One letter: skip token walk — ranking among equals is lexical at the sort step.
+    if q.chars().count() <= 1 {
+        return 0.5;
+    }
     let mut best = 0.5_f64;
     for token in name
         .split(|c: char| !c.is_alphanumeric())

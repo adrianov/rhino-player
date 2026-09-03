@@ -1,4 +1,4 @@
-// Lucky session: shown handful, seen titles, reserved next + still warming.
+// Lucky session: shown handful, seen titles, reserved next.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -81,18 +81,6 @@ impl LuckySession {
         *self.next.borrow_mut() = reserved;
     }
 
-    /// Reserved next handful, still openable, not already in `paths`.
-    pub(crate) fn append_warm(&self, paths: &mut Vec<PathBuf>, index: &[NeighbourEntry]) {
-        let Some(next) = self.next.borrow().clone() else {
-            return;
-        };
-        for p in warm_extra(&next, index) {
-            if !paths.contains(&p) {
-                paths.push(p);
-            }
-        }
-    }
-
     /// After trash or Remove: drop the gone path and fill that slot from the reserved next handful.
     /// `false` when lucky is inactive or `gone` is not on the shown handful.
     pub(crate) fn refill_slot(
@@ -134,13 +122,5 @@ impl LuckySession {
             return;
         }
         *self.groups.borrow_mut() = Some(group_index(index));
-    }
-}
-
-fn warm_extra(next: &[PathBuf], index: &[NeighbourEntry]) -> Vec<PathBuf> {
-    if index.is_empty() {
-        next.to_vec()
-    } else {
-        keep_openable(next, index)
     }
 }

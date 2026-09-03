@@ -20,7 +20,6 @@ impl SiblingSearchState {
         let s4 = Rc::clone(self);
         glib::idle_add_local_once(move || {
             s4.ensure_index();
-            s4.pump_openable();
         });
     }
 

@@ -136,19 +136,6 @@ include!("chrome_menu_wire.rs");
 
 include!("chrome_subtitle_button_scan.rs");
 
-fn schedule_or_defer_recent_backfill(
-    player: &Rc<RefCell<Option<MpvBundle>>>,
-    pending: &Rc<RefCell<Option<RecentBackfillJob>>>,
-    ctx: Rc<RecentContext>,
-    paths: Vec<PathBuf>,
-) {
-    if player.borrow().is_some() {
-        recent_view::schedule_thumb_backfill(ctx, paths);
-    } else {
-        *pending.borrow_mut() = Some((ctx, paths));
-    }
-}
-
 fn drain_recent_backfill(pending: &Rc<RefCell<Option<RecentBackfillJob>>>) {
     if let Some((ctx, paths)) = pending.borrow_mut().take() {
         recent_view::schedule_thumb_backfill(ctx, paths);

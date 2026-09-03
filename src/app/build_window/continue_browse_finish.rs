@@ -49,7 +49,6 @@ fn finish_recent_undo_wiring(
     continue_grid_cache: &crate::media_probe::ContinueGridCache,
 ) -> RecentUndoWiring {
     wire_recent_undo(RecentUndoCtx {
-        player: f.player.clone(),
         recent: f.w.recent_scrl.clone(),
         flow: f.w.flow_recent.clone(),
         undo_shell: f.w.undo_bar.shell.clone(),
@@ -79,6 +78,9 @@ fn finish_track_recent_visible(f: &ContinueBrowseFinish<'_>) -> Rc<Cell<bool>> {
                 let vis = r.is_visible();
                 rv.set(vis);
                 search.sync_browse_visible(vis);
+                if vis {
+                    crate::seek_bar_preview::dismiss_for_browse();
+                }
             });
     }
     recent_visible
