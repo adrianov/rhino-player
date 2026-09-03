@@ -31,7 +31,8 @@ fn media_index(media_paths: &[std::path::PathBuf], path: &Path) -> Option<usize>
 fn apply_thumb_notes(c: &Rc<RecentContext>, notes: Vec<ThumbNote>) {
     let (ready, drops) = split_thumb_notes(notes);
     apply_thumb_drops(c, &drops);
-    if drops.is_empty() && !search_typing(c) {
+    // In-place as each Ready lands (including during search settle); path must be on this strip.
+    if !ready.is_empty() {
         apply_ready_thumbs(&c.cards.borrow(), &c.media_paths.borrow(), &ready);
     }
 }

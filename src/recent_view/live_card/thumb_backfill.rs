@@ -182,10 +182,10 @@ fn run_thumb_worker(
         if thumb_gen_cancelled(&gen_watch, gen, &c) {
             return;
         }
-        let (thumb, key) = media_probe::ensure_listed_thumbnail(&p);
-        let note = match thumb {
-            media_probe::GridThumb::Ready => ThumbNote::Ready(key),
-            media_probe::GridThumb::Unparseable => ThumbNote::Drop(key),
+        // Note the listed strip path (not canonicalize) so media_index matches without a key walk.
+        let note = match media_probe::ensure_listed_thumbnail(&p).0 {
+            media_probe::GridThumb::Ready => ThumbNote::Ready(p),
+            media_probe::GridThumb::Unparseable => ThumbNote::Drop(p),
             media_probe::GridThumb::Miss => continue,
         };
         if thumb_gen_cancelled(&gen_watch, gen, &c) {

@@ -62,8 +62,10 @@ pub(crate) fn ensure_listed_thumbnail(path: &Path) -> (GridThumb, PathBuf) {
         return (GridThumb::Unparseable, path.to_path_buf());
     }
     let can = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    // Ready (not Miss): search / Lucky paint without embedded stills and need a hop to show
+    // an already-stored frame; continue cards re-apply idempotently.
     if thumb_backfill_satisfied(&can) {
-        return (GridThumb::Miss, can);
+        return (GridThumb::Ready, can);
     }
     (ensure_thumbnail(&can), can)
 }
