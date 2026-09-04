@@ -23,8 +23,11 @@ impl DvdChainBarSync {
         hold_global: f64,
         ifo_local: f64,
     ) -> Self {
-        let anchor_playback = chain_playback_time(&b.mpv, 0.0);
-        Self::from_targets(ifo_local, hold_global, anchor_playback)
+        Self::from_targets(
+            ifo_local,
+            hold_global,
+            chain_playback_time(&b.mpv, 0.0),
+        )
     }
 
     #[must_use]
@@ -147,8 +150,11 @@ impl DvdBarState {
             return b.dvd_hold_global.get();
         }
         if let Some(sync) = b.dvd_chain_bar_sync.get() {
-            let playback = chain_playback_time(&b.mpv, sync.anchor_playback);
-            return Some(sync.global_from_ifo_local(ifo, playback, self.total_sec()));
+            return Some(sync.global_from_ifo_local(
+                ifo,
+                chain_playback_time(&b.mpv, sync.anchor_playback),
+                self.total_sec(),
+            ));
         }
         if let Some(h) = b.dvd_hold_global.get() {
             return Some(h);

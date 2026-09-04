@@ -26,9 +26,17 @@ pub(crate) fn smooth_budget_on_transport_tick(
         return;
     };
     let now = Instant::now();
-    let fires = collect_tick_fires(state_cell, &sample, now);
-    let o = transport_budget_outcome(sample, now, process_cpu_frac, fires);
-    apply_budget_actions_after_sample(player, video_pref, state_cell, &o);
+    apply_budget_actions_after_sample(
+        player,
+        video_pref,
+        state_cell,
+        &transport_budget_outcome(
+            collect_tick_fires(state_cell, &sample, now),
+            sample,
+            now,
+            process_cpu_frac,
+        ),
+    );
 }
 
 /// Skip ticks while the core cannot decode (paused / idle) or the pref is not bundled Smooth.
@@ -125,10 +133,10 @@ fn sample_and_emit_drop_stats(
 
 /// Bundle the sampled inputs with the fire flags into the decision outcome.
 fn transport_budget_outcome(
+    fires: TickFires,
     sample: TransportTickSample,
     now: Instant,
     process_cpu_frac: Option<f64>,
-    fires: TickFires,
 ) -> TransportBudgetOutcome {
     TransportBudgetOutcome {
         current_budget_px: sample.current_budget_px,

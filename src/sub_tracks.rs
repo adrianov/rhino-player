@@ -90,8 +90,11 @@ fn sub_nodes_from_track_list(mpv: &Mpv) -> Vec<Node> {
         Ok(s) => s,
         Err(_) => return vec![],
     };
-    let nodes: Vec<Node> = serde_json::from_str(&json).unwrap_or_default();
-    nodes.into_iter().filter(|n| n.kind == "sub").collect()
+    serde_json::from_str::<Vec<Node>>(&json)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|n| n.kind == "sub")
+        .collect()
 }
 
 include!("sub_tracks_header.rs");

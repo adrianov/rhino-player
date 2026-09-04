@@ -29,8 +29,10 @@ fn attempt_warm_hit(
     o: &LoadOpts,
 ) -> (bool, Option<PathBuf>) {
     let prev = outgoing_media_target(b, o);
-    let hit = load_as_warm_hit(path, b, prev.as_deref(), recent_layer, o);
-    (hit, prev)
+    (
+        load_as_warm_hit(path, b, prev.as_deref(), recent_layer, o),
+        prev,
+    )
 }
 
 /// Entity-change reset, shell-path swap, smooth env publish before the `loadfile`.

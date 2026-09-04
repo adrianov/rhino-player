@@ -60,11 +60,13 @@ fn loadavg_per_cpu() -> Option<f64> {
         if n < 1 {
             return None;
         }
-        let cpus = std::thread::available_parallelism()
-            .map(|x| x.get() as f64)
-            .unwrap_or(1.0)
-            .max(1.0);
-        Some(av[0] / cpus)
+        Some(
+            av[0]
+                / std::thread::available_parallelism()
+                    .map(|x| x.get() as f64)
+                    .unwrap_or(1.0)
+                    .max(1.0),
+        )
     }
     #[cfg(not(unix))]
     {

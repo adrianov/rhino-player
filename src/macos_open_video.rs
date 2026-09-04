@@ -95,18 +95,18 @@ fn finish_open_panel_response(panel: &NSOpenPanel, response: NSModalResponse) {
         .as_ref()
         .and_then(path_from_url);
     glib::idle_add_local_once(move || {
-        let pick = OPEN_PICK.with(|slot| slot.borrow_mut().take());
-        if let Some(f) = pick {
+        if let Some(f) = OPEN_PICK.with(|slot| slot.borrow_mut().take()) {
             f(path);
         }
     });
 }
 
 fn present_open_video_sheet_ns(ns_win: objc2::rc::Retained<NSWindow>) {
-    let mtm = MainThreadMarker::new().expect("main thread");
-    let panel = NSOpenPanel::openPanel(mtm);
+    let panel = NSOpenPanel::openPanel(MainThreadMarker::new().expect("main thread"));
     configure_open_panel(&panel);
     let panel_ret = panel.clone();
-    let handler = RcBlock::new(move |response| finish_open_panel_response(&panel_ret, response));
-    panel.beginSheetModalForWindow_completionHandler(&ns_win, &handler);
+    panel.beginSheetModalForWindow_completionHandler(
+        &ns_win,
+        &RcBlock::new(move |response| finish_open_panel_response(&panel_ret, response)),
+    );
 }

@@ -90,8 +90,7 @@ fn w_in_max_mode(ctx: &WindowInputCtx) {
     let skip_fs = ctx.skip_max_to_fs.clone();
     #[cfg(not(target_os = "macos"))]
     let fs_busy = Rc::clone(&ctx.fs_transition_busy);
-    let win = ctx.shell.win.clone();
-    win.connect_maximized_notify(move |w| {
+    ctx.shell.win.clone().connect_maximized_notify(move |w| {
         #[cfg(not(target_os = "macos"))]
         max_mode_route(w, &fr, &lu, &skip_fs, &fs_busy);
         #[cfg(target_os = "macos")]

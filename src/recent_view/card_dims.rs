@@ -38,8 +38,7 @@ pub(crate) fn card_height(w: i32) -> i32 {
 /// so a short list or search hit does not inflate cards and shove the layout around.
 pub(crate) fn card_width(strip_w: i32) -> i32 {
     let slots = (CONTINUE_DISPLAY_MAX + 1) as i32;
-    let avail = (strip_w - CARD_GAP * (slots - 1)).max(CARD_MIN_W);
-    (avail / slots).clamp(CARD_MIN_W, CARD_MAX_W)
+    ((strip_w - CARD_GAP * (slots - 1)).max(CARD_MIN_W) / slots).clamp(CARD_MIN_W, CARD_MAX_W)
 }
 
 fn ancestor_scrolled_width(card_row: &gtk::Box) -> Option<i32> {
@@ -88,8 +87,7 @@ pub(crate) fn sync_card_sizes(card_row: &gtk::Box, cards: &[gtk::Overlay]) {
     if cards.is_empty() {
         return;
     }
-    let strip_w = strip_width_for_cards(card_row);
-    let w = card_width(strip_w);
+    let w = card_width(strip_width_for_cards(card_row));
     let h = card_height(w);
     for card in cards {
         apply_card_dims(card, w, h);

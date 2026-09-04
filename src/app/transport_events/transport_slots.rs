@@ -93,8 +93,7 @@ pub(crate) fn register_warm_preload_loaded(done: Rc<dyn Fn()>) {
 
 pub(crate) fn warm_preload_notify_loaded() {
     disarm_warm_path_settle();
-    let done = WARM_PRELOAD_LOADED.with(|slot| slot.borrow().clone());
-    if let Some(f) = done {
+    if let Some(f) = WARM_PRELOAD_LOADED.with(|slot| slot.borrow().clone()) {
         let _ = glib::idle_add_local_once(move || f());
     }
 }

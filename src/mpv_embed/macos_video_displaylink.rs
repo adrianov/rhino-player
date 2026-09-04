@@ -76,16 +76,15 @@ impl DisplayLinkDriver {
         let link = create_display_link()?;
         let user_info = state.as_ref() as *const DriverState as *mut c_void;
         start_display_link(&link, user_info)?;
-        let handle = Arc::new(DriverStateHandle {
-            ptr: state.as_ref() as *const DriverState,
-        });
-        Ok((
-            Self {
+        // Pack before move: handle needs `&state`, then both move out together.
+        let out = DriverInstall {
+            handle: driver_state_handle(&state),
+            driver: Self {
                 link: Mutex::new(Some(link)),
                 state,
             },
-            handle,
-        ))
+        };
+        Ok((out.driver, out.handle))
     }
 
     /// **`running=false`**: **`CVDisplayLinkStop`** — must **not** run inside **`display_link_callback`**.
@@ -103,6 +102,17 @@ impl DisplayLinkDriver {
         }
         Ok(())
     }
+}
+
+struct DriverInstall {
+    handle: Arc<DriverStateHandle>,
+    driver: DisplayLinkDriver,
+}
+
+fn driver_state_handle(state: &DriverState) -> Arc<DriverStateHandle> {
+    Arc::new(DriverStateHandle {
+        ptr: state as *const DriverState,
+    })
 }
 
 impl Drop for DisplayLinkDriver {

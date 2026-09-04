@@ -18,8 +18,11 @@ fn seek_plan_tuple(
         log_seek_plan_outcome(st, plan.as_ref().map(|p| p.load.as_str()));
     }
     plan.map(|plan| {
-        let t = cap_preview_seek_time(plan.local_sec, plan.content_dur);
-        (plan.load, plan.content_dur, t)
+        (
+            plan.load,
+            plan.content_dur,
+            cap_preview_seek_time(plan.local_sec, plan.content_dur),
+        )
     })
 }
 
@@ -146,11 +149,14 @@ pub(crate) fn arm_preview_debounce(st: Rc<SeekPreviewState>) {
         deb.as_millis()
     ));
     let st2 = Rc::clone(&st);
-    let id = glib::source::timeout_add_local_full(deb, glib::Priority::DEFAULT, move || {
-        let _ = st2.deb.borrow_mut().take();
-        execute_preview_seek(&st2, run_id)
-    });
-    *st.deb.borrow_mut() = Some(id);
+    *st.deb.borrow_mut() = Some(glib::source::timeout_add_local_full(
+        deb,
+        glib::Priority::DEFAULT,
+        move || {
+            let _ = st2.deb.borrow_mut().take();
+            execute_preview_seek(&st2, run_id)
+        },
+    ));
 }
 
 pub(crate) fn schedule_preview_seek(st: Rc<SeekPreviewState>) {

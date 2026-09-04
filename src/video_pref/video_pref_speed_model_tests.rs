@@ -7,8 +7,7 @@ mod model_tests {
     use super::PLAYBACK_1X_EPS;
 
     fn mvtools_vf_wanted_for_speed(s: f64) -> bool {
-        let t = normalized_env_speed(s);
-        (t - 1.0).abs() <= PLAYBACK_1X_EPS
+        (normalized_env_speed(s) - 1.0).abs() <= PLAYBACK_1X_EPS
     }
 
     /// When the graph **should** include `vapoursynth` (pref on + ~1.0×) but the string does not, an

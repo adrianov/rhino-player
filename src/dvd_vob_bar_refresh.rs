@@ -28,8 +28,11 @@ fn chapter_eof_pending(
     chapter: &Path,
 ) -> bool {
     let guard = slot.borrow();
-    let tl = guard.as_ref().map(|b| &b.tl);
-    chapter_local_at_eof_for(mpv, Some(chapter), tl)
+    chapter_local_at_eof_for(
+        mpv,
+        Some(chapter),
+        guard.as_ref().map(|b| &b.tl),
+    )
 }
 
 /// More than one `.vob` part exists on disk for the open title.

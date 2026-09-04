@@ -27,8 +27,7 @@ fn can_find_mvtools_os(_v: &db::VideoPrefs) -> bool {
 
 #[cfg(not(target_os = "macos"))]
 fn can_find_mvtools_os(v: &db::VideoPrefs) -> bool {
-    let cached = std::path::Path::new(v.mvtools_lib.trim());
-    cached.is_file() || crate::paths::mvtools_lib_search().is_some()
+    std::path::Path::new(v.mvtools_lib.trim()).is_file() || crate::paths::mvtools_lib_search().is_some()
 }
 
 include!("vs_setup_dialog/setup_text.rs");
@@ -81,11 +80,10 @@ fn setup_headline_label() -> gtk::Label {
 }
 
 fn setup_scroll() -> gtk::ScrolledWindow {
-    let text = setup_dialog_text_view();
     gtk::ScrolledWindow::builder()
         .hexpand(true)
         .vexpand(true)
-        .child(&text)
+        .child(&setup_dialog_text_view())
         .build()
 }
 

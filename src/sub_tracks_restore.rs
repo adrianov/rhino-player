@@ -10,8 +10,11 @@ pub fn save_sub_choice(mpv: &Mpv, sid: i64, ifo_slot: Option<u8>, shell: Option<
     let Some(path) = crate::media_probe::shell_media_path(mpv, shell) else {
         return;
     };
-    let entity = playback_entity::PlaybackEntity::resolve(&path);
-    crate::db::set_sub_track(&entity.db_path(), sid, ifo_slot);
+    crate::db::set_sub_track(
+        &playback_entity::PlaybackEntity::resolve(&path).db_path(),
+        sid,
+        ifo_slot,
+    );
 }
 
 /// Reapply the saved subtitle for this entity (IFO slot on DVD, mpv id otherwise).
@@ -28,8 +31,9 @@ pub fn restore_saved_sub(mpv: &Mpv, prefs: &SubPrefs, shell: Option<&std::path::
     let Some(path) = crate::media_probe::shell_media_path(mpv, shell) else {
         return false;
     };
-    let entity = playback_entity::PlaybackEntity::resolve(&path);
-    let Some((saved_sid, saved_slot)) = crate::db::load_sub_track(&entity.db_path()) else {
+    let Some((saved_sid, saved_slot)) =
+        crate::db::load_sub_track(&playback_entity::PlaybackEntity::resolve(&path).db_path())
+    else {
         return false;
     };
     apply_saved_sub(mpv, saved_sid, saved_slot, &rows, shell)

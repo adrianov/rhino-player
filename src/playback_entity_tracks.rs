@@ -86,20 +86,11 @@ fn line_label(id: i64, title: Option<String>, lang: Option<String>, ifo: Option<
     if let Some(s) = trimmed(ifo) {
         return s.to_string();
     }
-    let t = trimmed(title.as_deref());
-    let l = trimmed(lang.as_deref());
-    match (t, l) {
+    match (trimmed(title.as_deref()), trimmed(lang.as_deref())) {
         (Some(a), Some(b)) => format!("{a} – {b}"),
         (Some(s), None) | (None, Some(s)) => s.to_string(),
         (None, None) => format!("Track {id}"),
     }
-}
-
-/// First subtitle track node plus its sub-only index, by mpv track id.
-fn find_sub_track(nodes: &[TrackNode], sid: i64) -> Option<(&TrackNode, usize)> {
-    let sub_nodes: Vec<&TrackNode> = nodes.iter().filter(|n| n.kind == "sub").collect();
-    let idx = sub_nodes.iter().position(|n| n.id == sid)?;
-    Some((sub_nodes[idx], idx))
 }
 
 include!("playback_entity_tracks_audio.rs");
@@ -116,9 +107,16 @@ pub fn sub_ifo_slot_for_sid(
 ) -> Option<u8> {
     let chapter = crate::media_probe::shell_media_path(mpv, shell)?;
     let ifo = entity.title_set_streams(&chapter)?;
-    let nodes = track_nodes(mpv);
-    let (n, idx) = find_sub_track(&nodes, sid)?;
-    crate::dvd_ifo_parse::sub_slot_for_src_id(&ifo.sub, sub_stream_src_id(n), idx)
+    let sub_nodes: Vec<TrackNode> = track_nodes(mpv)
+        .into_iter()
+        .filter(|n| n.kind == "sub")
+        .collect();
+    let idx = sub_nodes.iter().position(|n| n.id == sid)?;
+    crate::dvd_ifo_parse::sub_slot_for_src_id(
+        &ifo.sub,
+        sub_stream_src_id(&sub_nodes[idx]),
+        idx,
+    )
 }
 
 /// Resolve menu row → mpv `sid` on the open chapter.
@@ -130,19 +128,18 @@ pub fn resolve_sub_mpv_id(
     ifo_slot: Option<u8>,
     shell: Option<&Path>,
 ) -> Option<i64> {
-    let nodes = track_nodes(mpv);
-    let sub_ids: Vec<i64> = nodes
-        .iter()
-        .filter(|n| n.kind == "sub")
-        .map(|n| n.id)
-        .collect();
-    if mpv_id > 0 && sub_ids.contains(&mpv_id) {
+    if mpv_id > 0
+        && track_nodes(mpv)
+            .iter()
+            .filter(|n| n.kind == "sub")
+            .any(|n| n.id == mpv_id)
+    {
         return Some(mpv_id);
     }
     let slot = ifo_slot?;
     let chapter = crate::media_probe::shell_media_path(mpv, shell)?;
     let ifo = entity.title_set_streams(&chapter)?;
-    mpv_sid_for_slot(&nodes, &ifo, slot)
+    mpv_sid_for_slot(&track_nodes(mpv), &ifo, slot)
 }
 
 /// Whether the entity exposes title-set subtitle streams (IFO or mpv).

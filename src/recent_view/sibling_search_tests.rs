@@ -33,8 +33,11 @@ fn scan_lists_only_video_files_naturally() {
     touch(&dir, "ep2.MKV");
     touch(&dir, "note.txt");
     std::fs::create_dir(dir.join("season 3")).unwrap();
-    let videos = crate::video_ext::list_videos_in_dir(&dir).unwrap();
-    let names: Vec<String> = videos.iter().map(|p| file_name_lower(p)).collect();
+    let names: Vec<String> = crate::video_ext::list_videos_in_dir(&dir)
+        .unwrap()
+        .iter()
+        .map(|p| file_name_lower(p))
+        .collect();
     assert_eq!(names, vec!["ep2.mkv", "ep10.mkv"]);
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -119,10 +122,12 @@ fn write_hollow(dir: &Path, name: &str) -> PathBuf {
 
 #[test]
 fn present_hits_uncapped_cap_is_callers_concern() {
-    let entries: Vec<_> = (0..SEARCH_MAX_HITS + 5)
-        .map(|i| entry(&format!("/store/pick{i}.mkv"), true))
-        .collect();
-    let hits = present_name_hits(&entries, "pick");
+    let hits = present_name_hits(
+        &(0..SEARCH_MAX_HITS + 5)
+            .map(|i| entry(&format!("/store/pick{i}.mkv"), true))
+            .collect::<Vec<_>>(),
+        "pick",
+    );
     assert_eq!(hits.len(), SEARCH_MAX_HITS + 5);
 }
 

@@ -27,11 +27,11 @@ fn arm_pump_timer(
     let pump2 = Rc::clone(pump);
     let serial2 = Rc::clone(serial);
     let n = Rc::new(Cell::new(0i32));
-    let id =
-        glib::source::timeout_add_local_full(VO_PUMP_STEP, glib::Priority::DEFAULT, move || {
-            pump_tick(&pr2, &pump2, &serial2, &n, &job, &gl2)
-        });
-    *pump.borrow_mut() = Some(id);
+    *pump.borrow_mut() = Some(glib::source::timeout_add_local_full(
+        VO_PUMP_STEP,
+        glib::Priority::DEFAULT,
+        move || pump_tick(&pr2, &pump2, &serial2, &n, &job, &gl2),
+    ));
 }
 
 /// Per-run parameters and tick budget for the VO pump (90 ticks, 180 for optical discs).

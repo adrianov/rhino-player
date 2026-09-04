@@ -1,12 +1,13 @@
 // Raw mpv transport property sampling and duration clamping helpers.
 /// Raw mpv transport properties for the live bundle.
 fn read_mpv_transport_props(b: &MpvBundle) -> (bool, bool, bool, f64, f64) {
-    let pause = b.mpv.get_property::<bool>("pause").unwrap_or(false);
-    let core_idle = b.mpv.get_property::<bool>("core-idle").unwrap_or(false);
-    let eof_reached = b.mpv.get_property::<bool>("eof-reached").unwrap_or(false);
-    let pos = clamp_mpv_sec(b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0));
-    let raw_dur = clamp_mpv_sec(b.mpv.get_property::<f64>("duration").unwrap_or(0.0));
-    (pause, core_idle, eof_reached, pos, raw_dur)
+    (
+        b.mpv.get_property::<bool>("pause").unwrap_or(false),
+        b.mpv.get_property::<bool>("core-idle").unwrap_or(false),
+        b.mpv.get_property::<bool>("eof-reached").unwrap_or(false),
+        clamp_mpv_sec(b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0)),
+        clamp_mpv_sec(b.mpv.get_property::<f64>("duration").unwrap_or(0.0)),
+    )
 }
 fn clamp_mpv_sec(v: f64) -> f64 {
     if v.is_finite() {

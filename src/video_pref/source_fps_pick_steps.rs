@@ -37,8 +37,10 @@ fn pick_cadence_candidate(
     shell_media: Option<&std::path::Path>,
     gate: &mut FpsPickGateState,
 ) -> (Option<f64>, Option<f64>, Option<f64>) {
-    let est = gate_est_for_source_pick(path_now.clone(), est_raw, mpv, shell_media, gate);
-    let picked = source_fps_from_container_and_estimated(cfps, est);
+    let picked = source_fps_from_container_and_estimated(
+        cfps,
+        gate_est_for_source_pick(path_now.clone(), est_raw, mpv, shell_media, gate),
+    );
     let mpv_pick = picked;
     let mut picked = stabilize_disc_source_fps(path_now.as_deref(), shell_media, picked, gate);
     let dvd_pick = dvd_vob_gate_pick(mpv, bundle, gate);

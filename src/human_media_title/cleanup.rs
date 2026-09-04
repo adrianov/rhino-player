@@ -44,8 +44,7 @@ fn strip_tech_tags(s: &mut String) {
 }
 
 fn strip_resolution_tokens(s: &mut String) {
-    let p = patterns();
-    *s = p.resolution.replace_all(s, " ").into_owned();
+    *s = patterns().resolution.replace_all(s, " ").into_owned();
 }
 
 fn strip_leftover_season_tokens(s: &mut String) {
@@ -59,11 +58,14 @@ fn strip_dd_dot_dates(s: &mut String) {
 }
 
 fn normalize_hyphen_spaces(s: &mut String) {
-    let marker = '\u{0001}';
-    let tmp = s.replace(" - ", &marker.to_string());
-    let p = patterns();
-    let mut out = p.standalone_hyphen.replace_all(&tmp, " ").into_owned();
-    out = out.replace(marker, " - ");
+    let mut out = patterns()
+        .standalone_hyphen
+        .replace_all(
+            &s.replace(" - ", &'\u{0001}'.to_string()),
+            " ",
+        )
+        .into_owned();
+    out = out.replace('\u{0001}', " - ");
     *s = out;
 }
 

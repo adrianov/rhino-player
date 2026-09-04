@@ -75,11 +75,9 @@ fn dispatch_warm_load(
     if let Some(b) = player.borrow().as_ref() {
         let _ = b.mpv.set_property("pause", true);
     }
-    let canon = std::fs::canonicalize(path).ok();
-    *last_path.borrow_mut() = canon;
+    *last_path.borrow_mut() = std::fs::canonicalize(path).ok();
     transport_sync_warm_browse(path);
-    let o = warm_load_opts(video_pref, last_path);
-    match load_file_into_player(path, player, recent, &o) {
+    match load_file_into_player(path, player, recent, &warm_load_opts(video_pref, last_path)) {
         Err(e) => {
             eprintln!(
                 "[rhino] warm_preload: failed {} ms={} err={e}",
@@ -140,15 +138,17 @@ fn preload_first_continue(ctx: &Rc<WarmPreloadCtx>) -> bool {
         ctx.gate.queue(path);
         return false;
     }
-    let outcome = preload_continue_path(
-        &path,
-        &ctx.player,
-        &ctx.video_pref,
-        &ctx.recent,
-        &ctx.gl,
-        &ctx.last_path,
-    );
-    settle_preload_outcome(ctx, outcome)
+    settle_preload_outcome(
+        ctx,
+        preload_continue_path(
+            &path,
+            &ctx.player,
+            &ctx.video_pref,
+            &ctx.recent,
+            &ctx.gl,
+            &ctx.last_path,
+        ),
+    )
 }
 
 /// Warm-preload the first continue entry after transport observers are installed.

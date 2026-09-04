@@ -10,8 +10,10 @@ impl MpvBundle {
 
     fn entity_title_total_sec(&self) -> Option<f64> {
         let shell = self.me_budget_shell_path.borrow().clone()?;
-        let entity = crate::playback_entity::PlaybackEntity::resolve(&shell);
-        entity_row_duration(&entity.db_path(), &db::load_duration_map())
+        entity_row_duration(
+            &crate::playback_entity::PlaybackEntity::resolve(&shell).db_path(),
+            &db::load_duration_map(),
+        )
     }
 
     /// Snapshot to persist now: transport bar pair, held DVD global, or a live unified-timeline

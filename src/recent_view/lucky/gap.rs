@@ -21,10 +21,10 @@ pub(crate) fn fill_lucky_gap(
     };
     lucky.remove(at);
     let from_next = pop_next(next, lucky, entries);
-    let repl = from_next
+    if let Some(p) = from_next
         .clone()
-        .or_else(|| take_one_title(entries, seen, lucky, tpos, durs));
-    if let Some(p) = repl {
+        .or_else(|| take_one_title(entries, seen, lucky, tpos, durs))
+    {
         lucky.insert(at.min(lucky.len()), p);
         if from_next.is_some() {
             top_up_next(next, lucky, entries, seen, tpos, durs);
@@ -79,11 +79,13 @@ fn take_one_title(
     tpos: &HashMap<String, f64>,
     durs: &HashMap<String, f64>,
 ) -> Option<PathBuf> {
-    let titles: Vec<_> = lucky_titles(entries, tpos, durs)
-        .into_iter()
-        .filter(|(_, p)| !skip.contains(p))
-        .collect();
-    let mut pool = unused_or_all(titles, seen);
+    let mut pool = unused_or_all(
+        lucky_titles(entries, tpos, durs)
+            .into_iter()
+            .filter(|(_, p)| !skip.contains(p))
+            .collect(),
+        seen,
+    );
     if pool.is_empty() {
         return None;
     }
@@ -122,6 +124,29 @@ mod tests {
         (HashMap::new(), HashMap::new())
     }
 
+    fn run_fill(
+        lucky: Vec<PathBuf>,
+        next: Option<Vec<PathBuf>>,
+        gone: &str,
+        entries: &[NeighbourEntry],
+        seen: &mut HashSet<String>,
+        tpos: &HashMap<String, f64>,
+        durs: &HashMap<String, f64>,
+    ) -> Vec<PathBuf> {
+        let mut lucky = lucky;
+        let mut next = next;
+        fill_lucky_gap(
+            &mut lucky,
+            &mut next,
+            &p(gone),
+            entries,
+            seen,
+            tpos,
+            durs,
+        );
+        lucky
+    }
+
     #[test]
     fn fill_gap_takes_reserved_next_in_same_slot() {
         let entries = [
@@ -130,19 +155,18 @@ mod tests {
             entry("/c.mkv", true),
         ];
         let (tpos, durs) = empty_maps();
-        let mut lucky = vec![p("/a.mkv"), p("/b.mkv")];
-        let mut next = Some(vec![p("/c.mkv")]);
-        fill_lucky_gap(
-            &mut lucky,
-            &mut next,
-            &p("/a.mkv"),
-            &entries,
-            &mut HashSet::new(),
-            &tpos,
-            &durs,
+        assert_eq!(
+            run_fill(
+                vec![p("/a.mkv"), p("/b.mkv")],
+                Some(vec![p("/c.mkv")]),
+                "/a.mkv",
+                &entries,
+                &mut HashSet::new(),
+                &tpos,
+                &durs,
+            ),
+            vec![p("/c.mkv"), p("/b.mkv")]
         );
-        assert_eq!(lucky[0], p("/c.mkv"));
-        assert_eq!(lucky[1], p("/b.mkv"));
     }
 
     #[test]
@@ -154,34 +178,35 @@ mod tests {
         ];
         let (tpos, durs) = empty_maps();
         let mut seen = HashSet::from(["f:/a.mkv".into(), "f:/b.mkv".into()]);
-        let mut lucky = vec![p("/a.mkv"), p("/b.mkv")];
-        let mut next = None;
-        fill_lucky_gap(
-            &mut lucky,
-            &mut next,
-            &p("/a.mkv"),
-            &entries,
-            &mut seen,
-            &tpos,
-            &durs,
+        assert_eq!(
+            run_fill(
+                vec![p("/a.mkv"), p("/b.mkv")],
+                None,
+                "/a.mkv",
+                &entries,
+                &mut seen,
+                &tpos,
+                &durs,
+            ),
+            vec![p("/c.mkv"), p("/b.mkv")]
         );
-        assert_eq!(lucky, vec![p("/c.mkv"), p("/b.mkv")]);
     }
 
     #[test]
     fn fill_gap_stays_short_when_nothing_left() {
         let entries = [entry("/a.mkv", false), entry("/b.mkv", true)];
         let (tpos, durs) = empty_maps();
-        let mut lucky = vec![p("/a.mkv"), p("/b.mkv")];
-        fill_lucky_gap(
-            &mut lucky,
-            &mut None,
-            &p("/a.mkv"),
-            &entries,
-            &mut HashSet::new(),
-            &tpos,
-            &durs,
+        assert_eq!(
+            run_fill(
+                vec![p("/a.mkv"), p("/b.mkv")],
+                None,
+                "/a.mkv",
+                &entries,
+                &mut HashSet::new(),
+                &tpos,
+                &durs,
+            ),
+            vec![p("/b.mkv")]
         );
-        assert_eq!(lucky, vec![p("/b.mkv")]);
     }
 }

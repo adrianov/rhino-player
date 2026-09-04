@@ -50,11 +50,10 @@ fn sync_window_title_from_context(ctx: &Rc<TransportCtx>) {
     let Some(path) = path else {
         return;
     };
-    let ttl = crate::playback_entity::window_title_for(&path);
     sync_app_window_title(
         &ctx.eof.win,
         ctx.eof.hdr_title_mirror.as_deref(),
-        Some(&ttl),
+        Some(&crate::playback_entity::window_title_for(&path)),
     );
 }
 

@@ -23,8 +23,10 @@ fn card_background(d: &CardData, miss: bool) -> gtk::Widget {
         return full_bleed_icon("image-missing-symbolic");
     }
     if let Some(ref bytes) = d.thumb {
-        let key = crate::db::history_key(&d.path).unwrap_or_default();
-        if let Some(tex) = crate::thumb_texture::texture_from_thumb_cached(&key, bytes.as_slice()) {
+        if let Some(tex) = crate::thumb_texture::texture_from_thumb_cached(
+            &crate::db::history_key(&d.path).unwrap_or_default(),
+            bytes.as_slice(),
+        ) {
             return crate::thumb_texture::cover_picture(&tex).upcast();
         }
     }

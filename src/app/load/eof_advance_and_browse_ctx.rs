@@ -1,10 +1,11 @@
 fn nudge_mpv_volume(mpv: &Mpv, delta: f64) {
-    let max = mpv
-        .get_property::<f64>("volume-max")
-        .unwrap_or(100.0)
-        .max(1.0);
-    let cur = mpv.get_property::<f64>("volume").unwrap_or(0.0);
-    let nv = (cur + delta).clamp(0.0, max);
+    let nv = (mpv.get_property::<f64>("volume").unwrap_or(0.0) + delta).clamp(
+        0.0,
+        mpv
+            .get_property::<f64>("volume-max")
+            .unwrap_or(100.0)
+            .max(1.0),
+    );
     let _ = mpv.set_property("volume", nv);
     if nv > 0.5 {
         let _ = mpv.set_property("mute", false);

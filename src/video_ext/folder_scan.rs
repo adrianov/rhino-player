@@ -89,10 +89,10 @@ mod tests {
     fn natural_order_lists_episodes() {
         let dir = scratch("nat");
         write_videos(&dir, &["ep10.mkv", "ep2.mkv", "ep1.mkv"]);
-        let listed = list_videos_in_dir(&dir).unwrap();
-        let names: Vec<_> = listed
-            .iter()
-            .filter_map(|p| p.file_name()?.to_str())
+        let names: Vec<_> = list_videos_in_dir(&dir)
+            .unwrap()
+            .into_iter()
+            .filter_map(|p| p.file_name()?.to_str().map(str::to_owned))
             .collect();
         assert_eq!(names, ["ep1.mkv", "ep2.mkv", "ep10.mkv"]);
         let _ = fs::remove_dir_all(&dir);

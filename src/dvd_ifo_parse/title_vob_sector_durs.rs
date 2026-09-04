@@ -19,8 +19,7 @@ pub(super) fn map_cells_by_sector(cells: &[TitleCell], paths: &[PathBuf]) -> Opt
 fn file_sector_bounds(paths: &[PathBuf]) -> Option<Vec<u64>> {
     let mut bounds = vec![0_u64];
     for path in paths {
-        let bytes = path.metadata().ok()?.len();
-        let last = bounds.last()?.checked_add(bytes / DVD_SECTOR_BYTES)?;
+        let last = bounds.last()?.checked_add(path.metadata().ok()?.len() / DVD_SECTOR_BYTES)?;
         bounds.push(last);
     }
     (bounds.len() > 1).then_some(bounds)

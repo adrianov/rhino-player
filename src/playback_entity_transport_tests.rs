@@ -34,8 +34,12 @@ fn tbar_mkv(mkv_base: &std::path::Path) -> std::path::PathBuf {
 fn tbar_bar(p1: &std::path::Path) -> crate::dvd_vob_timeline::DvdBarState {
     let mut map = std::collections::HashMap::new();
     map.insert(p1.to_string_lossy().into_owned(), 100.0);
-    let p2 = p1.with_file_name("VTS_02_2.VOB");
-    map.insert(p2.to_string_lossy().into_owned(), 200.0);
+    map.insert(
+        p1.with_file_name("VTS_02_2.VOB")
+            .to_string_lossy()
+            .into_owned(),
+        200.0,
+    );
     crate::dvd_vob_timeline::DvdBarState::build_with_map(p1, 100.0, &map).expect("bar")
 }
 

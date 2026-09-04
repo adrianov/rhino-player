@@ -86,8 +86,7 @@ fn drop_and_scan_subtitles(
 
 /// Queues every path past the first for the playlist once the player exists.
 fn append_playlist_tail(media: Vec<PathBuf>, player: &Rc<RefCell<Option<MpvBundle>>>) {
-    let extra = media.len().saturating_sub(1);
-    if extra == 0 || player.borrow().is_none() {
+    if media.len().saturating_sub(1) == 0 || player.borrow().is_none() {
         return;
     }
     let tail = media[1..].to_vec();

@@ -33,6 +33,8 @@ fn show_fs_wall_clock_fullscreen(
     let fc = lbl.clone();
     let fts = tick_slot.clone();
     let wo = win.clone();
-    let id = glib::timeout_add_seconds_local(1, move || fs_clock_timer_step(&wo, &fts, &fc));
-    *tick_slot.borrow_mut() = Some(id);
+    *tick_slot.borrow_mut() = Some(glib::timeout_add_seconds_local(
+        1,
+        move || fs_clock_timer_step(&wo, &fts, &fc),
+    ));
 }

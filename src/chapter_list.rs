@@ -82,8 +82,7 @@ unsafe fn parse_chapter_map(entry: &libmpv2_sys::mpv_node) -> Option<(f64, Strin
     let mut fields = ChapterFields::default();
     for (key_ptr, vn) in keys.iter().zip(vals.iter()) {
         if !key_ptr.is_null() {
-            let key = unsafe { CStr::from_ptr(*key_ptr) }.to_bytes();
-            fields.absorb(key, vn);
+            fields.absorb(unsafe { CStr::from_ptr(*key_ptr) }.to_bytes(), vn);
         }
     }
     Some((fields.time?, fields.title))

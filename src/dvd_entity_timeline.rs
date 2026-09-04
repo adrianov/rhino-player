@@ -36,11 +36,13 @@ pub(crate) fn playback_snapshot(
         live_dur,
         TimelineBuildOpts::CACHE_ONLY,
     )?;
-    let local =
-        crate::dvd_vob_timeline::timeline_local_from_mpv(&tl, chapter, local_pos, local_dur);
-    let global = tl.global_pos(chapter, local);
-    let total = tl.total_sec.max(live_dur);
-    Some((total, global))
+    Some((
+        tl.total_sec.max(live_dur),
+        tl.global_pos(
+            chapter,
+            crate::dvd_vob_timeline::timeline_local_from_mpv(&tl, chapter, local_pos, local_dur),
+        ),
+    ))
 }
 
 /// Continue-grid / `vo=image` target: `.vob` file, local offset, and segment length cap.
@@ -76,10 +78,9 @@ fn still_target_at_chapter(
     } else {
         local + 1.0
     };
-    let local_sec = crate::seek_bar_preview::cap_preview_seek_time(local, cap);
     Some(DvdStillTarget {
         load,
-        local_sec,
+        local_sec: crate::seek_bar_preview::cap_preview_seek_time(local, cap),
         chapter_dur,
     })
 }
@@ -93,9 +94,12 @@ pub(crate) fn resume_still_target_from_global(
     dur_by_path: &HashMap<String, f64>,
 ) -> Option<DvdStillTarget> {
     let t0 = std::time::Instant::now();
-    let live = chapter_dur_from_map(chapter, dur_by_path);
-    let Some(mut tl) =
-        build_title_timeline_with(chapter, dur_by_path, live, TimelineBuildOpts::CACHE_ONLY)
+    let Some(mut tl) = build_title_timeline_with(
+        chapter,
+        dur_by_path,
+        chapter_dur_from_map(chapter, dur_by_path),
+        TimelineBuildOpts::CACHE_ONLY,
+    )
     else {
         crate::dvd_vob_log::resume_open_log(format!(
             "resume_still no timeline chapter={}",
@@ -111,8 +115,7 @@ pub(crate) fn resume_still_target_from_global(
     tl.scrub_implausible_durs();
     tl.infer_missing_from_siblings();
     log_resume_probe(t0, probed, global_sec, chapter);
-    let g = global_sec.clamp(0.0, tl.total_sec);
-    let (idx, local) = tl.resolve_global(g);
+    let (idx, local) = tl.resolve_global(global_sec.clamp(0.0, tl.total_sec));
     still_target_at_chapter(&tl, idx, local, dur_by_path, None)
 }
 

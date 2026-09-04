@@ -7,9 +7,10 @@ pub fn publish_smooth_env_before_load(
     v: &crate::db::VideoPrefs,
     clear_source_fps: bool,
 ) {
-    let global = v.smooth_max_area.max(crate::db::MIN_SMOOTH_MAX_AREA);
-    let cap = crate::db::resolve_media_smooth_me_budget(Some(path), global);
-    crate::paths::publish_smooth_me_budget_env(cap);
+    crate::paths::publish_smooth_me_budget_env(crate::db::resolve_media_smooth_me_budget(
+        Some(path),
+        v.smooth_max_area.max(crate::db::MIN_SMOOTH_MAX_AREA),
+    ));
     if clear_source_fps {
         std::env::remove_var(crate::paths::RHINO_SOURCE_FPS_VAR);
     }

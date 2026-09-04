@@ -23,10 +23,12 @@ fn probe_libmpv() -> Result<String, String> {
 fn probe_vapoursynth_filter() -> Result<String, String> {
     let mut mpv = headless_mpv().map_err(|e| format!("init failed: {e}"))?;
     request_mpv_warn_logs(&mpv);
-    let cmd_ok = mpv
-        .command("vf", &["add", "vapoursynth=file=/nonexistent-rhino-diag.vpy"])
-        .is_ok();
-    classify_vs_filter_probe(cmd_ok, &drain_mpv_log_lines(&mut mpv))
+    classify_vs_filter_probe(
+        mpv
+            .command("vf", &["add", "vapoursynth=file=/nonexistent-rhino-diag.vpy"])
+            .is_ok(),
+        &drain_mpv_log_lines(&mut mpv),
+    )
 }
 
 fn request_mpv_warn_logs(mpv: &Mpv) {

@@ -64,12 +64,14 @@ fn matched_sub_label(
     used: &mut [bool],
 ) -> Option<String> {
     let slot_byte = crate::dvd_ifo_parse::sub_slot_for_src_id(&s.sub, sub_stream_src_id(n), index)?;
-    let idx = s
-        .sub
-        .iter()
-        .position(|r| r.slot == slot_byte)
-        .unwrap_or(index);
-    crate::dvd_ifo_parse::match_sub_label(&s.sub, idx, used)
+    crate::dvd_ifo_parse::match_sub_label(
+        &s.sub,
+        s.sub
+            .iter()
+            .position(|r| r.slot == slot_byte)
+            .unwrap_or(index),
+        used,
+    )
 }
 
 fn mpv_sub_row(
@@ -110,8 +112,7 @@ fn mpv_sub_rows(
         if n.kind != "sub" {
             continue;
         }
-        let row = mpv_sub_row(n, ifo, v.len(), &mut used);
-        v.push(row);
+        v.push(mpv_sub_row(n, ifo, v.len(), &mut used));
     }
     apply_sub_label_disambiguation(&mut v);
     v

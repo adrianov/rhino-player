@@ -6,8 +6,7 @@ struct BlackoutToolbar {
 fn build_blackout_toolbar(enabled: bool) -> BlackoutToolbar {
     let btn = build_blackout_btn();
     let readout = build_blackout_readout();
-    let face = build_blackout_face(&readout);
-    btn.set_child(Some(&face));
+    btn.set_child(Some(&build_blackout_face(&readout)));
     sync_blackout_btn(&btn, &readout, enabled);
 
     BlackoutToolbar { btn, readout }

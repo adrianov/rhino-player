@@ -31,12 +31,10 @@ fn schedule_leave_fs_idle_linux(
     let _ = glib::source::idle_add_local_once(move || {
         fs_on_exit_pause(&play_leave, pause_leave.as_ref());
         restore_windowed_size(&fr_leave, &lu_leave, &w_leave);
-        let w2 = w_leave;
-        let skip2 = skip_leave;
-        let tch2 = tch_leave;
+        let w_chrome = w_leave.clone();
         glib::source::idle_add_local_once(move || {
-            skip2.set(false);
-            tch2(&w2);
+            skip_leave.set(false);
+            tch_leave(&w_chrome);
         });
     });
 }

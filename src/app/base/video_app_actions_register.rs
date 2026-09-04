@@ -78,7 +78,7 @@ fn register_smooth_60_action(
     smooth_toolbar_btn: Option<gtk::Button>,
     smooth_toolbar_status: Option<gtk::Label>,
 ) {
-    let smooth_60 = build_smooth_60_action(
+    app.add_action(&build_smooth_60_action(
         app,
         gl_area,
         player,
@@ -86,8 +86,7 @@ fn register_smooth_60_action(
         initial_on,
         &smooth_toolbar_btn,
         &smooth_toolbar_status,
-    );
-    app.add_action(&smooth_60);
+    ));
     if let Some(btn) = &smooth_toolbar_btn {
         wire_smooth_toolbar_button(
             app,

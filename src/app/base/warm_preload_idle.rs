@@ -42,8 +42,7 @@ pub(crate) fn warm_preload_hold_browse_pause(
     player: &Rc<RefCell<Option<MpvBundle>>>,
     gl: &gtk::GLArea,
 ) {
-    let hold = WARM_CTX.with(|s| s.borrow().as_ref().is_some_and(|c| c.recent.is_visible()));
-    if !hold {
+    if !WARM_CTX.with(|s| s.borrow().as_ref().is_some_and(|c| c.recent.is_visible())) {
         return;
     }
     if let Ok(g) = player.try_borrow() {
@@ -115,8 +114,11 @@ fn warm_preload_apply_resume_audio(
             let shell_ref = shell.as_deref();
             crate::audio_tracks::restore_saved_audio(&b.mpv, shell_ref);
             crate::audio_tracks::ensure_playable_audio(&b.mpv, shell_ref);
-            let pr = crate::db::load_sub();
-            let _ = crate::sub_tracks::restore_saved_sub(&b.mpv, &pr, shell_ref);
+            let _ = crate::sub_tracks::restore_saved_sub(
+                &b.mpv,
+                &crate::db::load_sub(),
+                shell_ref,
+            );
             // Resume seek after track restore so the seek re-aligns A/V for the reopened decoder.
             b.apply_pending_resume();
         }

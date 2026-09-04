@@ -57,8 +57,7 @@ fn pick_main_prefers_largest_title_by_bytes() {
 #[test]
 fn fritt_dvd9_opens_main_vts01() {
     let disc = std::path::Path::new("/Volumes/SanDisk/Torrents/Fritt.vilt.2006.DVD9");
-    let vts = disc.join("VIDEO_TS");
-    if !vts.is_dir() {
+    if !disc.join("VIDEO_TS").is_dir() {
         return;
     }
     let main = dvd_main_chapter_vob(disc).expect("main");

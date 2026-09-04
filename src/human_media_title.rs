@@ -152,8 +152,7 @@ fn compose_tail(mut base: String, tail: Tail) -> String {
 }
 
 fn naive_fallback(trimmed: &str) -> String {
-    let no_ext = patterns().strip_ext.replace(trimmed, "");
-    collapse_ws(&no_ext.trim().replace(['.', '_'], " "))
+    collapse_ws(&patterns().strip_ext.replace(trimmed, "").trim().replace(['.', '_'], " "))
 }
 
 fn strip_extension_owned(name: String) -> String {
@@ -173,8 +172,7 @@ fn collapse_ws(s: &str) -> String {
 }
 
 fn collapse_ws_inplace(s: &mut String) {
-    let t = split_join_spaces(s);
-    *s = t;
+    *s = split_join_spaces(s);
 }
 
 fn split_join_spaces(s: &str) -> String {

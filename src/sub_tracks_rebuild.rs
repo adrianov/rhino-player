@@ -39,8 +39,7 @@ fn apply_sub_pick(mpv: &Mpv, req: &SubPickRequest<'_>) {
 /// Currently active mpv subtitle id plus its DVD IFO slot (when the entity is a DVD).
 fn active_sub_want(mpv: &Mpv, shell_ref: Option<&std::path::Path>) -> (Option<i64>, Option<u8>) {
     let want = current_sid(mpv);
-    let want_slot = want.and_then(|sid| ifo_slot_for_sid(mpv, sid, shell_ref));
-    (want, want_slot)
+    (want, want.and_then(|sid| ifo_slot_for_sid(mpv, sid, shell_ref)))
 }
 
 /// **Off** row plus one row per sub track.
@@ -53,8 +52,11 @@ fn build_sub_items(
     let mut items: Vec<(i64, Option<u8>, gtk::CheckButton)> = Vec::new();
     items.push((-1, None, off_row_button(wiring, on_sub_off)));
     for r in rows {
-        let btn = sub_row_button(wiring, on_pick.as_ref().map(Rc::clone), r);
-        items.push((r.id, r.ifo_slot, btn));
+        items.push((
+            r.id,
+            r.ifo_slot,
+            sub_row_button(wiring, on_pick.as_ref().map(Rc::clone), r),
+        ));
     }
     items
 }

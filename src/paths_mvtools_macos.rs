@@ -70,8 +70,9 @@ fn macos_homebrew_mvtools() -> Option<PathBuf> {
         if legacy.is_file() {
             return Some(canon_mvtools(legacy));
         }
-        let opt_lib = Path::new(prefix).join("opt/vapoursynth-mvtools/lib");
-        if let Some(p) = mvtools_in_vapoursynth_plugins(&opt_lib) {
+        if let Some(p) = mvtools_in_vapoursynth_plugins(
+            &Path::new(prefix).join("opt/vapoursynth-mvtools/lib"),
+        ) {
             return Some(p);
         }
         if let Some(p) = homebrew_cellar_mvtools(prefix) {
@@ -84,8 +85,7 @@ fn macos_homebrew_mvtools() -> Option<PathBuf> {
 /// Versioned `Cellar/vapoursynth-mvtools/<ver>/lib` layout.
 #[cfg(target_os = "macos")]
 fn homebrew_cellar_mvtools(prefix: &str) -> Option<PathBuf> {
-    let cellar = Path::new(prefix).join("Cellar/vapoursynth-mvtools");
-    let vers = std::fs::read_dir(cellar).ok()?;
+    let vers = std::fs::read_dir(Path::new(prefix).join("Cellar/vapoursynth-mvtools")).ok()?;
     vers.flatten()
         .find_map(|ver| mvtools_in_vapoursynth_plugins(&ver.path().join("lib")))
 }

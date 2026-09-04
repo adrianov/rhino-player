@@ -42,9 +42,10 @@ fn put_setting(key: &str, val: &str) {
 
 /// Last saved `libmpv` `volume` (0…`volume-max`, typically 0…100) and `mute` from the previous run.
 pub fn load_audio() -> (f64, bool) {
-    let vol = with_conn(|c| Ok(parse_stored_volume(raw_setting(c, K_VOL)?))).unwrap_or(100.0);
-    let mute = with_conn(|c| Ok(stored_bool(raw_setting(c, K_MUTE)?, false))).unwrap_or(false);
-    (vol, mute)
+    (
+        with_conn(|c| Ok(parse_stored_volume(raw_setting(c, K_VOL)?))).unwrap_or(100.0),
+        with_conn(|c| Ok(stored_bool(raw_setting(c, K_MUTE)?, false))).unwrap_or(false),
+    )
 }
 
 pub fn save_audio(volume: f64, muted: bool) {

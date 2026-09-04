@@ -6,9 +6,8 @@ fn vol_pop_show_tracks_impl(
     sec: &gtk::Box,
     vol_menu: &gtk::MenuButton,
 ) {
-    let show = audio_tracks::rebuild_popover(p, bx, blk, gla, Some(vol_menu));
     audio_tracks::refresh_audio_tooltip_for_player(p, vol_menu);
-    sec.set_visible(show);
+    sec.set_visible(audio_tracks::rebuild_popover(p, bx, blk, gla, Some(vol_menu)));
 }
 
 fn vol_pop_show_tracks(
@@ -32,8 +31,7 @@ struct TrackPopRefs<'a> {
 }
 
 fn sub_pop_show_tracks_impl(t: TrackPopRefs<'_>, parts: sub_tracks::SubPopoverParts) {
-    let show = sub_tracks::rebuild_popover(t.p, t.bx, t.blk, t.gla, parts);
-    t.sec.set_visible(show);
+    t.sec.set_visible(sub_tracks::rebuild_popover(t.p, t.bx, t.blk, t.gla, parts));
 }
 
 fn sub_pop_show_tracks(
@@ -129,17 +127,18 @@ fn make_sub_show_hook(
 fn make_sub_pref_hooks(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> SubPrefHooks {
     let sp_pick = sub_pref.clone();
     let sp_off = sub_pref.clone();
-    let on_pick: SubPickHook = Rc::new(move |label: &str| {
-        let mut s = sp_pick.borrow_mut();
-        s.last_sub_label = label.to_string();
-        s.sub_off = false;
-        db::save_sub(&s);
-    });
-    let on_off: PopShowHook = Rc::new(move || {
-        sp_off.borrow_mut().sub_off = true;
-        db::save_sub(&sp_off.borrow());
-    });
-    (on_pick, on_off)
+    (
+        Rc::new(move |label: &str| {
+            let mut s = sp_pick.borrow_mut();
+            s.last_sub_label = label.to_string();
+            s.sub_off = false;
+            db::save_sub(&s);
+        }),
+        Rc::new(move || {
+            sp_off.borrow_mut().sub_off = true;
+            db::save_sub(&sp_off.borrow());
+        }),
+    )
 }
 
 fn open_sub_tracks(

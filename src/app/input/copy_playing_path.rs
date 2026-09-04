@@ -65,8 +65,9 @@ fn clipboard_put_file_macos(path: &Path) -> bool {
     }
     let pb = NSPasteboard::generalPasteboard();
     pb.clearContents();
-    let writer = ProtocolObject::<dyn NSPasteboardWriting>::from_retained(url);
-    if !pb.writeObjects(&NSArray::from_retained_slice(&[writer])) {
+    if !pb.writeObjects(&NSArray::from_retained_slice(&[ProtocolObject::<
+        dyn NSPasteboardWriting,
+    >::from_retained(url)])) {
         eprintln!("[rhino] copy-file: NSPasteboard writeObjects failed path={}", path.display());
         return false;
     }
@@ -83,9 +84,11 @@ fn clipboard_put_file_gdk(path: &Path) -> bool {
         eprintln!("[rhino] copy-file: no display");
         return false;
     };
-    let list = gtk::gdk::FileList::from_array(&[gio::File::for_path(path)]);
-    let provider = gtk::gdk::ContentProvider::for_value(&list.to_value());
-    if let Err(e) = display.clipboard().set_content(Some(&provider)) {
+    if let Err(e) = display
+        .clipboard()
+        .set_content(Some(&gtk::gdk::ContentProvider::for_value(
+            &gtk::gdk::FileList::from_array(&[gio::File::for_path(path)]).to_value(),
+        ))) {
         eprintln!("[rhino] copy-file: set_content failed path={} err={e}", path.display());
         return false;
     }

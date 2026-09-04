@@ -126,8 +126,7 @@ fn collect_events(ctx: &Rc<TransportCtx>) -> Vec<TransportEv> {
     let Some(b) = g.as_mut() else {
         return out;
     };
-    let saw_err = drained_transport_events(b, &mut out);
-    if saw_err {
+    if drained_transport_events(b, &mut out) {
         out.push(TransportEv::LoadFailed);
     }
     out

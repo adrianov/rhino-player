@@ -3,8 +3,7 @@
 impl DvdBarState {
     #[must_use]
     pub fn build(chapter: &Path, live_dur: f64) -> Option<Self> {
-        let map = crate::db::load_duration_map();
-        Self::build_with_map(chapter, live_dur, &map)
+        Self::build_with_map(chapter, live_dur, &crate::db::load_duration_map())
     }
 
     pub(crate) fn build_with_map(
@@ -27,8 +26,10 @@ impl DvdBarState {
         opts: crate::dvd_entity::TimelineBuildOpts,
     ) -> Option<Self> {
         let tl = crate::dvd_entity::build_title_timeline_with(chapter, map, live_dur, opts)?;
-        let chapter_labels = chapter_labels_for_timeline(&tl);
-        Some(Self { tl, chapter_labels })
+        Some(Self {
+            chapter_labels: chapter_labels_for_timeline(&tl),
+            tl,
+        })
     }
 
     #[must_use]

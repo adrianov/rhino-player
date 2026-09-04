@@ -147,8 +147,12 @@ mod tests {
         write_vobs(&vts, &["VTS_01_1.VOB", "VTS_01_2.VOB"]);
         let p1 = vts.join("VTS_01_1.VOB");
         let p2 = vts.join("VTS_01_2.VOB");
-        let map = dur_map(&[(&p1, 100.0), (&p2, 50.0)]);
-        let tl = DvdVobTimeline::from_title_vobs(&p1, &map, 100.0).expect("tl");
+        let tl = DvdVobTimeline::from_title_vobs(
+            &p1,
+            &dur_map(&[(&p1, 100.0), (&p2, 50.0)]),
+            100.0,
+        )
+        .expect("tl");
         assert_close(tl.total_sec, 150.0);
         assert_close(tl.global_pos(&p2, 10.0), 110.0);
         assert_resolve_is(&tl, 110.0, 1, 10.0);
@@ -182,8 +186,9 @@ mod tests {
         assert!(list
             .iter()
             .all(|p| crate::dvd_entity::vob_title_id(p) == Some(2)));
-        let all = crate::dvd_entity::timeline_chapter_paths(&p21).expect("timeline");
-        assert_timeline_spans_feature_sets(&all);
+        assert_timeline_spans_feature_sets(
+            &crate::dvd_entity::timeline_chapter_paths(&p21).expect("timeline"),
+        );
         rm_rf(&base);
     }
 
@@ -200,14 +205,17 @@ mod tests {
             ],
         );
         let p21 = vts.join("VTS_02_1.VOB");
-        let p31 = vts.join("VTS_03_1.VOB");
-        let map = dur_map(&[
-            (&p21, 100.0),
-            (&vts.join("VTS_02_2.VOB"), 50.0),
-            (&p31, 200.0),
-            (&vts.join("VTS_03_2.VOB"), 80.0),
-        ]);
-        let tl = DvdVobTimeline::from_title_vobs(&p21, &map, 100.0).expect("tl");
+        let tl = DvdVobTimeline::from_title_vobs(
+            &p21,
+            &dur_map(&[
+                (&p21, 100.0),
+                (&vts.join("VTS_02_2.VOB"), 50.0),
+                (&vts.join("VTS_03_1.VOB"), 200.0),
+                (&vts.join("VTS_03_2.VOB"), 80.0),
+            ]),
+            100.0,
+        )
+        .expect("tl");
         assert_close(tl.total_sec, 430.0);
         assert_resolve_is(&tl, 150.0, 2, 0.0);
         rm_rf(&base);
@@ -218,10 +226,16 @@ mod tests {
         let (base, vts) = temp_vts("tl-total");
         write_vobs(&vts, &["VTS_02_1.VOB", "VTS_02_2.VOB"]);
         let p1 = vts.join("VTS_02_1.VOB");
-        let p2 = vts.join("VTS_02_2.VOB");
-        let map = dur_map(&[(&p1, 100.0), (&p2, 50.0)]);
-        let tl = DvdVobTimeline::from_title_vobs(&p1, &map, 100.0).expect("tl");
-        assert_close(tl.total_sec, 150.0);
+        assert_close(
+            DvdVobTimeline::from_title_vobs(
+                &p1,
+                &dur_map(&[(&p1, 100.0), (&vts.join("VTS_02_2.VOB"), 50.0)]),
+                100.0,
+            )
+            .expect("tl")
+            .total_sec,
+            150.0,
+        );
         rm_rf(&base);
     }
 
@@ -259,10 +273,17 @@ mod tests {
         let (base, vts) = temp_vts("prev-cap");
         write_vobs(&vts, &["VTS_02_1.VOB", "VTS_02_2.VOB"]);
         let p1 = vts.join("VTS_02_1.VOB");
-        let map = dur_map(&[(&p1, 100.0), (&vts.join("VTS_02_2.VOB"), 50.0)]);
-        let bar = DvdBarState::build(&p1, 100.0).expect("bar");
-        let dur = preview_chapter_dur(&bar, 90.0, 0, 90.0, &p1, &map);
-        assert_close(dur, 100.0);
+        assert_close(
+            preview_chapter_dur(
+                &DvdBarState::build(&p1, 100.0).expect("bar"),
+                90.0,
+                0,
+                90.0,
+                &p1,
+                &dur_map(&[(&p1, 100.0), (&vts.join("VTS_02_2.VOB"), 50.0)]),
+            ),
+            100.0,
+        );
         rm_rf(&base);
     }
 
@@ -287,8 +308,11 @@ mod tests {
         let (base, vts) = temp_vts("noanchor");
         fs::write(vts.join("VTS_02_1.VOB"), vec![0u8; 1000]).expect("write");
         fs::write(vts.join("VTS_02_2.VOB"), vec![0u8; 2000]).expect("write");
-        let p1 = vts.join("VTS_02_1.VOB");
-        let tl = DvdVobTimeline::from_title_vobs(&p1, &HashMap::new(), 0.0);
+        let tl = DvdVobTimeline::from_title_vobs(
+            &vts.join("VTS_02_1.VOB"),
+            &HashMap::new(),
+            0.0,
+        );
         assert!(
             tl.is_none(),
             "invalid .vob bytes must not invent a timeline"
@@ -338,13 +362,12 @@ mod tests {
             list.len()
         );
         crate::dvd_vob_mpv_probe::clear_probe_cache();
-        let map = dur_map(&[(
-            &crate::video_ext::dvd_disc_root(&vob).expect("disc"),
-            1131.1,
-        )]);
         let tl = DvdVobTimeline::from_title_vobs_with(
             &vob,
-            &map,
+            &dur_map(&[(
+                &crate::video_ext::dvd_disc_root(&vob).expect("disc"),
+                1131.1,
+            )]),
             1129.0,
             crate::dvd_entity::TimelineBuildOpts::FULL,
         )
@@ -412,9 +435,12 @@ mod tests {
         let (base, vts) = temp_vts("win");
         write_vobs(&vts, &["VTS_01_1.VOB", "VTS_01_2.VOB"]);
         let p1 = vts.join("VTS_01_1.VOB");
-        let p2 = vts.join("VTS_01_2.VOB");
-        let map = dur_map(&[(&p1, 100.0), (&p2, 40.0)]);
-        let tl = DvdVobTimeline::from_title_vobs(&p1, &map, 100.0).expect("tl");
+        let tl = DvdVobTimeline::from_title_vobs(
+            &p1,
+            &dur_map(&[(&p1, 100.0), (&vts.join("VTS_01_2.VOB"), 40.0)]),
+            100.0,
+        )
+        .expect("tl");
         assert_resolve_is(&tl, 105.0, 1, 5.0);
         assert_resolve_index(&tl, 10.0, 0);
         rm_rf(&base);
@@ -426,8 +452,12 @@ mod tests {
         write_vobs(&vts, &["VTS_02_1.VOB", "VTS_02_2.VOB"]);
         let p1 = vts.join("VTS_02_1.VOB");
         let p2 = vts.join("VTS_02_2.VOB");
-        let map = dur_map(&[(&p1, 1102.3), (&p2, 1100.0)]);
-        let tl = DvdVobTimeline::from_title_vobs(&p1, &map, 1102.3).expect("tl");
+        let tl = DvdVobTimeline::from_title_vobs(
+            &p1,
+            &dur_map(&[(&p1, 1102.3), (&p2, 1100.0)]),
+            1102.3,
+        )
+        .expect("tl");
         assert_eof_advances(&tl, &p1, 1104.78, &p2, 2.53, 1104.83, "continue");
         let (_, local0, _) = eof_continue(&tl, &p1, 1102.3, "at stored end");
         assert!(local0 < 0.1, "stored end lands at next vob start");
@@ -439,8 +469,12 @@ mod tests {
         let p1 = vts.join("VTS_01_1.VOB");
         let p2 = vts.join("VTS_01_2.VOB");
         let p6 = vts.join("VTS_01_6.VOB");
-        let map = dur_map(&[(&p1, 1062.12), (&p2, 1069.92), (&p6, 487.6)]);
-        let tl = DvdVobTimeline::from_title_vobs(&p1, &map, 90_658.28).expect("tl");
+        let tl = DvdVobTimeline::from_title_vobs(
+            &p1,
+            &dur_map(&[(&p1, 1062.12), (&p2, 1069.92), (&p6, 487.6)]),
+            90_658.28,
+        )
+        .expect("tl");
         let mpv_dur = 90_658.28;
         let seg = 1062.12;
         let mpv_pos_mid = chain_head_ifo_local_to_mpv(1056.09, mpv_dur, seg, true);
@@ -511,8 +545,12 @@ mod tests {
         let (base, vts) = temp_vts("eof");
         write_vobs(&vts, &["VTS_02_1.VOB", "VTS_02_2.VOB"]);
         let p1 = vts.join("VTS_02_1.VOB");
-        let map = dur_map(&[(&p1, 1105.0)]);
-        let tl = DvdVobTimeline::from_title_vobs(&p1, &map, 1105.0).expect("tl");
+        let tl = DvdVobTimeline::from_title_vobs(
+            &p1,
+            &dur_map(&[(&p1, 1105.0)]),
+            1105.0,
+        )
+        .expect("tl");
         assert!(
             tl.next_chapter_after(&p1).is_some(),
             "second chapter must remain reachable when total equals first chapter only"
@@ -535,8 +573,12 @@ mod tests {
 
     fn assert_short_chapter_bar_stale(vts: &std::path::Path) {
         let p1 = vts.join("VTS_02_1.VOB");
-        let map = dur_map(&[(&p1, 1000.0)]);
-        let bar_one = DvdBarState::build_with_map(&p1, 1000.0, &map).expect("bar one");
+        let bar_one = DvdBarState::build_with_map(
+            &p1,
+            1000.0,
+            &dur_map(&[(&p1, 1000.0)]),
+        )
+        .expect("bar one");
         assert!(bar_cache_stale(&bar_one, 1000.0, 5, Some(&p1)));
     }
 
@@ -556,8 +598,7 @@ mod tests {
     fn preview_labels_empty_for_single_chapter_vob() {
         let (base, vts) = temp_vts("one-ch");
         write_vob(&vts, "VTS_02_1.VOB");
-        let p1 = vts.join("VTS_02_1.VOB");
-        let bar = DvdBarState::build(&p1, 100.0).expect("bar");
+        let bar = DvdBarState::build(&vts.join("VTS_02_1.VOB"), 100.0).expect("bar");
         assert_eq!(bar.tl.vobs.len(), 1);
         assert!(bar.chapter_preview_labels().is_empty());
         rm_rf(&base);
@@ -565,11 +606,10 @@ mod tests {
 
     /// FULL-probe DVD4 bar over the real persisted duration map.
     fn dvd4_full_bar(vob: &std::path::Path) -> DvdBarState {
-        let map = crate::db::load_duration_map();
         DvdBarState::build_with_map_opts(
             vob,
             1102.0,
-            &map,
+            &crate::db::load_duration_map(),
             crate::dvd_entity::TimelineBuildOpts::FULL,
         )
         .expect("bar")

@@ -104,14 +104,15 @@ fn place_on_mouse_screen(win: &adw::ApplicationWindow) {
     let Some(screen) = screen_under_mouse_or_main() else {
         return;
     };
-    let vis = screen.visibleFrame();
-    let frame = frame_centered_on(
-        vis,
-        nswin.frame(),
-        win.default_width(),
-        win.default_height(),
+    nswin.setFrame_display(
+        frame_centered_on(
+            screen.visibleFrame(),
+            nswin.frame(),
+            win.default_width(),
+            win.default_height(),
+        ),
+        true,
     );
-    nswin.setFrame_display(frame, true);
 }
 
 /// Clamp degenerate frames to sane defaults and center on the target screen's visible area.
@@ -141,8 +142,7 @@ fn screen_under_mouse_or_main() -> Option<objc2::rc::Retained<objc2_app_kit::NSS
 
     let mtm = MainThreadMarker::new()?;
     let loc = NSEvent::mouseLocation();
-    let screens = NSScreen::screens(mtm);
-    if let Some(screen) = screens.iter().find(|s| {
+    if let Some(screen) = NSScreen::screens(mtm).iter().find(|s| {
         let f: NSRect = s.frame();
         loc.x >= f.origin.x
             && loc.x < f.origin.x + f.size.width

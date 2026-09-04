@@ -23,8 +23,7 @@ fn chapter_marks_from_mounted_dvd_sample() {
     if !vob.is_file() {
         return;
     }
-    let disc = vob.parent().unwrap().parent().unwrap();
-    let main = main_title_from_disc(disc).expect("VIDEO_TS.IFO main title");
+    let main = main_title_from_disc(vob.parent().unwrap().parent().unwrap()).expect("VIDEO_TS.IFO main title");
     assert_eq!(main.0, 2, "expected VTS_02 main feature");
     let marks = chapter_marks_from_vob(vob).expect("VTS_02_0.IFO PTT marks");
     assert!(marks.title_sec > 60.0);

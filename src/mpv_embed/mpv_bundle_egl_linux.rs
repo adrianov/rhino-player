@@ -27,11 +27,10 @@ impl MpvBundle {
     fn install_queue_render_callback(render: &mut RenderContext, gl_ptr: usize) {
         let mctx = glib::MainContext::default();
         render.set_update_callback(move || {
-            let p = gl_ptr;
             mctx.clone().invoke(move || {
                 let gl = unsafe {
                     from_glib_borrow::<*mut gtk::ffi::GtkGLArea, gtk::GLArea>(
-                        p as *mut gtk::ffi::GtkGLArea,
+                        gl_ptr as *mut gtk::ffi::GtkGLArea,
                     )
                 };
                 gl.queue_render();

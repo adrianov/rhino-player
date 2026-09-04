@@ -32,8 +32,7 @@ pub(crate) fn cap_preview_seek_time(t: f64, dur: f64) -> f64 {
     if !dur.is_finite() || dur <= 0.0 {
         return 0.0;
     }
-    let margin = (dur * END_MARGIN_FRAC).clamp(END_MARGIN_MIN_SEC, END_MARGIN_MAX_SEC);
-    t.clamp(0.0, (dur - margin).max(0.0))
+    t.clamp(0.0, (dur - (dur * END_MARGIN_FRAC).clamp(END_MARGIN_MIN_SEC, END_MARGIN_MAX_SEC)).max(0.0))
 }
 
 fn hover_cap_duration(
@@ -69,9 +68,10 @@ pub(crate) fn seek_bar_label_time(
     dvd_bar: Option<&std::cell::RefCell<Option<crate::dvd_vob_timeline::DvdBarState>>>,
 ) -> Option<f64> {
     let main_dur = hover_cap_duration(bar_upper, main, shell, preview, dvd_bar)?;
-    let w = f64::from(bar_width.max(1));
-    let raw = (x / w).clamp(0.0, 1.0) * bar_upper;
-    Some(cap_preview_seek_time(raw, main_dur))
+    Some(cap_preview_seek_time(
+        (x / f64::from(bar_width.max(1))).clamp(0.0, 1.0) * bar_upper,
+        main_dur,
+    ))
 }
 
 /// Scale thumb value → same capped seconds as [seek_bar_label_time].

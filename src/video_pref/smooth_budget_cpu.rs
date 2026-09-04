@@ -45,11 +45,12 @@ fn smooth_budget_refresh_process_cpu_frac(st: &mut SmoothBudgetDecoderState) -> 
 fn process_cpu_share_since(now: Instant, cur: u64, t0: Instant, u0: u64) -> f64 {
     let dt = now.saturating_duration_since(t0).as_secs_f64().max(1e-3);
     let du = cur.saturating_sub(u0);
-    let n = std::thread::available_parallelism()
-        .map(|x| x.get() as f64)
-        .unwrap_or(1.0)
-        .max(1.0);
-    let machine_usec = dt * n * 1_000_000.0;
+    let machine_usec = dt
+        * std::thread::available_parallelism()
+            .map(|x| x.get() as f64)
+            .unwrap_or(1.0)
+            .max(1.0)
+        * 1_000_000.0;
     (du as f64) / machine_usec
 }
 

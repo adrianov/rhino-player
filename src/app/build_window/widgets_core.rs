@@ -28,11 +28,9 @@ fn build_playback_chrome_row() -> PlaybackChromeRow {
 
     let (btn_prev, wrap_prev) = wrapped_icon_button("go-previous-symbolic", "rpb-prev");
     let (btn_next, wrap_next) = wrapped_icon_button("go-next-symbolic", "rpb-next");
-    let sibling_nav = SiblingNavUi::new(&btn_prev, &btn_next, &wrap_prev, &wrap_next);
-
     PlaybackChromeRow {
         play_pause,
-        sibling_nav,
+        sibling_nav: SiblingNavUi::new(&btn_prev, &btn_next, &wrap_prev, &wrap_next),
     }
 }
 

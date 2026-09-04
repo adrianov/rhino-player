@@ -45,8 +45,7 @@ fn nswindow_content_height_for<W: IsA<gtk::Widget>>(sizer: &W) -> Option<f64> {
 
 /// Whether the video layer should be visible: sizer visible+mapped, no overlay shown.
 fn target_visible<W: IsA<gtk::Widget>>(sizer: &W, overlay: Option<&gtk::Widget>) -> bool {
-    let overlay_shown = overlay.is_some_and(|w| w.is_visible());
-    sizer.is_visible() && sizer.is_mapped() && !overlay_shown
+    sizer.is_visible() && sizer.is_mapped() && !overlay.is_some_and(|w| w.is_visible())
 }
 
 /// Frame (in window coordinates) + bounds for the layer at sizer position (x, y).
@@ -58,8 +57,7 @@ fn layer_frames<W: IsA<gtk::Widget>>(
 ) -> (NSRect, NSRect) {
     let w = (sizer.width() as f64).max(1.0);
     let h = (sizer.height() as f64).max(1.0);
-    let win_h = nswindow_content_height_for(sizer).unwrap_or_else(|| window.height() as f64);
-    let ns_y = win_h - y - h;
+    let ns_y = nswindow_content_height_for(sizer).unwrap_or_else(|| window.height() as f64) - y - h;
     (
         NSRect::new(NSPoint::new(x, ns_y), NSSize::new(w, h)),
         NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(w, h)),

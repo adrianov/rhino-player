@@ -73,12 +73,14 @@ pub fn needs_playback_speed_env_resync(mpv: &Mpv) -> bool {
         };
         normalized_env_speed(s)
     };
-    let have = std::env::var(RHINO_PLAYBACK_SPEED_VAR)
+    (std::env::var(RHINO_PLAYBACK_SPEED_VAR)
         .ok()
         .and_then(|t| t.parse::<f64>().ok())
         .map(normalized_env_speed)
-        .unwrap_or(1.0);
-    (have - want).abs() > PLAYBACK_1X_EPS
+        .unwrap_or(1.0)
+        - want)
+        .abs()
+        > PLAYBACK_1X_EPS
 }
 
 /// True when the loaded `vf`/decode state no longer matches what [apply_mpv_video] would install:

@@ -20,8 +20,7 @@ impl SiblingSearchState {
         let s3 = Rc::clone(self);
         self.entry.connect_stop_search(move |_| s3.clear_query());
         // Warm the session index off the UI thread (feature 33).
-        let s4 = Rc::clone(self);
-        s4.warm_catalog();
+        Rc::clone(self).warm_catalog();
     }
 
     pub(crate) fn wire_lucky(self: &Rc<Self>, lucky: &gtk::Button) {
@@ -102,7 +101,6 @@ impl SiblingSearchState {
         if let Err(e) = std::thread::Builder::new()
             .name("rhino-search-catalog".into())
             .spawn(move || {
-                let boot = super::super::catalog_boot_from_db(crate::db::files_catalog_epoch());
                 note_filter_done(
                     &inbox,
                     gen,
@@ -112,7 +110,9 @@ impl SiblingSearchState {
                         capped: false,
                         learned: Vec::new(),
                         missing: Vec::new(),
-                        catalog: Some(boot),
+                        catalog: Some(super::super::catalog_boot_from_db(
+                            crate::db::files_catalog_epoch(),
+                        )),
                     },
                 );
             })

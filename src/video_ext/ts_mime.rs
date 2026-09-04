@@ -48,11 +48,12 @@ fn looks_like_text(head: &[u8]) -> bool {
     if n == 0 {
         return false;
     }
-    let textish = head[..n]
+    head[..n]
         .iter()
         .filter(|&&b| b == 9 || b == 10 || b == 13 || (32..=126).contains(&b))
-        .count();
-    textish * 4 >= n * 3
+        .count()
+        * 4
+        >= n * 3
 }
 
 #[cfg(test)]

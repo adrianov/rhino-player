@@ -11,11 +11,8 @@ fn new_notice_toast() -> NoticeToast {
 
     let close = dismiss_button();
 
-    let bar = toast_bar(&label, &close);
-    let shell = toast_shell(&bar, &["rp-notice-shell"]);
-
     NoticeToast {
-        shell,
+        shell: toast_shell(&toast_bar(&label, &close), &["rp-notice-shell"]),
         label,
         close,
     }
@@ -86,10 +83,9 @@ pub struct NoticeToastCtrl {
 
 impl NoticeToastCtrl {
     pub fn new(toast: NoticeToast) -> Rc<Self> {
-        let timer = Rc::new(RefCell::new(None));
         let ctrl = Rc::new(Self {
             toast,
-            timer: Rc::clone(&timer),
+            timer: Rc::new(RefCell::new(None)),
         });
         {
             let c = Rc::clone(&ctrl);

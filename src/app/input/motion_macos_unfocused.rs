@@ -9,8 +9,10 @@ fn wire_macos_gl_cursor_while_unfocused(ctx: &WindowInputCtx) {
     use objc2::runtime::AnyObject;
 
     let cursor = UnfocusedCursor::from_ctx(ctx);
-    let monitor = Rc::new(RefCell::new(None::<Retained<AnyObject>>));
-    let ctl = make_unfocused_monitor_ctl(&monitor, &cursor);
+    let ctl = make_unfocused_monitor_ctl(
+        &Rc::new(RefCell::new(None::<Retained<AnyObject>>)),
+        &cursor,
+    );
 
     wire_unfocused_active_watch(&cursor, &ctl.start, &ctl.stop);
     wire_unfocused_gl_map_watch(&cursor, &ctl.start);

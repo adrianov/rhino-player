@@ -21,9 +21,14 @@ pub(super) fn lucky_picks(
     max: usize,
     seen: &mut HashSet<String>,
 ) -> Vec<PathBuf> {
-    let tpos = crate::db::load_time_pos_map();
-    let durs = crate::db::load_duration_map();
-    lucky_picks_with_seed(entries, max, lucky_seed(), seen, &tpos, &durs)
+    lucky_picks_with_seed(
+        entries,
+        max,
+        lucky_seed(),
+        seen,
+        &crate::db::load_time_pos_map(),
+        &crate::db::load_duration_map(),
+    )
 }
 
 /// Use a reserved handful when it still has playable paths; otherwise roll a new sample.
@@ -73,15 +78,18 @@ pub(super) fn take_ready_then_next(
     if let Some(paths) = ready.take() {
         let open = keep_openable(&paths, index);
         if !open.is_empty() {
-            let next = take_from_titles(titles, max, lucky_seed(), seen);
-            return (open, nonempty(next));
+            return (
+                open,
+                nonempty(take_from_titles(titles, max, lucky_seed(), seen)),
+            );
         }
     }
     let mut pool = prepare_pool(titles, seen);
     fisher_yates(&mut pool, lucky_seed());
-    let shown = take_mark(&mut pool, max, seen);
-    let next = take_mark(&mut pool, max, seen);
-    (shown, nonempty(next))
+    (
+        take_mark(&mut pool, max, seen),
+        nonempty(take_mark(&mut pool, max, seen)),
+    )
 }
 
 fn take_from_titles(
@@ -108,8 +116,7 @@ fn take_mark(
     max: usize,
     seen: &mut HashSet<String>,
 ) -> Vec<PathBuf> {
-    let n = max.min(pool.len());
-    let taken: Vec<_> = pool.drain(..n).collect();
+    let taken: Vec<_> = pool.drain(..max.min(pool.len())).collect();
     remember_seen(&taken, seen);
     taken.into_iter().map(|(_, p)| p).collect()
 }
@@ -428,9 +435,12 @@ mod tests {
             entry("/lib/b.mkv", true),
             entry("/lib/c.mkv", false),
         ];
-        let mut seen = HashSet::new();
-        let mut ready = Some(vec![PathBuf::from("/lib/c.mkv")]);
-        let got = take_ready_or_roll(&mut ready, &entries, 5, &mut seen);
+        let got = take_ready_or_roll(
+            &mut Some(vec![PathBuf::from("/lib/c.mkv")]),
+            &entries,
+            5,
+            &mut HashSet::new(),
+        );
         assert_eq!(got.len(), 2);
         assert!(got.iter().all(|p| p.as_os_str() != "/lib/c.mkv"));
     }

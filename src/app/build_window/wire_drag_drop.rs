@@ -81,8 +81,7 @@ fn connect_window_drop(
     let sub_menu = sub_menu.clone();
     let on_open = Rc::clone(on_open);
     tgt.connect_drop(move |_t, dk, _, _| {
-        let negotiated_ok = dk.formats().match_type(&fm_types).is_valid();
-        if !negotiated_ok && drop_lacks_readable_type(dk) {
+        if !dk.formats().match_type(&fm_types).is_valid() && drop_lacks_readable_type(dk) {
             eprintln!("[rhino] dnd: reject drop (no negotiated type / MIME / file list)");
             return false;
         }

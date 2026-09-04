@@ -77,10 +77,12 @@ fn current_total(slot: &Rc<RefCell<Option<DvdBarState>>>) -> f64 {
 
 /// True when a rebuilt bar's total is implausible against the on-disk segment count.
 fn probe_tail_implausible(bar: &Option<DvdBarState>, chapter: &Path) -> bool {
-    let on_disk_n = crate::dvd_entity::timeline_chapter_paths(chapter)
-        .map(|c| c.len())
-        .unwrap_or(0);
-    implausible_total(bar, on_disk_n)
+    implausible_total(
+        bar,
+        crate::dvd_entity::timeline_chapter_paths(chapter)
+            .map(|c| c.len())
+            .unwrap_or(0),
+    )
 }
 
 fn log_probe_tail_done(slot: &Rc<RefCell<Option<DvdBarState>>>, old_total: f64) {

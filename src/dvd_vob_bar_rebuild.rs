@@ -82,8 +82,7 @@ fn build_sanitized_bar(
         return bar;
     }
     crate::dvd_entity::clear_title_probe_cache(chapter);
-    let reloaded = crate::db::load_duration_map();
-    let bar = DvdBarState::build_with_map(chapter, live, &reloaded);
+    let bar = DvdBarState::build_with_map(chapter, live, &crate::db::load_duration_map());
     if !implausible_total(&bar, on_disk_n) {
         return bar;
     }

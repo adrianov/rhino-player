@@ -20,10 +20,11 @@ pub fn register_hicolor_from_manifest() {
     if !search_path.iter().any(|p| p == &dir) {
         search_path.insert(0, dir);
     }
-    let pref: Vec<&std::path::Path> = search_path
-        .iter()
-        .map(std::path::PathBuf::as_path)
-        .collect();
-    theme.set_search_path(&pref);
+    theme.set_search_path(
+        &search_path
+            .iter()
+            .map(std::path::PathBuf::as_path)
+            .collect::<Vec<_>>(),
+    );
     gtk::Window::set_default_icon_name(APP_ID);
 }

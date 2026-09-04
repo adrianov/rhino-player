@@ -50,6 +50,5 @@ pub fn record(path: &Path) {
 /// Remove one path (DVD titles: entity key + legacy folder/chapter rows in SQLite).
 pub fn remove(path: &Path) {
     crate::db::remove_history_matching_entity(path);
-    let ent = crate::playback_entity::PlaybackEntity::resolve(path);
-    ent.purge_extra_db_rows();
+    crate::playback_entity::PlaybackEntity::resolve(path).purge_extra_db_rows();
 }

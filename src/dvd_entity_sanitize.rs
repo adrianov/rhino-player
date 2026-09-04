@@ -14,10 +14,9 @@ fn entity_playback_plausible(duration: f64, resume: f64) -> bool {
 
 fn measured_title_total(chapter: &Path, live_local: f64) -> Option<f64> {
     let live_local = crate::dvd_vob_timeline::clamp_vob_duration(live_local);
-    let map = crate::db::load_duration_map();
     let mut tl = crate::dvd_entity::build_title_timeline_with(
         chapter,
-        &map,
+        &crate::db::load_duration_map(),
         live_local,
         crate::dvd_entity::TimelineBuildOpts::CACHE_ONLY,
     )?;
@@ -29,10 +28,11 @@ fn measured_title_total(chapter: &Path, live_local: f64) -> Option<f64> {
 
 /// Fix entity `duration_sec` / `time_pos_sec` when a legacy whole-disc row exceeds a title length.
 pub(crate) fn sanitize_stale_entity_playback(chapter: &Path, live_local: f64) -> bool {
-    let ent = crate::playback_entity::PlaybackEntity::resolve(chapter);
-    let key = ent.db_path();
-    let map = crate::db::load_duration_map();
-    let Some(d) = map.get(key.to_str().unwrap_or("")).copied() else {
+    let key = crate::playback_entity::PlaybackEntity::resolve(chapter).db_path();
+    let Some(d) = crate::db::load_duration_map()
+        .get(key.to_str().unwrap_or(""))
+        .copied()
+    else {
         return false;
     };
     let r = crate::db::resume_pos(&key).unwrap_or(0.0);

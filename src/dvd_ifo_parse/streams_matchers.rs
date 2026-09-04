@@ -65,8 +65,7 @@ fn pick_by_src_id(
 ) -> Option<usize> {
     let sid = src_id? as u8;
     for &i in candidates {
-        let slot = streams[i].slot;
-        if src_id_matches_slot(sid, slot, streams[i].codec_key) {
+        if src_id_matches_slot(sid, streams[i].slot, streams[i].codec_key) {
             return Some(i);
         }
     }

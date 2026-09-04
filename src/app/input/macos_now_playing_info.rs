@@ -44,8 +44,10 @@ unsafe fn np_insert_rate_and_type(
         MPNowPlayingInfoPropertyPlaybackRate,
         if pause { 0.0 } else { speed },
     );
-    let media_type_ns = NSNumber::numberWithUnsignedInteger(MPNowPlayingInfoMediaType::Video.0);
-    dict.insert(MPNowPlayingInfoPropertyMediaType, media_type_ns.as_ref());
+    dict.insert(
+        MPNowPlayingInfoPropertyMediaType,
+        NSNumber::numberWithUnsignedInteger(MPNowPlayingInfoMediaType::Video.0).as_ref(),
+    );
 }
 
 /// Collect transport properties for publishing; `None` clears Now Playing (no live player or no
@@ -65,10 +67,11 @@ fn np_transport_snapshot(
 
 /// Pause flag plus sanitized elapsed time / rate for the Now Playing dictionary.
 fn np_transport_props(b: &MpvBundle) -> (bool, f64, f64) {
-    let pause = b.mpv.get_property::<bool>("pause").unwrap_or(false);
-    let pos = np_sanitized(b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0), 0.0);
-    let speed = np_sanitized(b.mpv.get_property::<f64>("speed").unwrap_or(1.0), 1.0);
-    (pause, pos, speed)
+    (
+        b.mpv.get_property::<bool>("pause").unwrap_or(false),
+        np_sanitized(b.mpv.get_property::<f64>("time-pos").unwrap_or(0.0), 0.0),
+        np_sanitized(b.mpv.get_property::<f64>("speed").unwrap_or(1.0), 1.0),
+    )
 }
 
 pub(crate) fn sync_macos_now_playing_for_transport(player: &Rc<RefCell<Option<MpvBundle>>>) {

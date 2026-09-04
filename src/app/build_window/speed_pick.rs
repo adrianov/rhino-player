@@ -86,12 +86,13 @@ fn queue_smooth_refresh_after_speed(c: &SpeedPick, v: f64) {
         if player_idle.borrow().as_ref().is_none() {
             return;
         }
-        let r = video_pref::refresh_smooth_for_playback_speed(
+        if video_pref::refresh_smooth_for_playback_speed(
             &player_idle,
             &mut vp_idle.borrow_mut(),
             Some(v),
-        );
-        if r.smooth_auto_off {
+        )
+        .smooth_auto_off
+        {
             sync_smooth_60_to_off(&app_idle);
         }
     });

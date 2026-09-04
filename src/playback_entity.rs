@@ -33,9 +33,10 @@ impl PlaybackEntity {
                 kind: PlaybackEntityKind::DvdTitle { db_key, chapters },
             };
         }
-        let file = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         Self {
-            kind: PlaybackEntityKind::SingleFile(file),
+            kind: PlaybackEntityKind::SingleFile(
+                std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
+            ),
         }
     }
 
@@ -63,10 +64,10 @@ impl PlaybackEntity {
         dur_by_path: &HashMap<String, f64>,
     ) -> Option<(PathBuf, f64)> {
         match &self.kind {
-            PlaybackEntityKind::SingleFile(_) => {
-                let canon = std::fs::canonicalize(opened).unwrap_or_else(|_| opened.to_path_buf());
-                Some((canon, stored_sec))
-            }
+            PlaybackEntityKind::SingleFile(_) => Some((
+                std::fs::canonicalize(opened).unwrap_or_else(|_| opened.to_path_buf()),
+                stored_sec,
+            )),
             PlaybackEntityKind::DvdTitle { .. } => {
                 crate::dvd_entity::resume_chapter_and_local(opened, stored_sec, dur_by_path)
             }

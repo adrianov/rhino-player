@@ -98,8 +98,13 @@ fn xy_slot() -> Rc<RefCell<Option<(f64, f64)>>> {
 fn build_preview_widgets() -> (gtk::GLArea, gtk::Label, gtk::Label, gtk::Frame) {
     let gl = preview_gl_area();
     let (chapter_lbl, time_lbl) = preview_labels();
-    let container = preview_frame(&gl, &chapter_lbl, &time_lbl);
-    (gl, chapter_lbl, time_lbl, container)
+    // Clone before move: frame borrows the live widgets, then the tuple owns them.
+    (
+        gl.clone(),
+        chapter_lbl.clone(),
+        time_lbl.clone(),
+        preview_frame(&gl, &chapter_lbl, &time_lbl),
+    )
 }
 
 fn preview_gl_area() -> gtk::GLArea {

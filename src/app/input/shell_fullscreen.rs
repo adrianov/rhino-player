@@ -118,8 +118,7 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
     wire_focus_return_repaint(ctx, Rc::clone(&touch_chrome_gl));
 
     let deps = FsNotifyDeps::new(ctx, touch_chrome_gl);
-    let win_sig = ctx.shell.win.clone();
-    win_sig.connect_fullscreened_notify(move |w| {
+    ctx.shell.win.clone().connect_fullscreened_notify(move |w| {
         #[cfg(target_os = "macos")]
         fs_notify_on_event(&deps, w, &fs_leave_gen);
         #[cfg(not(target_os = "macos"))]
@@ -136,9 +135,7 @@ fn wire_focus_return_repaint(
 ) {
     let root_ia = ctx.shell.root.clone();
     let vh_ia = ctx.shell.video_handle.clone();
-    let win_focus = ctx.shell.win.clone();
-    let tch = touch_chrome_gl;
-    win_focus.connect_is_active_notify(move |w| {
+    ctx.shell.win.clone().connect_is_active_notify(move |w| {
         if !w.is_active() {
             return;
         }
@@ -147,7 +144,7 @@ fn wire_focus_return_repaint(
             crate::macos_window::invalidate_window_layers(w);
             return;
         }
-        repaint_fullscreen_surface(&tch, &root_ia, &vh_ia, w);
+        repaint_fullscreen_surface(&touch_chrome_gl, &root_ia, &vh_ia, w);
     });
 }
 

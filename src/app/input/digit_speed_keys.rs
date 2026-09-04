@@ -55,12 +55,13 @@ fn schedule_digit_speed_resync(c: DigitSpeedShortcutCtx, v: f64) {
         if player.borrow().is_none() {
             return;
         }
-        let r = video_pref::refresh_smooth_for_playback_speed(
+        if video_pref::refresh_smooth_for_playback_speed(
             &player,
             &mut video_pref.borrow_mut(),
             Some(v),
-        );
-        if r.smooth_auto_off {
+        )
+        .smooth_auto_off
+        {
             sync_smooth_60_to_off(&app);
         }
         if let Some(pl) = player.borrow().as_ref() {

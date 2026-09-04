@@ -20,8 +20,7 @@ pub(crate) fn note_programmatic_win_resize(nw: i32, nh: i32) {
 
 /// True when width/height notify should run (skips duplicate width+height/surface pairs).
 pub(crate) fn resize_notify_changed(ww: i32, hh: i32) -> bool {
-    let last = LAST_NOTIFY.get();
-    if last == (ww, hh) {
+    if LAST_NOTIFY.get() == (ww, hh) {
         return false;
     }
     LAST_NOTIFY.set((ww, hh));

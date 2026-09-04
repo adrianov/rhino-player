@@ -8,8 +8,11 @@ use crate::dvd_vob_timeline::DvdVobTimeline;
 
 /// `VTS_02_3` → `3` (VOB part within the title set). Used by `dvd-ifo` timeline build and tests.
 pub(crate) fn vob_part_id(path: &Path) -> Option<u32> {
-    let stem = path.file_stem()?.to_str()?.to_ascii_uppercase();
-    let rest = stem.strip_prefix("VTS_")?;
+    let upper = path.file_stem()?.to_str()?.to_ascii_uppercase();
+    if !upper.starts_with("VTS_") {
+        return None;
+    }
+    let rest = &upper[4..];
     let mut parts = rest.split('_');
     let _vts = parts.next()?;
     parts.next()?.parse().ok()
@@ -17,9 +20,11 @@ pub(crate) fn vob_part_id(path: &Path) -> Option<u32> {
 
 /// `VTS_02_1` → `2`.
 pub(crate) fn vob_title_id(path: &Path) -> Option<u32> {
-    let stem = path.file_stem()?.to_str()?.to_ascii_uppercase();
-    let rest = stem.strip_prefix("VTS_")?;
-    rest.split('_').next()?.parse().ok()
+    let upper = path.file_stem()?.to_str()?.to_ascii_uppercase();
+    if !upper.starts_with("VTS_") {
+        return None;
+    }
+    upper[4..].split('_').next()?.parse().ok()
 }
 
 /// On-disk chapter `.vob` large enough for real A/V (not a tiny menu stub file).
@@ -116,15 +121,16 @@ pub(crate) fn timeline_chapter_probe(path: &Path) -> Option<PathBuf> {
 pub(crate) fn title_playback_entity(path: &Path) -> Option<(PathBuf, Vec<PathBuf>)> {
     let chapter_probe = if crate::video_ext::is_dvd_vob_path(path) {
         path.to_path_buf()
-    } else if let Some(disc) = crate::video_ext::dvd_disc_root(path) {
-        crate::video_ext::dvd_main_chapter_vob(&disc)?
     } else {
-        return None;
+        let disc = crate::video_ext::dvd_disc_root(path)?;
+        crate::video_ext::dvd_main_chapter_vob(&disc)?
     };
     let chapters = timeline_chapter_paths(&chapter_probe)?;
     let disc = crate::video_ext::dvd_disc_root(&chapter_probe)?;
-    let db_key = std::fs::canonicalize(&disc).ok().unwrap_or(disc);
-    Some((db_key, chapters))
+    Some((
+        std::fs::canonicalize(&disc).ok().unwrap_or(disc),
+        chapters,
+    ))
 }
 
 /// First chapter `.vob` in the title set (legacy SQLite key before disc-root entity).
@@ -203,8 +209,12 @@ mod tests {
     fn three_chapter_durs(vts: &std::path::Path) -> HashMap<String, f64> {
         let mut durs = HashMap::new();
         for (i, dur) in [100.0f64, 200.0, 300.0].iter().enumerate() {
-            let p = vts.join(format!("VTS_02_{}.VOB", i + 1));
-            durs.insert(p.to_string_lossy().into_owned(), *dur);
+            durs.insert(
+                vts.join(format!("VTS_02_{}.VOB", i + 1))
+                    .to_string_lossy()
+                    .into_owned(),
+                *dur,
+            );
         }
         durs
     }
@@ -230,8 +240,8 @@ mod tests {
         write_sized_chapter_vobs(&vts);
         let p1 = vts.join("VTS_02_1.VOB");
         let p3 = vts.join("VTS_02_3.VOB");
-        let durs = three_chapter_durs(&vts);
-        let (load, local) = resume_chapter_and_local(&p1, 350.0, &durs).expect("target");
+        let (load, local) =
+            resume_chapter_and_local(&p1, 350.0, &three_chapter_durs(&vts)).expect("target");
         assert!(crate::video_ext::paths_same_file(&load, &p3));
         assert!((local - 50.0).abs() < 1e-6, "local={local}");
         let _ = fs::remove_dir_all(&base);
@@ -243,8 +253,8 @@ mod tests {
         write_sized_chapter_vobs(&vts);
         let p1 = vts.join("VTS_02_1.VOB");
         let p3 = vts.join("VTS_02_3.VOB");
-        let durs = three_chapter_durs(&vts);
-        let still = still_at_global(&p1, 350.0, &durs, None, None).expect("still");
+        let still =
+            still_at_global(&p1, 350.0, &three_chapter_durs(&vts), None, None).expect("still");
         assert!(crate::video_ext::paths_same_file(&still.load, &p3));
         assert!(
             (still.local_sec - 50.0).abs() < 1e-6,
@@ -267,8 +277,8 @@ mod tests {
     }
     #[test]
     fn fritt_first_chapter_opens_vts01_splash() {
-        let disc = std::path::Path::new("/Volumes/SanDisk/Torrents/Fritt.vilt.2006.DVD9");
-        let vts = disc.join("VIDEO_TS");
+        let vts = std::path::Path::new("/Volumes/SanDisk/Torrents/Fritt.vilt.2006.DVD9")
+            .join("VIDEO_TS");
         if !vts.is_dir() {
             return;
         }

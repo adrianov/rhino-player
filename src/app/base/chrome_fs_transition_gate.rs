@@ -19,9 +19,8 @@ fn fs_transition_note_notify_idle_clear(
     let delay = std::time::Duration::from_millis(120);
     #[cfg(not(target_os = "macos"))]
     let delay = crate::fullscreen_timing::TRANSITION_SETTLE;
-    let id = glib::timeout_add_local_once(delay, move || {
+    *settle_slot.borrow_mut() = Some(glib::timeout_add_local_once(delay, move || {
         *slot_c.borrow_mut() = None;
         busy_c.set(false);
-    });
-    *settle_slot.borrow_mut() = Some(id);
+    }));
 }

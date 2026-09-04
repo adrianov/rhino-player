@@ -69,15 +69,13 @@ fn new_action_cell_pair() -> ActionCellPair {
 fn start_continue_browse(
     w: &WindowWidgets,
     playback_focus: &Rc<Cell<bool>>,
-) -> (ContinueBrowsePrep, Rc<dyn Fn(String)>) {
-    let notice_ctrl = crate::recent_view::NoticeToastCtrl::new(w.notice_toast.clone());
+) -> (Rc<dyn Fn(String)>, ContinueBrowsePrep) {
     let prep = ContinueBrowsePrep::start(
-        notice_ctrl,
+        crate::recent_view::NoticeToastCtrl::new(w.notice_toast.clone()),
         w.recent_scrl.clone(),
         Rc::clone(playback_focus),
     );
-    let on_open_fail = Rc::clone(&prep.on_open_fail);
-    (prep, on_open_fail)
+    (Rc::clone(&prep.on_open_fail), prep)
 }
 
 fn attach_media_open(
@@ -133,7 +131,7 @@ fn wire_pre_mpv_phases(r: PreMpvPhaseRefs<'_>) -> BeforeMpvHandles {
     wire_header_cluster(r.w, r.player, r.sub_pref);
     let (seek_sync, seek_grabbed, smooth_seek_debounce, resume_after_seek_idle) = new_seek_cells();
 
-    let (browse_prep, on_open_fail) = start_continue_browse(r.w, r.playback_focus);
+    let (on_open_fail, browse_prep) = start_continue_browse(r.w, r.playback_focus);
     let (close_action_cell, trash_action_cell) = new_action_cell_pair();
 
     let on_file_loaded = wire_file_loaded_and_sub_style(&r, &close_action_cell, &trash_action_cell);
@@ -151,25 +149,24 @@ fn wire_pre_mpv_phases(r: PreMpvPhaseRefs<'_>) -> BeforeMpvHandles {
     );
 
     let media_open = attach_media_open(&r, &vc, &on_file_loaded, &on_open_fail);
-    let browse = finish_continue_browse(
-        browse_prep,
-        &r,
-        want_recent,
-        &media_open,
-        &vc,
-        &close_action_cell,
-    );
 
     BeforeMpvHandles {
         seek_sync,
         seek_grabbed,
         smooth_seek_debounce,
         resume_after_seek_idle,
-        vc,
         on_file_loaded,
-        close_action_cell,
         trash_action_cell,
+        browse: finish_continue_browse(
+            browse_prep,
+            &r,
+            want_recent,
+            &media_open,
+            &vc,
+            &close_action_cell,
+        ),
+        close_action_cell,
+        vc,
         media_open,
-        browse,
     }
 }

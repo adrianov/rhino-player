@@ -23,8 +23,7 @@ fn entity_display_name(entity: &PlaybackEntity) -> String {
 /// Human-readable window title for any openable path (entity key, not chapter `.vob` stub names).
 #[must_use]
 pub fn window_title_for(path: &Path) -> String {
-    let entity = PlaybackEntity::resolve(path);
-    let raw = entity_display_name(&entity);
+    let raw = entity_display_name(&crate::playback_entity::PlaybackEntity::resolve(path));
     let human = crate::human_media_title::human_media_title(&raw);
     let label = {
         let h = human.trim();

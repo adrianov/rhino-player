@@ -60,8 +60,10 @@ pub(super) fn wire_opaque_frame(st: &SeekPreviewState) {
 }
 
 pub(super) fn point_at(st: &SeekPreviewState, x: f64) {
-    let width = f64::from(st.seek.width().max(1));
-    let x = x.clamp(2.0, (width - 2.0).max(2.0)) as i32;
+    let x = x.clamp(
+        2.0,
+        (f64::from(st.seek.width().max(1)) - 2.0).max(2.0),
+    ) as i32;
     st.popup
         .set_pointing_to(Some(&gtk::gdk::Rectangle::new(x, -PREVIEW_GAP, 1, 1)));
 }

@@ -132,8 +132,7 @@ fn attach_drop_view(win: &adw::ApplicationWindow) -> bool {
         return false;
     };
 
-    let view = build_drop_view(mtm, &content);
-    content.addSubview(&view);
+    content.addSubview(&build_drop_view(mtm, &content));
     true
 }
 

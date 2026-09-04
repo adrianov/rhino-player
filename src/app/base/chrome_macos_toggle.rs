@@ -72,8 +72,7 @@ fn macos_apply_toggle(
 fn macos_defer_toggle(win: adw::ApplicationWindow, retry: u8) {
     let win2 = win.clone();
     let _ = glib::timeout_add_local_once(MACOS_TOGGLE_DEFER, move || {
-        let gtk = win2.upcast_ref::<gtk::Widget>();
-        if crate::macos_window::gdk_macos_in_fullscreen_transition(gtk)
+        if crate::macos_window::gdk_macos_in_fullscreen_transition(win2.upcast_ref::<gtk::Widget>())
             && retry < MACOS_TOGGLE_DEFER_MAX
         {
             macos_defer_toggle(win2, retry.saturating_add(1));
@@ -91,8 +90,7 @@ pub(super) fn macos_toggle_fullscreen(
     last_unmax: &RefCell<(i32, i32)>,
     skip_max_to_fs: &Cell<bool>,
 ) {
-    let gtk = win.upcast_ref::<gtk::Widget>();
-    if crate::macos_window::gdk_macos_in_fullscreen_transition(gtk) {
+    if crate::macos_window::gdk_macos_in_fullscreen_transition(win.upcast_ref::<gtk::Widget>()) {
         macos_defer_toggle(win.clone(), 0);
         return;
     }

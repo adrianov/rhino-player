@@ -63,8 +63,7 @@ impl MpvBundle {
             return self.wait_for_mpv_path(t);
         }
         let chapter_scrub = self.chapter_scrub_resume.get();
-        let dur = self.resume_wait_duration(chapter_scrub, t);
-        if dur <= 0.0 {
+        if self.resume_wait_duration(chapter_scrub, t) <= 0.0 {
             return self.wait_for_known_duration(chapter_scrub, t);
         }
         if chapter_scrub {

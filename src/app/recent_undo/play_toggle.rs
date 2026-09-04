@@ -36,8 +36,7 @@ fn apply_mpv_pause(ctx: &PlayToggleCtx, want_pause: bool) -> bool {
     let Some(b) = g.as_ref() else {
         return false;
     };
-    let dur = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
-    if dur <= 0.0 {
+    if b.mpv.get_property::<f64>("duration").unwrap_or(0.0) <= 0.0 {
         return false;
     }
     let cur_pause = b.mpv.get_property::<bool>("pause").unwrap_or(false);
@@ -80,8 +79,10 @@ fn resync_smooth_on_unpause(ctx: &PlayToggleCtx) -> bool {
 
 /// Resume a paused incomplete download when unpausing into play (shared with [SiblingEofState]).
 fn prep_incomplete_hold_on_unpause(ctx: &PlayToggleCtx, b: &MpvBundle) {
-    let path = local_file_from_mpv(&b.mpv).or_else(|| ctx.last_path.borrow().clone());
-    if let Some(p) = path.as_deref() {
+    if let Some(p) = local_file_from_mpv(&b.mpv)
+        .or_else(|| ctx.last_path.borrow().clone())
+        .as_deref()
+    {
         ctx.incomplete_hold.on_unpause(&b.mpv, p);
     }
 }
@@ -122,11 +123,10 @@ fn open_from_warm_grid(ctx: &PlayToggleCtx, b: &MpvBundle) -> bool {
     crate::user_action_log::act("play/pause (continue grid) -> open from warm card");
     if let Some(path) = local_file_from_mpv(&b.mpv) {
         *ctx.last_path.borrow_mut() = std::fs::canonicalize(&path).ok();
-        let ttl = title_for_open_path(&path);
         sync_app_window_title(
             &ctx.win,
             ctx.hdr_title_mirror.as_deref(),
-            Some(ttl.as_str()),
+            Some(title_for_open_path(&path).as_str()),
         );
     }
     sync_window_aspect_from_mpv(&b.mpv, ctx.win_aspect.as_ref());

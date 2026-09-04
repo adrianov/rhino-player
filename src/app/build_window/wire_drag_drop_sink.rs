@@ -7,8 +7,7 @@ fn drain_input_stream_aggregate(stream: gio::InputStream, acc: Vec<u8>, done: Dr
 }
 
 fn drain_step(stream: gio::InputStream, acc: Vec<u8>, buf: Vec<u8>, done: DrainDone) {
-    let s = stream.clone();
-    s.read_async(
+    stream.clone().read_async(
         buf,
         glib::Priority::default(),
         None::<&gio::Cancellable>,

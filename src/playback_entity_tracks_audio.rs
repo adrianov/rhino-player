@@ -135,10 +135,13 @@ fn mpv_audio_rows(
         if n.kind != "audio" {
             continue;
         }
-        let ifo_label = ifo.and_then(|s| matched_audio_label(s, n, &mut used));
         v.push(AudioMenuRow {
             mpv_id: n.id,
-            label: mpv_audio_label_for_node(n, ifo_label.as_deref()),
+            label: mpv_audio_label_for_node(
+                n,
+                ifo.and_then(|s| matched_audio_label(s, n, &mut used))
+                    .as_deref(),
+            ),
             ifo_slot: None,
         });
     }

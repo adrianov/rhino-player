@@ -8,8 +8,9 @@ fn track_header_token(r: &Row) -> String {
             return a;
         }
     }
-    let head = r.text.split(" – ").next().unwrap_or(r.text.as_str()).trim();
-    abbrev_track_lang(Some(head))
+    abbrev_track_lang(Some(
+        r.text.split(" – ").next().unwrap_or(r.text.as_str()).trim(),
+    ))
 }
 
 fn compact_header_label_row(
@@ -57,10 +58,9 @@ fn sub_header_compact(mpv: &Mpv, shell: Option<&std::path::Path>) -> String {
     if let Some(sid) = current_sid(mpv) {
         return compact_header_label_row(sid, &rows, mpv, shell);
     }
-    let prefs = crate::db::load_sub();
-    let saved = prefs.last_sub_label.trim();
-    if !saved.is_empty() {
-        if let Some(t) = saved_header_token(&rows, saved) {
+    let saved = crate::db::load_sub().last_sub_label;
+    if !saved.trim().is_empty() {
+        if let Some(t) = saved_header_token(&rows, saved.trim()) {
             return t;
         }
     }

@@ -17,13 +17,17 @@ fn file_pasteboard_types() -> Retained<NSArray<NSPasteboardType>> {
 }
 
 fn drag_pasteboard_offers_files() -> bool {
-    let pb = NSPasteboard::pasteboardWithName(unsafe { NSPasteboardNameDrag });
-    pb.availableTypeFromArray(&file_pasteboard_types()).is_some()
+    NSPasteboard::pasteboardWithName(unsafe { NSPasteboardNameDrag })
+        .availableTypeFromArray(&file_pasteboard_types())
+        .is_some()
 }
 
 fn drag_op_for_info(info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
-    let pb = info.draggingPasteboard();
-    if pb.availableTypeFromArray(&file_pasteboard_types()).is_some() {
+    if info
+        .draggingPasteboard()
+        .availableTypeFromArray(&file_pasteboard_types())
+        .is_some()
+    {
         NSDragOperation::Copy
     } else {
         NSDragOperation::None

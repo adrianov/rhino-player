@@ -113,9 +113,10 @@ fn win_normal_size(win: &adw::ApplicationWindow) -> (i32, i32) {
 }
 
 fn same_open_target(a: &Path, b: &Path) -> bool {
-    let ra = crate::video_ext::resolve_open_media_path(a);
-    let rb = crate::video_ext::resolve_open_media_path(b);
-    crate::video_ext::paths_same_file(&ra, &rb)
+    crate::video_ext::paths_same_file(
+        &crate::video_ext::resolve_open_media_path(a),
+        &crate::video_ext::resolve_open_media_path(b),
+    )
 }
 
 /// `RHINO_ASPECT_DEBUG=1` — extra aspect logs (resize-end, sync poll).

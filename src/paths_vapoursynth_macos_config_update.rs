@@ -71,13 +71,15 @@ fn apply_vs_toml_update(update: &VsTomlUpdate) {
     if let Some(parent) = update.toml_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let text = merge_vs_toml_mapping(
-        &existing,
-        &update.key,
-        &update.exe,
-        &update.lib.to_string_lossy(),
-    );
-    match std::fs::write(&update.toml_path, text) {
+    match std::fs::write(
+        &update.toml_path,
+        merge_vs_toml_mapping(
+            &existing,
+            &update.key,
+            &update.exe,
+            &update.lib.to_string_lossy(),
+        ),
+    ) {
         Ok(()) => eprintln!(
             "[rhino] video: refreshed {} → {}",
             update.toml_path.display(),

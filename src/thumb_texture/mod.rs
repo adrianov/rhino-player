@@ -44,8 +44,7 @@ pub fn encode_packed_webp(
         );
         return None;
     }
-    let config = grid_webp_enc();
-    EncodeRequest::lossy(&config, pixels, layout, width, height)
+    EncodeRequest::lossy(&grid_webp_enc(), pixels, layout, width, height)
         .with_stride(stride_pixels)
         .encode()
         .ok()
@@ -116,8 +115,7 @@ pub(crate) fn rgb_samples_mostly_flat(samples: impl IntoIterator<Item = (u8, u8,
 /// Dominant primary for chromatic pixels; `None` for near-black or near-grey (luma-only boards).
 fn chromatic_primary(r: u8, g: u8, b: u8) -> Option<u8> {
     let max = r.max(g).max(b);
-    let min = r.min(g).min(b);
-    (max >= 16 && max - min >= 16).then(|| primary_channel(r, g, b))
+    (max >= 16 && max - r.min(g).min(b) >= 16).then(|| primary_channel(r, g, b))
 }
 
 fn primary_channel(r: u8, g: u8, b: u8) -> u8 {
@@ -250,10 +248,7 @@ mod tests {
     #[test]
     fn red_mesh_luma_noise_is_flat() {
         let samples: Vec<_> = (0..64)
-            .map(|i| {
-                let r = 180u8.wrapping_add((i % 7) as u8 * 9);
-                (r, 12u8, 10u8)
-            })
+            .map(|i| (180u8.wrapping_add((i % 7) as u8 * 9), 12u8, 10u8))
             .collect();
         assert!(rgb_samples_mostly_flat(samples));
     }

@@ -42,8 +42,7 @@ pub fn streams_from_vob(vob: &Path) -> Option<DvdIfoStreams> {
     let disc = crate::video_ext::dvd_disc_root(vob)?;
     let vts_dir = crate::video_ext::dvd_video_ts_dir(&disc)?;
     let vts_id = vts_id_from_path(vob)?;
-    let ifo = vts_dir.join(format!("VTS_{vts_id:02}_0.IFO"));
-    streams_from_vts_ifo(&ifo)
+    streams_from_vts_ifo(&vts_dir.join(format!("VTS_{vts_id:02}_0.IFO")))
 }
 
 pub fn streams_from_vts_ifo(ifo_path: &Path) -> Option<DvdIfoStreams> {
@@ -56,9 +55,10 @@ fn parse_streams(buf: &IfoBuf) -> Option<DvdIfoStreams> {
         return None;
     }
     let (nr_audio, nr_sub) = stream_counts(buf)?;
-    let audio = parse_audio_rows(buf, nr_audio);
-    let sub = parse_sub_rows(buf, nr_sub);
-    Some(DvdIfoStreams { audio, sub })
+    Some(DvdIfoStreams {
+        audio: parse_audio_rows(buf, nr_audio),
+        sub: parse_sub_rows(buf, nr_sub),
+    })
 }
 
 fn stream_counts(buf: &IfoBuf) -> Option<(usize, usize)> {

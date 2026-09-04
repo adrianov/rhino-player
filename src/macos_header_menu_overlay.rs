@@ -57,11 +57,11 @@ fn new_pop_placeholder() -> gtk::Box {
 }
 
 pub struct HeaderMenuOverlay {
+    panel: gtk::Frame,
     shell: gtk::Overlay,
     root: adw::ToolbarView,
     header: adw::HeaderBar,
     win: adw::ApplicationWindow,
-    panel: gtk::Frame,
     entries: Vec<MenuEntry>,
     open: Cell<Option<usize>>,
 }
@@ -89,16 +89,13 @@ impl HeaderMenuOverlay {
         header: adw::HeaderBar,
         menus: &[(gtk::MenuButton, gtk::Popover, &'static str)],
     ) -> Rc<Self> {
-        let panel = Self::build_panel(&shell);
-        let entries = Self::collect_entries(menus);
-
         let ov = Rc::new(Self {
+            panel: Self::build_panel(&shell),
             shell,
             root: root.clone(),
             header: header.clone(),
             win: win.clone(),
-            panel,
-            entries,
+            entries: Self::collect_entries(menus),
             open: Cell::new(None),
         });
 

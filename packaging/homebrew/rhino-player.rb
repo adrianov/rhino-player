@@ -17,22 +17,10 @@ class RhinoPlayer < Formula
   def install
     # Dev builds use LLD via .cargo/config.toml; Homebrew's clang shim rejects -fuse-ld=lld.
     rm_r ".cargo" if (buildpath/".cargo").exist?
-
     system "cargo", "install", *std_cargo_args
-
     man1.install "doc/rhino-player.1"
-    (share/"rhino-player/vs").install Dir["data/vs/*.vpy"]
-    (share/"rhino-player/scripts").install "scripts/macos-vendor-smooth-libs.sh"
-    chmod 0755, share/"rhino-player/scripts/macos-vendor-smooth-libs.sh"
-    (share/"applications").install "data/applications/ch.rhino.RhinoPlayer.desktop"
-    (share/"metainfo").install "data/metainfo/ch.rhino.RhinoPlayer.metainfo.xml"
-
-    # One Freedesktop tree (app PNG + symbolics). Alias for PREFIX runtime prepend.
-    (share/"icons/hicolor").mkpath
-    cp_r "data/icons/hicolor/.", share/"icons/hicolor"
-    (share/"rhino-player").mkpath
-    ln_sf "../icons", share/"rhino-player/icons"
-
+    install_rhino_share_payload
+    install_hicolor_icon_tree
     install_macos_app if OS.mac?
   end
 
@@ -45,45 +33,11 @@ class RhinoPlayer < Formula
     (resources/"share/rhino-player/vs").mkpath
     (resources/"data/icons").mkpath
 
-    # Binary inside the bundle so Dock / Launch Services use AppIcon.icns.
-    mv bin/"rhino-player", macos/"rhino-player"
-    bin.install_symlink macos/"rhino-player"
-
-    inreplace "packaging/macos/Info.plist.in", "@VERSION@", version.to_s
-    cp "packaging/macos/Info.plist.in", contents/"Info.plist"
-    # share/.../vs was already install'd (moved) from data/vs — copy from the keg share tree.
-    cp Dir[share/"rhino-player/vs/*.vpy"], resources/"share/rhino-player/vs/"
-    cp_r "data/icons/hicolor", resources/"data/icons/"
-
-    # Optional Smooth 60: vendor MVTools into the .app when vapoursynth-mvtools is present.
-    ENV["SKIP_MISSING"] = "1"
-    system "bash", share/"rhino-player/scripts/macos-vendor-smooth-libs.sh",
-           (resources/"lib/vapoursynth").to_s
-
-    iconset = buildpath/"AppIcon.iconset"
-    iconset.mkpath
-    hicon = buildpath/"data/icons/hicolor"
-    {
-      "icon_16x16.png"      => "16x16",
-      "icon_16x16@2x.png"   => "32x32",
-      "icon_32x32.png"      => "32x32",
-      "icon_32x32@2x.png"   => "64x64",
-      "icon_128x128.png"    => "128x128",
-      "icon_128x128@2x.png" => "256x256",
-      "icon_256x256.png"    => "256x256",
-      "icon_256x256@2x.png" => "512x512",
-      "icon_512x512.png"    => "512x512",
-      "icon_512x512@2x.png" => "1024x1024",
-    }.each do |name, size|
-      cp hicon/"#{size}/apps/ch.rhino.RhinoPlayer.png", iconset/name
-    end
-    system "iconutil", "-c", "icns", iconset.to_s, "-o", (resources/"AppIcon.icns").to_s
-    system "codesign", "--force", "--sign", "-", "--timestamp=none", app.to_s
-
-    # Prefer this keg over a leftover dist/ or DMG build for the same bundle id.
-    lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/" \
-                 "LaunchServices.framework/Support/lsregister"
-    system lsregister, "-f", app.to_s if File.executable?(lsregister)
+    relocate_binary_into_app_bundle(macos)
+    install_app_bundle_metadata(contents, resources)
+    vendor_mvtools_into_app(resources)
+    build_app_icon_icns(resources)
+    sign_and_register_macos_app(app)
   end
 
   post_install_steps do
@@ -120,5 +74,78 @@ class RhinoPlayer < Formula
     assert_path_exists prefix/"Rhino Player.app/Contents/Resources/AppIcon.icns"
     assert_path_exists prefix/"Rhino Player.app/Contents/MacOS/rhino-player"
     assert_path_exists prefix/"Rhino Player.app/Contents/Resources/share/rhino-player/vs/rhino_60_mvtools.vpy"
+  end
+
+  private
+
+  def install_rhino_share_payload
+    (share/"rhino-player/vs").install Dir["data/vs/*.vpy"]
+    (share/"rhino-player/scripts").install "scripts/macos-vendor-smooth-libs.sh"
+    chmod 0755, share/"rhino-player/scripts/macos-vendor-smooth-libs.sh"
+    (share/"applications").install "data/applications/ch.rhino.RhinoPlayer.desktop"
+    (share/"metainfo").install "data/metainfo/ch.rhino.RhinoPlayer.metainfo.xml"
+  end
+
+  def install_hicolor_icon_tree
+    # One Freedesktop tree (app PNG + symbolics). Alias for PREFIX runtime prepend.
+    (share/"icons/hicolor").mkpath
+    cp_r "data/icons/hicolor/.", share/"icons/hicolor"
+    (share/"rhino-player").mkpath
+    ln_sf "../icons", share/"rhino-player/icons"
+  end
+
+  def relocate_binary_into_app_bundle(macos)
+    # Binary inside the bundle so Dock / Launch Services use AppIcon.icns.
+    mv bin/"rhino-player", macos/"rhino-player"
+    bin.install_symlink macos/"rhino-player"
+  end
+
+  def install_app_bundle_metadata(contents, resources)
+    inreplace "packaging/macos/Info.plist.in", "@VERSION@", version.to_s
+    cp "packaging/macos/Info.plist.in", contents/"Info.plist"
+    # share/.../vs was already install'd (moved) from data/vs — copy from the keg share tree.
+    cp Dir[share/"rhino-player/vs/*.vpy"], resources/"share/rhino-player/vs/"
+    cp_r "data/icons/hicolor", resources/"data/icons/"
+  end
+
+  def vendor_mvtools_into_app(resources)
+    # Optional Smooth 60: vendor MVTools into the .app when vapoursynth-mvtools is present.
+    ENV["SKIP_MISSING"] = "1"
+    system "bash", share/"rhino-player/scripts/macos-vendor-smooth-libs.sh",
+           (resources/"lib/vapoursynth").to_s
+  end
+
+  def build_app_icon_icns(resources)
+    iconset = buildpath/"AppIcon.iconset"
+    iconset.mkpath
+    hicon = buildpath/"data/icons/hicolor"
+    macos_app_icon_mappings.each do |name, size|
+      cp hicon/"#{size}/apps/ch.rhino.RhinoPlayer.png", iconset/name
+    end
+    system "iconutil", "-c", "icns", iconset.to_s, "-o", (resources/"AppIcon.icns").to_s
+  end
+
+  def macos_app_icon_mappings
+    {
+      "icon_16x16.png"      => "16x16",
+      "icon_16x16@2x.png"   => "32x32",
+      "icon_32x32.png"      => "32x32",
+      "icon_32x32@2x.png"   => "64x64",
+      "icon_128x128.png"    => "128x128",
+      "icon_128x128@2x.png" => "256x256",
+      "icon_256x256.png"    => "256x256",
+      "icon_256x256@2x.png" => "512x512",
+      "icon_512x512.png"    => "512x512",
+      "icon_512x512@2x.png" => "1024x1024",
+    }
+  end
+
+  def sign_and_register_macos_app(app)
+    system "codesign", "--force", "--sign", "-", "--timestamp=none", app.to_s
+
+    # Prefer this keg over a leftover dist/ or DMG build for the same bundle id.
+    lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/" \
+                 "LaunchServices.framework/Support/lsregister"
+    system lsregister, "-f", app.to_s if File.executable?(lsregister)
   end
 end

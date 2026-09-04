@@ -107,10 +107,9 @@ impl MpvBundle {
             return;
         }
         let shell = self.me_budget_shell_path.borrow().clone();
-        let unified = shell.as_ref().is_some_and(|p| {
+        if shell.as_ref().is_some_and(|p| {
             crate::playback_entity::PlaybackEntity::resolve(p).has_unified_timeline()
-        });
-        if unified {
+        }) {
             self.write_entity_playback(total, global);
             return;
         }
@@ -131,9 +130,10 @@ impl MpvBundle {
         db_key: &Path,
         resume_at: Option<f64>,
     ) -> (std::path::PathBuf, Option<f64>, Option<f64>) {
-        let unified = entity.has_unified_timeline();
-        let Some(global) = Self::stored_resume_global(db_key, resume_at, unified) else {
-            if unified {
+        let Some(global) =
+            Self::stored_resume_global(db_key, resume_at, entity.has_unified_timeline())
+        else {
+            if entity.has_unified_timeline() {
                 crate::dvd_vob_log::resume_open_log(format!(
                     "load no stored resume entity={}",
                     db_key.display()
@@ -141,8 +141,7 @@ impl MpvBundle {
             }
             return (canonical.to_path_buf(), None, None);
         };
-        let map = db::load_duration_map();
-        match entity.resume_load_target(canonical, global, &map) {
+        match entity.resume_load_target(canonical, global, &db::load_duration_map()) {
             Some((target, local)) => (target, Some(local), Some(global)),
             None => {
                 crate::dvd_vob_log::resume_open_log(format!(

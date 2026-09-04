@@ -16,8 +16,7 @@ fn sync_speed_header(
         return;
     }
     with_bundle(player, |b| {
-        let s = b.mpv.get_property::<f64>("speed").unwrap_or(1.0);
-        let (_, canon) = playback_speed::nearest(s);
+        let (_, canon) = playback_speed::nearest(b.mpv.get_property::<f64>("speed").unwrap_or(1.0));
         playback_speed::stamp_header(&w.speed_menu, &w.speed_readout, canon);
     });
 }

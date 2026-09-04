@@ -34,10 +34,17 @@ struct GridThumbTarget {
 /// Continue state: cache key time, duration, resume, and the duration map for still mapping.
 fn entity_continue_state(db_key: &Path) -> (f64, f64, f64, std::collections::HashMap<String, f64>) {
     let durs = db::load_duration_map();
-    let tpos = db::load_time_pos_map();
-    let (resume, duration) = crate::playback_entity::card_resume_duration(db_key, &durs, &tpos);
-    let cache_time = grid_thumb_cache_time(resume, duration);
-    (cache_time, duration, resume, durs)
+    let (resume, duration) = crate::playback_entity::card_resume_duration(
+        db_key,
+        &durs,
+        &db::load_time_pos_map(),
+    );
+    (
+        grid_thumb_cache_time(resume, duration),
+        duration,
+        resume,
+        durs,
+    )
 }
 
 /// Unified-timeline branch of [grid_thumb_target]: map the chapter probe to a still frame.
@@ -48,9 +55,14 @@ fn grid_thumb_target_unified(
     durs: &std::collections::HashMap<String, f64>,
     keyframes: bool,
 ) -> Option<GridThumbTarget> {
-    let probe = crate::dvd_entity::timeline_chapter_probe(open_hint)
-        .unwrap_or_else(|| open_hint.to_path_buf());
-    let still = pe.still_at_global(&probe, cache_time, durs, None, None)?;
+    let still = pe.still_at_global(
+        &crate::dvd_entity::timeline_chapter_probe(open_hint)
+            .unwrap_or_else(|| open_hint.to_path_buf()),
+        cache_time,
+        durs,
+        None,
+        None,
+    )?;
     let load = std::fs::canonicalize(&still.load).ok()?;
     let seek_sec = if still.local_sec < 0.5 && still.chapter_dur > GRID_FALLBACK_SEC {
         GRID_FALLBACK_SEC
@@ -143,8 +155,7 @@ pub(crate) fn db_thumb_for_entity_key(
     cache_time: f64,
 ) -> Option<Vec<u8>> {
     let mtime = db::file_mtime_sec(load)?;
-    let load_s = load.to_str();
-    let b = db::take_thumb_if_fresh(db_key, mtime, cache_time, load_s)?;
+    let b = db::take_thumb_if_fresh(db_key, mtime, cache_time, load.to_str())?;
     grid_thumb_flat_capture::take_unless_flat_pending(db_key, b)
 }
 

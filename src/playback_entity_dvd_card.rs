@@ -72,11 +72,10 @@ fn title_total_for_entity(entity: &Path, durs: &HashMap<String, f64>) -> Option<
     let ch = crate::dvd_entity::timeline_chapter_paths(entity)?
         .into_iter()
         .next()?;
-    let live = chapter_live_dur(&ch, durs);
     crate::dvd_entity::build_title_timeline_with(
         &ch,
         durs,
-        live,
+        chapter_live_dur(&ch, durs),
         crate::dvd_entity::TimelineBuildOpts::CACHE_ONLY,
     )
     .map(|tl| tl.total_sec)
@@ -152,9 +151,15 @@ impl PlaybackEntity {
         if !self.has_unified_timeline() {
             return None;
         }
-        let chapter =
-            crate::dvd_entity::timeline_chapter_probe(probe).unwrap_or_else(|| probe.to_path_buf());
-        crate::dvd_entity::still_at_global(chapter.as_path(), global_sec, durs, bar, open_cap)
+        crate::dvd_entity::still_at_global(
+            crate::dvd_entity::timeline_chapter_probe(probe)
+                .unwrap_or_else(|| probe.to_path_buf())
+                .as_path(),
+            global_sec,
+            durs,
+            bar,
+            open_cap,
+        )
     }
 }
 
@@ -163,8 +168,7 @@ fn unified_card_resume(
     durs: &HashMap<String, f64>,
     tpos: &HashMap<String, f64>,
 ) -> (f64, f64) {
-    let entity = ent.db_path();
-    entity_global_playback(&entity, durs, tpos)
+    entity_global_playback(&ent.db_path(), durs, tpos)
         .or_else(|| migrate_dvd_from_chapter_rows(ent, durs, tpos))
         .unwrap_or((0.0, 0.0))
 }
@@ -175,9 +179,13 @@ fn plain_card_resume(
     tpos: &HashMap<String, f64>,
 ) -> (f64, f64) {
     let keys = entity_media_keys(entity);
-    let resume = keys.iter().find_map(|k| tpos.get(k).copied());
-    let duration = keys.iter().find_map(|k| durs.get(k).copied());
-    (resume.unwrap_or(0.0), duration.unwrap_or(0.0))
+    (
+        keys
+            .iter()
+            .find_map(|k| tpos.get(k).copied())
+            .unwrap_or(0.0),
+        keys.iter().find_map(|k| durs.get(k).copied()).unwrap_or(0.0),
+    )
 }
 
 /// Whole-title resume + duration for the continue grid (entity row: global seconds on unified timeline).

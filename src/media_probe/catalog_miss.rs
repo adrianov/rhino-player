@@ -128,14 +128,13 @@ fn should_keep_missing(path: &Path) -> bool {
 
 /// Parent is `VIDEO_TS` and the name is a `.vob` (file need not exist — tests / gone chapters).
 fn video_ts_vob_name(path: &Path) -> bool {
-    let vob = path
+    path
         .extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("vob"));
-    let ts = path
-        .parent()
-        .and_then(|p| p.file_name())
-        .and_then(|n| n.to_str())
-        .is_some_and(|n| n.eq_ignore_ascii_case("VIDEO_TS"));
-    vob && ts
+        .is_some_and(|e| e.eq_ignore_ascii_case("vob"))
+        && path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case("VIDEO_TS"))
 }

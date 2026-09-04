@@ -28,8 +28,10 @@ fn shell_size(shell: &gtk::Overlay) -> (f64, f64) {
 }
 
 fn widget_origin_in_shell(w: &impl IsA<gtk::Widget>, shell: &gtk::Overlay) -> Option<(f64, f64)> {
-    let origin = gtk::graphene::Point::new(0.0, 0.0);
-    let pt = w.compute_point(&shell.clone().upcast::<gtk::Widget>(), &origin)?;
+    let pt = w.compute_point(
+        &shell.clone().upcast::<gtk::Widget>(),
+        &gtk::graphene::Point::new(0.0, 0.0),
+    )?;
     Some((f64::from(pt.x()), f64::from(pt.y())))
 }
 
@@ -109,8 +111,7 @@ pub(super) fn hide_panel_widget(panel: &gtk::Frame) {
 
 /// Largest height the panel may take below the pressed button.
 fn max_panel_height(menu_top: f64, shell_h: f64) -> i32 {
-    let gap = f64::from(MENU_GAP_PX);
-    ((shell_h - menu_top - gap).max(f64::from(PANEL_MIN_H))) as i32
+    ((shell_h - menu_top - f64::from(MENU_GAP_PX)).max(f64::from(PANEL_MIN_H))) as i32
 }
 
 /// Cap scrolled children to fit, then measure the panel's natural size.
@@ -123,8 +124,7 @@ fn fit_panel(panel: &gtk::Frame, max_h: i32) -> (i32, i32) {
 
 /// Vertical margin under the button, clamped to the shell.
 fn clamped_top(menu_top: f64, ph: f64, shell_h: f64) -> f64 {
-    let gap = f64::from(MENU_GAP_PX);
-    menu_top.clamp(0.0, (shell_h - ph - gap).max(0.0))
+    menu_top.clamp(0.0, (shell_h - ph - f64::from(MENU_GAP_PX)).max(0.0))
 }
 
 /// Top-left margins placing the panel under the button box, clamped inside the shell.
@@ -134,12 +134,13 @@ fn clamped_origin(
     panel_px: (i32, i32),
     shell_px: (f64, f64),
 ) -> (i32, i32) {
-    let gap = f64::from(MENU_GAP_PX);
-    let menu_top = btn_box.1 + btn_box.3 + gap;
+    let menu_top = btn_box.1 + btn_box.3 + f64::from(MENU_GAP_PX);
     let y = clamped_top(menu_top, f64::from(panel_px.1), shell_px.1);
     let pw = f64::from(panel_px.0);
-    let x = (btn_box.0 + btn_box.2 - pw).clamp(0.0, (shell_px.0 - pw).max(0.0));
-    (x.round() as i32, y.round() as i32)
+    (
+        (btn_box.0 + btn_box.2 - pw).clamp(0.0, (shell_px.0 - pw).max(0.0)).round() as i32,
+        y.round() as i32,
+    )
 }
 
 fn apply_panel_placement(panel: &gtk::Frame, w: i32, h: i32, x: i32, y: i32) {
@@ -160,8 +161,7 @@ pub(super) fn place_panel_clamped(panel: &gtk::Frame, btn: &gtk::MenuButton, she
     };
     let shell_px = shell_size(shell);
     let menu_top = btn_box.1 + btn_box.3 + f64::from(MENU_GAP_PX);
-    let max_h = max_panel_height(menu_top, shell_px.1);
-    let panel_px = fit_panel(panel, max_h);
+    let panel_px = fit_panel(panel, max_panel_height(menu_top, shell_px.1));
     let (x, y) = clamped_origin(btn_box, panel_px, shell_px);
     apply_panel_placement(panel, panel_px.0, panel_px.1, x, y);
 }

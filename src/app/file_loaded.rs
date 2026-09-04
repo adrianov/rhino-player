@@ -110,11 +110,8 @@ fn resync_speed_if_smooth_60(c: &On320Ctx, b: &MpvBundle) {
         &c.speed_readout,
     );
     let mut g = c.video_pref.borrow_mut();
-    if g.smooth_60 {
-        let r = resync_smooth_speed(&c.player, &mut g, listed);
-        if r.smooth_auto_off {
-            sync_smooth_60_to_off(&c.app);
-        }
+    if g.smooth_60 && resync_smooth_speed(&c.player, &mut g, listed).smooth_auto_off {
+        sync_smooth_60_to_off(&c.app);
     }
 }
 

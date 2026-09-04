@@ -126,13 +126,12 @@ fn sub_row_button(
     let id = r.id;
     let ifo_slot = r.ifo_slot;
     let label = r.text.clone();
-    let pick = on_pick;
     let w = Rc::clone(wiring);
     btn.connect_toggled(move |b| {
         if w.block.get() || !b.is_active() {
             return;
         }
-        sub_row_toggled(&w, id, ifo_slot, &label, pick.as_ref());
+        sub_row_toggled(&w, id, ifo_slot, &label, on_pick.as_ref());
         w.gl.queue_render();
     });
     btn

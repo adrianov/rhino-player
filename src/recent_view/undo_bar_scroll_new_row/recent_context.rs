@@ -119,11 +119,13 @@ impl RecentContext {
     }
 
     fn paint_strip(&self) -> Vec<PathBuf> {
-        let fallback: Vec<_> = crate::history::load()
-            .into_iter()
-            .take(CONTINUE_DISPLAY_MAX)
-            .collect();
-        let plan = strip_plan(self.search.as_deref(), fallback);
+        let plan = strip_plan(
+            self.search.as_deref(),
+            crate::history::load()
+                .into_iter()
+                .take(CONTINUE_DISPLAY_MAX)
+                .collect(),
+        );
         self.paint(&plan);
         if plan.searching {
             self.note_search_hint();

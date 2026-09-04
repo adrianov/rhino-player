@@ -59,8 +59,7 @@ impl VideoTsDir {
             return None;
         };
         for e in entries.flatten() {
-            let p = e.path();
-            if let Some(vts) = Self::at(&p) {
+            if let Some(vts) = Self::at(&e.path()) {
                 return Some(vts);
             }
         }

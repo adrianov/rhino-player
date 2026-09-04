@@ -32,11 +32,9 @@ fn wire_video_file_actions(ctx: VideoFileActionCtx) -> VideoFileActions {
         do_commit: &do_commit,
         on_browse_back: &on_browse_back,
     };
-    let move_to_trash = install_move_to_trash_action(&app, &undo_deps, &trash_action_cell);
-
     VideoFileActions {
         close_video,
-        move_to_trash: move_to_trash.clone(),
+        move_to_trash: install_move_to_trash_action(&app, &undo_deps, &trash_action_cell),
     }
 }
 
@@ -189,9 +187,11 @@ fn wire_trash_visible_sync(
         });
     }
     let _ = glib::idle_add_local_once({
-        let mt = move_to_trash.clone();
-        let p = player.clone();
-        let r = recent_scrl.clone();
-        move || sync_trash_action(&mt, &p, &r)
+        let captures = (
+            move_to_trash.clone(),
+            player.clone(),
+            recent_scrl.clone(),
+        );
+        move || sync_trash_action(&captures.0, &captures.1, &captures.2)
     });
 }

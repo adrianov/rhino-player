@@ -31,8 +31,7 @@ pub fn stamp_header(menu: &MenuButton, readout: &Label, canon: f64) {
 
 /// Force **1.0×** when mpv speed differs (folder auto-advance after faster playback).
 pub fn force_normal(mpv: &Mpv) {
-    let s = mpv.get_property::<f64>("speed").unwrap_or(1.0);
-    if (s - 1.0).abs() > EPS {
+    if (mpv.get_property::<f64>("speed").unwrap_or(1.0) - 1.0).abs() > EPS {
         let _ = mpv.set_property("speed", 1.0);
     }
 }

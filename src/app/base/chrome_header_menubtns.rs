@@ -31,10 +31,10 @@ fn wire_macos_header_menu_cluster(
 
 #[cfg(target_os = "macos")]
 fn log_sibling_menu_close(sibs: &[gtk::MenuButton]) {
-    let any = sibs
+    if sibs
         .iter()
-        .any(|b| b.is_active() || b.popover().is_some_and(|p| p.is_visible()));
-    if any {
+        .any(|b| b.is_active() || b.popover().is_some_and(|p| p.is_visible()))
+    {
         crate::macos_header_menu_debug::log_event("header", "close", "reason=sibling_switch");
     }
 }

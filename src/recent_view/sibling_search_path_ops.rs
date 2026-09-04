@@ -33,15 +33,17 @@ impl SiblingSearchState {
     }
 
     fn set_openable(&self, path: &Path, openable: bool) -> bool {
-        let mut index = self.catalog.index_mut();
-        let Some(e) = index
+        if let Some(e) = self
+            .catalog
+            .index_mut()
             .iter_mut()
             .find(|e| crate::video_ext::paths_same_file(&e.path, path))
-        else {
-            return false;
-        };
-        e.set_openable(openable);
-        true
+        {
+            e.set_openable(openable);
+            true
+        } else {
+            false
+        }
     }
 
     /// Mark a path unopenable after trash / removal so the next filter skips it without FS I/O.
@@ -79,9 +81,8 @@ impl SiblingSearchState {
         }
         self.hit_cache.borrow_mut().take();
         self.clear_hits_paint();
-        let q = self.query.borrow().clone();
-        if !q.trim().is_empty() {
-            self.start_filter(q);
+        if !self.query.borrow().trim().is_empty() {
+            self.start_filter(self.query.borrow().clone());
         }
     }
 
@@ -96,9 +97,8 @@ impl SiblingSearchState {
             self.set_openable(p, *open);
         }
         self.mark_missing_unopenable(&outcome.missing);
-        let q = draft.trim().to_lowercase();
         *self.hit_cache.borrow_mut() = Some(super::HitCache {
-            q,
+            q: draft.trim().to_lowercase(),
             hits: outcome.hits,
             capped: outcome.capped,
         });

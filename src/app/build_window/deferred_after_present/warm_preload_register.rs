@@ -19,7 +19,6 @@ fn register_warm_preload_loaded_slot(ctx: &Rc<WarmPreloadCtx>) {
     let done_ctx = Rc::clone(ctx);
     register_warm_preload_loaded(Rc::new(move || {
         let run = Rc::clone(&done_ctx);
-        let gate = Rc::clone(&done_ctx.gate);
-        gate.complete(move |p| WarmPreloadCtx::run_path(&run, p));
+        Rc::clone(&done_ctx.gate).complete(move |p| WarmPreloadCtx::run_path(&run, p));
     }));
 }

@@ -37,8 +37,9 @@ pub(crate) fn bundled_me_budget_vf_matches_noted_px(
     if !v.vs_path.trim().is_empty() {
         return true;
     }
-    let want = effective_px.max(crate::db::MIN_SMOOTH_MAX_AREA);
-    if LAST_BUNDLED_ME_BUDGET_APPLIED.load(std::sync::atomic::Ordering::Acquire) != want {
+    if LAST_BUNDLED_ME_BUDGET_APPLIED.load(std::sync::atomic::Ordering::Acquire)
+        != effective_px.max(crate::db::MIN_SMOOTH_MAX_AREA)
+    {
         return false;
     }
     let noted_key = LAST_BUNDLED_MEDIA_KEY.lock().ok().and_then(|g| g.clone());
@@ -50,11 +51,14 @@ pub(crate) fn bundled_me_budget_vf_matches_prefs(
     v: &crate::db::VideoPrefs,
     bundle: Option<&crate::mpv_embed::MpvBundle>,
 ) -> bool {
-    let eff = effective_smooth_me_budget_px(mpv, v, bundle);
-    let cur_key = me_budget_local_path(mpv, bundle)
-        .as_ref()
-        .and_then(|p| crate::db::history_key(p.as_path()));
-    bundled_me_budget_vf_matches_noted_px(eff, v, cur_key.as_deref())
+    bundled_me_budget_vf_matches_noted_px(
+        effective_smooth_me_budget_px(mpv, v, bundle),
+        v,
+        me_budget_local_path(mpv, bundle)
+            .as_ref()
+            .and_then(|p| crate::db::history_key(p.as_path()))
+            .as_deref(),
+    )
 }
 
 #[cfg(test)]

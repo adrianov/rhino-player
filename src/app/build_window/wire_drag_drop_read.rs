@@ -10,9 +10,7 @@ fn read_value_type(
     on_open: RcPathFn,
     on_empty: impl FnOnce() + 'static,
 ) {
-    let dk_cb = dk_finish;
-    let dk_r = dk_read;
-    dk_r.read_value_async(
+    dk_read.read_value_async(
         typ,
         glib::Priority::default(),
         None::<&gio::Cancellable>,
@@ -20,7 +18,7 @@ fn read_value_type(
             Ok(val) => {
                 let paths = paths_from_gvalue(val.type_(), &val);
                 if !paths.is_empty() {
-                    dispatch_paths_and_finish_drop(paths, &player, &sub_menu, &on_open, &dk_cb);
+                    dispatch_paths_and_finish_drop(paths, &player, &sub_menu, &on_open, &dk_finish);
                 } else {
                     on_empty();
                 }

@@ -59,15 +59,17 @@ impl WarmPreloadCtx {
             ctx.gate.queue(path);
             return;
         }
-        let outcome = preload_continue_path(
-            &path,
-            &ctx.player,
-            &ctx.video_pref,
-            &ctx.recent,
-            &ctx.gl,
-            &ctx.last_path,
+        settle_preload_outcome(
+            ctx,
+            preload_continue_path(
+                &path,
+                &ctx.player,
+                &ctx.video_pref,
+                &ctx.recent,
+                &ctx.gl,
+                &ctx.last_path,
+            ),
         );
-        settle_preload_outcome(ctx, outcome);
     }
 }
 
@@ -87,8 +89,7 @@ fn settle_preload_outcome(ctx: &Rc<WarmPreloadCtx>, outcome: PreloadOutcome) -> 
         }
         PreloadOutcome::Failed => {
             let run = Rc::clone(ctx);
-            let gate = Rc::clone(&ctx.gate);
-            gate.complete(move |p| WarmPreloadCtx::run_path(&run, p));
+            Rc::clone(&ctx.gate).complete(move |p| WarmPreloadCtx::run_path(&run, p));
             false
         }
     }

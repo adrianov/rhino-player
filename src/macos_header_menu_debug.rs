@@ -71,16 +71,14 @@ pub(crate) fn wire_header_menu_trace(
 
 /// Show / map / closed transitions of the popover surface for one header menu.
 fn trace_popover_events(name: &'static str, pop: &gtk::Popover, btn: &gtk::MenuButton) {
-    let pop_show = pop.clone();
-    pop_show.connect_show(move |p| {
+    pop.clone().connect_show(move |p| {
         log_event(
             name,
             "open",
             &format!("popover_show visible={}", p.is_visible()),
         );
     });
-    let pop_map = pop.clone();
-    pop_map.connect_map(move |p| {
+    pop.clone().connect_map(move |p| {
         log_event(
             name,
             "open",

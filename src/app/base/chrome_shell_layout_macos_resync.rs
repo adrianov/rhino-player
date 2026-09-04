@@ -70,11 +70,13 @@ fn compositing_refresh_scheduler(deb: CompositingDebounce) -> Rc<dyn Fn()> {
             return;
         }
         let deb2 = Rc::clone(&deb);
-        let id = glib::timeout_add_local_once(std::time::Duration::from_millis(32), move || {
-            *deb2.borrow_mut() = None;
-            refresh_registered_shell_compositing();
-        });
-        *deb.borrow_mut() = Some(id);
+        *deb.borrow_mut() = Some(glib::timeout_add_local_once(
+            std::time::Duration::from_millis(32),
+            move || {
+                *deb2.borrow_mut() = None;
+                refresh_registered_shell_compositing();
+            },
+        ));
     })
 }
 
@@ -94,8 +96,7 @@ pub(crate) fn wire_macos_surface_compositing_refresh(ctx: &Rc<ShellLayoutCtx>) {
     use gtk::prelude::NativeExt;
 
     let deb = Rc::new(RefCell::new(None::<glib::SourceId>));
-    let win = ctx.win.clone();
-    win.connect_map(move |w| {
+    ctx.win.clone().connect_map(move |w| {
         let Some(surf) = w.native().and_then(|n| n.surface()) else {
             return;
         };

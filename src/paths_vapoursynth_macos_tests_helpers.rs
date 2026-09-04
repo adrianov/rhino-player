@@ -30,8 +30,10 @@ impl Drop for TempXdg {
 
 fn stale_cellar_key() -> String {
     let vs = macos_vapoursynth_lib_dir().unwrap().join(VSSCRIPT_DYLIB);
-    let key = std::fs::canonicalize(&vs).unwrap_or(vs);
-    key.to_string_lossy().into_owned()
+    std::fs::canonicalize(&vs)
+        .unwrap_or(vs)
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Two Cellar-pinned mappings for our key plus one unrelated entry to preserve.

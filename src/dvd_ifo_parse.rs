@@ -8,6 +8,7 @@ mod sub_mpv_id;
 mod time;
 mod title_vob_durations;
 mod vts;
+mod vts_ptt;
 
 use std::path::Path;
 
@@ -45,8 +46,10 @@ include!("dvd_ifo_parse/main_title.rs");
 #[must_use]
 pub fn movie_entry_global_sec(disc: &Path) -> Option<f64> {
     let (vts_dir, vts_id, feature_ttn) = feature_title_context(disc)?;
-    let ifo = vts_dir.join(format!("VTS_{vts_id:02}_0.IFO"));
-    if let Some(skip) = skip_before_feature_ttn(&ifo, feature_ttn) {
+    if let Some(skip) = skip_before_feature_ttn(
+        &vts_dir.join(format!("VTS_{vts_id:02}_0.IFO")),
+        feature_ttn,
+    ) {
         return Some(skip);
     }
     let first_vob = crate::dvd_entity::first_chapter_vob(&vts_dir, vts_id)?;
@@ -97,9 +100,14 @@ fn first_mark_share(marks: &IfoChapterMarks) -> Option<f64> {
 }
 
 pub(super) fn vts_id_from_path(path: &Path) -> Option<u32> {
-    let stem = path.file_stem()?.to_str()?.to_ascii_uppercase();
-    let rest = stem.strip_prefix("VTS_")?;
-    rest.split('_').next()?.parse().ok()
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .map(str::to_ascii_uppercase)
+        .and_then(|stem| {
+            stem.strip_prefix("VTS_")
+                .and_then(|rest| rest.split('_').next())
+                .and_then(|n| n.parse().ok())
+        })
 }
 
 #[cfg(test)]

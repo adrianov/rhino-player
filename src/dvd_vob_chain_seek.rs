@@ -50,8 +50,7 @@ pub(crate) fn chain_head_ifo_seg(chapter: &std::path::Path) -> Option<f64> {
     if !crate::dvd_vob_mpv_probe::is_title_chain_head(chapter) {
         return None;
     }
-    let map = crate::db::load_duration_map();
-    let tl = crate::dvd_entity::build_title_timeline(chapter, &map, 0.0)?;
+    let tl = crate::dvd_entity::build_title_timeline(chapter, &crate::db::load_duration_map(), 0.0)?;
     let idx = tl.index_of(chapter)?;
     let seg = tl.chapter_dur_at(idx);
     (seg > 0.0).then_some(seg)
@@ -61,8 +60,12 @@ pub(crate) fn chain_head_ifo_seg(chapter: &std::path::Path) -> Option<f64> {
 #[must_use]
 pub(crate) fn chain_head_mpv_seek_sec(mpv: &libmpv2::Mpv, ifo_local: f64, ifo_seg: f64) -> f64 {
     let mpv_dur = mpv_duration(mpv);
-    let ifo = ifo_local.clamp(0.0, ifo_seg.max(0.0));
-    chain_head_ifo_local_to_mpv(ifo, mpv_dur, ifo_seg, chain_head_stretched(mpv_dur, ifo_seg))
+    chain_head_ifo_local_to_mpv(
+        ifo_local.clamp(0.0, ifo_seg.max(0.0)),
+        mpv_dur,
+        ifo_seg,
+        chain_head_stretched(mpv_dur, ifo_seg),
+    )
 }
 
 /// IFO-local chapter offset from live mpv coords (resume DB + continue-grid global mapping).

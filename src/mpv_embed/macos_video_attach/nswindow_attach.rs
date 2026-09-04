@@ -39,8 +39,7 @@ pub(super) fn attach_native_layers(
 ) -> Result<AttachedLayers, String> {
     let render = make_gl_stack(backing_scale)?;
     let parent_layer = parent_layer_of(window)?;
-    let our_calayer = as_calayer(&render.layer);
-    insert_below_gtk_sublayers(&parent_layer, &our_calayer);
+    insert_below_gtk_sublayers(&parent_layer, &as_calayer(&render.layer));
     Ok(AttachedLayers {
         pixel_format: render.pixel_format,
         context: render.context,
@@ -155,16 +154,15 @@ pub(super) fn start_session<W: IsA<gtk::Widget>>(
     let (display_link, redraw_handle) =
         super::super::macos_video_displaylink::DisplayLinkDriver::install(native.layer.clone())?;
     sync_layer_frame_now(&native.layer, sizer, None, Some(redraw_handle.as_ref()));
-    let sizer_handler = wire_sizer_resync(
-        sizer_widget,
-        native.layer.clone(),
-        overlay.clone(),
-        redraw_handle.clone(),
-    );
     Ok(RenderSession {
         display_link,
+        sizer_handler: wire_sizer_resync(
+            sizer_widget,
+            native.layer.clone(),
+            overlay.clone(),
+            redraw_handle.clone(),
+        ),
         redraw_handle,
         overlay,
-        sizer_handler,
     })
 }

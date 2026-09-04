@@ -74,13 +74,14 @@ fn video_pref_submenu_rebuild(m: &gio::Menu, p: &db::VideoPrefs, app: &adw::Appl
 /// Row showing the chosen script's basename when a custom VapourSynth script is configured.
 fn append_vs_custom_submenu_row(m: &gio::Menu, p: &db::VideoPrefs) {
     if !p.vs_path.trim().is_empty() {
-        let name = std::path::Path::new(p.vs_path.trim())
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("script.vpy");
         menu_append_action_icon(
             m,
-            Some(name),
+            Some(
+                std::path::Path::new(p.vs_path.trim())
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("script.vpy"),
+            ),
             Some("app.vs-custom"),
             Some("text-x-generic-symbolic"),
         );

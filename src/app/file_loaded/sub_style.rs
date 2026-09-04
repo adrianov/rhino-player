@@ -43,8 +43,7 @@ fn wire_sub_scale(
     let gll = gll.clone();
     let adj_h = adj.clone();
     adj.connect_value_changed(move |_| {
-        let v = adj_h.value();
-        sp.borrow_mut().scale = v;
+        sp.borrow_mut().scale = adj_h.value();
         apply_sub_prefs_and_redraw(&p, &sp, &gll);
     });
 }

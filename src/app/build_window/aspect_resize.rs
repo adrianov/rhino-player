@@ -49,8 +49,10 @@ fn install_aspect_hooks(
     if wired.replace(true) {
         return;
     }
-    let on_resize = build_aspect_on_resize(win, recent, win_aspect, deb);
-    let has_surf = connect_aspect_notifies(win, &on_resize);
+    let has_surf = connect_aspect_notifies(
+        win,
+        &build_aspect_on_resize(win, recent, win_aspect, deb),
+    );
     eprintln!(
         "[rhino] aspect: resize hooks wired (window notify{})",
         if has_surf {
@@ -61,18 +63,16 @@ fn install_aspect_hooks(
     );
 }
 
+fn connect_dimension_notify(win: &adw::ApplicationWindow, prop: &str, on_resize: Rc<dyn Fn()>) {
+    use glib::object::ObjectExt;
+    win.connect_notify_local(Some(prop), move |_, _| on_resize());
+}
+
 /// One fresh hook install: window width/height notify plus the live GdkSurface notify,
 /// scheduling the deferred-surface retry when the surface does not exist yet.
 fn connect_aspect_notifies(win: &adw::ApplicationWindow, on_resize: &Rc<dyn Fn()>) -> bool {
-    use glib::object::ObjectExt;
-    win.connect_notify_local(Some("width"), {
-        let f = Rc::clone(on_resize);
-        move |_, _| f()
-    });
-    win.connect_notify_local(Some("height"), {
-        let f = Rc::clone(on_resize);
-        move |_, _| f()
-    });
+    connect_dimension_notify(win, "width", Rc::clone(on_resize));
+    connect_dimension_notify(win, "height", Rc::clone(on_resize));
 
     let has_surf = connect_surface_resize(win, on_resize);
     if !has_surf {

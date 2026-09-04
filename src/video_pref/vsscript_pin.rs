@@ -93,9 +93,10 @@ fn probe_vsscript_api(name: &&'static str) -> VsscriptProbe {
         if sym.is_null() {
             return VsscriptProbe::Skip;
         }
-        let get_api: unsafe extern "C" fn(libc::c_int) -> *const VsScriptApi =
-            std::mem::transmute(sym);
-        let api = get_api(VSSCRIPT_API_4_1);
+        let api = (std::mem::transmute::<
+            *mut libc::c_void,
+            unsafe extern "C" fn(libc::c_int) -> *const VsScriptApi,
+        >(sym))(VSSCRIPT_API_4_1);
         if api.is_null() {
             VsscriptProbe::ApiNull(handle)
         } else {

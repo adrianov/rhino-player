@@ -6,8 +6,7 @@ fn apply_file_loaded_resume_and_audio(player: &Rc<RefCell<Option<MpvBundle>>>) {
         let shell_ref = shell.as_deref();
         audio_tracks::restore_saved_audio(&b.mpv, shell_ref);
         audio_tracks::ensure_playable_audio(&b.mpv, shell_ref);
-        let pr = crate::db::load_sub();
-        let _ = sub_tracks::restore_saved_sub(&b.mpv, &pr, shell_ref);
+        let _ = sub_tracks::restore_saved_sub(&b.mpv, &crate::db::load_sub(), shell_ref);
         // Seek to the resume position *after* selecting the saved track: the audio decoder
         // reopens on `aid` change, so an exact seek that follows re-aligns A/V. Seeking first
         // and switching after left audio drifted on continue until the user nudged the seek bar.

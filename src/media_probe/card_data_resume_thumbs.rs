@@ -106,8 +106,7 @@ pub fn clear_resume_for_path(media: &Path) {
 
 /// Clear DB resume, then drop [path] from continue **history** (dismiss, trash, EOF with no next, etc.).
 pub fn remove_continue_entry(path: &Path) {
-    let entity = crate::playback_entity::db_path_for(path);
-    clear_resume_for_path(&entity);
+    clear_resume_for_path(&crate::playback_entity::db_path_for(path));
     crate::history::remove(path);
 }
 
@@ -122,8 +121,10 @@ pub struct ListRemoveUndo {
 /// Call **before** [remove_continue_entry] for a manual dismiss.
 pub fn capture_list_remove_undo(path: &Path) -> ListRemoveUndo {
     let path = crate::playback_entity::db_path_for(path);
-    let media = db::snapshot_media_row(&path);
-    ListRemoveUndo { path, media }
+    ListRemoveUndo {
+        media: db::snapshot_media_row(&path),
+        path,
+    }
 }
 
 /// Restore SQLite row; caller re-adds history via [crate::history::record].

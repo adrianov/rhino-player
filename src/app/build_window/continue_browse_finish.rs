@@ -30,10 +30,10 @@ fn finish_warm_preload(
             f.last_path.clone(),
         )
     });
-    let warm_hover = warm_preload
-        .as_ref()
-        .map(|ctx| warm_hover_hooks(Rc::clone(ctx)));
-    (warm_preload, warm_hover)
+    (
+        warm_preload.clone(),
+        warm_preload.map(warm_hover_hooks),
+    )
 }
 
 fn new_continue_grid_cache() -> crate::media_probe::ContinueGridCache {

@@ -22,7 +22,6 @@ fn build_sound_popover() -> SoundPopoverParts {
     );
     let vol_pop = header_popover_column_shell(&vol_row, &audio_tracks_section);
     let (vol_header_img, vol_readout, vol_face) = build_vol_face();
-    let vol_menu = build_vol_menu(&vol_face, &vol_pop);
     SoundPopoverParts {
         vol_adj,
         vol_header_img,
@@ -31,8 +30,8 @@ fn build_sound_popover() -> SoundPopoverParts {
         audio_tracks_block,
         audio_tracks_box,
         audio_tracks_section,
+        vol_menu: build_vol_menu(&vol_face, &vol_pop),
         vol_pop,
-        vol_menu,
     }
 }
 

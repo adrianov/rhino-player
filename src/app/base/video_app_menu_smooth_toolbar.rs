@@ -57,8 +57,7 @@ fn apply_vs_path_chosen(
     smooth_toolbar_btn: Option<&gtk::Button>,
 ) {
     if pl.borrow().as_ref().is_some() {
-        let r = video_pref::apply_mpv_video(pl, &mut p.borrow_mut(), None);
-        if r.smooth_auto_off {
+        if video_pref::apply_mpv_video(pl, &mut p.borrow_mut(), None).smooth_auto_off {
             sync_smooth_60_to_off(app);
             show_smooth_setup_dialog(app);
         } else if let Some(sa) = smooth_60_action(app) {

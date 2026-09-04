@@ -51,8 +51,14 @@ fn mute_toggle_key(
     let Some(b) = g.as_ref() else {
         return Some(glib::Propagation::Proceed);
     };
-    let muted = b.mpv.get_property::<bool>("mute").unwrap_or(false);
-    if b.mpv.set_property("mute", !muted).is_err() {
+    if b
+        .mpv
+        .set_property(
+            "mute",
+            !b.mpv.get_property::<bool>("mute").unwrap_or(false),
+        )
+        .is_err()
+    {
         return Some(glib::Propagation::Proceed);
     }
     Some(glib::Propagation::Stop)

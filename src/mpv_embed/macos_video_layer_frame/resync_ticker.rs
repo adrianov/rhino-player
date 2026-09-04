@@ -46,10 +46,9 @@ impl ResyncTicker {
 
     /// NSWindow content height quantized to 1/4096 pt, with the GTK window height as fallback.
     fn height_snap(w: &gtk::Widget, window: &gtk::Window) -> i64 {
-        let win_h_fallback = (window.height() as i64).saturating_mul(4096);
         nswindow_content_height_for(w)
             .map(|h| (h * 4096.0).round() as i64)
-            .unwrap_or(win_h_fallback)
+            .unwrap_or((window.height() as i64).saturating_mul(4096))
     }
 
     fn position_key(w: &gtk::Widget, window: &gtk::Window) -> (i64, i64) {
@@ -76,9 +75,13 @@ impl ResyncTicker {
         window: &gtk::Window,
         ov: &Option<gtk::Widget>,
     ) -> CheapKey {
-        let snap = Self::height_snap(w, window);
-        let ov_vis = ov.as_ref().is_some_and(|v| v.is_visible());
-        (w.width(), w.height(), snap, w.is_visible(), ov_vis)
+        (
+            w.width(),
+            w.height(),
+            Self::height_snap(w, window),
+            w.is_visible(),
+            ov.as_ref().is_some_and(|v| v.is_visible()),
+        )
     }
 
     /// Cheap short-circuit: only probe the (costlier) window position every N ticks
@@ -115,6 +118,10 @@ impl ResyncTicker {
     }
 }
 
+fn install_resync_ticker(sizer_widget: &gtk::Widget, handler: Rc<ResyncTicker>) {
+    sizer_widget.add_tick_callback(move |w, _| handler.on_tick(w));
+}
+
 /// Mirror the sizer onto the layer every frame; the tick callback skips frames whose
 /// size/visibility/position keys are unchanged so idle playback costs nothing.
 pub(super) fn add_ticker(
@@ -123,7 +130,8 @@ pub(super) fn add_ticker(
     overlay: OverlayCell,
     repaint: Arc<DriverStateHandle>,
 ) {
-    let ticker = Rc::new(ResyncTicker::new(layer, overlay, repaint));
-    let t = ticker.clone();
-    sizer_widget.add_tick_callback(move |w, _| t.on_tick(w));
+    install_resync_ticker(
+        sizer_widget,
+        Rc::new(ResyncTicker::new(layer, overlay, repaint)),
+    );
 }

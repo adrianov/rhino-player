@@ -41,8 +41,15 @@ fn build_window(
         tl: &bw.tl,
         chrome: &bw.chrome,
     });
-    let video_file_actions = wire_recent_undo_actions(app, &w, &h, player);
-    wire_startup_realize(app, &w, &bw, &h, player, &file_boot, video_file_actions);
+    wire_startup_realize(
+        app,
+        &w,
+        &bw,
+        &h,
+        player,
+        &file_boot,
+        wire_recent_undo_actions(app, &w, &h, player),
+    );
     stash_and_present(app, w, bw, h, player, file_boot);
 }
 

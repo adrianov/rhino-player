@@ -9,8 +9,11 @@ fn save_choice(mpv: &Mpv, id: i64, text: &str, shell: Option<&Path>) {
         return;
     };
     let entity = playback_entity::PlaybackEntity::resolve(&path);
-    let slot = playback_entity::audio_ifo_slot_for_aid(mpv, &entity, id, shell);
-    db::set_audio_track(&entity.db_path(), id, slot);
+    db::set_audio_track(
+        &entity.db_path(),
+        id,
+        playback_entity::audio_ifo_slot_for_aid(mpv, &entity, id, shell),
+    );
 }
 
 /// Sound popover row pick: set `aid`, persist, and re-align A/V when Smooth presentation is active.
@@ -111,10 +114,12 @@ fn audio_row_button(
 /// Currently active mpv audio id plus its DVD IFO slot (when the entity is a DVD).
 fn active_audio_want(mpv: &Mpv, shell_ref: Option<&Path>) -> (Option<i64>, Option<u8>) {
     let want = current_aid(mpv);
-    let want_slot = entity_from_mpv(mpv, shell_ref).and_then(|(entity, _)| {
-        want.and_then(|a| audio_ifo_slot_for_aid(mpv, &entity, a, shell_ref))
-    });
-    (want, want_slot)
+    (
+        want,
+        entity_from_mpv(mpv, shell_ref).and_then(|(entity, _)| {
+            want.and_then(|a| audio_ifo_slot_for_aid(mpv, &entity, a, shell_ref))
+        }),
+    )
 }
 
 /// Widget + player handles for one sound-popover rebuild pass.
@@ -164,15 +169,18 @@ fn repopulate(ctx: &AudioRebuildCtx, mpv: &Mpv, rows: &[AudioMenuRow]) {
     ctx.block.set(true);
     let mut buttons: Vec<(i64, Option<u8>, gtk::CheckButton)> = Vec::new();
     for r in rows {
-        let btn = audio_row_button(
-            ctx.player,
-            ctx.block,
-            ctx.gl,
-            ctx.tooltip_btn.cloned(),
-            &ctx.shell_path,
-            r,
-        );
-        buttons.push((r.mpv_id, r.ifo_slot, btn));
+        buttons.push((
+            r.mpv_id,
+            r.ifo_slot,
+            audio_row_button(
+                ctx.player,
+                ctx.block,
+                ctx.gl,
+                ctx.tooltip_btn.cloned(),
+                &ctx.shell_path,
+                r,
+            ),
+        ));
     }
     group_radio_rows(ctx.bx, &buttons);
     for (id, ifo_slot, btn) in &buttons {

@@ -83,10 +83,10 @@ fn vo_image_wait_seek(
     let deadline = Instant::now() + Duration::from_secs(wait_secs.min(VO_IMAGE_WAIT_CAP_SEC));
     loop {
         while m.wait_event(0.0).is_some() {}
-        let ok = chapter
+        if chapter
             .map(|ch| vo_image_at_ifo(m, ch, ifo_target))
-            .unwrap_or_else(|| vo_image_pos_near(m, mpv_target));
-        if ok {
+            .unwrap_or_else(|| vo_image_pos_near(m, mpv_target))
+        {
             return true;
         }
         if Instant::now() >= deadline {
@@ -118,8 +118,7 @@ fn vo_image_capture_after_seek(
     }
     vo_image_issue_seek(m, src, mpv_t, keyframes)?;
     if !keyframes {
-        let chapter = dvd_vob.then_some(src);
-        vo_image_ensure_seeked(m, src, chapter, ifo_seek, mpv_t, wait_secs)?;
+        vo_image_ensure_seeked(m, src, dvd_vob.then_some(src), ifo_seek, mpv_t, wait_secs)?;
     }
     if !vo_image_wait_frame(m, wait_secs) {
         eprintln!("[rhino] grid_thumb frame timeout {}", src.display());
@@ -182,12 +181,11 @@ fn vo_image_plan(src: &Path, start_sec: f64, chapter_dur: f64) -> VoImagePlan {
     let dvd_vob = crate::video_ext::is_dvd_vob_path(src);
     let chain_head = dvd_vob && crate::dvd_vob_mpv_probe::is_title_chain_head(src);
     let cap = preview_cap_sec(chapter_dur, start_sec);
-    let ifo_seek = crate::seek_bar_preview::cap_preview_seek_time(start_sec, cap);
     VoImagePlan {
         dvd_vob,
         chain_head,
         cap,
-        ifo_seek,
+        ifo_seek: crate::seek_bar_preview::cap_preview_seek_time(start_sec, cap),
     }
 }
 
@@ -238,13 +236,16 @@ fn vo_image_grab_frame(
         keyframes,
     )
     .ok_or(ThumbFail::Other)?;
-    let cap = vo_image_probe_cap(m, plan);
     vo_image_prefer_nonflat(
         FlatNudgeCtx {
+            cap: if plan.dvd_vob {
+                plan.cap
+            } else {
+                vo_image_duration_sec(m).max(plan.cap)
+            },
             m,
             src,
             ifo_seek: plan.ifo_seek,
-            cap,
             chain_head: plan.chain_head,
             dvd_vob: plan.dvd_vob,
             wait_secs,
@@ -252,14 +253,6 @@ fn vo_image_grab_frame(
         first,
     )
     .ok_or(ThumbFail::Other)
-}
-
-/// DVD chapters stay on the planned chapter cap; other files use demuxer duration after load.
-fn vo_image_probe_cap(m: &Mpv, plan: &VoImagePlan) -> f64 {
-    if plan.dvd_vob {
-        return plan.cap;
-    }
-    vo_image_duration_sec(m).max(plan.cap)
 }
 
 #[cfg(test)]
@@ -300,13 +293,12 @@ mod live_capture_tests {
 
 /// VO configured and video dimensions known: a decoded frame can be captured.
 fn vo_image_frame_ready(m: &Mpv) -> bool {
-    let vo_ok = m.get_property::<bool>("vo-configured") == Ok(true);
-    let sized = m
-        .get_property::<i64>("dwidth")
-        .ok()
-        .zip(m.get_property::<i64>("dheight").ok())
-        .is_some_and(|(w, h)| w > 0 && h > 0);
-    vo_ok && sized
+    m.get_property::<bool>("vo-configured") == Ok(true)
+        && m
+            .get_property::<i64>("dwidth")
+            .ok()
+            .zip(m.get_property::<i64>("dheight").ok())
+            .is_some_and(|(w, h)| w > 0 && h > 0)
 }
 
 fn vo_image_wait_frame(m: &mut Mpv, wait_secs: u64) -> bool {

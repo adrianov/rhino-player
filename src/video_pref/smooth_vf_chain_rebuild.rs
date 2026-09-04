@@ -18,8 +18,13 @@ fn smooth_reattach_after_vf_strip(
         "[rhino] video: smooth reattach after vf strip{}",
         if av_resync { " (toggle A/V resync)" } else { "" }
     );
-    let disabled_60 = add_smooth_60(mpv, v, speed_hint, bundle, cadence_hz);
-    finish_reattach_after_add(mpv, bundle, snap.as_ref(), playhead, disabled_60)
+    finish_reattach_after_add(
+        mpv,
+        bundle,
+        snap.as_ref(),
+        playhead,
+        add_smooth_60(mpv, v, speed_hint, bundle, cadence_hz),
+    )
 }
 
 /// Exact playhead seek + unpause after a toggle-armed reattach; seek reattach only logs A/V.
@@ -81,16 +86,14 @@ fn rebuild_smooth_vf_chain(
     if vf_swap_defer_in_flight() {
         return false;
     }
-    let had_vf = vf_chain_has_vapoursynth(mpv);
-    if !had_vf {
+    if !vf_chain_has_vapoursynth(mpv) {
         if bundle.is_some_and(|b| b.smooth_vf_stripped_this_open()) {
             return smooth_reattach_after_vf_strip(mpv, bundle, v, speed_hint, cadence_hz);
         }
         return add_smooth_60_with_av_log(mpv, v, speed_hint, bundle, cadence_hz);
     }
     let snap = vf_swap_snap(mpv, true);
-    let disabled_60 = prep_smooth_60_for_vf(mpv, v, speed_hint, bundle, cadence_hz);
-    if disabled_60 {
+    if prep_smooth_60_for_vf(mpv, v, speed_hint, bundle, cadence_hz) {
         vf_swap_unpause(mpv, &snap);
         return true;
     }

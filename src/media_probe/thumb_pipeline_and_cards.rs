@@ -220,8 +220,7 @@ pub(crate) fn mpv_matches_open_target(
     let Some(open) = shell_media_path(mpv, shell) else {
         return false;
     };
-    let want = crate::video_ext::resolve_open_media_path(path);
-    crate::video_ext::paths_same_file(&open, &want)
+    crate::video_ext::paths_same_file(&open, &crate::video_ext::resolve_open_media_path(path))
 }
 
 /// Warm hit: mpv already decodes this exact local target with known duration.
@@ -233,8 +232,7 @@ pub(crate) fn mpv_warm_hit_ready(mpv: &Mpv, path: &std::path::Path) -> bool {
     let Some(open) = mpv_local_open_path(mpv) else {
         return false;
     };
-    let want = crate::video_ext::resolve_open_media_path(path);
-    crate::video_ext::paths_same_file(&open, &want)
+    crate::video_ext::paths_same_file(&open, &crate::video_ext::resolve_open_media_path(path))
 }
 
 /// Loaded local file, canonical, or `None` (idle, stream, or missing file).
@@ -265,8 +263,9 @@ fn card_one(path: &Path, durs: &HashMap<String, f64>, tpos: &HashMap<String, f64
             duration_sec: 0.0,
         };
     }
-    let abs = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let entity = crate::playback_entity::db_path_for(&abs);
+    let entity = crate::playback_entity::db_path_for(
+        &std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
+    );
     let (resume, duration) = crate::playback_entity::card_resume_duration(&entity, durs, tpos);
     let pct = percent_from_resume(Some(resume), Some(duration));
     let thumb = cached_thumbnail_for_display(&entity);

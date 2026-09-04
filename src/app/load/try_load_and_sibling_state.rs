@@ -77,8 +77,11 @@ fn settle_loaded_ui(
     path: &Path,
     warm_hit: bool,
 ) {
-    let ttl = title_for_open_path(path);
-    sync_app_window_title(win, o.hdr_title_mirror.as_deref(), Some(ttl.as_str()));
+    sync_app_window_title(
+        win,
+        o.hdr_title_mirror.as_deref(),
+        Some(title_for_open_path(path).as_str()),
+    );
     // Drain `FileLoaded` / `path` before `reveal_ui_after_load` unpause so transport runs
     // `forget_bundled_me_budget_vf_apply_on_new_media` and resume/audio restore before `Pause(false)`
     // can attach Smooth (`note_bundled` was being cleared by a later `FileLoaded` → duplicate `vf add`).
@@ -96,9 +99,10 @@ fn settle_loaded_ui(
 }
 
 fn save_mpv_audio(mpv: &Mpv) {
-    let vol = mpv.get_property::<f64>("volume").unwrap_or(100.0);
-    let muted = mpv.get_property::<bool>("mute").unwrap_or(false);
-    db::save_audio(vol, muted);
+    db::save_audio(
+        mpv.get_property::<f64>("volume").unwrap_or(100.0),
+        mpv.get_property::<bool>("mute").unwrap_or(false),
+    );
 }
 
 fn save_mpv_state(mpv: &Mpv, sub: &RefCell<db::SubPrefs>) {

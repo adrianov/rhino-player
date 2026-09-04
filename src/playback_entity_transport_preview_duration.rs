@@ -38,16 +38,14 @@ fn unified_timeline_cap(
     if let Some(bar) = dvd_bar {
         return Some(bar.total_sec().min(bar_upper).max(0.0));
     }
-    let live = main
-        .get_property::<f64>("duration")
-        .ok()
-        .map(crate::dvd_vob_timeline::clamp_vob_duration)
-        .unwrap_or(0.0);
-    let map = crate::db::load_duration_map();
     crate::dvd_vob_timeline::DvdBarState::build_with_map_opts(
         chapter,
-        live,
-        &map,
+        main
+            .get_property::<f64>("duration")
+            .ok()
+            .map(crate::dvd_vob_timeline::clamp_vob_duration)
+            .unwrap_or(0.0),
+        &crate::db::load_duration_map(),
         crate::dvd_entity::TimelineBuildOpts::CACHE_ONLY,
     )
     .map(|bar| bar.total_sec().min(bar_upper).max(0.0))

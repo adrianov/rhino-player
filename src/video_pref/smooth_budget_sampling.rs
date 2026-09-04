@@ -150,10 +150,9 @@ fn strain_rate_since_deque_front(
     if elapsed < min_elapsed_wall_secs {
         return None;
     }
-    let hz = budget_signal_hz_for_comparison(fps, signal_src);
     Some(budget_signal_rate_in_window(
         cur_count.saturating_sub(c_old),
         elapsed,
-        hz,
+        budget_signal_hz_for_comparison(fps, signal_src),
     ))
 }

@@ -4,8 +4,7 @@
 /// Updates [win_aspect] from mpv coded size when available (stable across `vf`); else display dims.
 fn sync_window_aspect_from_mpv(mpv: &Mpv, win_aspect: &WinAspectCell) {
     let prev = win_aspect.get();
-    let dims = video_snap_aspect_dims(mpv);
-    if let Some((w, h)) = dims {
+    if let Some((w, h)) = video_snap_aspect_dims(mpv) {
         if w > 0 && h > 0 {
             let next = (w, h);
             win_aspect.set(Some(next));

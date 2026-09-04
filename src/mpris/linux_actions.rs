@@ -93,8 +93,7 @@ fn dispatch_position_seek(
     let seek_abs = seek_abs.clone();
     run_on_main(move || {
         with_active_bundle(&cell, |b| {
-            let nt = target_from_pos(bundle_time_pos_sec(b));
-            seek_abs_and_emit_seeked(b, nt, &seek_abs, &tx);
+            seek_abs_and_emit_seeked(b, target_from_pos(bundle_time_pos_sec(b)), &seek_abs, &tx);
         });
     });
 }

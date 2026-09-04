@@ -37,9 +37,8 @@ pub(crate) fn window_frontmost_at_pointer(gtk_win: &adw::ApplicationWindow) -> b
     let Some(nswin) = nswindow_for_widget(gtk_win.upcast_ref::<gtk::Widget>()) else {
         return false;
     };
-    let loc = NSEvent::mouseLocation();
-    let front = NSWindow::windowNumberAtPoint_belowWindowWithWindowNumber(loc, 0, mtm);
-    front == nswin.windowNumber()
+    NSWindow::windowNumberAtPoint_belowWindowWithWindowNumber(NSEvent::mouseLocation(), 0, mtm)
+        == nswin.windowNumber()
 }
 
 fn pointer_in_window_frame(gtk_win: &adw::ApplicationWindow) -> bool {
@@ -125,8 +124,11 @@ define_class!(
 );
 
 fn blank_ns_cursor() -> Retained<NSCursor> {
-    let img = NSImage::initWithSize(NSImage::alloc(), NSSize::new(1.0, 1.0));
-    NSCursor::initWithImage_hotSpot(NSCursor::alloc(), &img, NSPoint { x: 0.0, y: 0.0 })
+    NSCursor::initWithImage_hotSpot(
+        NSCursor::alloc(),
+        &NSImage::initWithSize(NSImage::alloc(), NSSize::new(1.0, 1.0)),
+        NSPoint { x: 0.0, y: 0.0 },
+    )
 }
 
 /// Cover windows ignore-mouse would show the desktop pointer; this view owns a blank cursor instead.

@@ -63,8 +63,7 @@ fn best_srpt_index(buf: &IfoBuf, nr: usize, titles_off: usize, skip_menu: bool) 
 }
 
 fn tt_srpt_best(buf: &IfoBuf, nr: usize, titles_off: usize, skip_menu: bool) -> (u32, u32) {
-    let best_idx = best_srpt_index(buf, nr, titles_off, skip_menu);
-    let off = titles_off + best_idx * TITLE_INFO_SIZE;
+    let off = titles_off + best_srpt_index(buf, nr, titles_off, skip_menu) * TITLE_INFO_SIZE;
     let vts_id = buf.byte(off + 6) as u32;
     let ttn = buf.byte(off + 7).max(1) as u32;
     (vts_id, ttn)
@@ -102,18 +101,29 @@ fn load_srpt(disc: &Path) -> Option<(std::path::PathBuf, IfoBuf, SrptTable)> {
 /// VTS id / TTN after reconciling the SRPT pick with byte-scan and on-disk hints.
 fn resolve_main_vts(vts_dir: &Path, srpt: (u32, u32)) -> (u32, u32) {
     let (srpt_vts, srpt_ttn) = srpt;
-    let bytes_vts = crate::video_ext::feature_title_set_id(vts_dir).unwrap_or(srpt_vts);
-    let vts_id = crate::video_ext::resolve_dvd_main_vts(vts_dir, srpt_vts, bytes_vts);
-    let ttn =
-        best_ttn_on_vts(vts_dir, vts_id).unwrap_or(if vts_id == srpt_vts { srpt_ttn } else { 1 });
-    (vts_id, ttn)
+    let vts_id = crate::video_ext::resolve_dvd_main_vts(
+        vts_dir,
+        srpt_vts,
+        crate::video_ext::feature_title_set_id(vts_dir).unwrap_or(srpt_vts),
+    );
+    (
+        vts_id,
+        best_ttn_on_vts(vts_dir, vts_id)
+            .unwrap_or(if vts_id == srpt_vts { srpt_ttn } else { 1 }),
+    )
 }
 
 /// Disc-level main feature from `VIDEO_TS.IFO` (`TT_SRPT`): `(VTS number, title within VTS)`.
 pub fn main_title_from_disc(disc: &Path) -> Option<(u32, u32)> {
     let (vts_dir, buf, table) = load_srpt(disc)?;
-    let skip_menu = any_non_menu_title(&buf, &table);
-    let srpt = tt_srpt_best(&buf, table.nr, table.titles_off, skip_menu);
-    let (vts_id, ttn) = resolve_main_vts(&vts_dir, srpt);
+    let (vts_id, ttn) = resolve_main_vts(
+        &vts_dir,
+        tt_srpt_best(
+            &buf,
+            table.nr,
+            table.titles_off,
+            any_non_menu_title(&buf, &table),
+        ),
+    );
     (1..=99).contains(&vts_id).then_some((vts_id, ttn))
 }

@@ -11,8 +11,7 @@ fn refresh_matched_smooth_vf(
         post_smooth_60_state(p.mpv, p.v, p.want_60, false, p.vlog);
         return Some(MpvVideoApply::default());
     }
-    let cadence_unchanged = publish_smooth_envs(p.mpv, p.v, p.bundle, p.speed_hint, p.cadence_hz);
-    if cadence_unchanged {
+    if publish_smooth_envs(p.mpv, p.v, p.bundle, p.speed_hint, p.cadence_hz) {
         apply_smooth_vf_present_opts(p.mpv);
         post_smooth_60_state(p.mpv, p.v, p.want_60, false, p.vlog);
         return Some(MpvVideoApply::default());
@@ -31,11 +30,13 @@ fn refresh_matched_smooth_vf(
 
 /// True when the requested cadence equals the currently published source-fps env.
 fn cadence_matches_source_fps_env(fps_opt: Option<f64>) -> bool {
-    let before_hz = std::env::var(crate::paths::RHINO_SOURCE_FPS_VAR)
-        .ok()
-        .and_then(|s| s.parse::<f64>().ok())
-        .filter(|x| x.is_finite());
-    match (fps_opt, before_hz) {
+    match (
+        fps_opt,
+        std::env::var(crate::paths::RHINO_SOURCE_FPS_VAR)
+            .ok()
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|x| x.is_finite()),
+    ) {
         (Some(w), Some(b)) => (w - b).abs() < 1e-5,
         (None, None) => true,
         _ => false,

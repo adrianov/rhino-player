@@ -38,8 +38,8 @@ impl MpvBundle {
     /// Chapter-local resume seconds from SQLite for the open shell path (warm reopen fallback).
     fn stored_resume_local_for_shell(&self) -> Option<f64> {
         let shell = self.me_budget_shell_path.borrow().clone()?;
-        let canonical = canonicalize_media_path(&shell);
-        let (target, local) = resume_seek::stored_resume_target(&canonical)?;
+        let (target, local) =
+            resume_seek::stored_resume_target(&canonicalize_media_path(&shell))?;
         let open = media_probe::shell_media_path(
             &self.mpv,
             self.me_budget_shell_path.borrow().as_deref(),
@@ -52,8 +52,9 @@ impl MpvBundle {
 
     fn stored_entity_global(&self) -> Option<f64> {
         let shell = self.me_budget_shell_path.borrow().clone()?;
-        let entity = crate::playback_entity::PlaybackEntity::resolve(&shell);
-        crate::db::resume_pos(&entity.db_path())
+        crate::db::resume_pos(
+            &crate::playback_entity::PlaybackEntity::resolve(&shell).db_path(),
+        )
     }
 
     /// Resume consumed: drop it and hand the final position to the chain-bar sync.
@@ -70,14 +71,17 @@ impl MpvBundle {
 
     /// Chain-head clear: seed the chain-bar sync from the held (or stored) global, then release it.
     fn sync_chain_head_bar_after_clear(&self, ifo_local: f64) {
-        let hold = self
+        if let Some(global) = self
             .dvd_hold_global
             .get()
-            .or_else(|| self.stored_entity_global());
-        if let Some(global) = hold {
-            let playback = self.current_playback_seconds();
+            .or_else(|| self.stored_entity_global())
+        {
             self.dvd_chain_bar_sync.set(Some(
-                crate::dvd_vob_timeline::DvdChainBarSync::from_targets(ifo_local, global, playback),
+                crate::dvd_vob_timeline::DvdChainBarSync::from_targets(
+                    ifo_local,
+                    global,
+                    self.current_playback_seconds(),
+                ),
             ));
             self.persist_chain_head_total(global);
         }
@@ -104,8 +108,10 @@ impl MpvBundle {
         let Some(shell) = self.me_budget_shell_path.borrow().clone() else {
             return;
         };
-        let entity = crate::playback_entity::PlaybackEntity::resolve(&shell);
-        let Some(total) = entity_row_duration(&entity.db_path(), &db::load_duration_map()) else {
+        let Some(total) = entity_row_duration(
+            &crate::playback_entity::PlaybackEntity::resolve(&shell).db_path(),
+            &db::load_duration_map(),
+        ) else {
             return;
         };
         self.persist_entity_bar_global(total, global);

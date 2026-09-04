@@ -16,22 +16,22 @@ fn post_smooth_60_state(mpv: &Mpv, v: &VideoPrefs, want_60: bool, disabled_60: b
 }
 
 fn set_auto_decode(mpv: &Mpv, vlog: bool) {
-    let need_hwdec = mpv
+    if mpv
         .get_property::<String>("hwdec")
         .map(|s| s != "auto")
-        .unwrap_or(true);
-    if need_hwdec {
+        .unwrap_or(true)
+    {
         if let Err(e) = mpv.set_property("hwdec", "auto") {
             eprintln!("[rhino] video: set hwdec auto failed: {e:?}");
         } else if vlog {
             eprintln!("[rhino] video: hwdec=auto (no mvtools vf: smooth off or speed ≠ 1.0×)");
         }
     }
-    let need_dr = mpv
+    if mpv
         .get_property::<String>("vd-lavc-dr")
         .map(|s| s != "auto")
-        .unwrap_or(true);
-    if need_dr {
+        .unwrap_or(true)
+    {
         let _ = mpv.set_property("vd-lavc-dr", "auto");
     }
 }

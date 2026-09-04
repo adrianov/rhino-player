@@ -23,18 +23,15 @@ struct VpyChooseDeps {
 }
 
 fn open_vpy_dialog(deps: Rc<VpyChooseDeps>) {
-    let vf = vpy_file_filter();
-    let filters = gio::ListStore::new::<gtk::FileFilter>();
-    let win = deps.win.clone();
-    let dialog = gtk::FileDialog::builder()
+    gtk::FileDialog::builder()
         .title("VapourSynth Script")
         .modal(true)
-        .filters(&filters)
-        .default_filter(&vf)
-        .build();
-    dialog.open(Some(&win), None::<&gio::Cancellable>, move |res| {
-        vpy_dialog_done(&deps, res);
-    });
+        .filters(&gio::ListStore::new::<gtk::FileFilter>())
+        .default_filter(&vpy_file_filter())
+        .build()
+        .open(Some(&deps.win.clone()), None::<&gio::Cancellable>, move |res| {
+            vpy_dialog_done(&deps, res);
+        });
 }
 
 fn vpy_dialog_done(deps: &VpyChooseDeps, res: Result<gio::File, glib::Error>) {

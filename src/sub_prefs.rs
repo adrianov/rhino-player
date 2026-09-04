@@ -40,13 +40,15 @@ pub fn apply_mpv(mpv: &Mpv, p: &SubPrefs) {
 /// Lifts [sub-pos] so on-screen text clears the bottom [ToolbarView] when chrome is **revealed** (0–100;
 /// 100 = mpv default; lower = higher on screen). When chrome is auto-hidden, resets to 100.
 pub fn apply_sub_pos_for_toolbar(mpv: &Mpv, bars_revealed: bool, bottom_h: i32, gl_h: i32) {
-    let pos = if !bars_revealed {
-        100i64
-    } else {
-        let bh = if bottom_h > 0 { bottom_h as f64 } else { 52.0 };
-        let gh = gl_h.max(1) as f64;
-        (100.0 - 100.0 * bh / gh).round() as i64
-    }
-    .clamp(0, 100);
-    let _ = mpv.set_property("sub-pos", pos);
+    let _ = mpv.set_property(
+        "sub-pos",
+        if !bars_revealed {
+            100i64
+        } else {
+            let bh = if bottom_h > 0 { bottom_h as f64 } else { 52.0 };
+            let gh = gl_h.max(1) as f64;
+            (100.0 - 100.0 * bh / gh).round() as i64
+        }
+        .clamp(0, 100),
+    );
 }

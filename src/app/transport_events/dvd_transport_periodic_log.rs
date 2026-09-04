@@ -62,30 +62,30 @@ fn log_dvd_transport_tick(
 /// IFO segment duration for the chapter and whether the raw mpv position looks implausible.
 fn dvd_log_bar_seg(ctx: &TransportCtx, chapter: &std::path::Path, mpv_pos: f64) -> (f64, bool) {
     let bar = ctx.dvd_bar.borrow();
-    let seg = bar
-        .as_ref()
-        .and_then(|bar| bar.tl.index_of(chapter).map(|i| bar.chapter_dur_at(i)))
-        .unwrap_or(0.0);
-    let implausible = bar.as_ref().is_some_and(|bar| {
-        !bar.tl
-            .ifo_segment_local_plausible(chapter, mpv_pos.max(0.0))
-    });
-    (seg, implausible)
+    (
+        bar
+            .as_ref()
+            .and_then(|bar| bar.tl.index_of(chapter).map(|i| bar.chapter_dur_at(i)))
+            .unwrap_or(0.0),
+        bar.as_ref().is_some_and(|bar| {
+            !bar.tl
+                .ifo_segment_local_plausible(chapter, mpv_pos.max(0.0))
+        }),
+    )
 }
 
 fn dvd_log_mpv_times(b: &MpvBundle) -> (f64, f64, f64) {
-    let mpv_pos = b.mpv.get_property::<f64>("time-pos").unwrap_or(f64::NAN);
-    let mpv_dur = b
-        .mpv
-        .get_property::<f64>("duration")
-        .ok()
-        .filter(|d| d.is_finite() && *d > 0.0)
-        .unwrap_or(0.0);
-    let playback = b
-        .mpv
-        .get_property::<f64>("playback-time")
-        .ok()
-        .filter(|t| t.is_finite() && *t >= 0.0)
-        .unwrap_or(f64::NAN);
-    (mpv_pos, mpv_dur, playback)
+    (
+        b.mpv.get_property::<f64>("time-pos").unwrap_or(f64::NAN),
+        b.mpv
+            .get_property::<f64>("duration")
+            .ok()
+            .filter(|d| d.is_finite() && *d > 0.0)
+            .unwrap_or(0.0),
+        b.mpv
+            .get_property::<f64>("playback-time")
+            .ok()
+            .filter(|t| t.is_finite() && *t >= 0.0)
+            .unwrap_or(f64::NAN),
+    )
 }

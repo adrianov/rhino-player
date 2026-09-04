@@ -26,7 +26,6 @@ fn build_subtitle_popover(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> SubPopoverPar
     let c = build_sub_content(sub_pref);
     let sub_pop = header_popover_column_shell(&c.tracks_section, &c.opts);
     let (sub_readout, sub_face) = build_sub_face();
-    let sub_menu = build_sub_menu(&sub_face, &sub_pop);
     SubPopoverParts {
         sub_tracks_block: c.tracks_block,
         sub_tracks_box: c.tracks_box,
@@ -34,8 +33,8 @@ fn build_subtitle_popover(sub_pref: &Rc<RefCell<db::SubPrefs>>) -> SubPopoverPar
         sub_scale_adj: c.scale_adj,
         sub_color_btn: c.color_btn,
         sub_color_row: c.color_row,
+        sub_menu: build_sub_menu(&sub_face, &sub_pop),
         sub_pop,
-        sub_menu,
         sub_readout,
     }
 }

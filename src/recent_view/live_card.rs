@@ -71,8 +71,10 @@ fn apply_live_thumb(card: &gtk::Overlay, path: &Path) {
     let Some(bytes) = media_probe::cached_thumbnail_for_display(path) else {
         return;
     };
-    let key = crate::db::history_key(path).unwrap_or_default();
-    let Some(tex) = crate::thumb_texture::texture_from_thumb_cached(&key, bytes.as_slice()) else {
+    let Some(tex) = crate::thumb_texture::texture_from_thumb_cached(
+        &crate::db::history_key(path).unwrap_or_default(),
+        bytes.as_slice(),
+    ) else {
         return;
     };
     if crate::thumb_texture::overlay_shows_texture(card, &tex) {

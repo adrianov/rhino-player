@@ -94,8 +94,9 @@ impl SeekPreviewState {
         // frame: padding 3px + border 1px per side = 8px over gl width; use allocated width when ready.
         let preview_w = self.preview_frame_w();
         let ovl_w = self.ovl.width().max(1) as f64;
-        let raw = (self.cursor_x_in_overlay(x) - preview_w / 2.0).round();
-        let margin_start = raw.clamp(0.0, (ovl_w - preview_w).max(0.0)) as i32;
+        let margin_start = (self.cursor_x_in_overlay(x) - preview_w / 2.0)
+            .round()
+            .clamp(0.0, (ovl_w - preview_w).max(0.0)) as i32;
         let margin_bottom = self.bottom.height().max(1) + PREVIEW_GAP;
         (margin_start, margin_bottom)
     }

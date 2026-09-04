@@ -145,8 +145,10 @@ mod tests {
     fn hollow_prefix_message() {
         let base = scratch("zeros");
         let p = base.join("zeros.avi");
-        let mut f = fs::File::create(&p).unwrap();
-        f.write_all(&vec![0u8; 128 * 1024]).unwrap();
+        fs::File::create(&p)
+            .unwrap()
+            .write_all(&vec![0u8; 128 * 1024])
+            .unwrap();
         assert_eq!(preflight_user_message(&p), Some(msg::EMPTY_OR_INCOMPLETE));
         let _ = fs::remove_dir_all(&base);
     }

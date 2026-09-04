@@ -5,8 +5,8 @@ fn mpris_shot_from_ctx(ctx: &TransportCtx) -> crate::mpris::MprisShot {
     let (path_open, title_tag) = mpris_player_state(ctx);
     let path_res = mpris_track_path(ctx);
     let title = mpris_title(&title_tag, path_res.as_ref());
-    let cur = path_res.as_ref().filter(|p| p.is_file());
-    let (can_prev, can_next) = mpris_nav_sensitivity(ctx, cur);
+    let (can_prev, can_next) =
+        mpris_nav_sensitivity(ctx, path_res.as_ref().filter(|p| p.is_file()));
 
     crate::mpris::MprisShot {
         paused,
@@ -35,13 +35,13 @@ fn cached_playback_snapshot(ctx: &TransportCtx) -> (bool, f64, f64) {
 fn mpris_player_state(ctx: &TransportCtx) -> (bool, Option<String>) {
     if let Ok(g) = ctx.player.try_borrow() {
         if let Some(b) = g.as_ref() {
-            let path_open = crate::mpris::mpv_has_open_path(&b.mpv);
-            let title_tag = b
-                .mpv
-                .get_property::<String>("media-title")
-                .ok()
-                .filter(|s| !s.trim().is_empty());
-            return (path_open, title_tag);
+            return (
+                crate::mpris::mpv_has_open_path(&b.mpv),
+                b.mpv
+                    .get_property::<String>("media-title")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty()),
+            );
         }
     }
     (false, None)

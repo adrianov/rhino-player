@@ -41,8 +41,7 @@ pub(crate) fn vf_smooth_matches_prefs(
     let Ok(vf) = mpv.get_property::<String>("vf") else {
         return false;
     };
-    let vfl = vf.to_lowercase();
-    vfl.contains("vapoursynth")
+    vf.to_lowercase().contains("vapoursynth")
         && vf_smooth_script_matches(&vf, &script)
         && vf_smooth_opts_match(mpv, &vf, bundle)
         && vf_smooth_budget_env_matches(mpv, v, bundle)
@@ -51,12 +50,12 @@ pub(crate) fn vf_smooth_matches_prefs(
 /// Script check against the current `vf`: escaped absolute path, raw path, or bare file name.
 fn vf_smooth_script_matches(vf: &str, script_path: &str) -> bool {
     let script = script_path.trim();
-    let esc = mpv_escape_path(script);
-    let base_matches = std::path::Path::new(script)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(|base| vf.contains(base));
-    vf.contains(&esc) || vf.contains(script) || base_matches
+    vf.contains(&mpv_escape_path(script))
+        || vf.contains(script)
+        || std::path::Path::new(script)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|base| vf.contains(base))
 }
 
 /// Fixed queue depth + `concurrent-frames=auto`, plus Bob deinterlace when wanted.
@@ -72,8 +71,8 @@ fn vf_smooth_budget_env_matches(
     v: &VideoPrefs,
     bundle: Option<&crate::mpv_embed::MpvBundle>,
 ) -> bool {
-    let me_cap = effective_smooth_me_budget_px(mpv, v, bundle);
-    (!v.vs_path.trim().is_empty() || smooth_max_area_env_matches(me_cap))
+    (!v.vs_path.trim().is_empty()
+        || smooth_max_area_env_matches(effective_smooth_me_budget_px(mpv, v, bundle)))
         && bundled_me_budget_vf_matches_prefs(mpv, v, bundle)
 }
 

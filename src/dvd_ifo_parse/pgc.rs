@@ -165,8 +165,7 @@ pub(super) fn fill_ptt_marks(
     if ptt.len() < 2 {
         return;
     }
-    let mut cell = start_cell;
-    let mut t = 0.0_f64;
+    let (mut cell, mut t) = (start_cell, 0.0_f64);
     for (sj, &(sj_pgc, sj_pgn)) in ptt.iter().enumerate() {
         if sj_pgc != pgc_id {
             break;

@@ -20,8 +20,7 @@ fn gnome_interface_available() -> bool {
 
 fn gnome_wall_clock_pattern(settings: &gio::Settings) -> String {
     let twelve_h = settings.string("clock-format").as_str() == "12h";
-    let secs = settings.boolean("clock-show-seconds");
-    match (twelve_h, secs) {
+    match (twelve_h, settings.boolean("clock-show-seconds")) {
         (true, true) => "%l:%M:%S %p".to_string(),
         (true, false) => "%l:%M %p".to_string(),
         (false, true) => "%H:%M:%S".to_string(),
@@ -31,8 +30,7 @@ fn gnome_wall_clock_pattern(settings: &gio::Settings) -> String {
 
 fn resolve_wall_clock_pattern_once() -> String {
     if gnome_interface_available() {
-        let settings = gio::Settings::new(SCHEMA_DESKTOP_IFACE);
-        return gnome_wall_clock_pattern(&settings);
+        return gnome_wall_clock_pattern(&gio::Settings::new(SCHEMA_DESKTOP_IFACE));
     }
     "%H:%M".to_string()
 }
@@ -63,7 +61,6 @@ pub(crate) fn format_wall_clock_now() -> glib::GString {
     };
     WALL_CLOCK_PATTERN.with(|cell| {
         let mut slot = cell.borrow_mut();
-        let pat = slot.get_or_insert_with(resolve_wall_clock_pattern_once);
-        format_dt_with_pattern(&dt, pat.as_str())
+        format_dt_with_pattern(&dt, slot.get_or_insert_with(resolve_wall_clock_pattern_once).as_str())
     })
 }

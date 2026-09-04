@@ -50,22 +50,22 @@ fn collapse_ws(s: &str) -> String {
 
 /// After season/year tokens are blanked, turn leftover title separators into spaces.
 fn collapse_separators(s: &str) -> String {
-    let mapped: String = s
-        .chars()
-        .map(|c| {
-            if c.is_whitespace()
-                || matches!(
-                    c,
-                    '-' | '–' | '—' | '.' | '_' | '(' | ')' | '[' | ']' | '|' | ':' | ';' | ','
-                )
-            {
-                ' '
-            } else {
-                c
-            }
-        })
-        .collect();
-    collapse_ws(&mapped)
+    collapse_ws(
+        &s.chars()
+            .map(|c| {
+                if c.is_whitespace()
+                    || matches!(
+                        c,
+                        '-' | '–' | '—' | '.' | '_' | '(' | ')' | '[' | ']' | '|' | ':' | ';' | ','
+                    )
+                {
+                    ' '
+                } else {
+                    c
+                }
+            })
+            .collect::<String>(),
+    )
 }
 
 fn looks_seasonal(folded: &str) -> bool {

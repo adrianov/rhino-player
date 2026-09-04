@@ -129,12 +129,14 @@ fn sibling_bar_tooltip(is_prev: bool, can: bool, cur: Option<&Path>) -> String {
 /// humanized like window title / continue cards.
 fn humanized_nav_target(t: &Path) -> String {
     let label_path = crate::video_ext::dvd_disc_root(t).unwrap_or_else(|| t.to_path_buf());
-    let raw = label_path
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| label_path.to_string_lossy().into_owned());
-    crate::human_media_title::human_media_title(raw.as_str())
+    crate::human_media_title::human_media_title(
+        label_path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| label_path.to_string_lossy().into_owned())
+            .as_str(),
+    )
 }
 
 /// Tooltip when navigation is disabled for the current folder state.

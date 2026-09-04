@@ -128,8 +128,7 @@ impl DvdVobTimeline {
         if missing == 0 {
             return 0;
         }
-        let cap = budget.unwrap_or(missing);
-        let mut left = cap;
+        let mut left = budget.unwrap_or(missing);
         for (i, vob) in self.vobs.iter().enumerate() {
             if self.durs[i] > 0.0 {
                 continue;
@@ -210,10 +209,12 @@ impl DvdVobTimeline {
                 break;
             }
         }
-        let local = (g - self.starts[last])
-            .max(0.0)
-            .min(self.durs[last].max(0.0));
-        (last, local)
+        (
+            last,
+            (g - self.starts[last])
+                .max(0.0)
+                .min(self.durs[last].max(0.0)),
+        )
     }
 
     pub fn path_at(&self, index: usize) -> Option<&Path> {

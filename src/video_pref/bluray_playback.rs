@@ -21,11 +21,9 @@ pub(crate) fn smooth_prefers_display_resample_bundle(
     mpv: &libmpv2::Mpv,
     bundle: Option<&crate::mpv_embed::MpvBundle>,
 ) -> bool {
-    let shell_media = me_budget_local_path(mpv, bundle);
-    let shell_path = shell_disc_path(mpv, bundle);
     smooth_prefers_display_resample(
         mpv,
-        shell_path.as_deref(),
-        shell_media.as_deref(),
+        shell_disc_path(mpv, bundle).as_deref(),
+        me_budget_local_path(mpv, bundle).as_deref(),
     )
 }

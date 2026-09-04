@@ -53,8 +53,14 @@ fn advance_to_next_sibling(
     if crate::video_ext::paths_same_file(&np, &finished) {
         return;
     }
-    let o = sibling_reload_opts(&r, on_loaded, hdr_title_mirror, playback_focus);
-    if let Err(e) = try_load(&np, t.player, t.win, t.gl, t.recent, &o) {
+    if let Err(e) = try_load(
+        &np,
+        t.player,
+        t.win,
+        t.gl,
+        t.recent,
+        &sibling_reload_opts(&r, on_loaded, hdr_title_mirror, playback_focus),
+    ) {
         eprintln!("[rhino] sibling advance: {e}");
         r.seof.done.set(false);
     }

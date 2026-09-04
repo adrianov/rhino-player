@@ -45,9 +45,7 @@ pub(super) fn resolve_main_title_id(vts_dir: &Path, ifo_tid: Option<u32>, bytes_
     if ifo_tid == bytes_tid {
         return ifo_tid;
     }
-    let ifo_bytes = title_set_bytes(vts_dir, ifo_tid);
-    let main_bytes = title_set_bytes(vts_dir, bytes_tid);
-    if main_bytes > ifo_bytes.saturating_mul(4) {
+    if title_set_bytes(vts_dir, bytes_tid) > title_set_bytes(vts_dir, ifo_tid).saturating_mul(4) {
         bytes_tid
     } else {
         ifo_tid
@@ -91,8 +89,7 @@ const MENU_TITLE_BYTES: u64 = 100_000_000;
 /// Largest title set by bytes; ties → lowest `VTS_XX`. A tiny `VTS_01` (menu stub) is skipped
 /// when any real title set exists.
 fn pick_largest_title_path(by_title: &HashMap<u32, (u64, PathBuf)>) -> Option<PathBuf> {
-    let titles = candidate_titles(by_title);
-    titles
+    candidate_titles(by_title)
         .into_iter()
         .max_by(|a, b| match a.1.cmp(&b.1) {
             std::cmp::Ordering::Equal => b.0.cmp(&a.0),

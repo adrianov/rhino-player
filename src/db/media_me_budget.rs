@@ -182,6 +182,7 @@ pub(super) fn resolve_media_smooth_me_budget_conn(
     let Some((dw, dh)) = stored_decode_dims(c, path_key)? else {
         return Ok(global);
     };
-    let px = neighbor_saved_px2(c, path_key, dw, dh)?.unwrap_or(global);
-    Ok(px.max(MIN_SMOOTH_MAX_AREA))
+    Ok(neighbor_saved_px2(c, path_key, dw, dh)?
+        .unwrap_or(global)
+        .max(MIN_SMOOTH_MAX_AREA))
 }

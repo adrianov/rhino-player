@@ -141,8 +141,10 @@ impl MpvBundle {
     /// True when the outgoing media resolves to the same entity row as the incoming one.
     fn outgoing_paths_same_entity(outgoing: Option<&Path>, db_key: &Path) -> bool {
         outgoing.is_some_and(|p| {
-            let out_ent = crate::playback_entity::PlaybackEntity::resolve(p).db_path();
-            crate::video_ext::paths_same_file(&out_ent, db_key)
+            crate::video_ext::paths_same_file(
+                &crate::playback_entity::PlaybackEntity::resolve(p).db_path(),
+                db_key,
+            )
         })
     }
 

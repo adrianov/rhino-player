@@ -38,15 +38,16 @@ pub fn persist_playback(
 
 /// mpv `(duration, time-pos)` snapshot, each filtered to a sane value.
 fn mpv_dur_pos(mpv: &Mpv) -> (Option<f64>, Option<f64>) {
-    let dur = mpv
-        .get_property::<f64>("duration")
-        .ok()
-        .filter(|d| d.is_finite() && *d > 0.0);
-    let pos = mpv
-        .get_property::<f64>("time-pos")
-        .ok()
-        .filter(|p| p.is_finite() && *p >= 0.0);
-    (dur, pos)
+    (
+        mpv
+            .get_property::<f64>("duration")
+            .ok()
+            .filter(|d| d.is_finite() && *d > 0.0),
+        mpv
+            .get_property::<f64>("time-pos")
+            .ok()
+            .filter(|p| p.is_finite() && *p >= 0.0),
+    )
 }
 
 /// Unified-timeline transport-bar seconds → entity row (no-op without a usable bar).

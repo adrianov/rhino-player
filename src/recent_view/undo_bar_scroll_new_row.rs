@@ -25,11 +25,8 @@ fn new_undo_bar() -> UndoBar {
     let undo = undo_button();
     let close = dismiss_button();
 
-    let bar = undo_pill_bar(&label, &undo, &close);
-    let shell = toast_shell(&bar, &[]);
-
     UndoBar {
-        shell,
+        shell: toast_shell(&undo_pill_bar(&label, &undo, &close), &[]),
         label,
         undo,
         close,

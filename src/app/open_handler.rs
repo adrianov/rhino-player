@@ -18,15 +18,14 @@ struct OpenHandlerCtx {
 fn make_on_open_handler(ctx: OpenHandlerCtx) -> RcPathFn {
     Rc::new(move |path: &Path| {
         crate::user_action_log::act(format!("open video: {}", path.display()));
-        let loaded = try_load(
+        match try_load(
             path,
             &ctx.player,
             &ctx.win,
             &ctx.gl,
             &ctx.recent,
             &open_load_opts(&ctx),
-        );
-        match loaded {
+        ) {
             Ok(()) => sync_sub_button_after_load(ctx.player.clone(), ctx.sub_menu.clone()),
             Err(e) => eprintln!("[rhino] on_open: try_load error: {e}"),
         }

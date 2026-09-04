@@ -29,11 +29,9 @@ fn title_ids_on_disc(vts_dir: &Path) -> Vec<u32> {
 }
 
 fn is_substantial_title_set(vts_dir: &Path, title_id: u32) -> bool {
-    let vobs = chapter_vobs_for_title(vts_dir, title_id);
-    let Some(first) = vobs.first() else {
-        return false;
-    };
-    crate::dvd_ifo_parse::title_set_playback_sec(first)
+    chapter_vobs_for_title(vts_dir, title_id)
+        .first()
+        .and_then(|first| crate::dvd_ifo_parse::title_set_playback_sec(first))
         .is_some_and(|s| s >= MIN_TIMELINE_TITLE_SET_SEC)
 }
 

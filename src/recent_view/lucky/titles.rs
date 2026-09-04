@@ -114,10 +114,9 @@ pub(super) fn retarget_paths(
     tpos: &HashMap<String, f64>,
     durs: &HashMap<String, f64>,
 ) {
-    let groups = group_index(index);
     rewrite_slice(
         paths,
-        &groups,
+        &group_index(index),
         &openable_set(index),
         &ProgressLookup::new(tpos, durs),
     );
@@ -178,8 +177,8 @@ fn episode_marker() -> &'static Regex {
 
 fn file_series_stem(name: &str) -> Option<String> {
     let cut = episode_cut(name)?;
-    let raw = name[..cut].replace(['.', '_', '-'], " ");
-    let stem = raw
+    let stem = name[..cut]
+        .replace(['.', '_', '-'], " ")
         .trim_end_matches(['(', '[', '—', '–', '-', ' '])
         .split_whitespace()
         .collect::<Vec<_>>()

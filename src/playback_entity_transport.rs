@@ -60,11 +60,13 @@ impl PlaybackEntity {
             0.0
         };
         if let Some(bar) = bar.filter(|b| self.dvd_bar_active(chapter, b)) {
-            let dur = bar.total_sec();
-            let pos = bundle
-                .map(|b| bar.transport_global_pos(b, chapter, local_pos))
-                .unwrap_or_else(|| bar.global_pos(chapter, local_pos));
-            return (dur, pos.max(0.0));
+            return (
+                bar.total_sec(),
+                bundle
+                    .map(|b| bar.transport_global_pos(b, chapter, local_pos))
+                    .unwrap_or_else(|| bar.global_pos(chapter, local_pos))
+                    .max(0.0),
+            );
         }
         (local_dur, local_pos)
     }

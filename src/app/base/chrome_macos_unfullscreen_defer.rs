@@ -52,8 +52,7 @@ fn macos_unfullscreen_step(win: adw::ApplicationWindow, gen: u64, retry: u8) {
         crate::macos_fs_exit::clear_exit();
         return;
     }
-    let gtk = win.upcast_ref::<gtk::Widget>();
-    if crate::macos_window::gdk_macos_in_fullscreen_transition(gtk) {
+    if crate::macos_window::gdk_macos_in_fullscreen_transition(win.upcast_ref::<gtk::Widget>()) {
         macos_rearm_step_after_transition(win, gen, retry);
         return;
     }

@@ -35,14 +35,13 @@ pub(crate) fn dvd_title_preview_plan(
 
 /// Live-open cap describing the chapter mpv is currently decoding (pure query).
 fn open_still_cap(mpv: &libmpv2::Mpv, chapter: &Path) -> crate::dvd_entity::StillOpenCap {
-    let mpv_dur = mpv
-        .get_property::<f64>("duration")
-        .ok()
-        .filter(|d| d.is_finite() && *d > 0.0)
-        .unwrap_or(0.0);
     crate::dvd_entity::StillOpenCap {
         chapter: chapter.to_path_buf(),
-        mpv_dur,
+        mpv_dur: mpv
+            .get_property::<f64>("duration")
+            .ok()
+            .filter(|d| d.is_finite() && *d > 0.0)
+            .unwrap_or(0.0),
     }
 }
 
@@ -144,10 +143,9 @@ fn seek_plan_from_bar(
     }
     let g_target = global_sec.clamp(0.0, total);
     let (idx, local) = bar.resolve_global(g_target);
-    let target = bar.path_at(idx)?.to_path_buf();
     Some(SeekPlan {
         current: chapter.to_path_buf(),
-        target,
+        target: bar.path_at(idx)?.to_path_buf(),
         local,
         g_target,
         from_bar: true,
@@ -160,19 +158,20 @@ fn seek_plan_fallback(
     global_sec: f64,
 ) -> Option<SeekPlan> {
     let path = open_dvd_chapter_path(mpv, shell)?;
-    let local_dur = mpv
-        .get_property::<f64>("duration")
-        .ok()
-        .map(crate::dvd_vob_timeline::clamp_vob_duration)
-        .unwrap_or(0.0);
-    let map = crate::db::load_duration_map();
-    let tl = crate::dvd_entity::build_title_timeline(&path, &map, local_dur)?;
+    let tl = crate::dvd_entity::build_title_timeline(
+        &path,
+        &crate::db::load_duration_map(),
+        mpv
+            .get_property::<f64>("duration")
+            .ok()
+            .map(crate::dvd_vob_timeline::clamp_vob_duration)
+            .unwrap_or(0.0),
+    )?;
     let g_target = global_sec.clamp(0.0, tl.total_sec);
     let (idx, local) = tl.resolve_global(g_target);
-    let target = tl.path_at(idx)?.to_path_buf();
     Some(SeekPlan {
         current: path,
-        target,
+        target: tl.path_at(idx)?.to_path_buf(),
         local,
         g_target,
         from_bar: false,

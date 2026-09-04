@@ -136,8 +136,10 @@ fn wheel_nudge_volume(
     let step = if dy.abs() < 0.5 { -dy * 4.0 } else { -dy * 5.0 };
     nudge_mpv_volume(&b.mpv, step);
     let vol = b.mpv.get_property::<f64>("volume").unwrap_or(0.0);
-    let m = b.mpv.get_property::<bool>("mute").unwrap_or(false);
-    vmi.set_icon_name(Some(vol_icon(m, vol)));
+    vmi.set_icon_name(Some(vol_icon(
+        b.mpv.get_property::<bool>("mute").unwrap_or(false),
+        vol,
+    )));
     stamp_vol_percent_readout(vr, vol, vad.upper());
     glib::Propagation::Stop
 }

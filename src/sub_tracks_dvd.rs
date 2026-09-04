@@ -32,6 +32,5 @@ fn sub_rows(mpv: &Mpv, shell: Option<&Path>) -> Vec<Row> {
 
 fn sub_popover_data(mpv: &Mpv, shell: Option<&Path>) -> (Vec<Row>, Vec<(i64, String)>) {
     let (menu, codecs) = sub_menu_snapshot(mpv, shell);
-    let rows = menu.iter().map(row_from_menu).collect();
-    (rows, codecs)
+    (menu.iter().map(row_from_menu).collect(), codecs)
 }

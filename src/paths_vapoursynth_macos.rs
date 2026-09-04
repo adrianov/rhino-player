@@ -49,12 +49,12 @@ fn vsscript_dylib_in_python_dir(py: &Path) -> Option<PathBuf> {
 #[cfg(target_os = "macos")]
 pub(crate) fn macos_vapoursynth_lib_dir() -> Option<PathBuf> {
     for prefix in VS_HOMEBREW_PREFIXES {
-        let opt = Path::new(prefix).join("opt/vapoursynth/libexec/lib");
-        if let Some(d) = vsscript_dir_under_libexec(&opt) {
+        if let Some(d) =
+            vsscript_dir_under_libexec(&Path::new(prefix).join("opt/vapoursynth/libexec/lib"))
+        {
             return Some(d);
         }
-        let cellar = Path::new(prefix).join("Cellar/vapoursynth");
-        if let Ok(vers) = std::fs::read_dir(&cellar) {
+        if let Ok(vers) = std::fs::read_dir(Path::new(prefix).join("Cellar/vapoursynth")) {
             for ver in vers.flatten() {
                 if let Some(d) = vsscript_dir_under_libexec(&ver.path().join("libexec/lib")) {
                     return Some(d);
@@ -85,8 +85,7 @@ fn ensure_mpv_vsscript_alias(vs_lib: &Path) -> Option<PathBuf> {
     }
     let alias_dir = dylib_alias_dir();
     std::fs::create_dir_all(&alias_dir).ok()?;
-    let alias = alias_dir.join(MPV_VSSCRIPT_DYLIB);
-    recreate_alias_symlink(&vsscript, &alias)?;
+    recreate_alias_symlink(&vsscript, &alias_dir.join(MPV_VSSCRIPT_DYLIB))?;
     Some(alias_dir)
 }
 
@@ -130,12 +129,13 @@ fn macos_vapoursynth_dyld_paths() -> Option<String> {
         parts.push(alias_dir);
     }
     parts.push(vs_lib);
-    let merged = parts
-        .iter()
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect::<Vec<_>>()
-        .join(":");
-    Some(merged)
+    Some(
+        parts
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join(":"),
+    )
 }
 
 #[cfg(target_os = "macos")]
@@ -158,9 +158,7 @@ pub fn macos_reexec_for_vapoursynth_dyld_if_needed() {
         );
         return;
     };
-    let dyld = merged_dyld_value(&add);
-    let env = reexec_env(&dyld);
-    execve_reexec(env);
+    execve_reexec(reexec_env(&merged_dyld_value(&add)));
 }
 
 include!("paths_vapoursynth_macos_reexec.rs");

@@ -14,10 +14,11 @@ pub fn mpv_audio_label(
     if let Some(t) = title.map(str::trim).filter(|s| !s.is_empty()) {
         return prefix_title_lang(lang, t);
     }
-    let lang = lang.map(str::trim).filter(|s| !s.is_empty());
-    let format = codec.and_then(mpv_codec_format_label).map(str::to_string);
-    let ch = channel_label_from_mpv(demux_channel_count, demux_channels);
-    join_label(lang, format, ch)
+    join_label(
+        lang.map(str::trim).filter(|s| !s.is_empty()),
+        codec.and_then(mpv_codec_format_label).map(str::to_string),
+        channel_label_from_mpv(demux_channel_count, demux_channels),
+    )
 }
 
 /// Subtitle row label from mpv metadata (DVD IFO labels take precedence when present).
@@ -35,8 +36,11 @@ pub fn mpv_sub_label(
         return prefix_title_lang(lang, t);
     }
     let lang = lang.map(str::trim).filter(|s| !s.is_empty());
-    let kind = codec.and_then(sub_format_label).map(str::to_string);
-    let mut out = join_label(lang, kind, String::new());
+    let mut out = join_label(
+        lang,
+        codec.and_then(sub_format_label).map(str::to_string),
+        String::new(),
+    );
     append_sub_tags(&mut out, forced, hearing_impaired, visual_impaired, default);
     out
 }
@@ -97,8 +101,7 @@ pub fn disambiguate_labels(labels: &mut [String]) {
         if totals.get(label).copied().unwrap_or(1) <= 1 {
             continue;
         }
-        let key = label.clone();
-        let n = seen.entry(key).or_insert(0);
+        let n = seen.entry(label.clone()).or_insert(0);
         *n += 1;
         if *n > 1 {
             label.push_str(&format!(" · {n}"));

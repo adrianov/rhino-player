@@ -19,8 +19,10 @@ pub(super) fn peel_download_temp(name: &str) -> String {
     }
     // Direct Connect appends a long base32 id (Tiger Tree Hash, often 39 chars).
     static ID_TAIL: OnceLock<Regex> = OnceLock::new();
-    let re = ID_TAIL.get_or_init(|| Regex::new(r"(?i)\.[a-z2-7]{16,}$").expect("id_tail"));
-    if let Some(m) = re.find(&s) {
+    if let Some(m) = ID_TAIL
+        .get_or_init(|| Regex::new(r"(?i)\.[a-z2-7]{16,}$").expect("id_tail"))
+        .find(&s)
+    {
         s.truncate(m.start());
     }
     s

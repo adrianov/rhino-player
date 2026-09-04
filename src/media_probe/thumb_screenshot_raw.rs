@@ -231,8 +231,7 @@ mod tests {
     fn bgr0_frame_encodes_complete_webp() {
         let w = 2;
         let h = 2;
-        let data = bgr0_test_pixels(w, h);
-        let c = raw_frame_to_webp(w, h, (w * 4) as isize, "bgr0", &data, true).unwrap();
+        let c = raw_frame_to_webp(w, h, (w * 4) as isize, "bgr0", &bgr0_test_pixels(w, h), true).unwrap();
         assert!(!c.dark);
         assert!(thumb_texture::thumb_webp_valid(&c.webp));
         let (rgb, dw, dh) = zenwebp::oneshot::decode_rgb(&c.webp).unwrap();
@@ -274,8 +273,15 @@ mod tests {
     #[test]
     fn pillarboxed_detail_not_flat() {
         let (w, h) = (64usize, 32usize);
-        let data = pillarboxed_bgr0(w, h, 8);
-        let c = raw_frame_to_webp(w, h, (w * 4) as isize, "bgr0", &data, false).unwrap();
+        let c = raw_frame_to_webp(
+            w,
+            h,
+            (w * 4) as isize,
+            "bgr0",
+            &pillarboxed_bgr0(w, h, 8),
+            false,
+        )
+        .unwrap();
         assert!(!c.dark && !c.flat);
         let (_, dw, dh) = zenwebp::oneshot::decode_rgb(&c.webp).unwrap();
         assert_eq!(dh, h as u32);

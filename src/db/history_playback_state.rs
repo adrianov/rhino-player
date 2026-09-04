@@ -130,8 +130,7 @@ fn track_pair(row: &rusqlite::Row) -> rusqlite::Result<(Option<i64>, Option<i64>
 /// Reject non-positive ids and out-of-`u8` slots; shared by both track loaders.
 fn positive_id_with_slot(pair: (Option<i64>, Option<i64>)) -> Option<(i64, Option<u8>)> {
     let id = pair.0.filter(|n| *n > 0)?;
-    let slot = pair.1.and_then(|n| u8::try_from(n).ok());
-    Some((id, slot))
+    Some((id, pair.1.and_then(|n| u8::try_from(n).ok())))
 }
 
 pub fn load_audio_track(path: &Path) -> Option<(i64, Option<u8>)> {

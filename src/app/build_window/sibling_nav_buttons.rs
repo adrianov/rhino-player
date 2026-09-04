@@ -134,6 +134,6 @@ fn make_sibling_nav_click(
     pick: fn(&Path) -> Option<PathBuf>,
     label: &'static str,
 ) -> impl Fn(&gtk::Button) + 'static {
-    let r = ctx.try_refs();
-    move |_| try_load_sibling_pick(pick, label, &r)
+    let ctx = ctx.clone();
+    move |_| try_load_sibling_pick(pick, label, &ctx.try_refs())
 }

@@ -73,9 +73,8 @@ impl SiblingEofState {
         if dur <= 0.0 || !self.pos_tracked.get() {
             return false;
         }
-        let tail = (dur - crate::media_probe::NEAR_END_SEC).max(0.0);
         self.pos_max.get() - self.pos_min.get() > SIBLING_PLAY_SPAN_MIN
-            && self.pos_max.get() >= tail
+            && self.pos_max.get() >= (dur - crate::media_probe::NEAR_END_SEC).max(0.0)
     }
 }
 

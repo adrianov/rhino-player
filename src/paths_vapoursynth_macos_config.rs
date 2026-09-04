@@ -59,8 +59,7 @@ fn parse_vs_toml_line(line: &str) -> Option<(String, String, String)> {
 #[cfg(target_os = "macos")]
 fn parse_vs_toml_paths(body: &str) -> Option<(String, String)> {
     let (exe, after_exe) = body.split_once("\",\"")?;
-    let lib = after_exe.split("\",\"").next()?.trim_end_matches('\"');
-    Some((exe.to_string(), lib.to_string()))
+    Some((exe.to_string(), after_exe.split("\",\"").next()?.trim_end_matches('\"').to_string()))
 }
 
 #[cfg(target_os = "macos")]

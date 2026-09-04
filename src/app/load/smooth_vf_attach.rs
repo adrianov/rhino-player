@@ -16,8 +16,7 @@ fn smooth_60_full_resync_after_media_change(
     let mut turn_off = false;
     if player.borrow().as_ref().is_some() {
         let mut vp = r.vp.borrow_mut();
-        let a = video_pref::apply_mpv_video(player, &mut vp, None);
-        turn_off = a.smooth_auto_off;
+        turn_off = video_pref::apply_mpv_video(player, &mut vp, None).smooth_auto_off;
     }
     if turn_off {
         offer_smooth_setup_or_skip(player, r);

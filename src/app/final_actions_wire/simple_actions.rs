@@ -74,8 +74,14 @@ fn open_picked_path(path: Option<PathBuf>, aw: &adw::ApplicationWindow, c: &Open
         (c.on_open_fail)(crate::media_open_fail::msg::UNREADABLE_MEDIA.to_string());
         return;
     }
-    let o = picked_load_opts(c);
-    if let Err(e) = try_load(&path, &c.player, aw, &c.gl, &c.recent, &o) {
+    if let Err(e) = try_load(
+        &path,
+        &c.player,
+        aw,
+        &c.gl,
+        &c.recent,
+        &picked_load_opts(c),
+    ) {
         eprintln!("[rhino] open: try_load: {e}");
     }
 }
@@ -105,13 +111,13 @@ fn run_gtk_open_dialog(
     let vf = video_file_filter();
     let filters = gio::ListStore::new::<gtk::FileFilter>();
     filters.append(&vf);
-    let dialog = gtk::FileDialog::builder()
+    gtk::FileDialog::builder()
         .title("Open Video")
         .modal(true)
         .filters(&filters)
         .default_filter(&vf)
-        .build();
-    dialog.open(Some(aw), None::<&gio::Cancellable>, move |res| {
+        .build()
+        .open(Some(aw), None::<&gio::Cancellable>, move |res| {
         let Ok(file) = res else {
             return;
         };

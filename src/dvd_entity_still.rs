@@ -43,8 +43,27 @@ pub(crate) fn still_at_global(
     bar: Option<&crate::dvd_vob_timeline::DvdBarState>,
     open_cap: Option<&StillOpenCap>,
 ) -> Option<DvdStillTarget> {
-    let live = chapter_dur_from_map(probe, dur_by_path);
-    let built = build_title_timeline_with(probe, dur_by_path, live, TimelineBuildOpts::CACHE_ONLY);
+    still_at_global_built(
+        global_sec,
+        dur_by_path,
+        bar,
+        open_cap,
+        build_title_timeline_with(
+            probe,
+            dur_by_path,
+            chapter_dur_from_map(probe, dur_by_path),
+            TimelineBuildOpts::CACHE_ONLY,
+        ),
+    )
+}
+
+fn still_at_global_built(
+    global_sec: f64,
+    dur_by_path: &HashMap<String, f64>,
+    bar: Option<&crate::dvd_vob_timeline::DvdBarState>,
+    open_cap: Option<&StillOpenCap>,
+    built: Option<DvdVobTimeline>,
+) -> Option<DvdStillTarget> {
     let tl = nonempty_still_timeline(bar, built.as_ref())?;
     let g = global_sec.clamp(0.0, tl.total_sec);
     let (idx, local) = tl.resolve_global(g);

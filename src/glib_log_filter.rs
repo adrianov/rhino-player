@@ -20,10 +20,10 @@ fn suppress_gtk_theme_css_warning(level: LogLevel, fields: &[LogField<'_>]) -> b
     if level != LogLevel::Warning {
         return false;
     }
-    let domain_is_gtk = fields
+    if !fields
         .iter()
-        .any(|f| f.key() == "GLIB_DOMAIN" && f.value_str() == Some("Gtk"));
-    if !domain_is_gtk {
+        .any(|f| f.key() == "GLIB_DOMAIN" && f.value_str() == Some("Gtk"))
+    {
         return false;
     }
     for f in fields {

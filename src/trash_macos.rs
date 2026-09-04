@@ -24,11 +24,13 @@ pub fn move_to_trash_ns(path: &Path) -> Result<PathBuf, String> {
 fn recycle_via_finder(url: &NSURL) -> Result<PathBuf, String> {
     let urls = NSArray::from_slice(&[url]);
     let (tx, rx) = mpsc::channel();
-    let block = RcBlock::new(move |dict, err| {
-        let _ = tx.send(recycle_result(dict, err));
-        glib::MainContext::default().wakeup();
-    });
-    NSWorkspace::sharedWorkspace().recycleURLs_completionHandler(&urls, Some(&block));
+    NSWorkspace::sharedWorkspace().recycleURLs_completionHandler(
+        &urls,
+        Some(&RcBlock::new(move |dict, err| {
+            let _ = tx.send(recycle_result(dict, err));
+            glib::MainContext::default().wakeup();
+        })),
+    );
     wait_recycle(rx)
 }
 

@@ -45,12 +45,12 @@ fn attach_card_activation(
 
 /// Title / accessibility strings, progress, and optional resolution class for a history card.
 fn history_card_texts(d: &CardData) -> (std::path::PathBuf, String, String, Option<String>) {
-    let name = d
-        .path
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let label_txt = crate::human_media_title::human_media_title(&name);
+    let label_txt = crate::human_media_title::human_media_title(
+        &d.path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    );
     let quality = quality_tag_for(&d.path);
     let a11y = match &quality {
         Some(q) => format!("{label_txt}, {:.0} percent played, {q}", d.percent),
@@ -128,26 +128,23 @@ fn history_card_overlay(
 ) -> (gtk::Overlay, std::path::PathBuf, bool, Vec<gtk::Widget>) {
     let (c, label_txt, a11y, quality) = history_card_texts(d);
     let miss = d.missing;
-    let tip = history_card_tooltip(&c, &a11y, miss);
-    let card = fresh_history_card(d, miss, &tip);
+    let card = fresh_history_card(
+        d,
+        miss,
+        &history_card_tooltip(&c, &a11y, miss),
+    );
     let (footer, hover_quality) = history_footer(&label_txt, &c, d.percent, quality.as_deref());
     card.add_overlay(&footer);
-    let hover = attach_card_actions(&card, &c, h, miss, hover_quality);
-    (card, c, miss, hover)
-}
-
-fn attach_card_actions(
-    card: &gtk::Overlay,
-    c: &Path,
-    h: &HistoryCardHandlers<'_>,
-    miss: bool,
-    hover_quality: Option<gtk::Label>,
-) -> Vec<gtk::Widget> {
-    let (top_actions, hover_btns) = top_action_buttons(c, h, miss);
+    let (top_actions, hover_btns) = top_action_buttons(&c, h, miss);
     if !hover_btns.is_empty() {
         card.add_overlay(&top_actions);
     }
-    hover_widgets(hover_btns, hover_quality)
+    (
+        card,
+        c,
+        miss,
+        hover_widgets(hover_btns, hover_quality),
+    )
 }
 
 fn hover_widgets(btns: Vec<gtk::Button>, quality: Option<gtk::Label>) -> Vec<gtk::Widget> {

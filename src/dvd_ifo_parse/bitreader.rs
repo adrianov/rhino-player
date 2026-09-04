@@ -44,15 +44,13 @@ impl<'a> BitReader<'a> {
 
     /// Remaining bits of a half-consumed byte complete the request.
     fn finish_in_partial_byte(&mut self, left: &mut u32, result: &mut u32) {
-        let byte = self.take_partial(*left);
-        *result = (*result << *left) | byte;
+        *result = (*result << *left) | self.take_partial(*left);
         *left = 0;
     }
 
     /// Consume the untouched high bits of the current byte and move on.
     fn restart_from_next_byte(&mut self, left: &mut u32, result: &mut u32) {
-        let byte = self.byte >> self.bit_pos;
-        *result = u32::from(byte);
+        *result = u32::from(self.byte >> self.bit_pos);
         *left -= (8 - self.bit_pos) as u32;
         self.advance_byte();
     }
@@ -60,8 +58,7 @@ impl<'a> BitReader<'a> {
     fn consume_aligned_bits(&mut self, left: &mut u32, result: &mut u32) {
         self.take_whole_bytes(left, result);
         if *left > 0 {
-            let byte = self.take_partial(*left);
-            *result = (*result << *left) | byte;
+            *result = (*result << *left) | self.take_partial(*left);
             *left = 0;
         }
     }

@@ -86,13 +86,11 @@ unsafe fn register_playback_remote_commands(
 unsafe fn register_track_remote_commands(center: &MPRemoteCommandCenter, nav: &SiblingNavCtx) {
     unsafe {
         wire_ctx_command(&center.nextTrackCommand(), nav.clone(), |nav, _| {
-            let r = nav.try_refs();
-            try_load_sibling_pick(sibling_advance::next_after_eof, "next", &r);
+            try_load_sibling_pick(sibling_advance::next_after_eof, "next", &nav.try_refs());
             MPRemoteCommandHandlerStatus::Success
         });
         wire_ctx_command(&center.previousTrackCommand(), nav.clone(), |nav, _| {
-            let r = nav.try_refs();
-            try_load_sibling_pick(sibling_advance::prev_before_current, "previous", &r);
+            try_load_sibling_pick(sibling_advance::prev_before_current, "previous", &nav.try_refs());
             MPRemoteCommandHandlerStatus::Success
         });
     }
@@ -122,8 +120,7 @@ fn np_sanitized(v: f64, fallback: f64) -> f64 {
 
 /// Positive duration or `0.0` (which clears Now Playing — no media to describe).
 fn np_duration_secs(b: &MpvBundle) -> f64 {
-    let d = b.mpv.get_property::<f64>("duration").unwrap_or(0.0);
-    np_sanitized(d, 0.0)
+    np_sanitized(b.mpv.get_property::<f64>("duration").unwrap_or(0.0), 0.0)
 }
 
 /// Media title, falling back to the file name and then the app name.

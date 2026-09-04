@@ -11,19 +11,15 @@ pub struct LabelMatchScore {
 }
 
 pub fn seed_row_score(seed: &str, row_primary: &str, row_secondary: &str) -> LabelMatchScore {
-    let a = match_score(seed, row_primary);
-    let b = match_score(seed, row_secondary);
-    a.max(b)
+    match_score(seed, row_primary).max(match_score(seed, row_secondary))
 }
 
 pub fn match_score(seed: &str, candidate: &str) -> LabelMatchScore {
     let seed_n = normalize(seed);
     let cand_n = normalize(candidate);
-    let words = word_intersection_count(&seed_n, &cand_n);
-    let chars = multiset_char_overlap(&seed_n, &cand_n);
     LabelMatchScore {
-        word_intersection: words,
-        char_intersection: chars,
+        word_intersection: word_intersection_count(&seed_n, &cand_n),
+        char_intersection: multiset_char_overlap(&seed_n, &cand_n),
     }
 }
 

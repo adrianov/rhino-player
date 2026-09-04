@@ -32,8 +32,7 @@ fn wire_gl_realize(st: &Rc<SeekPreviewState>) {
     let st_realize = Rc::clone(st);
     st.gl.connect_realize(move |a| {
         a.make_current();
-        let created = create_preview_on_realize(&st_realize, a);
-        if created && seek_due_after_realise(&st_realize) {
+        if create_preview_on_realize(&st_realize, a) && seek_due_after_realise(&st_realize) {
             crate::preview_debug::info("realise while hover open — seek now");
             let st2 = Rc::clone(&st_realize);
             glib::idle_add_local_once(move || run_preview_seek_now(&st2));

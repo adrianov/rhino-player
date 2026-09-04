@@ -50,8 +50,9 @@ fn stamp_vol_percent_readout(l: &gtk::Label, linear: f64, vmax: f64) {
     } else {
         100.0
     };
-    let v = linear.clamp(0.0, cap);
-    let pct = ((v / cap) * 100.0).round().clamp(0.0, 100.0) as i32;
+    let pct = ((linear.clamp(0.0, cap) / cap) * 100.0)
+        .round()
+        .clamp(0.0, 100.0) as i32;
     let s = format!("{pct}%");
     if l.text().as_str() != s {
         l.set_text(&s);

@@ -26,13 +26,14 @@ fn schedule_smooth_vf_only_tail(slot: &Rc<RefCell<Option<glib::SourceId>>>, gl: 
     cancel_smooth_seek_debounce(slot);
     let deb = Rc::clone(slot);
     let gl2 = gl.clone();
-    let id =
-        glib::timeout_add_local_once(Duration::from_millis(SEEK_BURST_TAIL_IDLE_MS), move || {
+    *slot.borrow_mut() = Some(glib::timeout_add_local_once(
+        Duration::from_millis(SEEK_BURST_TAIL_IDLE_MS),
+        move || {
             *deb.borrow_mut() = None;
             request_smooth_60_transport_resync();
             gl2.queue_render();
-        });
-    *slot.borrow_mut() = Some(id);
+        },
+    ));
 }
 
 fn schedule_seek_burst_tail(
@@ -44,18 +45,18 @@ fn schedule_seek_burst_tail(
     cancel_smooth_seek_debounce(slot);
     let deb = Rc::clone(slot);
     let gl2 = gl.clone();
-    let id =
-        glib::timeout_add_local_once(Duration::from_millis(SEEK_BURST_TAIL_IDLE_MS), move || {
+    *slot.borrow_mut() = Some(glib::timeout_add_local_once(
+        Duration::from_millis(SEEK_BURST_TAIL_IDLE_MS),
+        move || {
             *deb.borrow_mut() = None;
-            let trust_unpause = resume_after_seek_idle.replace(false);
-            if trust_unpause {
+            if resume_after_seek_idle.replace(false) {
                 let _ = apply_mpv_pause(&play_toggle, false);
                 crate::screen_blackout::end_tech_hold();
             }
             request_smooth_60_transport_resync();
             gl2.queue_render();
-        });
-    *slot.borrow_mut() = Some(id);
+        },
+    ));
 }
 
 /// Seek main mpv with `absolute+keyframes`. Strip vapoursynth first when present — otherwise mpv
@@ -155,8 +156,7 @@ fn main_player_seek_keyframes(p: &SeekKeyframeParams<'_>, kind: SeekKeyframeKind
     }
     // A blocked seek still runs the tail below: it owns the arrow-burst unpause and the blackout
     // hold, so returning early here would leave playback paused and blackout stuck on.
-    let stripped = seek_local_fallback(p, seconds);
-    seek_keyframes_after_command(p, kind, paused_before, stripped);
+    seek_keyframes_after_command(p, kind, paused_before, seek_local_fallback(p, seconds));
 }
 
 fn read_paused_before(p: &SeekKeyframeParams<'_>) -> Option<bool> {

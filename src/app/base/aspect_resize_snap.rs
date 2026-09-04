@@ -53,9 +53,8 @@ fn snap_eligible(ww: i32, hh: i32, vw: i64, vh: i64) -> bool {
     if snap_skip_wide_pillar(ww, hh, vw, vh) {
         return false;
     }
-    let target_w = width_for_height(hh, vw, vh);
-    let target_h = height_for_width(ww, vw, vh);
-    dim_off(ww, target_w) <= ASPECT_DIM_TOLERANCE || dim_off(hh, target_h) <= ASPECT_DIM_TOLERANCE
+    dim_off(ww, width_for_height(hh, vw, vh)) <= ASPECT_DIM_TOLERANCE
+        || dim_off(hh, height_for_width(ww, vw, vh)) <= ASPECT_DIM_TOLERANCE
 }
 
 /// Short letterbox with width already near target — leave alone (e.g. 1289×540).
@@ -69,9 +68,7 @@ fn snap_skip_wide_pillar(ww: i32, hh: i32, vw: i64, vh: i64) -> bool {
 }
 
 pub(crate) fn aspect_dim_offsets(ww: i32, hh: i32, vw: i64, vh: i64) -> (f64, f64) {
-    let target_w = width_for_height(hh, vw, vh);
-    let target_h = height_for_width(ww, vw, vh);
-    (dim_off(ww, target_w), dim_off(hh, target_h))
+    (dim_off(ww, width_for_height(hh, vw, vh)), dim_off(hh, height_for_width(ww, vw, vh)))
 }
 
 /// Pixel deltas to match aspect on one axis: (+W grow, −W shrink, +H grow, −H shrink); 0 = not needed.

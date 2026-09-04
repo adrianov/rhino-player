@@ -52,8 +52,7 @@ unsafe extern "C" fn blackout_appkit_dispatch(raw: *mut std::ffi::c_void) {
         }
         AppkitOp::Rebuild { old, video, dest } => {
             order_out_all(old);
-            let leftover = std::mem::take(&mut dest.borrow_mut().windows);
-            order_out_all(leftover);
+            order_out_all(std::mem::take(&mut dest.borrow_mut().windows));
             let built = build_cover_windows(&video);
             let mut g = dest.borrow_mut();
             g.cover_pending = false;

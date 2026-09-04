@@ -1,17 +1,18 @@
 // EOF-tail detection for the open DVD `.vob` (included from `dvd_chapter_eof.rs`).
 
 fn mpv_playback_pos_dur(mpv: &Mpv) -> (f64, f64) {
-    let lpos = mpv
-        .get_property::<f64>("time-pos")
-        .ok()
-        .filter(|p| p.is_finite() && *p >= 0.0)
-        .unwrap_or(0.0);
-    let ldur = mpv
-        .get_property::<f64>("duration")
-        .ok()
-        .filter(|d| d.is_finite() && *d > 0.0)
-        .unwrap_or(0.0);
-    (lpos, ldur)
+    (
+        mpv
+            .get_property::<f64>("time-pos")
+            .ok()
+            .filter(|p| p.is_finite() && *p >= 0.0)
+            .unwrap_or(0.0),
+        mpv
+            .get_property::<f64>("duration")
+            .ok()
+            .filter(|d| d.is_finite() && *d > 0.0)
+            .unwrap_or(0.0),
+    )
 }
 
 fn ifo_segment_near_eof(ifo_local: f64, ifo_seg: f64) -> bool {
@@ -44,15 +45,17 @@ fn chain_head_ifo_near_eof(
     let Some((_, seg)) = chain_head_chapter_context(chapter, tl, mpv_dur) else {
         return false;
     };
-    let ifo = timeline_local_from_mpv(tl, chapter, mpv_pos, mpv_dur);
-    ifo_segment_near_eof(ifo, seg)
+    ifo_segment_near_eof(
+        timeline_local_from_mpv(tl, chapter, mpv_pos, mpv_dur),
+        seg,
+    )
 }
 
 fn chapter_eof_local_sec(mpv: &Mpv, chapter: &Path, tl: &DvdVobTimeline) -> f64 {
     let (lpos, ldur) = mpv_playback_pos_dur(mpv);
     if let Some((_, seg)) = chain_head_chapter_context(chapter, tl, ldur) {
-        let ifo = timeline_local_from_mpv(tl, chapter, lpos, ldur);
-        return ifo.max((seg - crate::app::TICK_EOF_TAIL_SEC).max(0.0));
+        return timeline_local_from_mpv(tl, chapter, lpos, ldur)
+            .max((seg - crate::app::TICK_EOF_TAIL_SEC).max(0.0));
     }
     if ldur > 0.0 {
         lpos.max(ldur - crate::app::TICK_EOF_TAIL_SEC)

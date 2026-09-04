@@ -63,9 +63,8 @@ fn stabilize_disc_source_fps(
 }
 
 fn cadence_rates_jump(prev: f64, f: f64) -> bool {
-    let jump = (f - prev).abs();
-    let rel = (f / prev - 1.0).abs();
-    rel > CADENCE_JUMP_FRAC || jump > (prev * CADENCE_JUMP_FRAC).max(1.5)
+    (f / prev - 1.0).abs() > CADENCE_JUMP_FRAC
+        || (f - prev).abs() > (prev * CADENCE_JUMP_FRAC).max(1.5)
 }
 
 fn note_plausible_cadence(f: f64, gate: &mut FpsPickGateState, disc: bool) -> bool {
@@ -113,8 +112,10 @@ fn update_interleaved_cadence_gate(
             gate.last_stable_fps = Some(f);
         }
         Some(f) => {
-            let jump = note_plausible_cadence(f, gate, disc);
-            if disc && !jump && is_plausible_broadcast_fps(f) {
+            if disc
+                && !note_plausible_cadence(f, gate, disc)
+                && is_plausible_broadcast_fps(f)
+            {
                 gate.interleaved_smooth = false;
             }
         }

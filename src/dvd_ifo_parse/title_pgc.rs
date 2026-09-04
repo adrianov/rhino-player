@@ -49,9 +49,10 @@ pub(super) fn title_cells(chapter_vob: &std::path::Path) -> Option<Vec<TitleCell
     let disc = crate::video_ext::dvd_disc_root(chapter_vob)?;
     let vts_dir = crate::video_ext::dvd_video_ts_dir(&disc)?;
     let vts_id = vts_id_from_path(chapter_vob)?;
-    let hint = crate::dvd_entity::vob_part_id(chapter_vob).unwrap_or(1);
-    let ifo = vts_dir.join(format!("VTS_{vts_id:02}_0.IFO"));
-    title_cells_from_ifo(&ifo, hint)
+    title_cells_from_ifo(
+        &vts_dir.join(format!("VTS_{vts_id:02}_0.IFO")),
+        crate::dvd_entity::vob_part_id(chapter_vob).unwrap_or(1),
+    )
 }
 
 pub(super) fn title_cells_from_ifo(
@@ -66,8 +67,7 @@ pub(super) fn title_cells_from_ifo(
 
 /// PGC cell span of the feature title picked for `hint_vob_id`.
 fn main_pgc_cells(tables: &VtsTables, hint_vob_id: u32) -> Option<(&Pgc, usize, usize)> {
-    let vts_ttn = pick_vts_ttn(&tables.ptt, &tables.pgcit, hint_vob_id);
-    let title = tables.ptt.titles.get(vts_ttn - 1)?;
+    let title = tables.ptt.titles.get(pick_vts_ttn(&tables.ptt, &tables.pgcit, hint_vob_id) - 1)?;
     let (pgcn, pgn) = title.ptt.first().copied()?;
     let (pgc, _, start_cell, end_cell) = title_pgc_cells(&tables.pgcit, pgcn, pgn)?;
     Some((pgc, start_cell, end_cell))

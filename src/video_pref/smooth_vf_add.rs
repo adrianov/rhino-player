@@ -96,10 +96,12 @@ fn note_bundled_me_budget_applied_for_open(
     if !v.vs_path.trim().is_empty() {
         return;
     }
-    let media_key = me_budget_local_path(mpv, bundle)
-        .as_ref()
-        .and_then(|p| crate::db::history_key(p.as_path()));
-    note_bundled_me_budget_vf_applied(me_cap, media_key);
+    note_bundled_me_budget_vf_applied(
+        me_cap,
+        me_budget_local_path(mpv, bundle)
+            .as_ref()
+            .and_then(|p| crate::db::history_key(p.as_path())),
+    );
 }
 
 /// `vf add` failed and no filter is present: reload the open media once, else turn Smooth off.

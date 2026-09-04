@@ -28,8 +28,7 @@ const RECOVERY_FIRE_STREAK_TICKS: u32 = 300;
 /// Strain **fraction** = Δtally ÷ (**Δwall × denominator Hz**).
 #[must_use]
 pub(crate) fn budget_signal_rate_in_window(signal_delta: u64, elapsed_secs: f64, denominator_hz: f64) -> f64 {
-    let hz = denominator_hz.clamp(0.05_f64, 960.0);
-    let frames = elapsed_secs.max(1e-6) * hz;
+    let frames = elapsed_secs.max(1e-6) * denominator_hz.clamp(0.05_f64, 960.0);
     (signal_delta as f64 / frames.max(1.0)).min(10.0)
 }
 
@@ -77,14 +76,15 @@ pub(crate) fn recovery_candidate(saved_px: u64, decode_area_px: Option<u64>) -> 
     if base >= cap {
         return None;
     }
-    let scaled = base
-        .checked_mul(110)
-        .and_then(|x| x.checked_add(50))
-        .map(|x| x / 100)
-        .unwrap_or(u64::MAX);
-    let bumped = scaled.max(base.saturating_add(1));
-    let limited = bumped.min(cap);
-    Some(clamp_smooth_area(limited))
+    Some(clamp_smooth_area(
+        base
+            .checked_mul(110)
+            .and_then(|x| x.checked_add(50))
+            .map(|x| x / 100)
+            .unwrap_or(u64::MAX)
+            .max(base.saturating_add(1))
+            .min(cap),
+    ))
 }
 
 include!("smooth_budget_decision_log.rs");
@@ -98,13 +98,15 @@ pub(crate) fn budget_after_decoder_overload(current_budget_px: u64, _strain_rate
     if base <= floor_px {
         return base;
     }
-    let scaled = base
-        .checked_mul(90)
-        .and_then(|x| x.checked_add(50))
-        .map(|x| x / 100)
-        .unwrap_or(floor_px);
-    let shrunk = scaled.min(base.saturating_sub(1));
-    clamp_smooth_area(shrunk.max(floor_px))
+    clamp_smooth_area(
+        base
+            .checked_mul(90)
+            .and_then(|x| x.checked_add(50))
+            .map(|x| x / 100)
+            .unwrap_or(floor_px)
+            .min(base.saturating_sub(1))
+            .max(floor_px),
+    )
 }
 
 /// Prefer raising only when **`decode_px` exceeds the clamped persisted cap** (same **`decode ≤ cap`** gate as **`bundled_me_vf_out_wh`** before ME downscale).

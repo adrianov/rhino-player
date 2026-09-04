@@ -111,13 +111,11 @@ fn try_read_drop_async(
     sub_menu: gtk::MenuButton,
     on_open: RcPathFn,
 ) {
-    let negotiated = dk.formats().match_type(&fm_types);
-    let mimes_owned = mime_types_ordered_for_drop_read(&dk);
     let ctx = Rc::new(DropReadCtx {
         dk: dk.clone(),
+        negotiated: dk.formats().match_type(&fm_types),
+        mimes: mime_types_ordered_for_drop_read(&dk),
         fin: dk,
-        negotiated,
-        mimes: mimes_owned,
         player,
         sub_menu,
         on_open,

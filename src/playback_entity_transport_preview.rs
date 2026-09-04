@@ -33,18 +33,17 @@ pub fn preview_seek_plan_for_open(
     preview_mpv: Option<&Mpv>,
 ) -> Option<PreviewSeekPlan> {
     let (ent, chapter) = open_playback(mpv, shell)?;
-    let bar_hold = dvd_bar.map(|slot| slot.borrow());
-    let active_bar = bar_hold
-        .as_ref()
-        .and_then(|g| g.as_ref())
-        .filter(|b| ent.dvd_bar_active(&chapter, b));
     ent.preview_seek_plan(PreviewSeekCtx {
         chapter: &chapter,
         mpv,
         shell,
         hover_global,
         bar_upper,
-        dvd_bar: active_bar,
+        dvd_bar: dvd_bar
+            .map(|slot| slot.borrow())
+            .as_ref()
+            .and_then(|g| g.as_ref())
+            .filter(|b| ent.dvd_bar_active(&chapter, b)),
         preview_mpv,
     })
 }
@@ -59,12 +58,17 @@ pub fn preview_hover_duration_for_open(
     dvd_bar: Option<&RefCell<Option<DvdBarState>>>,
 ) -> Option<f64> {
     let (ent, chapter) = open_playback(mpv, shell)?;
-    let bar_hold = dvd_bar.map(|slot| slot.borrow());
-    let active_bar = bar_hold
-        .as_ref()
-        .and_then(|g| g.as_ref())
-        .filter(|b| ent.dvd_bar_active(&chapter, b));
-    Some(ent.preview_hover_duration(&chapter, bar_upper, mpv, preview_mpv, active_bar))
+    Some(ent.preview_hover_duration(
+        &chapter,
+        bar_upper,
+        mpv,
+        preview_mpv,
+        dvd_bar
+            .map(|slot| slot.borrow())
+            .as_ref()
+            .and_then(|g| g.as_ref())
+            .filter(|b| ent.dvd_bar_active(&chapter, b)),
+    ))
 }
 
 /// Inputs for one hover-preview plan on the open entity.
@@ -97,13 +101,16 @@ impl PlaybackEntity {
         } = ctx;
         match &self.kind {
             super::PlaybackEntityKind::SingleFile(_) => {
-                let load = single_file_preview_load(mpv, shell, chapter)?;
-                let content_dur =
-                    self.preview_hover_duration(chapter, bar_upper, mpv, preview_mpv, dvd_bar);
                 Some(PreviewSeekPlan {
-                    load,
+                    load: single_file_preview_load(mpv, shell, chapter)?,
                     local_sec: hover_global,
-                    content_dur,
+                    content_dur: self.preview_hover_duration(
+                        chapter,
+                        bar_upper,
+                        mpv,
+                        preview_mpv,
+                        dvd_bar,
+                    ),
                 })
             }
             super::PlaybackEntityKind::DvdTitle { .. } => {
@@ -153,6 +160,7 @@ fn single_file_preview_load(mpv: &Mpv, shell: Option<&Path>, chapter: &Path) -> 
             return resolved.to_str().map(str::to_string);
         }
     }
-    let resolved = crate::video_ext::resolve_open_media_path(chapter);
-    resolved.to_str().map(str::to_string)
+    crate::video_ext::resolve_open_media_path(chapter)
+        .to_str()
+        .map(str::to_string)
 }

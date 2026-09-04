@@ -13,8 +13,8 @@ fn build_app_menus() -> (gio::Menu, gio::Menu, gio::Menu) {
     }
     #[cfg(target_os = "macos")]
     {
-        let menubar = build_macos_menubar(&pref_menu);
-        (gio::Menu::new(), pref_menu, menubar)
+        let pair = build_macos_menubar(pref_menu);
+        (gio::Menu::new(), pair.0, pair.1)
     }
 }
 
@@ -41,11 +41,11 @@ fn menu_pref_append_smooth_and_seek_skeleton(m: &gio::Menu) {
 }
 
 #[cfg(target_os = "macos")]
-fn build_macos_menubar(pref_menu: &gio::Menu) -> gio::Menu {
+fn build_macos_menubar(pref_menu: gio::Menu) -> (gio::Menu, gio::Menu) {
     let root = gio::Menu::new();
     root.append_submenu(Some("File"), &build_macos_file_menu());
-    root.append_submenu(Some("View"), &build_macos_view_menu(pref_menu));
-    root
+    root.append_submenu(Some("View"), &build_macos_view_menu(&pref_menu));
+    (pref_menu, root)
 }
 
 /// One labelled action row with an icon ([menu_append_action_icon] with `Some` wrappers).

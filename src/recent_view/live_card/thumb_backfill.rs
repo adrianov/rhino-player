@@ -89,8 +89,9 @@ impl ThumbBackfill {
             let inbox = Arc::clone(&self.inbox);
             let c = self.cancel.clone();
             let gen_watch = self.gen.clone();
-            let h = std::thread::spawn(move || run_thumb_worker(chunk, gen, c, inbox, gen_watch));
-            self.workers.borrow_mut().push(h);
+            self.workers.borrow_mut().push(std::thread::spawn(move || {
+                run_thumb_worker(chunk, gen, c, inbox, gen_watch)
+            }));
         }
     }
 

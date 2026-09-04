@@ -89,8 +89,9 @@ pub(super) fn parse_titles(buf: &IfoBuf, sector: usize) -> Option<Vec<PttTitle>>
             continue;
         }
         let nr_ptt = n / 4;
-        let ptt = table.read_ptt(buf, table.offsets[i], nr_ptt);
-        titles.push(PttTitle { ptt });
+        titles.push(PttTitle {
+            ptt: table.read_ptt(buf, table.offsets[i], nr_ptt),
+        });
     }
     Some(titles)
 }

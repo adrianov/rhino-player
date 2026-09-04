@@ -65,8 +65,7 @@ impl MpvBundle {
         let Some(path) = shell.as_ref() else {
             return 0.0;
         };
-        let entity = crate::playback_entity::PlaybackEntity::resolve(path.as_path());
-        let key = entity.db_path();
+        let key = crate::playback_entity::PlaybackEntity::resolve(path.as_path()).db_path();
         let map = crate::db::load_duration_map();
         if let Some(d) = entity_row_duration(&key, &map) {
             return d;

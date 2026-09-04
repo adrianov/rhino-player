@@ -37,7 +37,7 @@ fn chrome_bars_show<R: IsA<gtk::Widget>>(c: &ChromeApplyParts<'_, R>) -> bool {
         {
             crate::macos_fs_exit::heal_stuck_exit(&win);
         }
-        return show && !crate::macos_fs_exit::exit_armed();
+        show && !crate::macos_fs_exit::exit_armed()
     }
     #[cfg(not(target_os = "macos"))]
     {

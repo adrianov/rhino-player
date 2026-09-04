@@ -30,8 +30,7 @@ pub(crate) fn stash_near_start_resume(mpv: &Mpv, pending: &Cell<Option<f64>>, pa
 pub(crate) fn stored_resume_target(path: &Path) -> Option<(std::path::PathBuf, f64)> {
     let entity = crate::playback_entity::PlaybackEntity::resolve(path);
     let t = crate::db::resume_pos(&entity.db_path())?;
-    let map = crate::db::load_duration_map();
-    entity.resume_load_target(path, t, &map)
+    entity.resume_load_target(path, t, &crate::db::load_duration_map())
 }
 
 pub(crate) fn resume_already_at(mpv: &Mpv, target: f64) -> bool {
@@ -70,8 +69,7 @@ fn stretched_tail_at(mpv: &Mpv, seg: f64, ifo_local: f64) -> bool {
         return resume_already_at(mpv, ifo_local);
     };
     let pos = mpv.get_property::<f64>("time-pos").unwrap_or(f64::NAN);
-    let tail = crate::dvd_vob_timeline::chain_head_tail(dur, seg);
-    if pos < tail - 0.5 {
+    if pos < crate::dvd_vob_timeline::chain_head_tail(dur, seg) - 0.5 {
         return false;
     }
     let ifo = crate::dvd_vob_timeline::chain_head_ifo_local_from_mpv(pos, dur, seg);

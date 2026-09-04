@@ -35,20 +35,18 @@ struct NeighbourEntry {
 
 impl NeighbourEntry {
     fn pending(path: PathBuf) -> Self {
-        let name_lower = file_name_lower(&path);
         Self {
+            name_lower: file_name_lower(&path),
             path,
-            name_lower,
             openable: Cell::new(None),
         }
     }
 
     #[cfg(test)]
     fn known(path: PathBuf, openable: bool) -> Self {
-        let name_lower = file_name_lower(&path);
         Self {
+            name_lower: file_name_lower(&path),
             path,
-            name_lower,
             openable: Cell::new(Some(openable)),
         }
     }
@@ -305,33 +303,39 @@ fn catalog_boot_from_db(epoch: u64) -> CatalogBoot {
 /// Catalog load for a filter worker when [CatalogMem] is not ready yet (keeps UI free).
 fn filter_job_from_db() -> (FilterJob, CatalogBoot) {
     let boot = catalog_boot_from_db(crate::db::files_catalog_epoch());
-    let progress = progress_name_keys(&boot.tpos);
-    let snap = std::sync::Arc::new(
-        boot.paths
-            .iter()
-            .map(|path| FilterRow {
-                name_lower: file_name_lower(path),
-                path: path.clone(),
-            })
-            .collect(),
-    );
-    ((snap, progress, HashSet::new()), boot)
+    (
+        (
+            std::sync::Arc::new(
+                boot.paths
+                    .iter()
+                    .map(|path| FilterRow {
+                        name_lower: file_name_lower(path),
+                        path: path.clone(),
+                    })
+                    .collect(),
+            ),
+            progress_name_keys(&boot.tpos),
+            HashSet::new(),
+        ),
+        boot,
+    )
 }
 
 fn index_from_paths(
     paths: Vec<PathBuf>,
 ) -> (Vec<NeighbourEntry>, std::sync::Arc<Vec<FilterRow>>) {
-    let entries: Vec<_> = paths.into_iter().map(NeighbourEntry::pending).collect();
-    let snap = std::sync::Arc::new(
-        entries
-            .iter()
-            .map(|e| FilterRow {
-                path: e.path.clone(),
-                name_lower: e.name_lower.clone(),
-            })
-            .collect(),
-    );
-    (entries, snap)
+    (
+        paths.iter().cloned().map(NeighbourEntry::pending).collect(),
+        std::sync::Arc::new(
+            paths
+                .iter()
+                .map(|path| FilterRow {
+                    path: path.clone(),
+                    name_lower: file_name_lower(path),
+                })
+                .collect(),
+        ),
+    )
 }
 
 /// Fill `index` from `build` at most once (session catalog index).
@@ -515,8 +519,7 @@ fn take_ranked_batch<'a>(
     let n = pool.len().min(RANK_BATCH);
     partition_best(name, pool, n);
     sort_scored_hits(name, &mut pool[..n]);
-    let examined = fill_hits_batch(path, skip, openable, &pool[..n], hits);
-    pool.drain(..examined);
+    pool.drain(..fill_hits_batch(path, skip, openable, &pool[..n], hits));
 }
 
 #[cfg(test)]
@@ -545,8 +548,7 @@ fn collect_scored<'a>(
         .filter(|&i| !skip(i))
         .filter_map(|i| {
             let score = name_match_score(name(i), q, &q_tri)?;
-            let started = name_in_progress(path(i), name(i), progress);
-            Some((score, started, i))
+            Some((score, name_in_progress(path(i), name(i), progress), i))
         })
         .collect()
 }
@@ -711,20 +713,26 @@ mod rank_tests {
 
     #[test]
     fn capped_hits_keep_only_the_strip_limit() {
-        let entries: Vec<_> = (0..SEARCH_MAX_HITS + 5)
-            .map(|i| NeighbourEntry::known(PathBuf::from(format!("/store/pick{i}.mkv")), true))
-            .collect();
-        let (hits, capped) = capped_name_hits(&entries, "pick", &HashSet::new());
+        let (hits, capped) = capped_name_hits(
+            &(0..SEARCH_MAX_HITS + 5)
+                .map(|i| NeighbourEntry::known(PathBuf::from(format!("/store/pick{i}.mkv")), true))
+                .collect::<Vec<_>>(),
+            "pick",
+            &HashSet::new(),
+        );
         assert!(capped);
         assert_eq!(hits.len(), SEARCH_MAX_HITS);
     }
 
     #[test]
     fn wide_one_letter_query_does_not_keep_every_match() {
-        let entries: Vec<_> = (0..500)
-            .map(|i| NeighbourEntry::known(PathBuf::from(format!("/store/a{i:03}.mkv")), true))
-            .collect();
-        let (hits, capped) = capped_name_hits(&entries, "a", &HashSet::new());
+        let (hits, capped) = capped_name_hits(
+            &(0..500)
+                .map(|i| NeighbourEntry::known(PathBuf::from(format!("/store/a{i:03}.mkv")), true))
+                .collect::<Vec<_>>(),
+            "a",
+            &HashSet::new(),
+        );
         assert!(capped);
         assert_eq!(hits.len(), SEARCH_MAX_HITS);
     }

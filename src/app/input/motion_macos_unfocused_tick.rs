@@ -137,12 +137,11 @@ fn start_unfocused_mouse_monitor(monitor: &Rc<MouseMon>, tick: &Rc<dyn Fn()>) {
         return;
     }
     let tick2 = Rc::clone(tick);
-    let block = RcBlock::new(move |_: NonNull<NSEvent>| {
-        tick2();
-    });
     *monitor.borrow_mut() = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(
         NSEventMask::MouseMoved | NSEventMask::LeftMouseDragged,
-        &block,
+        &RcBlock::new(move |_: NonNull<NSEvent>| {
+            tick2();
+        }),
     );
     if monitor.borrow().is_none() {
         eprintln!("[rhino] cursor: global mouse monitor was not installed");

@@ -90,14 +90,12 @@ fn channel_order(fmt: &str) -> Option<(usize, usize, usize)> {
 
 fn vertical_content(p: &LineProbe<'_>, w: usize, h: usize) -> (usize, usize) {
     let top = count_edge_bars(h, |y| p.row_bar(y, w));
-    let bottom = count_edge_bars(h - top, |i| p.row_bar(h - 1 - i, w));
-    (top, h - top - bottom)
+    (top, h - top - count_edge_bars(h - top, |i| p.row_bar(h - 1 - i, w)))
 }
 
 fn horizontal_content(p: &LineProbe<'_>, w: usize, h: usize) -> (usize, usize) {
     let left = count_edge_bars(w, |x| p.col_bar(x, h));
-    let right = count_edge_bars(w - left, |i| p.col_bar(w - 1 - i, h));
-    (left, w - left - right)
+    (left, w - left - count_edge_bars(w - left, |i| p.col_bar(w - 1 - i, h)))
 }
 
 fn count_edge_bars(limit: usize, mut is_bar: impl FnMut(usize) -> bool) -> usize {
@@ -131,8 +129,7 @@ mod frame_tests {
         let w = 64;
         let h = 48;
         let bar = 8;
-        let data = letterboxed_bgr0(w, h, bar);
-        let crop = detect_packed_crop(w, h, w * 4, 4, "bgr0", &data).unwrap();
+        let crop = detect_packed_crop(w, h, w * 4, 4, "bgr0", &letterboxed_bgr0(w, h, bar)).unwrap();
         assert_eq!(crop.y, bar as i64);
         assert_eq!(crop.h, (h - 2 * bar) as i64);
         assert_eq!(crop.x, 0);
