@@ -1,7 +1,7 @@
 class RhinoPlayer < Formula
   desc "Mpv-backed media player with a GTK 4 / libadwaita UI"
   homepage "https://github.com/adrianov/rhino-player"
-  # Stable tarball until v1.6.2 is tagged (Finder XDG prime). Prefer `brew install --HEAD` for that fix.
+  # Last tagged stable. Prefer `brew install --HEAD` until v1.7.0 is tagged + sha256 updated.
   url "https://github.com/adrianov/rhino-player/archive/refs/tags/v1.6.1.tar.gz"
   sha256 "7f7da938b2bc3cc0157a5ca5a1d7bdc91f2b6fe451cd3631e793168581b7f3dc"
   license "GPL-3.0-or-later"

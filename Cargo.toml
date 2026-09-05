@@ -1,6 +1,6 @@
 [package]
 name = "rhino-player"
-version = "1.6.2"
+version = "1.7.0"
 edition = "2021"
 authors = ["Peter Adrianov"]
 description = "Rhino Player — mpv with GTK4 / libadwaita (Linux primary; macOS via Homebrew, experimental)"
