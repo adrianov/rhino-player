@@ -55,7 +55,7 @@ pub fn continue_grid_cache_lookup(cache: &ContinueGridCache, path: &Path) -> Opt
     cache.borrow().get(&key).copied()
 }
 
-/// Strip cache first; on miss, one-row SQLite resume/duration (search hits not in the continue five).
+/// Strip cache first; on miss, one-row SQLite resume/duration (search hits not on the continue strip).
 pub fn continue_snap_for_browse(cache: &ContinueGridCache, path: &Path) -> Option<ContinueSnap> {
     if let Some(s) = continue_grid_cache_lookup(cache, path) {
         return Some(s);

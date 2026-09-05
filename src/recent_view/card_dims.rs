@@ -4,7 +4,9 @@ use gtk::prelude::WidgetExt;
 /// Same footprint as grid thumb decode ([crate::thumb_texture::GRID_CARD_ASPECT]).
 pub(crate) const CARD_ASPECT: f64 = crate::thumb_texture::GRID_CARD_ASPECT;
 /// Continue strip shows at most this many history cards (plus Open Video).
-pub(crate) const CONTINUE_DISPLAY_MAX: usize = 5;
+pub(crate) const CONTINUE_DISPLAY_MAX: usize = 30;
+/// History slots used for tile width (Open + this many); extra cards scroll.
+const CONTINUE_LAYOUT_HISTORY: usize = 5;
 pub(crate) const CARD_MIN_W: i32 = 220;
 pub(crate) const CARD_MAX_W: i32 = 620;
 pub(crate) const CARD_GAP: i32 = 16;
@@ -34,10 +36,10 @@ pub(crate) fn card_height(w: i32) -> i32 {
     (f64::from(w) / CARD_ASPECT).round() as i32
 }
 
-/// Tile width for the strip. Always divides by a full strip (Open + [CONTINUE_DISPLAY_MAX])
-/// so a short list or search hit does not inflate cards and shove the layout around.
+/// Tile width for the strip. Always divides by a viewport strip (Open + [CONTINUE_LAYOUT_HISTORY])
+/// so a short list or search hit does not inflate cards; further history cards scroll.
 pub(crate) fn card_width(strip_w: i32) -> i32 {
-    let slots = (CONTINUE_DISPLAY_MAX + 1) as i32;
+    let slots = (CONTINUE_LAYOUT_HISTORY + 1) as i32;
     ((strip_w - CARD_GAP * (slots - 1)).max(CARD_MIN_W) / slots).clamp(CARD_MIN_W, CARD_MAX_W)
 }
 
@@ -134,7 +136,10 @@ mod card_width_tests {
         let full = card_width(strip);
         assert!((CARD_MIN_W..=CARD_MAX_W).contains(&full));
         // Same formula regardless of how many cards are showing (caller no longer passes count).
-        assert_eq!(full, (strip - CARD_GAP * CONTINUE_DISPLAY_MAX as i32) / (CONTINUE_DISPLAY_MAX as i32 + 1));
+        assert_eq!(
+            full,
+            (strip - CARD_GAP * CONTINUE_LAYOUT_HISTORY as i32) / (CONTINUE_LAYOUT_HISTORY as i32 + 1)
+        );
     }
 
     #[test]

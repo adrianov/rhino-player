@@ -3,13 +3,11 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-const MAX: usize = 20;
-
-/// Ordered recent paths (newest first), up to [MAX] entries. Missing paths leave history
+/// Ordered recent paths (newest first), up to the store cap. Missing paths leave history
 /// and the files catalog — unless an incomplete download was renamed to a finished sibling, in which
 /// case the persistent store adopts that finished path and the entry is kept.
 pub fn load() -> Vec<PathBuf> {
-    let raw = crate::db::list_history(MAX);
+    let raw = crate::db::list_history(usize::MAX);
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for p in raw {

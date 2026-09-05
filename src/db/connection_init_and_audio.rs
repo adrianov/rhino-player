@@ -5,7 +5,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::paths;
 
 const DB_NAME: &str = "rhino.sqlite";
-const MAX_HISTORY: i64 = 20;
+const MAX_HISTORY: i64 = 30;
 
 static DB: OnceLock<Mutex<Connection>> = OnceLock::new();
 
