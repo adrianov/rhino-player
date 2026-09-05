@@ -28,7 +28,14 @@ fn rename_entry(stem: &str) -> gtk::Entry {
     let entry = gtk::Entry::new();
     entry.set_text(stem);
     entry.set_hexpand(true);
+    entry.set_size_request(stem_entry_width_px(&entry, stem), -1);
     entry
+}
+
+/// Pixel width for the stem in the entry's font, plus padding (not average `width-chars`).
+fn stem_entry_width_px(entry: &gtk::Entry, stem: &str) -> i32 {
+    let (text_w, _) = entry.create_pango_layout(Some(stem)).pixel_size();
+    (text_w + 40).clamp(280, 880)
 }
 
 fn error_label() -> gtk::Label {
@@ -46,12 +53,17 @@ fn rename_dialog(entry: &gtk::Entry, err: &gtk::Label) -> adw::AlertDialog {
     col.append(err);
     let dialog = adw::AlertDialog::new(Some("Rename file"), None);
     dialog.set_extra_child(Some(&col));
+    size_rename_dialog(&dialog, entry.width_request());
     dialog.add_response("cancel", "Cancel");
     dialog.add_response("rename", "Rename");
     dialog.set_default_response(Some("rename"));
     dialog.set_close_response("cancel");
     dialog.set_response_appearance("rename", adw::ResponseAppearance::Suggested);
     dialog
+}
+
+fn size_rename_dialog(dialog: &adw::AlertDialog, entry_w: i32) {
+    dialog.set_content_width((entry_w + 56).clamp(360, 960));
 }
 
 fn wire_rename_dialog(

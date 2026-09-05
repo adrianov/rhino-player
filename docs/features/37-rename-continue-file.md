@@ -4,7 +4,7 @@
 status: done
 priority: p1
 layers: [ui, storage, persistence]
-related: [21, 27, 33, 34]
+related: [21, 27, 33, 34, 38]
 ---
 
 ## Use cases
@@ -75,7 +75,7 @@ Feature: Rename file from continue card
 
 ## Notes
 - Control: `document-edit-symbolic` hover button in `fill_history_card/card_actions.rs`, left of Trash / Remove; same `rp-recent-action` chrome as those controls. Bundled under `data/icons/hicolor/scalable/actions/` so macOS Homebrew GTK (empty Adwaita action set) still resolves it.
-- Dialog: `adw::AlertDialog` with an `gtk::Entry` `extra_child`; editable part from `Path::file_stem`, extension kept via `Path::extension`.
+- Dialog: `adw::AlertDialog` with an `gtk::Entry` `extra_child`; editable part from `Path::file_stem`, extension kept via `Path::extension`. Entry and dialog widths come from a Pango measure of the stem so long / non-Latin names stay visible.
 - Owner: `recent_view/card_rename_apply.rs` (+ `card_rename.rs` dialog) under neighbour-search state — disk rename, store update, strip retarget. Failed attempts keep the dialog open with an inline error under the entry; Adw’s response close is undone with `present`.
 - Store: `db::rekey_renamed_path` → `Result` runs `files` + optional `history` / `media` in one `BEGIN IMMEDIATE` transaction. On store failure the rename flow restores the original path on disk when possible.
 - Strip refresh: retarget search hits / catalog index, `record_history` for the new path, then `apply_strip`. An active Lucky session is closed so the continue strip can show the rekeyed file.
