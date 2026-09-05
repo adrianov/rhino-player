@@ -43,18 +43,48 @@ pub(crate) fn card_width(strip_w: i32) -> i32 {
     ((strip_w - CARD_GAP * (slots - 1)).max(CARD_MIN_W) / slots).clamp(CARD_MIN_W, CARD_MAX_W)
 }
 
-fn ancestor_scrolled_width(card_row: &gtk::Box) -> Option<i32> {
+fn ancestor_card_scroller(card_row: &gtk::Box) -> Option<gtk::ScrolledWindow> {
     let mut w_opt = card_row.parent();
     while let Some(w) = w_opt {
-        if let Some(sw) = w.downcast_ref::<gtk::ScrolledWindow>() {
-            let ww = sw.width();
-            if ww > 0 {
-                return Some(ww);
-            }
+        if let Ok(sw) = w.clone().downcast::<gtk::ScrolledWindow>() {
+            return Some(sw);
         }
         w_opt = w.parent();
     }
     None
+}
+
+fn ancestor_scrolled_width(card_row: &gtk::Box) -> Option<i32> {
+    let sw = ancestor_card_scroller(card_row)?;
+    let ww = sw.width();
+    (ww > 0).then_some(ww)
+}
+
+/// Horizontal scroll offset of the continue card scroller, if the row sits in one.
+pub(crate) fn strip_hscroll_value(card_row: &gtk::Box) -> Option<f64> {
+    Some(ancestor_card_scroller(card_row)?.hadjustment().value())
+}
+
+/// Re-apply scroll after strip rebuild. Rebuild briefly collapses content (adjustment → 0);
+/// try now, then two idles so GTK resize (priority 110) can settle before each re-clamp.
+pub(crate) fn restore_strip_hscroll(card_row: &gtk::Box, saved: f64) {
+    if saved <= 0.0 {
+        return;
+    }
+    let Some(adj) = ancestor_card_scroller(card_row).map(|s| s.hadjustment()) else {
+        return;
+    };
+    set_hscroll_clamped(&adj, saved);
+    let adj = adj.clone();
+    let _ = glib::idle_add_local_once(move || {
+        set_hscroll_clamped(&adj, saved);
+        let adj = adj.clone();
+        let _ = glib::idle_add_local_once(move || set_hscroll_clamped(&adj, saved));
+    });
+}
+
+fn set_hscroll_clamped(adj: &gtk::Adjustment, saved: f64) {
+    adj.set_value(saved.clamp(0.0, (adj.upper() - adj.page_size()).max(0.0)));
 }
 
 fn strip_fallback_width(card_row: &gtk::Box) -> i32 {

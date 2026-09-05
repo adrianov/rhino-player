@@ -125,6 +125,7 @@ pub fn fill_row(
     cards: &Rc<RefCell<Vec<gtk::Overlay>>>,
     size_wired: &std::cell::Cell<bool>,
 ) {
+    let keep_scroll = strip_hscroll_value(row);
     // Seek-bar hover snaps for every strip kind (continue, search, lucky).
     if let Some(cache) = chrome_cache {
         crate::media_probe::continue_grid_cache_refresh(cache, &items);
@@ -148,5 +149,8 @@ pub fn fill_row(
     } else {
         wire_card_size_sync(row, cards);
         size_wired.set(true);
+    }
+    if let Some(saved) = keep_scroll {
+        restore_strip_hscroll(row, saved);
     }
 }
