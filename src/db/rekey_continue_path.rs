@@ -95,3 +95,7 @@ fn media_path_exists(c: &Connection, path: &str) -> rusqlite::Result<bool> {
         |row| row.get(0),
     )
 }
+
+#[path = "rekey_renamed_path.rs"]
+mod rekey_renamed_path;
+pub use rekey_renamed_path::rekey_renamed_path;

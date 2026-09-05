@@ -54,6 +54,7 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 34 | [Media files catalog](features/34-files-catalog.md) | wip |
 | 35 | [System diagnostics (CLI)](features/35-system-diagnostics.md) | done |
 | 36 | [Homebrew / macOS packaged app launch](features/36-homebrew-macos-app-launch.md) | done |
+| 37 | [Rename file from continue card](features/37-rename-continue-file.md) | done |
 
 Feature numbers **05**, **16**, and **19** are unused (withdrawn playlist / session-playlist topics; files removed).
 

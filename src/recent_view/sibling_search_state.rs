@@ -15,12 +15,24 @@ mod commit;
 mod input;
 #[path = "sibling_search_path_ops.rs"]
 mod path_ops;
+#[path = "card_rename_apply.rs"]
+mod card_rename_apply;
+pub(crate) use card_rename_apply::prompt_card_rename;
 #[path = "sibling_search_paint.rs"]
 mod paint;
 
 use super::lucky::{lucky_hint, search_hint, LuckySession};
 use super::{CatalogMem, StripKind};
 use filter_hop::FilterInbox;
+
+thread_local! {
+    /// Last-created neighbour-search row; rename dialog apply (feature 37).
+    static RENAME_SEARCH: RefCell<Option<Weak<SiblingSearchState>>> = const { RefCell::new(None) };
+}
+
+fn with_rename_search<R>(f: impl FnOnce(Rc<SiblingSearchState>) -> R) -> Option<R> {
+    RENAME_SEARCH.with(|c| c.borrow().as_ref().and_then(Weak::upgrade).map(f))
+}
 
 /// Settled filter delay after typing stops (feature 33).
 pub(super) const TYPE_DEBOUNCE_MS: u64 = 200;
@@ -71,7 +83,13 @@ pub(crate) struct SiblingSearchState {
 
 impl SiblingSearchState {
     pub(super) fn new(shell: gtk::Box, entry: gtk::SearchEntry, hint: gtk::Label) -> Rc<Self> {
-        Rc::new(Self {
+        let s = Rc::new(Self::build(shell, entry, hint));
+        RENAME_SEARCH.with(|c| *c.borrow_mut() = Some(Rc::downgrade(&s)));
+        s
+    }
+
+    fn build(shell: gtk::Box, entry: gtk::SearchEntry, hint: gtk::Label) -> Self {
+        Self {
             shell,
             entry,
             hint,
@@ -90,7 +108,7 @@ impl SiblingSearchState {
             debounce: RefCell::new(None),
             paint_idle: RefCell::new(None),
             mute_change: Cell::new(false),
-        })
+        }
     }
 
     pub(crate) fn searching(&self) -> bool {
