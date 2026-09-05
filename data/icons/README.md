@@ -5,6 +5,7 @@
 - `hicolor/scalable/actions/media-view-subtitles-symbolic.svg` — bundled symbolic for the header **subtitles** menu (`media-view-subtitles-symbolic`). Source: [GNOME adwaita-icon-theme](https://gitlab.gnome.org/GNOME/adwaita-icon-theme) `Adwaita/symbolic/actions/media-view-subtitles-symbolic.svg` (LGPL-3.0 / CC-BY-SA-3.0, both compatible).
 - `hicolor/scalable/actions/video-display-symbolic.svg` — bundled symbolic for the header **black out other displays** control (`video-display-symbolic`). Rhino-drawn dual-monitor asset (same project license as the repo).
 - `hicolor/scalable/actions/document-edit-symbolic.svg` — bundled symbolic for continue-card **Rename file** (`document-edit-symbolic`). Source: [GNOME adwaita-icon-theme](https://gitlab.gnome.org/GNOME/adwaita-icon-theme) `Adwaita/symbolic/actions/document-edit-symbolic.svg` (LGPL-3.0 / CC-BY-SA-3.0, both compatible).
+- `hicolor/scalable/actions/folder-symbolic.svg` — bundled symbolic for continue-card **Reveal in folder** (`folder-symbolic`). Source: [GNOME adwaita-icon-theme](https://gitlab.gnome.org/GNOME/adwaita-icon-theme) `Adwaita/symbolic/places/folder-symbolic.svg` (LGPL-3.0 / CC-BY-SA-3.0, both compatible).
 - All names are otherwise unavailable on platforms whose icon theme is incomplete (e.g. macOS + Homebrew GTK ship an empty `hicolor`); `src/icons.rs` prepends this tree so GTK resolves them.
 
 ## Layout

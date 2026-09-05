@@ -53,6 +53,7 @@ mod playback_entity;
 mod playback_speed;
 mod preview_debug;
 mod recent_view;
+mod reveal_file;
 pub mod sched;
 mod screen_blackout;
 mod seek_bar_preview;

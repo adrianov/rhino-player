@@ -1,4 +1,4 @@
-// Continue / neighbour-search card action overlays (Rename / Trash / Remove).
+// Continue / neighbour-search card action overlays (Rename / Reveal / Trash / Remove).
 
 use std::path::Path;
 use std::rc::Rc;
@@ -20,7 +20,7 @@ fn wire_logged_action(
     });
 }
 
-/// Top-right overlay buttons. Rename + Trash for present files; Remove on the
+/// Top-right overlay buttons. Rename + Reveal + Trash for present files; Remove on the
 /// continue list and on I'm Feeling Lucky cards (name-search hits omit it).
 pub(super) fn top_action_buttons(
     c: &Path,
@@ -31,6 +31,7 @@ pub(super) fn top_action_buttons(
     let mut hover_btns = Vec::new();
     if !miss && c.is_file() {
         push_rename(&top_actions, &mut hover_btns, c);
+        push_reveal(&top_actions, &mut hover_btns, c);
         push_action(
             &top_actions,
             &mut hover_btns,
@@ -61,6 +62,17 @@ fn push_rename(top: &gtk::Box, hover: &mut Vec<gtk::Button>, c: &Path) {
     btn.connect_clicked(move |b| {
         crate::user_action_log::act(format!("continue rename {}", path.display()));
         crate::recent_view::prompt_card_rename(b, &path);
+    });
+    top.append(&btn);
+    hover.push(btn);
+}
+
+fn push_reveal(top: &gtk::Box, hover: &mut Vec<gtk::Button>, c: &Path) {
+    let btn = card_action_btn("folder-symbolic", crate::reveal_file::reveal_tooltip());
+    let path = c.to_path_buf();
+    btn.connect_clicked(move |_| {
+        crate::user_action_log::act(format!("continue reveal {}", path.display()));
+        crate::reveal_file::reveal(&path);
     });
     top.append(&btn);
     hover.push(btn);
