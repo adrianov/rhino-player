@@ -74,7 +74,7 @@ Feature: Rename file from continue card
 ```
 
 ## Notes
-- Control: `document-edit-symbolic` hover button in `fill_history_card/card_actions.rs`, left of Trash / Remove; same `rp-recent-action` chrome as those controls.
+- Control: `document-edit-symbolic` hover button in `fill_history_card/card_actions.rs`, left of Trash / Remove; same `rp-recent-action` chrome as those controls. Bundled under `data/icons/hicolor/scalable/actions/` so macOS Homebrew GTK (empty Adwaita action set) still resolves it.
 - Dialog: `adw::AlertDialog` with an `gtk::Entry` `extra_child`; editable part from `Path::file_stem`, extension kept via `Path::extension`.
 - Owner: `recent_view/card_rename_apply.rs` (+ `card_rename.rs` dialog) under neighbour-search state — disk rename, store update, strip retarget. Failed attempts keep the dialog open with an inline error under the entry; Adw’s response close is undone with `present`.
 - Store: `db::rekey_renamed_path` → `Result` runs `files` + optional `history` / `media` in one `BEGIN IMMEDIATE` transaction. On store failure the rename flow restores the original path on disk when possible.
