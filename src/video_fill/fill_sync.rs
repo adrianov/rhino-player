@@ -1,11 +1,15 @@
 //! [`FillSync`] state machine: button visibility, panscan, and baked-in bar crop.
 
-use super::{stored_fill_preference, viewport_ar, FillSync, AR_TOLERANCE};
+use super::{current_local_media_path, stored_fill_preference, viewport_ar, FillSync, AR_TOLERANCE};
 use crate::black_bars::{
-    apply_video_crop, clear_video_crop, pump_bar_probe, schedule_bar_probe, BarState,
+    apply_video_crop, clear_video_crop, pump_bar_probe, schedule_bar_probe, BarState, CropRect,
 };
+use crate::mpv_embed::MpvBundle;
 use gtk::prelude::*;
+use std::cell::RefCell;
 use std::rc::Rc;
+
+type Player = Rc<RefCell<Option<MpvBundle>>>;
 
 impl FillSync {
     /// Wire the video surface for aspect checks and resize resync (once).
@@ -62,7 +66,7 @@ impl FillSync {
                 if let Some(b) = self.player.borrow().as_ref() {
                     if self.bars.needs_deint_reprobe(&b.mpv) {
                         eprintln!("[rhino] bars: re-probe after Bob deinterlace attached");
-                        self.kick_bar_probe();
+                        self.kick_bar_probe_live();
                     }
                 }
             }
@@ -71,10 +75,19 @@ impl FillSync {
     }
 
     fn kick_bar_probe(&self) {
+        if self.restore_cached_bars() {
+            super::request_fill_sync_only();
+            return;
+        }
+        self.kick_bar_probe_live();
+    }
+
+    /// Always run cropdetect (skip DB cache) — used after Bob attaches late.
+    fn kick_bar_probe_live(&self) {
         schedule_bar_probe(
             &self.player,
             &self.bars,
-            Rc::new(super::request_fill_sync_only),
+            probe_done_cb(&self.player, &self.bars),
         );
     }
 
@@ -82,8 +95,44 @@ impl FillSync {
         pump_bar_probe(
             &self.player,
             &self.bars,
-            Rc::new(super::request_fill_sync_only),
+            probe_done_cb(&self.player, &self.bars),
         );
+    }
+
+    /// Reuse `media.bar_crop` when the file mtime still matches.
+    fn restore_cached_bars(&self) -> bool {
+        let Some(path) = current_local_media_path(&self.player) else {
+            return false;
+        };
+        let Some(cached) = crate::db::media_bar_crop(&path) else {
+            return false;
+        };
+        let state = match cached.crop.as_deref() {
+            None => {
+                eprintln!("[rhino] bars: cached clean path={}", path.display());
+                BarState::Clean
+            }
+            Some(spec) => match CropRect::parse_video_crop(spec) {
+                Some(rect) => {
+                    eprintln!(
+                        "[rhino] bars: cached crop={} deint={} path={}",
+                        rect.as_video_crop(),
+                        cached.saw_deint,
+                        path.display()
+                    );
+                    BarState::Crop(rect)
+                }
+                None => {
+                    eprintln!(
+                        "[rhino] bars: bad cached crop={spec:?} path={}",
+                        path.display()
+                    );
+                    return false;
+                }
+            },
+        };
+        self.bars.restore_cached(state, cached.saw_deint);
+        true
     }
 
     /// Viewport vs content aspect (strip crop when known, else decode size).
@@ -135,5 +184,28 @@ impl FillSync {
             let _ = b.mpv.set_property("panscan", 0.0f64);
         }
         self.btn.remove_css_class("rp-fill-on");
+    }
+}
+
+fn probe_done_cb(player: &Player, bars: &Rc<crate::black_bars::BarProbe>) -> Rc<dyn Fn()> {
+    let player = Rc::clone(player);
+    let bars = Rc::clone(bars);
+    Rc::new(move || {
+        persist_bar_probe(&player, &bars);
+        super::request_fill_sync_only();
+    })
+}
+
+fn persist_bar_probe(player: &Player, bars: &Rc<crate::black_bars::BarProbe>) {
+    let Some(path) = current_local_media_path(player) else {
+        return;
+    };
+    let deint = bars.saw_deint();
+    match bars.state.get() {
+        BarState::Clean => crate::db::media_save_bar_crop(&path, None, deint),
+        BarState::Crop(rect) => {
+            crate::db::media_save_bar_crop(&path, Some(&rect.as_video_crop()), deint);
+        }
+        BarState::Unknown | BarState::Pending => {}
     }
 }

@@ -85,6 +85,7 @@ fn run_column_migrations(conn: &Connection) {
     migrate_media_decode_columns(conn);
     migrate_media_source_fps_column(conn);
     migrate_media_fill_screen_column(conn);
+    migrate_media_bar_crop_columns(conn);
     migrate_media_thumb_load_path(conn);
     migrate_media_thumb_webp_column(conn);
     migrate_media_sub_track_columns(conn);
@@ -118,6 +119,17 @@ fn migrate_media_fill_screen_column(conn: &Connection) {
         "ALTER TABLE media ADD COLUMN fill_screen INTEGER",
         rusqlite::params![],
     );
+}
+
+/// Cached lavfi strip probe (`bar_crop`; freshness via `bar_crop_mtime_ns` + `bar_crop_size`).
+fn migrate_media_bar_crop_columns(conn: &Connection) {
+    for sql in [
+        "ALTER TABLE media ADD COLUMN bar_crop TEXT",
+        "ALTER TABLE media ADD COLUMN bar_crop_mtime_ns INTEGER",
+        "ALTER TABLE media ADD COLUMN bar_crop_size INTEGER",
+    ] {
+        let _ = conn.execute(sql, rusqlite::params![]);
+    }
 }
 
 fn migrate_media_source_fps_column(conn: &Connection) {

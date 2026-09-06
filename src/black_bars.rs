@@ -22,8 +22,47 @@ pub struct CropRect {
 }
 
 impl CropRect {
-    fn as_video_crop(self) -> String {
+    pub fn as_video_crop(self) -> String {
         format!("{}x{}+{}+{}", self.w, self.h, self.x, self.y)
+    }
+
+    /// Parse mpv `video-crop` / lavfi style `WxH+X+Y`.
+    pub fn parse_video_crop(spec: &str) -> Option<Self> {
+        let [w, h, x, y] = crop_spec_parts(spec)?;
+        Some(Self { w, h, x, y })
+    }
+}
+
+fn crop_spec_parts(spec: &str) -> Option<[i64; 4]> {
+    let mut out = [0i64; 4];
+    let mut n = 0usize;
+    for part in spec.split(['x', '+']) {
+        if n >= 4 {
+            return None;
+        }
+        out[n] = part.parse().ok()?;
+        n += 1;
+    }
+    (n == 4).then_some(out)
+}
+
+#[cfg(test)]
+mod crop_spec_tests {
+    use super::CropRect;
+
+    #[test]
+    fn crop_rect_parses_mpv_video_crop() {
+        assert_eq!(
+            CropRect::parse_video_crop("1920x800+0+140"),
+            Some(CropRect {
+                w: 1920,
+                h: 800,
+                x: 0,
+                y: 140
+            })
+        );
+        assert_eq!(CropRect::parse_video_crop(""), None);
+        assert_eq!(CropRect::parse_video_crop("1920x800"), None);
     }
 }
 
@@ -72,6 +111,22 @@ impl BarProbe {
         self.past_delay.set(false);
         self.gathering.set(false);
         self.saw_deint.set(false);
+    }
+
+    /// Apply a DB-cached Clean/Crop result and cancel any in-flight probe.
+    pub fn restore_cached(&self, state: BarState, saw_deint: bool) {
+        debug_assert!(matches!(state, BarState::Clean | BarState::Crop(_)));
+        self.gen.set(self.gen.get().wrapping_add(1));
+        self.state.set(state);
+        self.ready_left.set(0);
+        self.past_delay.set(false);
+        self.gathering.set(false);
+        // Preserve probe-time Bob flag so a pre-deint cache can still re-arm.
+        self.saw_deint.set(saw_deint);
+    }
+
+    pub fn saw_deint(&self) -> bool {
+        self.saw_deint.get()
     }
 
     fn start_gen(&self) -> u64 {

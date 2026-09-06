@@ -3,7 +3,7 @@
 ---
 status: done
 priority: p1
-layers: [ui, playback]
+layers: [ui, playback, persistence]
 related: [17, 10]
 ---
 
@@ -20,7 +20,7 @@ When a video is open and the **current viewport** aspect ratio differs from the 
 ## Behavior
 
 ```gherkin
-@status:done @priority:p1 @layer:ui
+@status:done @priority:p1 @layer:playback
 Feature: Fill Screen
 
   Background:
@@ -104,6 +104,19 @@ Feature: Fill Screen
     Given a video has never had its Fill Screen button toggled
     When it plays with a viewport aspect mismatch
     Then the video shows the fitted view until the user activates fill
+
+  Scenario: Strip detection result remembered for its video
+    Given strip detection finished for a video
+    When that same unchanged video is opened again
+    Then the player reuses the stored strip result without running detection again
+    And Fill Screen button visibility matches that stored content aspect
+
+  Scenario: Changed file re-runs strip detection
+    Given a stored strip result exists for a video path
+    And the file on disk was replaced or modified since that result was stored
+    When that path is opened again
+    Then strip detection runs again
+    And the persistent store updates with the new result
 ```
 
 ## Notes
@@ -115,6 +128,7 @@ Feature: Fill Screen
 - Aspect ratio tolerance constant in `src/video_fill.rs` (`AR_TOLERANCE`).
 - Viewport aspect from the video surface widget size (`GLArea`); content aspect from strip `CropRect` when known, else mpv `dwidth` / `dheight`.
 - Button icon: `view-fill-symbolic` (`data/icons/hicolor/scalable/actions/view-fill-symbolic.svg`).
-- Button visibility is refreshed by `video_fill::request_fill_resync()` from `VideoReconfig` and `FileLoaded`, on fullscreen changes, and on video-surface resize after `bind_fill_viewport`; strip probe starts from FileLoaded / path reset.
+- Button visibility is refreshed by `video_fill::request_fill_resync()` from `VideoReconfig` and `FileLoaded`, on fullscreen changes, and on video-surface resize after `bind_fill_viewport`; strip probe starts from FileLoaded / path reset unless a fresh cached result exists.
 - Fill choice persists per video in `media.fill_screen` (`db::media_fill_screen` /
   `db::media_save_fill_screen`); written only on an explicit button toggle, restored on media open when the viewport can fill.
+- Strip probe result persists per video in `media.bar_crop` + `media.bar_crop_mtime_ns` + `media.bar_crop_size` (`db::media_bar_crop` / `db::media_save_bar_crop`): empty / `d` = clean, `WxH+X+Y` / `d:WxH+X+Y` = crop (`d` = Bob was in the vf chain); reused only when nanosecond mtime and size still match; a cached pre-Bob result still re-arms when Bob attaches later.
