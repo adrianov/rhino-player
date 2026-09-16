@@ -15,6 +15,7 @@ default-run = "rhino-player"
 gtk = { version = "0.9", package = "gtk4", features = ["v4_14"] } # window, header, dialogs
 adw = { version = "0.7", package = "libadwaita", features = ["v1_5"] }
 glib = { version = "0.20", features = ["v2_80"] }                 # main loop, clones, timers
+gio = { version = "0.20" }
 libmpv2 = { version = "5.0.3" }                                    # libmpv
 libmpv2-sys = "4.0.1"                                              # mpv_node chapter-list (pairs with libmpv2)
 libc = "0.2"                                                       # setlocale for libmpv

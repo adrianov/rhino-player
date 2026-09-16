@@ -1487,6 +1487,7 @@ dependencies = [
  "block2",
  "futures",
  "gdk4-macos",
+ "gio",
  "glib",
  "gtk4",
  "lexical-sort",

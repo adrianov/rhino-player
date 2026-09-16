@@ -1,7 +1,4 @@
-use std::path::{Path, PathBuf};
-
 use glib::GStr;
-use gtk::gio;
 
 /// Parses a `Path=`/`file:` fragment from `.trashinfo`.
 fn local_path_from_trashinfo_value(v: &str) -> Option<PathBuf> {

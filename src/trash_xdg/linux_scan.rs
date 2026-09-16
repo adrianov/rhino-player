@@ -1,5 +1,3 @@
-use std::path::{Path, PathBuf};
-
 /// Resolves the trashed **file** path after [gio::File::trash] so Undo can call
 /// [super::untrash_to_target].
 pub(super) fn find_trash_files_stored_path(

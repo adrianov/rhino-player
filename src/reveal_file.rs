@@ -34,15 +34,13 @@ fn platform_reveal(path: &Path) -> Result<(), String> {
 #[cfg(target_os = "linux")]
 fn platform_reveal(path: &Path) -> Result<(), String> {
     let uri = glib::filename_to_uri(path, None).map_err(|e| e.to_string())?;
-    show_items_uri_async(uri);
+    show_items_uri_async(uri.to_string());
     Ok(())
 }
 
 /// Session-bus `ShowItems` without blocking the main thread (feature 38).
 #[cfg(target_os = "linux")]
 fn show_items_uri_async(uri: String) {
-    use glib::prelude::ToVariant;
-
     gio::bus_get(
         gio::BusType::Session,
         gio::Cancellable::NONE,
@@ -55,13 +53,12 @@ fn show_items_uri_async(uri: String) {
 
 #[cfg(target_os = "linux")]
 fn call_show_items(conn: gio::DBusConnection, uri: String) {
-    use gio::prelude::*;
     use glib::prelude::ToVariant;
 
     conn.call(
         Some("org.freedesktop.FileManager1"),
         "/org/freedesktop/FileManager1",
-        Some("org.freedesktop.FileManager1"),
+        "org.freedesktop.FileManager1",
         "ShowItems",
         Some(&glib::Variant::tuple_from_iter([
             [uri.as_str()].to_variant(),

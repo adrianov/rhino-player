@@ -10,7 +10,8 @@ const DROP_READ_MIME_PREF: &[&str] = &[
 /// Every MIME advertised by `GdkDrop`: known-good types first (see `DROP_READ_MIME_PREF`), rest in
 /// offer order (`read_async` tries in sequence).
 fn mime_types_ordered_for_drop_read(dk: &gtk::gdk::Drop) -> Vec<String> {
-    let raws: Vec<&str> = dk.formats().mime_types().iter().map(|m| m.as_str()).collect();
+    let formats = dk.formats().mime_types();
+    let raws: Vec<&str> = formats.iter().map(|m| m.as_str()).collect();
 
     let mut ordered = preferred_drop_mimes(&raws);
     ordered.extend(text_drop_mimes(&raws));
