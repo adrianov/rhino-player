@@ -23,6 +23,7 @@ pub fn new_scroll() -> ScrollArea {
     // Must return the same undo/notice widgets that `recent_stack` mounts — a second
     // `new_undo_bar`/`new_notice_toast` here would wire actions to orphaned pills.
     let (v, spacers, undo_bar, notice_toast) = recent_stack(&card_scr, search.widget());
+    wire_strip_scroll_everywhere(&v, &card_scr);
 
     ScrollArea {
         recent_scrl: v,
@@ -32,6 +33,74 @@ pub fn new_scroll() -> ScrollArea {
         notice_toast,
         search,
     }
+}
+
+/// Two-finger / wheel scroll anywhere on the continue screen pans the card strip through a
+/// single pan path: a capture-phase controller on the whole band takes every scroll event
+/// before the strip's own `ScrolledWindow` and drives the strip's h-adjustment directly, so
+/// travel over the cards equals travel over the surrounding band by construction — two
+/// handlers with two scalings (the scroller's native step increment vs the pan stride) would
+/// disagree. The native scroller only receives what the pan refuses (hidden strip, edge rest,
+/// collapsed range — states in which it cannot move either), so no scroll is ever applied
+/// twice. Cards keep their own click and hover interactions; the scrollbar drag is a gesture,
+/// not a scroll event, and stays native.
+fn wire_strip_scroll_everywhere(v: &gtk::Box, card_scr: &gtk::ScrolledWindow) {
+    use gtk::prelude::WidgetExt;
+
+    let card = card_scr.clone();
+    // No DISCRETE flag: it quantizes accumulated smooth (touchpad) deltas to integers, which
+    // both makes touchpans chunky and defeats any delta-shape classification. Wheel events
+    // still arrive; the scroll unit below separates them exactly.
+    let sc = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
+    sc.set_propagation_phase(gtk::PropagationPhase::Capture);
+    sc.connect_scroll(move |sc2, dx, dy| {
+        if !card.is_visible()
+            || !pan_strip(card.hadjustment(), strip_scroll_delta(sc2.unit(), dx, dy))
+        {
+            return glib::Propagation::Proceed;
+        }
+        glib::Propagation::Stop
+    });
+    v.add_controller(sc);
+}
+
+/// Fixed pan per wheel notch.
+const STRIP_WHEEL_STEP: f64 = 48.0;
+
+/// Scroll distance for a strip pan: wheel notches step a fixed amount, surface-unit events
+/// (touchpad pans) track finger travel in pixels 1:1. Classification uses the event's scroll
+/// unit — never delta fractionality: smooth deltas can arrive integral (and GTK's DISCRETE
+/// flag would even quantize them to integers).
+fn strip_scroll_delta(unit: gtk::gdk::ScrollUnit, dx: f64, dy: f64) -> f64 {
+    let d = dx + dy;
+    if unit == gtk::gdk::ScrollUnit::Wheel {
+        d * STRIP_WHEEL_STEP
+    } else {
+        d
+    }
+}
+
+
+/// Pans the card strip by `d` pixels; false when the strip cannot move (hidden, d is zero,
+/// already at the edge, or the adjustment range is collapsed — e.g. content fits, or a layout
+/// pass leaves `page_size` at the range size — where `upper - page_size` would undercut
+/// `lower` and `f64::clamp` would panic) so the event keeps bubbling instead of being consumed.
+fn pan_strip(adj: gtk::Adjustment, d: f64) -> bool {
+    use gtk::prelude::AdjustmentExt;
+
+    if d == 0.0 {
+        return false;
+    }
+    let max = adj.upper() - adj.page_size();
+    if max <= adj.lower() {
+        return false;
+    }
+    let val = (adj.value() + d).clamp(adj.lower(), max);
+    if (val - adj.value()).abs() < f64::EPSILON {
+        return false;
+    }
+    adj.set_value(val);
+    true
 }
 
 /// Horizontal row that hosts the continue cards.
