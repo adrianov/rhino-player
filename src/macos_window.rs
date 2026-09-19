@@ -63,6 +63,9 @@ pub fn invalidate_window_layers<W: IsA<gtk::Widget>>(widget: &W) {
 include!("macos_window_gdk_layout.rs");
 
 #[cfg(target_os = "macos")]
+include!("macos_window_gdk_layout_retile.rs");
+
+#[cfg(target_os = "macos")]
 include!("macos_traffic_vertical.rs");
 
 #[cfg(target_os = "macos")]

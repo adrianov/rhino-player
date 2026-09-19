@@ -92,11 +92,14 @@ fn on_app_active_changed(app_weak: &glib::WeakRef<adw::Application>, became_acti
         });
     }
     if became_active {
-        // Drop the AppKit Space-switch snapshot the moment we are re-activated — it is
-        // the stale, stretched chrome sublayer behind the mid-screen header band (see
-        // `invalidate_window_layers`). The delayed repaint below re-heals if the replay
-        // lands after this call.
+        // Drop the AppKit Space-switch snapshot AND rebuild gdk-macos's GdkMacosTile
+        // sublayers the moment we are re-activated: `invalidate_window_layers` alone
+        // redraws the surface but does not re-tile, so a tile whose frame/contentsRect
+        // went stale keeps displaying the titlebar strip stretched mid-screen (the
+        // header band). The micro-resize re-tile in `retile_gdk_compositing_fullscreen`
+        // replaces those tiles; the delayed repaint below re-heals late replays.
         crate::macos_window::invalidate_window_layers(&win);
+        crate::macos_window::retile_gdk_compositing_fullscreen(&win);
         if legacy {
             // Always-on: pairs the heal with the activation that drove it.
             eprintln!("[rhino] legacy-fs: activate — layers invalidated");
@@ -132,6 +135,7 @@ fn schedule_activate_repaint(win: &adw::ApplicationWindow) {
             }
             w2.queue_draw();
             crate::macos_window::invalidate_window_layers(&w2);
+            crate::macos_window::retile_gdk_compositing_fullscreen(&w2);
             // Always-on: pairs the heal with the activation that drove it.
             eprintln!("[rhino] legacy-fs: activate repaint queued");
             crate::macos_fs_debug::dump_window_layers(&w2, "activate_settled");
