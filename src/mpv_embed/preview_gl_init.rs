@@ -45,8 +45,11 @@ fn init_preview_decode_options(init: libmpv2::MpvInitializer) -> Result<(), libm
     let _ = init.set_option("vd-lavc-threads", 1i64);
     let _ = init.set_option("vd-lavc-fast", true);
     let _ = init.set_option("vd-lavc-skiploopfilter", "all");
+    // No `vd-lavc-skipframe` here: `nonkey` makes some mkv streams (e.g. remuxes whose
+    // video track does not open on a keyframe-flagged packet) discard every frame and
+    // never configure the vo, leaving the preview permanently black. Keyframe-mode
+    // seeks (`absolute+keyframes`) already decode a single frame per hover.
     let _ = init.set_option("vd-lavc-skipidct", "nonkey");
-    let _ = init.set_option("vd-lavc-skipframe", "nonkey");
     let _ = init.set_option("vd-lavc-software-fallback", 1i64);
     let _ = init.set_option("sws-scaler", "fast-bilinear");
     let _ = init.set_option("demuxer-readahead-secs", 0.0f64);
