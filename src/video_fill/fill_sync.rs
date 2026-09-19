@@ -1,6 +1,8 @@
 //! [`FillSync`] state machine: button visibility, panscan, and baked-in bar crop.
 
-use super::{current_local_media_path, stored_fill_preference, viewport_ar, FillSync, AR_TOLERANCE};
+use super::{
+    current_local_media_path, stored_fill_preference, viewport_ar, FillSync, AR_TOLERANCE,
+};
 use crate::black_bars::{
     apply_video_crop, clear_video_crop, pump_bar_probe, schedule_bar_probe, BarState, CropRect,
 };

@@ -67,7 +67,10 @@ pub(super) fn title_cells_from_ifo(
 
 /// PGC cell span of the feature title picked for `hint_vob_id`.
 fn main_pgc_cells(tables: &VtsTables, hint_vob_id: u32) -> Option<(&Pgc, usize, usize)> {
-    let title = tables.ptt.titles.get(pick_vts_ttn(&tables.ptt, &tables.pgcit, hint_vob_id) - 1)?;
+    let title = tables
+        .ptt
+        .titles
+        .get(pick_vts_ttn(&tables.ptt, &tables.pgcit, hint_vob_id) - 1)?;
     let (pgcn, pgn) = title.ptt.first().copied()?;
     let (pgc, _, start_cell, end_cell) = title_pgc_cells(&tables.pgcit, pgcn, pgn)?;
     Some((pgc, start_cell, end_cell))

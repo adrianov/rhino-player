@@ -135,15 +135,7 @@ mod tests {
     ) -> Vec<PathBuf> {
         let mut lucky = lucky;
         let mut next = next;
-        fill_lucky_gap(
-            &mut lucky,
-            &mut next,
-            &p(gone),
-            entries,
-            seen,
-            tpos,
-            durs,
-        );
+        fill_lucky_gap(&mut lucky, &mut next, &p(gone), entries, seen, tpos, durs);
         lucky
     }
 

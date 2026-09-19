@@ -46,10 +46,9 @@ include!("dvd_ifo_parse/main_title.rs");
 #[must_use]
 pub fn movie_entry_global_sec(disc: &Path) -> Option<f64> {
     let (vts_dir, vts_id, feature_ttn) = feature_title_context(disc)?;
-    if let Some(skip) = skip_before_feature_ttn(
-        &vts_dir.join(format!("VTS_{vts_id:02}_0.IFO")),
-        feature_ttn,
-    ) {
+    if let Some(skip) =
+        skip_before_feature_ttn(&vts_dir.join(format!("VTS_{vts_id:02}_0.IFO")), feature_ttn)
+    {
         return Some(skip);
     }
     let first_vob = crate::dvd_entity::first_chapter_vob(&vts_dir, vts_id)?;

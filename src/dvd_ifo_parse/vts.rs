@@ -1,8 +1,6 @@
 use std::path::Path;
 
-use super::pgc::{
-    fill_ptt_marks, pgc_has_vob, title_pgc_cells, title_playback_sec, Pgc, Pgcit,
-};
+use super::pgc::{fill_ptt_marks, pgc_has_vob, title_pgc_cells, title_playback_sec, Pgc, Pgcit};
 use super::vts_ptt::{load_vts_tables, PttTitle, VtsPtt, VtsTables};
 
 /// PTT chapter boundaries from `VTS_xx_0.IFO` (IFO clock seconds; display only).
@@ -51,7 +49,10 @@ fn feature_pgc_cells(
     tables: &VtsTables,
     hint_vob_id: u32,
 ) -> Option<(&Pgc, u16, usize, usize, &PttTitle)> {
-    let title = tables.ptt.titles.get(pick_vts_ttn(&tables.ptt, &tables.pgcit, hint_vob_id) - 1)?;
+    let title = tables
+        .ptt
+        .titles
+        .get(pick_vts_ttn(&tables.ptt, &tables.pgcit, hint_vob_id) - 1)?;
     let (pgcn, pgn) = title.ptt.first().copied()?;
     let (pgc, pgc_id, start_cell, end_cell) = title_pgc_cells(&tables.pgcit, pgcn, pgn)?;
     Some((pgc, pgc_id, start_cell, end_cell, title))

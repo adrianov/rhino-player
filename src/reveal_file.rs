@@ -24,8 +24,7 @@ fn platform_reveal(path: &Path) -> Result<(), String> {
     use objc2_app_kit::NSWorkspace;
     use objc2_foundation::{NSArray, NSURL};
 
-    let url =
-        NSURL::from_file_path(path).ok_or_else(|| "path not representable".to_string())?;
+    let url = NSURL::from_file_path(path).ok_or_else(|| "path not representable".to_string())?;
     NSWorkspace::sharedWorkspace()
         .activateFileViewerSelectingURLs(&NSArray::from_slice(&[url.as_ref()]));
     Ok(())

@@ -162,7 +162,11 @@ pub(super) fn same_shown(a: &Path, b: &Path) -> bool {
 pub(super) fn keep_openable(paths: &[PathBuf], index: &[NeighbourEntry]) -> Vec<PathBuf> {
     paths
         .iter()
-        .filter(|p| index.iter().any(|e| same_shown(&e.path, p) && e.is_openable()))
+        .filter(|p| {
+            index
+                .iter()
+                .any(|e| same_shown(&e.path, p) && e.is_openable())
+        })
         .cloned()
         .collect()
 }

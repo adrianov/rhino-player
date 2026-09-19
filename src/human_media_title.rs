@@ -152,7 +152,13 @@ fn compose_tail(mut base: String, tail: Tail) -> String {
 }
 
 fn naive_fallback(trimmed: &str) -> String {
-    collapse_ws(&patterns().strip_ext.replace(trimmed, "").trim().replace(['.', '_'], " "))
+    collapse_ws(
+        &patterns()
+            .strip_ext
+            .replace(trimmed, "")
+            .trim()
+            .replace(['.', '_'], " "),
+    )
 }
 
 fn strip_extension_owned(name: String) -> String {
