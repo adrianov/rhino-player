@@ -13,7 +13,7 @@ fn fs_clock_timer_step(
     tick_slot: &Rc<RefCell<Option<glib::SourceId>>>,
     lbl: &gtk::Label,
 ) -> glib::ControlFlow {
-    if !wo.is_fullscreen() {
+    if !window_fullscreened(wo) {
         stop_fs_clock_tick(tick_slot);
         glib::ControlFlow::Break
     } else {

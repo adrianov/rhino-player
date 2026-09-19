@@ -79,7 +79,12 @@ fn max_mode_route(
 ) {
     if !w.is_maximized() && !w.is_fullscreen() {
         max_mode_remember_normal(lu, skip, w);
-    } else if w.is_maximized() && !w.is_fullscreen() && !skip.get() {
+    } else if w.is_maximized()
+        && !w.is_fullscreen()
+        && !skip.get()
+        && !crate::db::load_legacy_full_screen()
+        && !crate::macos_legacy_fs::active()
+    {
         max_mode_enter_fs_from_max(w, fr, lu, skip);
     }
 }

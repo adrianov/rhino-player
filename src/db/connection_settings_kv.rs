@@ -91,6 +91,17 @@ pub fn save_black_out_screens(on: bool) {
     put_setting(K_BLACK_OUT_SCREENS, if on { "1" } else { "0" });
 }
 
+const K_LEGACY_FULL_SCREEN: &str = "legacy_full_screen";
+
+/// [docs/features/39-legacy-fullscreen.md] — IINA-style frame fullscreen, no native Space; default **on**.
+pub fn load_legacy_full_screen() -> bool {
+    with_conn(|c| Ok(stored_bool(raw_setting(c, K_LEGACY_FULL_SCREEN)?, true))).unwrap_or(true)
+}
+
+pub fn save_legacy_full_screen(on: bool) {
+    put_setting(K_LEGACY_FULL_SCREEN, if on { "1" } else { "0" });
+}
+
 pub fn load_audio_track_name() -> Option<String> {
     super::get_setting_str(K_AUDIO_TRACK_NAME)
         .map(|s| s.trim().to_string())

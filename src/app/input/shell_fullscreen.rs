@@ -72,7 +72,10 @@ fn schedule_sub_pos_after_fs(deps: &FsNotifyDeps) {
     });
 }
 
-/// Common notify sequence after the platform-specific generation bump and leave scheduling hook.
+/// Common notify sequence after the platform-specific generation bump and leave scheduling
+/// hook. The leave schedule owns the whole windowed hand-off — including the sub-position
+/// reschedule — so a combined-state leave skip (a live legacy session keeps the shell
+/// fullscreened) skips both.
 fn fs_notify_sequence<F: FnOnce()>(
     deps: &FsNotifyDeps,
     w: &adw::ApplicationWindow,
@@ -83,9 +86,6 @@ fn fs_notify_sequence<F: FnOnce()>(
         fs_notify_enter(deps, w);
     } else {
         leave_schedule();
-    }
-    if !w.is_fullscreen() {
-        schedule_sub_pos_after_fs(deps);
     }
     fs_transition_note_notify_idle_clear(&deps.slots.fs_busy, &deps.slots.fs_settle);
 }
@@ -101,12 +101,29 @@ fn fs_notify_on_event(deps: &FsNotifyDeps, w: &adw::ApplicationWindow, gen: &Rc<
         return;
     }
     gen.set(gen.get().wrapping_add(1));
-    fs_notify_sequence(deps, w, || fs_notify_leave(deps, w, gen));
+    fs_notify_sequence(deps, w, || {
+        // Combined native-or-legacy fullscreen drives the chrome: a native leave over a live
+        // legacy session must not run the ordinary windowed leave (clock hide, bars restore,
+        // sub-position) — the legacy cover keeps the shell fullscreened. The native exit's own
+        // latches still complete (see `schedule_fs_leave_restore`): an uncleared `exit_armed`
+        // blocks later legacy entries and traffic-light updates, and an unset skip flag wedges
+        // the maximized→fullscreen chain. `note_native_exit_started` reconverges the cover
+        // frame and presentation separately.
+        if crate::macos_legacy_fs::active() {
+            schedule_fs_leave_restore(deps, w, gen, true);
+            return;
+        }
+        fs_notify_leave(deps, w, gen);
+        schedule_sub_pos_after_fs(deps);
+    });
 }
 
 #[cfg(not(target_os = "macos"))]
 fn fs_notify_on_event(deps: &FsNotifyDeps, w: &adw::ApplicationWindow) {
-    fs_notify_sequence(deps, w, || fs_notify_leave(deps, w));
+    fs_notify_sequence(deps, w, || {
+        fs_notify_leave(deps, w);
+        schedule_sub_pos_after_fs(deps);
+    });
 }
 
 fn w_in_fullscreen(ctx: &WindowInputCtx) {
@@ -117,13 +134,31 @@ fn w_in_fullscreen(ctx: &WindowInputCtx) {
 
     wire_focus_return_repaint(ctx, Rc::clone(&touch_chrome_gl));
 
-    let deps = FsNotifyDeps::new(ctx, touch_chrome_gl);
+    let deps = Rc::new(FsNotifyDeps::new(ctx, touch_chrome_gl));
+    #[cfg(target_os = "macos")]
+    register_legacy_fs_notify_hook(&deps);
     ctx.shell.win.clone().connect_fullscreened_notify(move |w| {
         #[cfg(target_os = "macos")]
         fs_notify_on_event(&deps, w, &fs_leave_gen);
         #[cfg(not(target_os = "macos"))]
         fs_notify_on_event(&deps, w);
     });
+}
+
+/// Register the macOS legacy-fullscreen notify bridge over the shared notify deps.
+#[cfg(target_os = "macos")]
+fn register_legacy_fs_notify_hook(deps: &Rc<FsNotifyDeps>) {
+    let hd = Rc::clone(deps);
+    crate::macos_legacy_fs::set_notify_hook(Rc::new(
+        move |w: &adw::ApplicationWindow, entering: bool| {
+            if entering {
+                fs_notify_reset(&hd);
+                fs_notify_enter_chrome(&hd, w);
+            } else {
+                legacy_fs_leave(&hd, w);
+            }
+        },
+    ));
 }
 
 // --- Focus-return chrome (same touch_chrome factory as fullscreen) ---

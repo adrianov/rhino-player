@@ -76,7 +76,7 @@ fn dbl_press_enter_or_exit_fullscreen(
     if n_press != 2 {
         return;
     }
-    if rec.is_visible() && !win.is_fullscreen() {
+    if rec.is_visible() && !window_fullscreened(win) {
         restore_or_maximize(win, lu);
         return;
     }

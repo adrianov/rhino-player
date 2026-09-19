@@ -131,6 +131,9 @@ pub fn set_traffic_lights_visible<W: IsA<gtk::Widget>>(widget: &W, visible: bool
     };
     set_buttons_hidden(&win, !visible);
     if visible {
+        // A stale exit-cycle NSToolbar indents the lights ~20px right; every chrome reveal
+        // must present them at the standard slot.
+        crate::macos_window::clear_stale_titlebar_toolbar(&win);
         sync_traffic_lights_vertical(widget);
     }
 }

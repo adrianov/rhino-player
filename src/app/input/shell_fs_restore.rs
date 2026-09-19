@@ -55,9 +55,13 @@ struct LeaveFsRestoreCtx {
     win: adw::ApplicationWindow,
     skip: Rc<Cell<bool>>,
     tch: Rc<dyn Fn(&adw::ApplicationWindow)>,
+    polls: u8,
+    /// Native leave over a live legacy session: complete only the native-exit latches; the
+    /// windowed hand-off (pause, geometry, chrome) belongs to the legacy session still covering
+    /// the screen.
+    legacy_keeps: bool,
     play: PlayToggleCtx,
     pause: Rc<RefCell<Option<bool>>>,
-    polls: u8,
 }
 
 #[cfg(target_os = "macos")]
@@ -88,8 +92,20 @@ fn macos_leave_fs_restore_tick(ctx: Rc<LeaveFsRestoreCtx>) {
 #[cfg(target_os = "macos")]
 fn macos_leave_fs_restore_now(ctx: Rc<LeaveFsRestoreCtx>) {
     crate::macos_fs_exit::clear_exit();
+    crate::macos_window::schedule_titlebar_toolbar_clear(&ctx.win);
+    if ctx.legacy_keeps {
+        ctx.skip.set(false);
+        return;
+    }
     fs_on_exit_pause(&ctx.play, ctx.pause.as_ref());
     restore_windowed_size(&ctx.fr, &ctx.lu, &ctx.win);
+    schedule_leave_fs_chrome_reapply(ctx);
+}
+
+/// Re-apply chrome on idle + one settle retry so traffic lights un-flatten after AppKit
+/// rebuilds the titlebar.
+#[cfg(target_os = "macos")]
+fn schedule_leave_fs_chrome_reapply(ctx: Rc<LeaveFsRestoreCtx>) {
     let w2 = ctx.win.clone();
     let skip2 = Rc::clone(&ctx.skip);
     let tch2 = Rc::clone(&ctx.tch);

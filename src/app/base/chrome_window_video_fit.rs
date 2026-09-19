@@ -118,7 +118,7 @@ fn apply_window_fit_h_video(
     win: &adw::ApplicationWindow,
     _gl: &gtk::GLArea,
 ) {
-    if win.is_fullscreen() || win.is_maximized() {
+    if window_fullscreened(win) || win.is_maximized() {
         return;
     }
     let b = match player.try_borrow() {

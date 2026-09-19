@@ -12,6 +12,7 @@ fn arm_skip_and_unfullscreen(win: &adw::ApplicationWindow, skip_max: Option<&Cel
         skip.set(true);
     }
     macos_schedule_unfullscreen(win.clone());
+    crate::macos_legacy_fs::note_native_exit_started(win);
 }
 
 /// Maximize, remembering the windowed size (preferring the restore slot's dims).
@@ -59,6 +60,14 @@ fn macos_apply_toggle(
     }
     if crate::macos_window::ns_fullscreen_for_win(win) {
         arm_skip_and_unfullscreen(win, skip_max);
+        return;
+    }
+    if crate::macos_legacy_fs::active() {
+        crate::macos_legacy_fs::exit(win);
+        return;
+    }
+    if crate::db::load_legacy_full_screen() {
+        crate::macos_legacy_fs::enter(win);
         return;
     }
     if !win.is_maximized() {

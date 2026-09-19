@@ -51,12 +51,18 @@ fn sync_header_window_controls_macos(hdr: &adw::HeaderBar, show_chrome: bool) {
         return;
     }
 
-    let fullscreen = hdr
+    let win = hdr
         .root()
-        .and_then(|w| w.downcast::<adw::ApplicationWindow>().ok())
-        .is_some_and(|win| win.is_fullscreen());
+        .and_then(|w| w.downcast::<adw::ApplicationWindow>().ok());
+    // Native fullscreen leaves stoplight visibility to AppKit (the always-visible request is a
+    // no-op there); legacy stoplights are ordinary window controls and hide with the chrome.
+    let visible = match win.as_ref() {
+        Some(_) if crate::macos_legacy_fs::active() => show_chrome,
+        Some(w) => w.is_fullscreen() || show_chrome,
+        None => show_chrome,
+    };
 
-    crate::macos_window::set_traffic_lights_visible(hdr, fullscreen || show_chrome);
+    crate::macos_window::set_traffic_lights_visible(hdr, visible);
 }
 
 #[cfg(not(target_os = "macos"))]

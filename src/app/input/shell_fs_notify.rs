@@ -117,6 +117,13 @@ fn fs_notify_maybe_maximize(deps: &FsNotifyDeps, w: &adw::ApplicationWindow) {
 /// schedule the cursor hide.
 fn fs_notify_enter(deps: &FsNotifyDeps, w: &adw::ApplicationWindow) {
     fs_notify_maybe_maximize(deps, w);
+    fs_notify_enter_chrome(deps, w);
+}
+
+/// Enter steps after the maximize chain: hide bars, stash pause state, start the wall clock,
+/// repaint chrome and schedule the cursor hide. Shared with the macOS legacy-fullscreen notify
+/// hook ([`crate::macos_legacy_fs`]), which runs it without the maximize chaining.
+fn fs_notify_enter_chrome(deps: &FsNotifyDeps, w: &adw::ApplicationWindow) {
     deps.bars_shown.set(false);
     fs_on_enter_pause(&deps.play, deps.slots.pause_stash.as_ref());
     #[cfg(target_os = "macos")]
@@ -129,9 +136,14 @@ fn fs_notify_enter(deps: &FsNotifyDeps, w: &adw::ApplicationWindow) {
         "fullscreen_enter",
     );
     show_fs_wall_clock_fullscreen(&deps.widgets.fs_clock, &deps.widgets.fs_tick_slot, w);
-    (deps.tch)(w);
+    collapse_chrome_without_animation(w, || (deps.tch)(w));
+    // The cover jump resizes the surface under a stationary pointer; gdk synthesizes motion
+    // for it, and an unsquelched sample re-reveals the bars over the video — the scaled bar
+    // artifact this enter sequence exists to avoid. Same window `hide_bars_now` uses.
+    deps.slots.sq.set(Some(Instant::now() + LAYOUT_SQUELCH));
     hide_cursor_after_bars_hide(w, &deps.widgets.gl, &deps.widgets.recent, &deps.player);
 }
+
 
 /// Shared leave prep: re-latch the skip flag, restore bars + clock + pointer immediately;
 /// geometry/chrome restore is deferred below.
@@ -155,6 +167,21 @@ fn fs_leave_prep(deps: &FsNotifyDeps, w: &adw::ApplicationWindow) {
 #[cfg(target_os = "macos")]
 fn fs_notify_leave(deps: &FsNotifyDeps, w: &adw::ApplicationWindow, fs_leave_gen: &Rc<Cell<u32>>) {
     fs_leave_prep(deps, w);
+    schedule_fs_leave_restore(deps, w, fs_leave_gen, false);
+}
+
+/// Schedules the deferred macOS leave-restore. `legacy_keeps` marks a native leave over a live
+/// legacy session: the windowed hand-off must not run (the cover keeps the shell fullscreened —
+/// chrome and pause belong to the legacy session), but the native exit's own latches still
+/// complete: `exit_armed` would otherwise block later legacy entries and traffic-light updates,
+/// and an unset skip flag wedges the maximized→fullscreen chain.
+#[cfg(target_os = "macos")]
+fn schedule_fs_leave_restore(
+    deps: &FsNotifyDeps,
+    w: &adw::ApplicationWindow,
+    fs_leave_gen: &Rc<Cell<u32>>,
+    legacy_keeps: bool,
+) {
     macos_schedule_leave_fs_restore_chrome(
         Rc::new(LeaveFsRestoreCtx {
             gen: Rc::clone(fs_leave_gen),
@@ -167,6 +194,7 @@ fn fs_notify_leave(deps: &FsNotifyDeps, w: &adw::ApplicationWindow, fs_leave_gen
             play: deps.play.clone(),
             pause: Rc::clone(&deps.slots.pause_stash),
             polls: 0,
+            legacy_keeps,
         }),
         crate::fullscreen_timing::TRANSITION_SETTLE,
     );
@@ -185,3 +213,4 @@ fn fs_notify_leave(deps: &FsNotifyDeps, w: &adw::ApplicationWindow) {
         Rc::clone(&deps.slots.pause_stash),
     );
 }
+

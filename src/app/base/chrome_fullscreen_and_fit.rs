@@ -81,6 +81,17 @@ fn toggle_fullscreen(
     }
 }
 
+/// Fullscreen for chrome / geometry gates: GTK (native) fullscreen, or macOS legacy fullscreen
+/// (frame covers a screen without GTK `fullscreened` — [`crate::macos_legacy_fs`]).
+/// Header-menu theater reparenting stays native-only: those gates keep `is_fullscreen`.
+fn window_fullscreened(win: &adw::ApplicationWindow) -> bool {
+    #[cfg(target_os = "macos")]
+    if crate::macos_legacy_fs::active() {
+        return true;
+    }
+    win.is_fullscreen()
+}
+
 include!("chrome_header_csd_controls.rs");
 include!("chrome_pointer_after_bars.rs");
 include!("chrome_apply.rs");

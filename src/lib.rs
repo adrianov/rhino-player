@@ -39,6 +39,8 @@ mod macos_header_menu_debug;
 #[cfg(target_os = "macos")]
 mod macos_header_menu_overlay;
 #[cfg(target_os = "macos")]
+mod macos_legacy_fs;
+#[cfg(target_os = "macos")]
 mod macos_open_video;
 #[cfg(target_os = "macos")]
 mod macos_shell_compositing;

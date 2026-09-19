@@ -42,7 +42,18 @@ fn on_window_motion(d: &WinMotionDeps, x: f64, y: f64) {
     if d.recent.is_visible() {
         return;
     }
-    if motion_sample_stale(&d.squelch, &d.last_xy, x, y) {
+    if motion_squelched(&d.squelch) {
+        // Absorb the sample's position: the squelch shields a just-finished transition, and
+        // gdk resamples stationary-pointer motion continuously. Without this, the first
+        // sample after expiry passes the position dedupe (reset cleared `last_xy`) and
+        // re-reveals the bars over fullscreen video.
+        d.last_xy.set(Some((x, y)));
+        return;
+    }
+    if d.last_xy
+        .get()
+        .is_some_and(|(lx, ly)| same_xy(x, lx) && same_xy(y, ly))
+    {
         return;
     }
     d.last_xy.set(Some((x, y)));

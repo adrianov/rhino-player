@@ -25,6 +25,8 @@ fn register_video_app_actions(
         smooth_toolbar_status.clone(),
     );
     register_seek_bar_preview_action(app, &seek_bar_on);
+    #[cfg(target_os = "macos")]
+    register_legacy_full_screen_action(app);
     register_vs_custom_action(app, player, gl_area, &video_pref, &pref_menu);
     register_choose_vs_action(
         VsCustomCtx {
@@ -157,3 +159,30 @@ fn register_vs_custom_action(
 }
 
 include!("video_vs_choose_action.rs");
+
+/// macOS [legacy-fullscreen] toggle (IINA-style fullscreen, no Space). Default **on**; persisted
+/// in the `settings` KV. Affects the next fullscreen toggle — an active legacy session is not
+/// interrupted. [docs/features/39-legacy-fullscreen.md]
+#[cfg(target_os = "macos")]
+fn register_legacy_full_screen_action(app: &adw::Application) {
+    let legacy_fs = gio::SimpleAction::new_stateful(
+        "legacy-fullscreen",
+        None,
+        &db::load_legacy_full_screen().to_variant(),
+    );
+    legacy_fs.connect_change_state(move |a, s| {
+        let Some(s) = s else {
+            return;
+        };
+        let Some(on) = s.get::<bool>() else {
+            return;
+        };
+        a.set_state(s);
+        db::save_legacy_full_screen(on);
+        crate::user_action_log::act(format!(
+            "preferences legacy-fullscreen -> {}",
+            if on { "on" } else { "off" }
+        ));
+    });
+    app.add_action(&legacy_fs);
+}

@@ -100,7 +100,7 @@ fn resize_end_skip_reason(
     recent: &gtk::Box,
     win_aspect: &WinAspectCell,
 ) -> bool {
-    if win.is_fullscreen() || win.is_maximized() {
+    if window_fullscreened(win) || win.is_maximized() {
         eprintln!("[rhino] aspect: resize-end skip fullscreen/maximized");
         return true;
     }

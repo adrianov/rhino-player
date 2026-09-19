@@ -77,3 +77,39 @@ pub(crate) fn prep_native_fullscreen_exit(nswin: &NSWindow) {
     }
     crate::macos_fs_debug::log("prep native fullscreen exit (titlebar flattened)");
 }
+
+/// macOS 26's native-exit machinery re-assigns an empty `NSToolbar` after our prep dropped
+/// it (gdk-macos assigns one to indent the traffic lights and never clears it again). The
+/// stale toolbar leaves the lights ~20px right of their normal slot until the next legacy
+/// fullscreen exit re-lays them. Drop it and let AppKit re-layout to the standard slot.
+pub(crate) fn clear_stale_titlebar_toolbar(nswin: &NSWindow) {
+    use objc2::runtime::AnyObject;
+
+    if nswin.toolbar().is_none() {
+        return;
+    }
+    unsafe {
+        let none: Option<&AnyObject> = None;
+        let _: () = msg_send![nswin, setToolbar: none];
+    }
+}
+
+/// Schedule a stale-toolbar clear for when the native-exit animation has fully finished —
+/// macOS 26 assigns the toolbar during exit completion, after [`prep_native_fullscreen_exit`]
+/// already dropped it, so the immediate clear is not enough.
+pub(crate) fn schedule_titlebar_toolbar_clear(win: &adw::ApplicationWindow) {
+    let w2 = win.clone();
+    let _ = glib::timeout_add_local_once(
+        crate::fullscreen_timing::TRANSITION_SETTLE * 2,
+        move || {
+            if crate::macos_fs_exit::exit_armed()
+                || crate::macos_window::window_still_fullscreen(&w2)
+            {
+                return;
+            }
+            if let Some(nswin) = nswindow_for_widget(&w2) {
+                clear_stale_titlebar_toolbar(&nswin);
+            }
+        },
+    );
+}

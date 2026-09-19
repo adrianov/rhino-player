@@ -61,6 +61,8 @@ fn video_pref_submenu_rebuild(m: &gio::Menu, p: &db::VideoPrefs, app: &adw::Appl
         Some("app.seek-bar-preview"),
         Some("sidebar-show-symbolic"),
     );
+    #[cfg(target_os = "macos")]
+    append_legacy_full_screen_row(m);
     append_vs_custom_submenu_row(m, p);
     menu_append_action_icon(
         m,
@@ -100,3 +102,14 @@ fn sync_vs_custom_action_state(app: &adw::Application, p: &db::VideoPrefs) {
 
 include!("video_smooth_60_toggle.rs");
 include!("video_app_actions_register.rs");
+
+/// macOS [legacy-fullscreen] Preferences row ([docs/features/39-legacy-fullscreen.md]).
+#[cfg(target_os = "macos")]
+fn append_legacy_full_screen_row(m: &gio::Menu) {
+    menu_append_action_icon(
+        m,
+        Some("Legacy Full Screen"),
+        Some("app.legacy-fullscreen"),
+        Some("view-fullscreen-symbolic"),
+    );
+}

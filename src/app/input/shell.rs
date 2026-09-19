@@ -19,6 +19,7 @@ fn w_in_set_shell(ctx: &WindowInputCtx) {
 
 include!("shell_fs_clock.rs");
 include!("shell_fs_notify.rs");
+include!("shell_fs_notify_legacy.rs");
 include!("shell_fullscreen.rs");
 
 include!("shell_fs_restore.rs");
