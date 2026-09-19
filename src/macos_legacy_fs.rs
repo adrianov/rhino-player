@@ -156,7 +156,10 @@ fn log_window_chrome(nswin: &NSWindow, at: &str) {
             buttons.push_str(&format!("{name}=nil "));
             continue;
         };
-        let bf = b.convertRect_toView(b.frame(), None);
+        // `convertRect_toView(_, None)` expects the rect in the receiver's own coordinates —
+        // `bounds()` — and converts to window base. `frame()` is superview-space and would
+        // double-translate the origin.
+        let bf = b.convertRect_toView(b.bounds(), None);
         buttons.push_str(&format!(
             "{name}={:.0},{:.0} {:.0}x{:.0} ",
             bf.origin.x, bf.origin.y, bf.size.width, bf.size.height
