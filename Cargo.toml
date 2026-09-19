@@ -90,6 +90,11 @@ objc2-core-graphics = { version = "0.3.2", default-features = false, features = 
 gdk4-macos = { version = "0.9", features = ["v4_8"] }
 
 # Clippy: see clippy.toml. Module/complexity gate is abcop (not file line count) — `.cursor/rules/complexity-and-module-design.mdc`.
+[lints.rust]
+# Treat every rustc warning as an error (unused imports, dead code, …). Dependencies are
+# unaffected — unlike `RUSTFLAGS=-Dwarnings`, `[lints]` never rebuilds the registry.
+warnings = "deny"
+
 [lints.clippy]
 cognitive_complexity = "deny"
 excessive_nesting = "deny"

@@ -1,7 +1,7 @@
 # Project-local Cargo config. See README “Developer Checks”.
 
 [alias]
-qcheck = "clippy --all-targets --all-features"
+qcheck = "clippy --all-targets --all-features -- -D warnings"
 
 [build]
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]
