@@ -127,10 +127,7 @@ pub(crate) fn title_playback_entity(path: &Path) -> Option<(PathBuf, Vec<PathBuf
     };
     let chapters = timeline_chapter_paths(&chapter_probe)?;
     let disc = crate::video_ext::dvd_disc_root(&chapter_probe)?;
-    Some((
-        std::fs::canonicalize(&disc).ok().unwrap_or(disc),
-        chapters,
-    ))
+    Some((std::fs::canonicalize(&disc).ok().unwrap_or(disc), chapters))
 }
 
 /// First chapter `.vob` in the title set (legacy SQLite key before disc-root entity).
@@ -182,6 +179,7 @@ include!("dvd_entity_sanitize.rs");
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::PathBuf;
 
     /// Fresh temp disc: `base/VIDEO_TS/VIDEO_TS.IFO`.
     fn fresh_disc_dir(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
@@ -275,10 +273,14 @@ mod tests {
         assert_ne!(exact, entity_k);
         let _ = fs::remove_dir_all(&base);
     }
+    /// Sample disc root comes from untracked local configuration: set `RHINO_DVD_FRITT_DIR`
+    /// to a Fritt Vilt (2006) DVD9 rip root to run this locally. Skips silently otherwise.
     #[test]
     fn fritt_first_chapter_opens_vts01_splash() {
-        let vts = std::path::Path::new("/Volumes/SanDisk/Torrents/Fritt.vilt.2006.DVD9")
-            .join("VIDEO_TS");
+        let Some(disc) = std::env::var_os("RHINO_DVD_FRITT_DIR").map(PathBuf::from) else {
+            return;
+        };
+        let vts = disc.join("VIDEO_TS");
         if !vts.is_dir() {
             return;
         }
