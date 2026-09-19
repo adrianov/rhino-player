@@ -56,6 +56,8 @@ A short **product / tree snapshot** is in the root [README](../README.md). The t
 | 36 | [Homebrew / macOS packaged app launch](features/36-homebrew-macos-app-launch.md) | done |
 | 37 | [Rename file from continue card](features/37-rename-continue-file.md) | done |
 | 38 | [Reveal file from continue card](features/38-reveal-in-file-manager.md) | done |
+| 39 | [Legacy full screen (frame covers the screen, no Space)](features/39-legacy-fullscreen.md) | done |
+| 40 | [Continue strip scroll pan](features/40-continue-strip-scroll-pan.md) | done |
 
 Feature numbers **05**, **16**, and **19** are unused (withdrawn playlist / session-playlist topics; files removed).
 
