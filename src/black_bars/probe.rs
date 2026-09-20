@@ -181,7 +181,9 @@ fn remove_cropdetect(mpv: &Mpv) {
 pub fn apply_video_crop(mpv: &Mpv, rect: Option<CropRect>) {
     if let Err(e) = mpv.set_property(
         "video-crop",
-        rect.map(CropRect::as_video_crop).unwrap_or_default().as_str(),
+        rect.map(|r| crop_rect_in_vo_space(mpv, r).as_video_crop())
+            .unwrap_or_default()
+            .as_str(),
     ) {
         eprintln!("[rhino] bars: video-crop set failed: {e}");
     }
@@ -207,6 +209,29 @@ mod probe_tests {
             .as_video_crop(),
             "1920x800+0+140"
         );
+    }
+
+    #[test]
+    fn crop_from_meta_rejects_a_full_vo_frame_under_downscale() {
+        // A clean file probed while Smooth60 downscales: cropdetect reports the
+        // full chain-output image — no meaningful strips, no fake crop.
+        let meta = CropMeta { w: 1552, h: 872, x: 0, y: 0 };
+        assert_eq!(crop_from_meta(meta, (1552, 872)), None);
+    }
+
+    #[test]
+    fn crop_from_meta_keeps_real_strips_measured_in_vo_space() {
+        let meta = CropMeta { w: 1552, h: 719, x: 0, y: 45 };
+        assert_eq!(
+            crop_from_meta(meta, (1552, 872)),
+            Some(CropRect { w: 1552, h: 719, x: 0, y: 45 })
+        );
+    }
+
+    #[test]
+    fn crop_from_meta_rejects_metadata_outside_the_measured_frame() {
+        let meta = CropMeta { w: 1553, h: 800, x: 0, y: 40 };
+        assert_eq!(crop_from_meta(meta, (1552, 872)), None);
     }
 }
 
@@ -320,14 +345,14 @@ unsafe fn map_keys_values(
     ))
 }
 
-fn crop_from_meta(mpv: &Mpv, meta: CropMeta) -> Option<CropRect> {
-    let width = mpv.get_property::<i64>("width").ok()?;
-    let height = mpv.get_property::<i64>("height").ok()?;
-    let ok = width > 0
-        && height > 0
-        && crop_meta_in_frame(width, height, meta)
-        && crop_meaningful(width, height, meta.w, meta.h)
-        && !(meta.x == 0 && meta.y == 0 && meta.w == width && meta.h == height);
+/// Verdict for cropdetect `meta` measured on a `(fw, fh)` chain-output image:
+/// a meaningful strip crop, or `None` for a full frame (probed clean) /
+/// out-of-frame garbage (caller retries).
+fn crop_from_meta(meta: CropMeta, frame: (i64, i64)) -> Option<CropRect> {
+    let (fw, fh) = frame;
+    let ok = crop_meta_in_frame(fw, fh, meta)
+        && crop_meaningful(fw, fh, meta.w, meta.h)
+        && !(meta.x == 0 && meta.y == 0 && meta.w == fw && meta.h == fh);
     ok.then_some(CropRect {
         w: meta.w,
         h: meta.h,

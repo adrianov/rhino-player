@@ -250,6 +250,32 @@ mod probe_gate_tests {
         );
         assert!(!p.reconfig_is_cleanup(Some("a")));
     }
+
+    #[test]
+    fn scaled_crop_follows_the_chain_output_image() {
+        // Decode 1920x1080, cached 1784x890+0+56, Smooth60 vo image 1552x872.
+        let rect = super::CropRect { w: 1784, h: 890, x: 0, y: 56 };
+        let out = super::scale_rect_between(rect, (1920, 1080), (1552, 872));
+        assert_eq!((out.w, out.h, out.x, out.y), (1442, 719, 0, 45));
+        // Mapping back keeps the strip fractions within a pixel of the source.
+        let back = super::scale_rect_between(out, (1552, 872), (1920, 1080));
+        assert!((back.w - rect.w).abs() <= 1 && (back.h - rect.h).abs() <= 1);
+        assert!((back.x - rect.x).abs() <= 1 && (back.y - rect.y).abs() <= 1);
+    }
+
+    #[test]
+    fn scaled_crop_clamps_into_the_target_image() {
+        let rect = super::CropRect { w: 1920, h: 1080, x: 10, y: 20 };
+        let out = super::scale_rect_between(rect, (1920, 1080), (1552, 872));
+        assert_eq!((out.w, out.h, out.x, out.y), (1552, 872, 0, 0));
+    }
+
+    #[test]
+    fn scaled_crop_is_identity_for_equal_spaces() {
+        let rect = super::CropRect { w: 100, h: 50, x: 2, y: 3 };
+        let out = super::scale_rect_between(rect, (200, 100), (200, 100));
+        assert_eq!((out.w, out.h, out.x, out.y), (100, 50, 2, 3));
+    }
 }
 
 fn crop_meaningful(fw: i64, fh: i64, cw: i64, ch: i64) -> bool {
@@ -268,3 +294,4 @@ include!("black_bars/frame.rs");
 include!("black_bars/probe.rs");
 include!("black_bars/probe_defer.rs");
 include!("black_bars/probe_finish.rs");
+include!("black_bars/crop_space.rs");

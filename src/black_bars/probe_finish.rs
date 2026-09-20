@@ -58,21 +58,32 @@ fn take_probe_result(
         &mpv.get_property::<String>("vf").unwrap_or_default(),
     );
     let meta = read_cropdetect_meta(mpv);
+    // The metadata is measured in the chain-output space of this moment; the
+    // sizes must be captured beside it — the teardown below can change the
+    // chain before the verdict maps the rect, and a stale mapping would cache
+    // a filtered-space crop as decoded-space coordinates.
+    let sizes = chain_sizes(mpv);
     remove_cropdetect(mpv);
     restore_hwdec(mpv, hw_backup);
     settle_after_teardown(probe, mpv);
-    match meta {
-        None => ProbeOutcome::NoData,
-        Some(m) => meta_verdict(mpv, m, saw_deint),
+    match (meta, sizes) {
+        (Some(m), Some(s)) => meta_verdict(m, s, saw_deint),
+        (Some(_), None) => {
+            eprintln!("[rhino] bars: probe dropped: frame sizes unavailable beside cropdetect metadata");
+            ProbeOutcome::NoData
+        }
+        (None, _) => ProbeOutcome::NoData,
     }
 }
 
-/// Convert cropdetect metadata into the probe verdict: a meaningful crop, a
-/// probed clean frame, or `NoData` when the metadata is unusable (garbage /
-/// frame size unreadable) — the caller retries instead of caching.
-fn meta_verdict(mpv: &Mpv, meta: CropMeta, saw_deint: bool) -> ProbeOutcome {
-    match crop_from_meta(mpv, meta) {
+/// Convert cropdetect metadata into the probe verdict using the size pair
+/// captured beside it: a meaningful crop (normalized to decoded-frame space), a
+/// probed clean frame, or `NoData` for garbage metadata — the caller retries
+/// instead of caching.
+fn meta_verdict(meta: CropMeta, sizes: ChainSizes, saw_deint: bool) -> ProbeOutcome {
+    match crop_from_meta(meta, sizes.vo) {
         Some(rect) => {
+            let rect = scale_rect_between(rect, sizes.vo, sizes.decode);
             eprintln!(
                 "[rhino] bars: detected crop={}x{}+{}+{}",
                 rect.w, rect.h, rect.x, rect.y
@@ -80,15 +91,9 @@ fn meta_verdict(mpv: &Mpv, meta: CropMeta, saw_deint: bool) -> ProbeOutcome {
             ProbeOutcome::Final(BarState::Crop(rect), saw_deint)
         }
         // Metadata read, but no meaningful crop within the frame: probed clean.
-        None if meta_in_probed_frame(mpv, meta) => ProbeOutcome::Final(BarState::Clean, saw_deint),
+        None if crop_meta_in_frame(sizes.vo.0, sizes.vo.1, meta) => {
+            ProbeOutcome::Final(BarState::Clean, saw_deint)
+        }
         None => ProbeOutcome::NoData,
     }
-}
-
-/// `true` when the frame size is readable and the metadata lies within the frame
-/// (so a `crop_from_meta` miss really was "no meaningful strips", not garbage).
-fn meta_in_probed_frame(mpv: &Mpv, meta: CropMeta) -> bool {
-    let width = mpv.get_property::<i64>("width").unwrap_or(0);
-    let height = mpv.get_property::<i64>("height").unwrap_or(0);
-    width > 0 && height > 0 && crop_meta_in_frame(width, height, meta)
 }
