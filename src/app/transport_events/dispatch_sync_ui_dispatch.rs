@@ -84,6 +84,10 @@ fn on_pause_event(ctx: &Rc<TransportCtx>, p: bool) {
     refresh_play_button(ctx);
     sync_smooth_vf_on_pause_transition(ctx, p);
     ctx.blackout.sync();
+    // Unpausing lets cropdetect see frames again — resume an inconclusive strip probe.
+    if !p {
+        crate::video_fill::request_fill_resync_after_unpause();
+    }
 }
 
 include!("dispatch_sync_ui_pause_smooth.rs");

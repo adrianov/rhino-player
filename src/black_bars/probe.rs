@@ -7,9 +7,6 @@ const CROPDETECT_LABEL: &str = "rhino-bars";
 /// Delay before insert — avoids black opens / fades; timer is required (cropdetect needs frames).
 const DETECT_DELAY: Duration = Duration::from_millis(2000);
 const DETECT_GATHER: Duration = Duration::from_millis(1000);
-/// Fallback when decode size is late after FileLoaded (VideoReconfig may already have fired).
-const READY_RETRY: Duration = Duration::from_millis(250);
-const READY_RETRY_MAX: u8 = 8;
 const DETECT_LIMIT: &str = "24/255";
 const DETECT_ROUND: i64 = 2;
 
@@ -36,12 +33,14 @@ pub fn schedule_bar_probe(player: &Player, probe: &Rc<BarProbe>, on_done: Rc<dyn
 }
 
 /// FileLoaded / VideoReconfig: if waiting on decode size, start cropdetect as soon as ready.
-pub fn pump_bar_probe(player: &Player, probe: &Rc<BarProbe>, on_done: Rc<dyn Fn()>) {
-    if !matches!(probe.state.get(), BarState::Pending) {
-        return;
-    }
+/// `forced` bypasses the own-cleanup suppression (unpause resync — the chain did not change,
+/// but playback state did, so a Pending probe must get another chance regardless).
+pub fn pump_bar_probe(player: &Player, probe: &Rc<BarProbe>, on_done: Rc<dyn Fn()>, forced: bool) {
     if !probe.past_delay.get() || probe.gathering.get() {
         return;
+    }
+    if !forced && probe.reconfig_is_cleanup(current_vf(player).as_deref()) {
+        return; // this VideoReconfig is the probe's own teardown, not an external change
     }
     if video_ready_state(player) != ReadyState::Ready {
         return;
@@ -50,25 +49,42 @@ pub fn pump_bar_probe(player: &Player, probe: &Rc<BarProbe>, on_done: Rc<dyn Fn(
     begin_cropdetect(player, probe, gen, on_done);
 }
 
+/// Current `vf` chain, if a player holds the property.
+fn current_vf(player: &Player) -> Option<String> {
+    player
+        .borrow()
+        .as_ref()
+        .and_then(|b| b.mpv.get_property::<String>("vf").ok())
+}
+
+/// True when this gen's probe is stale, in flight, or already finished:
+/// a deferred retry whose result completed via a pump-driven run must not
+/// start another gather (its own NoData outcome would overwrite the final state).
+fn probe_start_blocked(probe: &Rc<BarProbe>, gen: u64) -> bool {
+    probe.gathering.get()
+        || probe.gen.get() != gen
+        || !matches!(probe.state.get(), BarState::Pending)
+}
+
 fn begin_cropdetect(player: &Player, probe: &Rc<BarProbe>, gen: u64, on_done: Rc<dyn Fn()>) {
-    if probe.gathering.get() || probe.gen.get() != gen {
+    if probe_start_blocked(probe, gen) {
         return;
     }
     match video_ready_state(player) {
-        ReadyState::NoPlayer => {
-            probe.state.set(BarState::Clean);
-            on_done();
-            return;
-        }
+        ReadyState::NoPlayer => return, // player gone; next media invalidates the gen
         ReadyState::Waiting => {
             defer_until_video_ready(player, probe, gen, on_done);
             return;
         }
         ReadyState::Ready => {}
     }
-    let Some(hw_backup) = insert_cropdetect(player) else {
-        probe.state.set(BarState::Clean);
-        on_done();
+    // Paused playback feeds cropdetect no (or one stale) frame — never probe that.
+    if probe_paused(player) {
+        defer_no_data(player, probe, gen, on_done, "paused");
+        return;
+    }
+    let Some(hw_backup) = insert_cropdetect(player, probe) else {
+        defer_no_data(player, probe, gen, on_done, "cropdetect insert failed");
         return;
     };
     probe.gathering.set(true);
@@ -94,37 +110,9 @@ fn video_ready_state(player: &Player) -> ReadyState {
     }
 }
 
-/// Bounded follow-ups after detect delay when width/height are still unset.
-fn defer_until_video_ready(
-    player: &Player,
-    probe: &Rc<BarProbe>,
-    gen: u64,
-    on_done: Rc<dyn Fn()>,
-) {
-    let left = probe.ready_left.get();
-    if left == 0 {
-        eprintln!("[rhino] bars: probe gave up (video never ready)");
-        probe.state.set(BarState::Clean);
-        on_done();
-        return;
-    }
-    probe.ready_left.set(left - 1);
-    eprintln!(
-        "[rhino] bars: probe deferred (no video yet), retry {} left",
-        left - 1
-    );
-    let player = Rc::clone(player);
-    let probe = Rc::clone(probe);
-    glib::timeout_add_local_once(READY_RETRY, move || {
-        if probe.gen.get() != gen {
-            return;
-        }
-        begin_cropdetect(&player, &probe, gen, on_done);
-    });
-}
 
 /// Append cropdetect after any Bob/Smooth filters so detection sees progressive frames.
-fn insert_cropdetect(player: &Player) -> Option<Option<String>> {
+fn insert_cropdetect(player: &Player, probe: &Rc<BarProbe>) -> Option<Option<String>> {
     player.borrow().as_ref().and_then(|b| {
         let mpv = &b.mpv;
         remove_cropdetect(mpv);
@@ -137,62 +125,15 @@ fn insert_cropdetect(player: &Player) -> Option<Option<String>> {
             Err(e) => {
                 eprintln!("[rhino] bars: cropdetect insert failed: {e}");
                 restore_hwdec(mpv, hw_backup.as_deref());
+                // The restore can reinit the decoder: record the settled chain so its
+                // own cleanup reconfigs cannot re-arm this Pending probe forever.
+                settle_after_teardown(probe, mpv);
                 None
             }
         }
     })
 }
 
-fn finish_cropdetect(
-    player: &Player,
-    probe: &Rc<BarProbe>,
-    gen: u64,
-    hw_backup: Option<String>,
-    on_done: Rc<dyn Fn()>,
-) {
-    if probe.gen.get() != gen {
-        abort_stale_probe(player, hw_backup.as_deref());
-        return;
-    }
-    let (state, saw_deint) = take_probe_result(player, hw_backup.as_deref());
-    probe.gathering.set(false);
-    probe.saw_deint.set(saw_deint);
-    probe.state.set(state);
-    on_done();
-}
-
-fn abort_stale_probe(player: &Player, hw_backup: Option<&str>) {
-    if let Some(b) = player.borrow().as_ref() {
-        remove_cropdetect(&b.mpv);
-        restore_hwdec(&b.mpv, hw_backup);
-    }
-}
-
-fn take_probe_result(player: &Player, hw_backup: Option<&str>) -> (BarState, bool) {
-    player.borrow().as_ref().map_or((BarState::Clean, false), |b| {
-        let mpv = &b.mpv;
-        let saw_deint = crate::video_pref::bob_deinterlace_in_vf(
-            &mpv.get_property::<String>("vf").unwrap_or_default(),
-        );
-        let meta = read_cropdetect_meta(mpv);
-        remove_cropdetect(mpv);
-        restore_hwdec(mpv, hw_backup);
-        let state = match meta.and_then(|m| crop_from_meta(mpv, m)) {
-            Some(rect) => {
-                eprintln!(
-                    "[rhino] bars: detected crop={}x{}+{}+{}",
-                    rect.w, rect.h, rect.x, rect.y
-                );
-                BarState::Crop(rect)
-            }
-            None => {
-                eprintln!("[rhino] bars: probe clean (no strips)");
-                BarState::Clean
-            }
-        };
-        (state, saw_deint)
-    })
-}
 
 fn video_ready(mpv: &Mpv) -> bool {
     mpv.get_property::<i64>("width").unwrap_or(0) > 0

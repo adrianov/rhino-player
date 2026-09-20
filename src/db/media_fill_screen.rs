@@ -1,5 +1,7 @@
 // Per-file Fill Screen prefs on `media` rows: user fill toggle + strip-probe cache.
 
+use crate::black_bars::CropRect;
+
 /// Stored Fill Screen choice for [path] (`None` = never toggled; global fitted default applies).
 #[must_use]
 pub(crate) fn media_fill_screen(path: &std::path::Path) -> Option<bool> {
@@ -100,39 +102,34 @@ fn fresh_bar_crop(
     let (Some(spec), Some(mtime_ns), Some(size)) = row? else {
         return None;
     };
-    (mtime_ns == stamp.mtime_ns && size == stamp.size).then(|| decode_bar_crop(&spec))
+    if mtime_ns == stamp.mtime_ns && size == stamp.size {
+        return decode_bar_crop(&spec);
+    }
+    None
 }
 
-/// Wire format in `media.bar_crop`: `""` / `d` = clean; `WxH+X+Y` / `d:WxH+X+Y` = crop (`d` = Bob seen).
-fn decode_bar_crop(spec: &str) -> StoredBarCrop {
-    if spec.is_empty() {
-        return StoredBarCrop {
-            crop: None,
-            saw_deint: false,
-        };
+/// Wire format in `media.bar_crop`: `c` = probed clean; `d:c` = clean, Bob was in vf;
+/// `WxH+X+Y` / `d:WxH+X+Y` = crop (`d:` = Bob seen). Legacy `""` / `d` rows predate
+/// probed-clean caching — decoded as unprobed (`None`) so the next open re-probes.
+fn decode_bar_crop(spec: &str) -> Option<StoredBarCrop> {
+    let (rest, saw_deint) = match spec.strip_prefix("d:") {
+        Some(rest) => (rest, true),
+        None => (spec, false),
+    };
+    if rest.is_empty() {
+        return None; // legacy "" / "d": written before "no strips" meant a real probe ran
     }
-    if spec == "d" {
-        return StoredBarCrop {
-            crop: None,
-            saw_deint: true,
-        };
-    }
-    if let Some(rest) = spec.strip_prefix("d:") {
-        return StoredBarCrop {
-            crop: (!rest.is_empty()).then(|| rest.to_string()),
-            saw_deint: true,
-        };
-    }
-    StoredBarCrop {
-        crop: Some(spec.to_string()),
-        saw_deint: false,
-    }
+    let crop = match rest {
+        "c" => None,
+        _ => Some(CropRect::parse_video_crop(rest)?.as_video_crop()),
+    };
+    Some(StoredBarCrop { crop, saw_deint })
 }
 
 fn encode_bar_crop(crop: Option<&str>, saw_deint: bool) -> String {
     match (crop, saw_deint) {
-        (None, false) => String::new(),
-        (None, true) => "d".into(),
+        (None, false) => "c".into(),
+        (None, true) => "d:c".into(),
         (Some(s), false) => s.into(),
         (Some(s), true) => format!("d:{s}"),
     }
@@ -167,7 +164,7 @@ mod bar_crop_codec_tests {
     use super::{decode_bar_crop, encode_bar_crop, fresh_bar_crop, FileStamp, StoredBarCrop};
 
     #[test]
-    fn bar_crop_round_trips_deint_flag() {
+    fn bar_crop_round_trips_probed_rows() {
         for (crop, deint) in [
             (None, false),
             (None, true),
@@ -177,12 +174,34 @@ mod bar_crop_codec_tests {
             let enc = encode_bar_crop(crop, deint);
             assert_eq!(
                 decode_bar_crop(&enc),
-                StoredBarCrop {
+                Some(StoredBarCrop {
                     crop: crop.map(str::to_string),
                     saw_deint: deint,
-                }
+                })
             );
         }
+    }
+
+    #[test]
+    fn legacy_and_corrupt_rows_decode_as_unprobed() {
+        assert_eq!(decode_bar_crop(""), None);
+        assert_eq!(decode_bar_crop("d"), None);
+        assert_eq!(decode_bar_crop("garbage"), None);
+        // Crop rows from before the marker stayed valid (real metadata was required).
+        assert_eq!(
+            decode_bar_crop("1920x800+0+140"),
+            Some(StoredBarCrop {
+                crop: Some("1920x800+0+140".into()),
+                saw_deint: false,
+            })
+        );
+        assert_eq!(
+            decode_bar_crop("d:1920x800+0+140"),
+            Some(StoredBarCrop {
+                crop: Some("1920x800+0+140".into()),
+                saw_deint: true,
+            })
+        );
     }
 
     #[test]
@@ -191,10 +210,10 @@ mod bar_crop_codec_tests {
             mtime_ns: 1_700_000_000_123_456_789,
             size: 42,
         };
-        let hit = fresh_bar_crop(
-            Some((Some(String::new()), Some(stamp.mtime_ns), Some(stamp.size))),
-            stamp,
-        );
+        let row = |spec: &str, mtime: i64, size: i64| {
+            Some((Some(spec.to_string()), Some(mtime), Some(size)))
+        };
+        let hit = fresh_bar_crop(row("c", stamp.mtime_ns, stamp.size), stamp);
         assert_eq!(
             hit,
             Some(StoredBarCrop {
@@ -202,17 +221,11 @@ mod bar_crop_codec_tests {
                 saw_deint: false
             })
         );
-        assert!(fresh_bar_crop(
-            Some((Some(String::new()), Some(stamp.mtime_ns + 1), Some(stamp.size))),
-            stamp,
-        )
-        .is_none());
-        assert!(fresh_bar_crop(
-            Some((Some(String::new()), Some(stamp.mtime_ns), Some(stamp.size + 1))),
-            stamp,
-        )
-        .is_none());
+        // Legacy "" cache is unprobed even with a matching stamp.
+        assert!(fresh_bar_crop(row("", stamp.mtime_ns, stamp.size), stamp).is_none());
+        assert!(fresh_bar_crop(row("c", stamp.mtime_ns + 1, stamp.size), stamp).is_none());
+        assert!(fresh_bar_crop(row("c", stamp.mtime_ns, stamp.size + 1), stamp).is_none());
         // Legacy second-only rows (no ns/size) miss.
-        assert!(fresh_bar_crop(Some((Some(String::new()), None, None)), stamp).is_none());
+        assert!(fresh_bar_crop(Some((Some("c".to_string()), None, None)), stamp).is_none());
     }
 }

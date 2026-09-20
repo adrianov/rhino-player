@@ -117,11 +117,31 @@ Feature: Fill Screen
     When that path is opened again
     Then strip detection runs again
     And the persistent store updates with the new result
+
+  Scenario: Probe without strip metadata never caches a clean result
+    Given strip detection started for a video
+    When the gather window ends without readable strip metadata
+    Then no clean result is written to the persistent store
+    And detection retries a bounded number of times
+    And a later filter-chain reconfiguration re-arms detection
+
+  Scenario: Paused start defers strip detection
+    Given a video opened while playback is paused
+    When strip detection would start
+    Then the persistent store keeps no strip result for the video while playback stays paused
+    And resuming playback runs strip detection
+    And Fill Screen button visibility afterwards reflects the detected strips
+
+  Scenario: Legacy cached clean result re-probes
+    Given the persistent store holds a clean strip result that predates probed-clean marking
+    When that video is opened again
+    Then strip detection runs again
+    And the persistent store is rewritten with the probed result
 ```
 
 ## Notes
 
-- Implemented in `src/video_fill.rs` (+ `fill_sync`); baked-in strips owned by `src/black_bars` (packed `frame` + lavfi `probe`).
+- Implemented in `src/video_fill.rs` (+ `fill_sync`, + `fill_sync/probe.rs` kick/restore wiring); baked-in strips owned by `src/black_bars` (packed `frame` + lavfi `probe`, + `probe.rs` scheduling, + `probe_finish.rs` gather completion/verdict, + `probe_defer.rs` rescheduling chains).
 - Aspect fill uses mpv `panscan`: `0.0` = fitted (default), `1.0` = fills the video surface, crops symmetrically.
 - Baked-in strips: temporary labeled `cropdetect` vf (FFmpeg lavfi), then mpv `video-crop` (`WxH+X+Y`) while Fill is on; cleared when Fill is off or media changes. Probe timing / shared crop guards live in `black_bars` (`DETECT_DELAY`, `pump_bar_probe` on reconfig, `READY_RETRY` / `READY_RETRY_MAX` fallback). Cropdetect is **appended** (`vf add`) so it runs after Bob deinterlace when present. If a probe finished before Bob attached, `VideoReconfig` / `FileLoaded` re-arms detection once (`BarProbe::needs_deint_reprobe`). Metadata via `MPV_FORMAT_NODE` on `vf-metadata/<label>` only — not per-key `lavfi.cropdetect.*` props (libmpv NULL-tags SIGSEGV). Fill sync leaves panscan alone while decode size (`dwidth`/`dheight`) is briefly unavailable (Bob/reconfig).
 - Non-copy hardware decode is paused for the probe only (same idea as mpv `autocrop.lua`); restored afterward.
@@ -129,6 +149,10 @@ Feature: Fill Screen
 - Viewport aspect from the video surface widget size (`GLArea`); content aspect from strip `CropRect` when known, else mpv `dwidth` / `dheight`.
 - Button icon: `view-fill-symbolic` (`data/icons/hicolor/scalable/actions/view-fill-symbolic.svg`).
 - Button visibility is refreshed by `video_fill::request_fill_resync()` from `VideoReconfig` and `FileLoaded`, on fullscreen changes, and on video-surface resize after `bind_fill_viewport`; strip probe starts from FileLoaded / path reset unless a fresh cached result exists.
+- Visibility logging is change-only (`FillSync::last_show`): one `[rhino] fill:` line per verdict flip, not per resize/reconfig burst.
 - Fill choice persists per video in `media.fill_screen` (`db::media_fill_screen` /
   `db::media_save_fill_screen`); written only on an explicit button toggle, restored on media open when the viewport can fill.
-- Strip probe result persists per video in `media.bar_crop` + `media.bar_crop_mtime_ns` + `media.bar_crop_size` (`db::media_bar_crop` / `db::media_save_bar_crop`): empty / `d` = clean, `WxH+X+Y` / `d:WxH+X+Y` = crop (`d` = Bob was in the vf chain); reused only when nanosecond mtime and size still match; a cached pre-Bob result still re-arms when Bob attaches later.
+- Strip probe result persists per video in `media.bar_crop` + `media.bar_crop_mtime_ns` + `media.bar_crop_size` (`db::media_bar_crop` / `db::media_save_bar_crop`): `c` = probed clean (no strips), `d:c` = clean with Bob in vf, `WxH+X+Y` / `d:WxH+X+Y` = crop (`d:` = Bob seen). Reused only when nanosecond mtime and size still match; a cached pre-Bob result still re-arms when Bob attaches later.
+- **No metadata is never a clean verdict**: a gather that ends without readable `cropdetect` metadata (paused start, vf rebuild mid-gather, failed insert, decode size late) stays `Pending` — `black_bars::probe_defer` retries on a bounded chain (`BAR_META_RETRIES` × `META_RETRY`) and never writes the store; `VideoReconfig` (`dispatch_sync_ui_media_change`) re-arms it via `video_fill::request_fill_resync()`, and unpause (`on_pause_event`) via `request_fill_resync_after_unpause()`. A metadata read that decodes inside the frame bounds but without meaningful strips is the only probed-clean outcome (`meta_verdict` / `meta_in_probed_frame`).
+- The probe's own teardown (cropdetect removal, hwdec restore) generates `VideoReconfig`; `pump_bar_probe` suppresses reconfigs whose vf chain matches the settled post-cleanup chain (`BarProbe::settle_cleanup_vf`) — but only inside a short settle window (`RECONFIG_SETTLE_WINDOW`), so a later decoder readiness change or filter rebuild that keeps the same chain re-arms the probe. The unpause resync (`request_fill_resync_after_unpause`) bypasses that suppression — playback state changed even when the chain did not.
+- Legacy `media.bar_crop` rows (`""` / `d`) predate the probed-clean marker and are decoded as unprobed (`db::decode_bar_crop` → `None`), so the next open re-probes once and rewrites the row in the new format; rows written before the marker were only ever produced from real metadata, so crop rows stay trusted (still validated via `CropRect::parse_video_crop`).

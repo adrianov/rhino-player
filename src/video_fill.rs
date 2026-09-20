@@ -35,6 +35,8 @@ pub struct FillSync {
     viewport: RefCell<Option<gtk::GLArea>>,
     resize_hooked: Cell<bool>,
     bars: Rc<BarProbe>,
+    /// Last `sync()` visibility verdict — change-only logging.
+    last_show: Cell<Option<bool>>,
 }
 
 /// Aspect ratio of the video surface (`GLArea` allocation).
@@ -59,6 +61,7 @@ pub fn build_fill_header(
         viewport: RefCell::new(None),
         resize_hooked: Cell::new(false),
         bars: Rc::new(BarProbe::new()),
+        last_show: Cell::new(None),
     });
     connect_fill_clicked(&btn, &sync);
     connect_fullscreen_resync(win, &sync);
@@ -165,6 +168,7 @@ thread_local! {
     static FILL_RESYNC: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     static FILL_SYNC_ONLY: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     static FILL_RESET: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+    static RESYNC_AFTER_UNPAUSE: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Called on `VideoReconfig` / `FileLoaded` to recheck fill and (re)try strip detection.
@@ -174,6 +178,19 @@ pub fn request_fill_resync() {
             f();
         }
     });
+}
+
+/// Unpause resync: unlike a `VideoReconfig`, the vf chain may be unchanged, so the
+/// strip probe's own-cleanup suppression must not swallow this re-arm (see
+/// `pump_bar_probe`).
+pub fn request_fill_resync_after_unpause() {
+    RESYNC_AFTER_UNPAUSE.with(|c| c.set(true));
+    request_fill_resync();
+}
+
+/// Consume the unpause marker set by [`request_fill_resync_after_unpause`].
+pub(super) fn take_resync_after_unpause() -> bool {
+    RESYNC_AFTER_UNPAUSE.with(Cell::take)
 }
 
 /// Visibility / apply only (strip probe finished — do not restart detection).

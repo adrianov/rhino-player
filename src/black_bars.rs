@@ -1,10 +1,10 @@
 //! Baked-in black-strip detection: packed-frame crop (thumbs) and lavfi `cropdetect` (Fill Screen).
 
 use libmpv2::Mpv;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, CString};
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::mpv_embed::MpvBundle;
 
@@ -12,6 +12,10 @@ use crate::mpv_embed::MpvBundle;
 const MIN_CONTENT_FRAC: f64 = 0.5;
 /// Ignore strips thinner than this fraction of the frame.
 const MIN_BAR_FRAC: f64 = 0.02;
+/// How long a probe's own teardown may swallow matching reconfigs. Scoped so a
+/// later decoder readiness change or filter rebuild that keeps the same vf
+/// chain still re-arms the probe instead of being mistaken for cleanup.
+const RECONFIG_SETTLE_WINDOW: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CropRect {
@@ -84,12 +88,18 @@ pub struct BarProbe {
     gen: Cell<u64>,
     /// Remaining waits for decode size after the initial detect delay.
     ready_left: Cell<u8>,
+    /// Remaining retries when a gather ends without cropdetect metadata (paused / rebuild).
+    metadata_retries: Cell<u8>,
     /// True after the intro delay callback runs (ready-wait / gather may start).
     past_delay: Cell<bool>,
     /// True once cropdetect was inserted for this gen (blocks double insert).
     gathering: Cell<bool>,
     /// Finished probe saw Bob (`rhino-deint`) in the vf chain (else re-arm after Bob attaches).
     saw_deint: Cell<bool>,
+    /// vf chain right after this probe's own teardown (cropdetect removal / hwdec
+    /// restore), with the settle timestamp: matching reconfigs are the probe's own
+    /// cleanup events only inside the settle window — never an open-ended veto.
+    settled_vf: RefCell<Option<(String, Instant)>>,
 }
 
 impl BarProbe {
@@ -98,9 +108,11 @@ impl BarProbe {
             state: Cell::new(BarState::Unknown),
             gen: Cell::new(0),
             ready_left: Cell::new(0),
+            metadata_retries: Cell::new(0),
             past_delay: Cell::new(false),
             gathering: Cell::new(false),
             saw_deint: Cell::new(false),
+            settled_vf: RefCell::new(None),
         }
     }
 
@@ -108,9 +120,11 @@ impl BarProbe {
         self.gen.set(self.gen.get().wrapping_add(1));
         self.state.set(BarState::Unknown);
         self.ready_left.set(0);
+        self.metadata_retries.set(0);
         self.past_delay.set(false);
         self.gathering.set(false);
         self.saw_deint.set(false);
+        self.settled_vf.take();
     }
 
     /// Apply a DB-cached Clean/Crop result and cancel any in-flight probe.
@@ -119,10 +133,12 @@ impl BarProbe {
         self.gen.set(self.gen.get().wrapping_add(1));
         self.state.set(state);
         self.ready_left.set(0);
+        self.metadata_retries.set(0);
         self.past_delay.set(false);
         self.gathering.set(false);
         // Preserve probe-time Bob flag so a pre-deint cache can still re-arm.
         self.saw_deint.set(saw_deint);
+        self.settled_vf.take();
     }
 
     pub fn saw_deint(&self) -> bool {
@@ -134,9 +150,11 @@ impl BarProbe {
         self.gen.set(gen);
         self.state.set(BarState::Pending);
         self.ready_left.set(READY_RETRY_MAX);
+        self.metadata_retries.set(BAR_META_RETRIES);
         self.past_delay.set(false);
         self.gathering.set(false);
         self.saw_deint.set(false);
+        self.settled_vf.take();
         gen
     }
 
@@ -159,6 +177,79 @@ impl BarProbe {
             &mpv.get_property::<String>("vf").unwrap_or_default(),
         )
     }
+    /// Consume one no-frame-data retry; `false` when the budget is exhausted.
+    pub fn take_meta_retry(&self) -> bool {
+        let left = self.metadata_retries.get();
+        if left == 0 {
+            return false;
+        }
+        self.metadata_retries.set(left - 1);
+        true
+    }
+
+    /// Record the vf chain left behind by this probe's teardown; matching reconfigs
+    /// count as the probe's own cleanup events for a short settle window only.
+    pub fn settle_cleanup_vf(&self, vf: String) {
+        self.settle_cleanup_vf_at(vf, Instant::now());
+    }
+
+    /// `settle_cleanup_vf` with an injectable clock (tests backdate the record).
+    pub(crate) fn settle_cleanup_vf_at(&self, vf: String, at: Instant) {
+        *self.settled_vf.borrow_mut() = Some((vf, at));
+    }
+
+    /// `true` only while a `VideoReconfig` carrying this vf chain still falls
+    /// inside the settle window opened by the probe's own teardown. After the
+    /// window, an unchanged-chain reconfig is external (decoder readiness change,
+    /// filter rebuild) and must re-arm the probe.
+    pub fn reconfig_is_cleanup(&self, vf: Option<&str>) -> bool {
+        let settled = self.settled_vf.borrow();
+        let Some((chain, at)) = settled.as_ref() else {
+            return false;
+        };
+        at.elapsed() < RECONFIG_SETTLE_WINDOW && matches!(vf, Some(vf) if vf == chain)
+    }
+}
+
+#[cfg(test)]
+mod probe_gate_tests {
+    use super::BarProbe;
+
+    #[test]
+    fn cleanup_reconfig_suppression_follows_the_probe_cycle() {
+        let p = BarProbe::new();
+        // No settled chain yet — any reconfig is external.
+        assert!(!p.reconfig_is_cleanup(Some("smooth")));
+        // After a gather's teardown, its own cleanup events are suppressed
+        // (mpv may emit several) while a changed chain re-arms.
+        p.settle_cleanup_vf("a".into());
+        assert!(p.reconfig_is_cleanup(Some("a")));
+        assert!(p.reconfig_is_cleanup(Some("a")));
+        assert!(!p.reconfig_is_cleanup(Some("a:bob")));
+        assert!(!p.reconfig_is_cleanup(None));
+        // A new probe cycle forgets the previous teardown signature.
+        p.start_gen();
+        assert!(!p.reconfig_is_cleanup(Some("a")));
+        p.settle_cleanup_vf("b".into());
+        p.invalidate();
+        assert!(!p.reconfig_is_cleanup(Some("b")));
+    }
+
+    #[test]
+    fn cleanup_suppression_expires_so_unchanged_chains_re_arm() {
+        let p = BarProbe::new();
+        let now = std::time::Instant::now();
+        // Fresh teardown: matching chain swallowed inside the window...
+        p.settle_cleanup_vf_at("a".into(), now);
+        assert!(p.reconfig_is_cleanup(Some("a")));
+        // ...but afterwards a decoder readiness change or filter rebuild that
+        p.settle_cleanup_vf_at(
+            "a".into(),
+            now.checked_sub(super::RECONFIG_SETTLE_WINDOW + std::time::Duration::from_millis(1))
+                .expect("monotonic clock covers the window"),
+        );
+        assert!(!p.reconfig_is_cleanup(Some("a")));
+    }
 }
 
 fn crop_meaningful(fw: i64, fh: i64, cw: i64, ch: i64) -> bool {
@@ -175,3 +266,5 @@ fn crop_meaningful(fw: i64, fh: i64, cw: i64, ch: i64) -> bool {
 
 include!("black_bars/frame.rs");
 include!("black_bars/probe.rs");
+include!("black_bars/probe_defer.rs");
+include!("black_bars/probe_finish.rs");
