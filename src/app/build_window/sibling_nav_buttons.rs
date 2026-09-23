@@ -46,7 +46,8 @@ fn try_load_sibling_pick(
     load_sibling_pick(np, log_tag, r);
 }
 
-fn load_sibling_pick(np: PathBuf, log_tag: &'static str, r: &SiblingNavTryRefs) {
+/// `replace_media` options for a manual sibling step (play immediately).
+fn sibling_nav_opts(r: &SiblingNavTryRefs) -> LoadOpts {
     let mut o = LoadOpts::replace_media(ReplaceMediaBundled {
         video_pref: Rc::clone(&r.video_pref),
         last_path: Rc::clone(&r.last_path),
@@ -59,7 +60,20 @@ fn load_sibling_pick(np: PathBuf, log_tag: &'static str, r: &SiblingNavTryRefs) 
     });
     o.playback_focus = Some(Rc::clone(&r.playback_focus));
     o.on_open_fail = Some(Rc::clone(&r.on_open_fail));
-    if let Err(e) = try_load(&np, &r.player, &r.win, &r.gl, &r.recent, &o) {
+    o
+}
+
+fn load_sibling_pick(np: PathBuf, log_tag: &'static str, r: &SiblingNavTryRefs) {
+    crate::video_fill::request_fill_carry();
+    if let Err(e) = try_load(
+        &np,
+        &r.player,
+        &r.win,
+        &r.gl,
+        &r.recent,
+        &sibling_nav_opts(r),
+    ) {
+        crate::video_fill::clear_fill_carry();
         eprintln!("[rhino] {log_tag}: {e}");
     }
 }

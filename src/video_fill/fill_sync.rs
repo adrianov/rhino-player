@@ -64,8 +64,18 @@ impl FillSync {
     }
 
     /// New media opened: clear crop + view, re-arm preferred from DB, start strip probe.
+    /// A sibling transition (marker from `video_fill::request_fill_carry`) keeps the
+    /// current intent when the new video has no stored choice of its own.
     pub(super) fn reset_preferred(&self) {
-        self.preferred.set(stored_fill_preference(&self.player));
+        let carry = super::take_fill_carry();
+        let stored = stored_fill_preference(&self.player);
+        let carried = carry && self.preferred.get();
+        let next = stored.unwrap_or(carried);
+        eprintln!(
+            "[rhino] fill: reset pref {} -> {next} (stored={stored:?} carry={carry})",
+            self.preferred.get()
+        );
+        self.preferred.set(next);
         self.bars.invalidate();
         if let Some(b) = self.player.borrow().as_ref() {
             clear_video_crop(&b.mpv);

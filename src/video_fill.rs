@@ -5,7 +5,8 @@
 //! aspect (strip crop when known, else decode size). Call [`bind_fill_viewport`]
 //! once the shell mounts the video `GLArea`. `preferred` tracks the user's intent
 //! across viewport size / fullscreen changes, and is re-read from the per-video
-//! `media.fill_screen` choice when new media opens.
+//! `media.fill_screen` choice when new media opens — or carried over when the
+//! change is a sibling transition (folder/same-series order) with no stored choice.
 
 use gtk::prelude::*;
 use std::cell::Cell;
@@ -126,11 +127,10 @@ fn current_local_media_path(player: &Rc<RefCell<Option<MpvBundle>>>) -> Option<s
     crate::media_probe::local_file_from_mpv(&b.mpv)
 }
 
-/// Per-video remembered choice for the currently open media (fitted default when unset).
-fn stored_fill_preference(player: &Rc<RefCell<Option<MpvBundle>>>) -> bool {
-    current_local_media_path(player)
-        .and_then(|p| crate::db::media_fill_screen(&p))
-        .unwrap_or(false)
+/// Per-video remembered choice for the currently open media (`None` when the video
+/// has no stored choice).
+fn stored_fill_preference(player: &Rc<RefCell<Option<MpvBundle>>>) -> Option<bool> {
+    current_local_media_path(player).and_then(|p| crate::db::media_fill_screen(&p))
 }
 
 fn connect_fullscreen_resync(win: &adw::ApplicationWindow, sync: &Rc<FillSync>) {
@@ -169,6 +169,7 @@ thread_local! {
     static FILL_SYNC_ONLY: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     static FILL_RESET: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     static RESYNC_AFTER_UNPAUSE: Cell<bool> = const { Cell::new(false) };
+    static FILL_CARRY: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Called on `VideoReconfig` / `FileLoaded` to recheck fill and (re)try strip detection.
@@ -209,4 +210,20 @@ pub fn request_fill_reset() {
             f();
         }
     });
+}
+
+/// Mark the pending media change as a sibling transition: the current fill intent
+/// carries to the new video unless that video has its own stored choice.
+pub(crate) fn request_fill_carry() {
+    FILL_CARRY.with(|c| c.set(true));
+}
+
+/// Drop a pending carry marker (sibling load failed — the next open is unrelated).
+pub(crate) fn clear_fill_carry() {
+    FILL_CARRY.with(|c| c.set(false));
+}
+
+/// Consume the carry marker set by [`request_fill_carry`].
+pub(super) fn take_fill_carry() -> bool {
+    FILL_CARRY.with(Cell::take)
 }

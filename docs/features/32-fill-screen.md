@@ -83,9 +83,33 @@ Feature: Fill Screen
     Then the fitted view is restored
     And the button is no longer visible
 
-  Scenario: Fill resets on new media
+  Scenario Outline: Fill carries to an adjacent sibling
     Given the Fill Screen button is in the active state
-    When a new video starts playing
+    When the player transitions to the <sibling> video by <transition>
+    Then the filled view is applied to that sibling when the viewport aspect differs from its content aspect
+    And the Fill Screen button is visible and active
+
+    Examples:
+      |sibling |transition                |
+      |next    |playback reaching the end |
+      |next    |the user stepping forward |
+      |previous|the user stepping backward|
+
+  Scenario: Fitted choice carries to an adjacent sibling
+    Given the Fill Screen button is not in the active state
+    When the next sibling video starts after playback ends
+    Then the fitted view is shown until fill is activated
+
+  Scenario: Sibling's remembered fitted choice wins over carried fill
+    Given the Fill Screen button is in the active state
+    And the next sibling has a remembered fitted choice
+    When the next sibling starts after playback ends
+    Then the fitted view is shown
+    And the Fill Screen button is inactive
+
+  Scenario: Fill resets when an unrelated video opens
+    Given the Fill Screen button is in the active state
+    When a new video that is neither the next nor the previous sibling starts playing
     Then the fitted view is restored
     And the button visibility reflects the new video's content aspect and the viewport
 
@@ -150,9 +174,10 @@ Feature: Fill Screen
 - Viewport aspect from the video surface widget size (`GLArea`); content aspect from strip `CropRect` when known, else mpv `dwidth` / `dheight`.
 - Button icon: `view-fill-symbolic` (`data/icons/hicolor/scalable/actions/view-fill-symbolic.svg`).
 - Button visibility is refreshed by `video_fill::request_fill_resync()` from `VideoReconfig` and `FileLoaded`, on fullscreen changes, and on video-surface resize after `bind_fill_viewport`; strip probe starts from FileLoaded / path reset unless a fresh cached result exists.
-- Visibility logging is change-only (`FillSync::last_show`): one `[rhino] fill:` line per verdict flip, not per resize/reconfig burst.
+- Visibility logging is change-only (`FillSync::last_show`): one `[rhino] fill:` line per verdict flip, not per resize/reconfig burst; media changes additionally log one `fill: reset pref … (stored=… carry=…)` line from `reset_preferred`.
 - Fill choice persists per video in `media.fill_screen` (`db::media_fill_screen` /
   `db::media_save_fill_screen`); written only on an explicit button toggle, restored on media open when the viewport can fill.
+- Fill intent carries across sibling transitions: `video_fill::request_fill_carry()` is set before the load in `advance_to_next_sibling` (EOF) and `load_sibling_pick` (buttons / shortcuts / MPRIS / Now Playing) and consumed by `FillSync::reset_preferred` — a sibling without its own `media.fill_screen` row inherits the previous video's intent (on or off), an explicit stored row still wins, and any unrelated open keeps the fitted default. A failed sibling load clears the marker (`clear_fill_carry`) so the next open cannot inherit a stale carry.
 - Strip probe result persists per video in `media.bar_crop` + `media.bar_crop_mtime_ns` + `media.bar_crop_size` (`db::media_bar_crop` / `db::media_save_bar_crop`): `c` = probed clean (no strips), `d:c` = clean with Bob in vf, `WxH+X+Y` / `d:WxH+X+Y` = crop (`d:` = Bob seen). Reused only when nanosecond mtime and size still match; a cached pre-Bob result still re-arms when Bob attaches later.
 - **No metadata is never a clean verdict**: a gather that ends without readable `cropdetect` metadata (paused start, vf rebuild mid-gather, failed insert, decode size late) stays `Pending` — `black_bars::probe_defer` retries on a bounded chain (`BAR_META_RETRIES` × `META_RETRY`) and never writes the store; `VideoReconfig` (`dispatch_sync_ui_media_change`) re-arms it via `video_fill::request_fill_resync()`, and unpause (`on_pause_event`) via `request_fill_resync_after_unpause()`. A metadata read that decodes inside the frame bounds (`crop_meta_in_frame`) but without meaningful strips is the only probed-clean outcome (`meta_verdict`).
 - The probe's own teardown (cropdetect removal, hwdec restore) generates `VideoReconfig`; `pump_bar_probe` suppresses reconfigs whose vf chain matches the settled post-cleanup chain (`BarProbe::settle_cleanup_vf`) — but only inside a short settle window (`RECONFIG_SETTLE_WINDOW`), so a later decoder readiness change or filter rebuild that keeps the same chain re-arms the probe. The unpause resync (`request_fill_resync_after_unpause`) bypasses that suppression — playback state changed even when the chain did not.
