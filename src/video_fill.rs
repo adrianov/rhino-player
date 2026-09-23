@@ -15,7 +15,10 @@ use std::rc::Rc;
 
 use crate::mpv_embed::MpvBundle;
 
+mod carry;
 mod fill_sync;
+
+pub(crate) use carry::request_fill_carry;
 
 use crate::black_bars::BarProbe;
 
@@ -169,7 +172,6 @@ thread_local! {
     static FILL_SYNC_ONLY: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     static FILL_RESET: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     static RESYNC_AFTER_UNPAUSE: Cell<bool> = const { Cell::new(false) };
-    static FILL_CARRY: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Called on `VideoReconfig` / `FileLoaded` to recheck fill and (re)try strip detection.
@@ -210,20 +212,4 @@ pub fn request_fill_reset() {
             f();
         }
     });
-}
-
-/// Mark the pending media change as a sibling transition: the current fill intent
-/// carries to the new video unless that video has its own stored choice.
-pub(crate) fn request_fill_carry() {
-    FILL_CARRY.with(|c| c.set(true));
-}
-
-/// Drop a pending carry marker (sibling load failed — the next open is unrelated).
-pub(crate) fn clear_fill_carry() {
-    FILL_CARRY.with(|c| c.set(false));
-}
-
-/// Consume the carry marker set by [`request_fill_carry`].
-pub(super) fn take_fill_carry() -> bool {
-    FILL_CARRY.with(Cell::take)
 }

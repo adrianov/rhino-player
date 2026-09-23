@@ -1,6 +1,6 @@
 //! [`FillSync`] state machine: button visibility, panscan, and baked-in bar crop.
 
-use super::{stored_fill_preference, viewport_ar, FillSync, AR_TOLERANCE};
+use super::{current_local_media_path, stored_fill_preference, viewport_ar, FillSync, AR_TOLERANCE};
 use crate::black_bars::{apply_video_crop, clear_video_crop, BarState};
 use gtk::prelude::*;
 use std::rc::Rc;
@@ -64,13 +64,18 @@ impl FillSync {
     }
 
     /// New media opened: clear crop + view, re-arm preferred from DB, start strip probe.
-    /// A sibling transition (marker from `video_fill::request_fill_carry`) keeps the
-    /// current intent when the new video has no stored choice of its own.
+    /// A sibling transition (target bound by `video_fill::request_fill_carry`) keeps the
+    /// current intent when the new video has no stored choice of its own; the carry
+    /// applies only when the opened media is the bound target.
     pub(super) fn reset_preferred(&self) {
-        let carry = super::take_fill_carry();
+        let carry_target = super::carry::take_fill_carry_target();
         let stored = stored_fill_preference(&self.player);
-        let carried = carry && self.preferred.get();
-        let next = stored.unwrap_or(carried);
+        let carry = super::carry::carry_applies(
+            carry_target,
+            current_local_media_path(&self.player),
+            self.preferred.get(),
+        );
+        let next = stored.unwrap_or(carry);
         eprintln!(
             "[rhino] fill: reset pref {} -> {next} (stored={stored:?} carry={carry})",
             self.preferred.get()

@@ -64,7 +64,7 @@ fn sibling_nav_opts(r: &SiblingNavTryRefs) -> LoadOpts {
 }
 
 fn load_sibling_pick(np: PathBuf, log_tag: &'static str, r: &SiblingNavTryRefs) {
-    crate::video_fill::request_fill_carry();
+    crate::video_fill::request_fill_carry(&np);
     if let Err(e) = try_load(
         &np,
         &r.player,
@@ -73,7 +73,6 @@ fn load_sibling_pick(np: PathBuf, log_tag: &'static str, r: &SiblingNavTryRefs) 
         &r.recent,
         &sibling_nav_opts(r),
     ) {
-        crate::video_fill::clear_fill_carry();
         eprintln!("[rhino] {log_tag}: {e}");
     }
 }
