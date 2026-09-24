@@ -27,7 +27,7 @@ fn chain_sizes(mpv: &Mpv) -> Option<ChainSizes> {
 
 /// Map a crop rect measured in one image space into another (chain output vs
 /// decoded frame); keeps the strip fractions, clamps into the target bounds.
-fn scale_rect_between(rect: CropRect, from: (i64, i64), to: (i64, i64)) -> CropRect {
+pub(crate) fn scale_rect_between(rect: CropRect, from: (i64, i64), to: (i64, i64)) -> CropRect {
     let (fw, fh) = from;
     let (tw, th) = to;
     let axis = |v: i64, f: i64, t: i64| (v as f64 * t as f64 / f as f64).round() as i64;

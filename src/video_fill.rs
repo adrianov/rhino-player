@@ -15,9 +15,11 @@ use std::rc::Rc;
 
 use crate::mpv_embed::MpvBundle;
 
+mod bar_crop;
 mod carry;
 mod fill_sync;
 
+pub(crate) use bar_crop::known_bar_crop;
 pub(crate) use carry::request_fill_carry;
 
 use crate::black_bars::BarProbe;

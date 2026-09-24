@@ -122,9 +122,50 @@ fn video_display_dims(mpv: &Mpv) -> Option<(i64, i64)> {
     video_dim_pair(mpv, "dwidth", "dheight").or_else(|| video_dim_pair(mpv, "width", "height"))
 }
 
-/// Coded stream size for post-resize aspect snap (stable when a `vf` changes `dwidth`/`dheight`).
+/// Content size for the post-resize aspect snap and the fit-on-open ratio:
+/// known baked-in black strips removed from the coded stream size (stable when
+/// a `vf` changes `dwidth`/`dheight`). No strips known → the coded size itself.
 fn video_snap_aspect_dims(mpv: &Mpv) -> Option<(i64, i64)> {
-    video_dim_pair(mpv, "width", "height").or_else(|| video_dim_pair(mpv, "dwidth", "dheight"))
+    let dims = video_dim_pair(mpv, "width", "height")
+        .or_else(|| video_dim_pair(mpv, "dwidth", "dheight"))?;
+    Some(strip_known_bars(mpv, dims))
+}
+
+/// Shrink `dims` to the known content rect (live strip probe or fresh cache).
+/// The rect is decode-space; when `dims` lives in another space (anamorphic /
+/// chain-scaled display size) it is mapped with the strip fractions first.
+fn strip_known_bars(mpv: &Mpv, dims: (i64, i64)) -> (i64, i64) {
+    let Some(rect) = crate::video_fill::known_bar_crop(mpv) else {
+        return dims;
+    };
+    let (cw, ch) = content_dims_in_space(mpv, rect, dims);
+    let usable = cw > 0 && ch > 0 && cw <= dims.0 && ch <= dims.1;
+    if !usable || (cw, ch) == dims {
+        return dims;
+    }
+    eprintln!(
+        "[rhino] aspect: strip bars {}×{} -> {cw}×{ch} (crop {})",
+        dims.0,
+        dims.1,
+        rect.as_video_crop()
+    );
+    (cw, ch)
+}
+
+/// Rect mapped from decode space into `dims` space; identity when they match
+/// or the decode size is unknown.
+fn content_dims_in_space(
+    mpv: &Mpv,
+    rect: crate::black_bars::CropRect,
+    dims: (i64, i64),
+) -> (i64, i64) {
+    match video_dim_pair(mpv, "width", "height") {
+        Some((dw, dh)) if (dw, dh) != dims => {
+            let mapped = crate::black_bars::scale_rect_between(rect, (dw, dh), dims);
+            (mapped.w, mapped.h)
+        }
+        _ => (rect.w, rect.h),
+    }
 }
 
 fn window_size_for_horizontal_video(vw: i64, vh: i64) -> (i32, i32) {

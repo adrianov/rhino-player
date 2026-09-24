@@ -134,9 +134,11 @@ fn apply_window_fit_h_video(
     if px <= py {
         return;
     }
-    let (nw, nh) = window_size_for_horizontal_video(px, py);
+    // Fit to the picture content: strips baked into the frame do not count.
+    let (vw, vh) = strip_known_bars(&pl.mpv, (px, py));
+    let (nw, nh) = window_size_for_horizontal_video(vw, vh);
     if should_landscape_fit_on_load(win, nw, nh) {
-        apply_landscape_fit_on_open(win, nw, nh, (px, py));
+        apply_landscape_fit_on_open(win, nw, nh, (vw, vh));
         return;
     }
     nudge_after_landscape_skip(&pl.mpv, win, nw, nh, (px, py));
