@@ -9,6 +9,10 @@ fn finish_cropdetect(
     on_done: Rc<dyn Fn()>,
 ) {
     if probe.gen.get() != gen {
+        eprintln!(
+            "[rhino] bars: probe gather stale: gen {gen} vs live {}",
+            probe.gen.get()
+        );
         abort_stale_probe(player, probe, hw_backup.as_deref());
         return;
     }
@@ -78,11 +82,11 @@ fn take_probe_result(
 
 /// Convert cropdetect metadata into the probe verdict using the size pair
 /// captured beside it: a meaningful crop (normalized to decoded-frame space), a
-/// probed clean frame, or `NoData` for garbage metadata — the caller retries
-/// instead of caching.
+/// probed clean full frame, or `NoData` for implausible readings — the caller
+/// retries instead of caching.
 fn meta_verdict(meta: CropMeta, sizes: ChainSizes, saw_deint: bool) -> ProbeOutcome {
-    match crop_from_meta(meta, sizes.vo) {
-        Some(rect) => {
+    match classify_crop_meta(meta, sizes.vo) {
+        CropMetaVerdict::Crop(rect) => {
             let rect = scale_rect_between(rect, sizes.vo, sizes.decode);
             eprintln!(
                 "[rhino] bars: detected crop={}x{}+{}+{}",
@@ -90,10 +94,16 @@ fn meta_verdict(meta: CropMeta, sizes: ChainSizes, saw_deint: bool) -> ProbeOutc
             );
             ProbeOutcome::Final(BarState::Crop(rect), saw_deint)
         }
-        // Metadata read, but no meaningful crop within the frame: probed clean.
-        None if crop_meta_in_frame(sizes.vo.0, sizes.vo.1, meta) => {
+        CropMetaVerdict::Clean => {
+            eprintln!("[rhino] bars: probed clean (full-frame reading)");
             ProbeOutcome::Final(BarState::Clean, saw_deint)
         }
-        None => ProbeOutcome::NoData,
+        CropMetaVerdict::Garbage => {
+            eprintln!(
+                "[rhino] bars: probe rejected implausible reading {}x{}+{}+{} on {}x{}; retrying",
+                meta.w, meta.h, meta.x, meta.y, sizes.vo.0, sizes.vo.1
+            );
+            ProbeOutcome::NoData
+        }
     }
 }

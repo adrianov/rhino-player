@@ -21,10 +21,15 @@ struct CropMeta {
 /// Start a delayed cropdetect for the current path. Earlier probes are cancelled via `gen`.
 pub fn schedule_bar_probe(player: &Player, probe: &Rc<BarProbe>, on_done: Rc<dyn Fn()>) {
     let gen = probe.start_gen();
+    eprintln!("[rhino] bars: probe scheduled gen {gen}");
     let player = Rc::clone(player);
     let probe = Rc::clone(probe);
     glib::timeout_add_local_once(DETECT_DELAY, move || {
         if probe.gen.get() != gen {
+            eprintln!(
+                "[rhino] bars: probe delay stale: gen {gen} vs live {}",
+                probe.gen.get()
+            );
             return;
         }
         probe.past_delay.set(true);
@@ -68,10 +73,18 @@ fn probe_start_blocked(probe: &Rc<BarProbe>, gen: u64) -> bool {
 
 fn begin_cropdetect(player: &Player, probe: &Rc<BarProbe>, gen: u64, on_done: Rc<dyn Fn()>) {
     if probe_start_blocked(probe, gen) {
+        eprintln!(
+            "[rhino] bars: probe begin blocked: gen {gen} vs live {}, state {:?}",
+            probe.gen.get(),
+            probe.state.get()
+        );
         return;
     }
     match video_ready_state(player) {
-        ReadyState::NoPlayer => return, // player gone; next media invalidates the gen
+        ReadyState::NoPlayer => {
+            eprintln!("[rhino] bars: probe begin gen {gen}: no player; next media re-arms");
+            return; // player gone; next media invalidates the gen
+        }
         ReadyState::Waiting => {
             defer_until_video_ready(player, probe, gen, on_done);
             return;
@@ -212,26 +225,54 @@ mod probe_tests {
     }
 
     #[test]
-    fn crop_from_meta_rejects_a_full_vo_frame_under_downscale() {
+    fn classify_full_vo_frame_under_downscale_is_clean() {
         // A clean file probed while Smooth60 downscales: cropdetect reports the
-        // full chain-output image — no meaningful strips, no fake crop.
+        // full chain-output image — genuinely no strips, probed clean.
         let meta = CropMeta { w: 1552, h: 872, x: 0, y: 0 };
-        assert_eq!(crop_from_meta(meta, (1552, 872)), None);
+        assert!(matches!(
+            classify_crop_meta(meta, (1552, 872)),
+            CropMetaVerdict::Clean
+        ));
     }
 
     #[test]
-    fn crop_from_meta_keeps_real_strips_measured_in_vo_space() {
+    fn classify_keeps_real_strips_measured_in_vo_space() {
         let meta = CropMeta { w: 1552, h: 719, x: 0, y: 45 };
         assert_eq!(
-            crop_from_meta(meta, (1552, 872)),
-            Some(CropRect { w: 1552, h: 719, x: 0, y: 45 })
+            classify_crop_meta(meta, (1552, 872)),
+            CropMetaVerdict::Crop(CropRect { w: 1552, h: 719, x: 0, y: 45 })
         );
     }
 
     #[test]
-    fn crop_from_meta_rejects_metadata_outside_the_measured_frame() {
+    fn classify_rejects_metadata_outside_the_measured_frame() {
         let meta = CropMeta { w: 1553, h: 800, x: 0, y: 40 };
-        assert_eq!(crop_from_meta(meta, (1552, 872)), None);
+        assert!(matches!(
+            classify_crop_meta(meta, (1552, 872)),
+            CropMetaVerdict::Garbage
+        ));
+    }
+
+    #[test]
+    fn classify_treats_rounding_shortfall_as_clean() {
+        // Odd-sized clean frame: cropdetect rounds 853 down to 852 — still the
+        // full frame, not a sub-region lock-on.
+        let meta = CropMeta { w: 852, h: 480, x: 0, y: 0 };
+        assert!(matches!(
+            classify_crop_meta(meta, (853, 480)),
+            CropMetaVerdict::Clean
+        ));
+    }
+
+    #[test]
+    fn classify_rejects_subregion_lockon_from_dark_openings() {
+        // Near-black opening frames: cropdetect locks onto a small bright logo
+        // instead of the picture. In-frame but implausible — never "clean".
+        let meta = CropMeta { w: 188, h: 172, x: 858, y: 588 };
+        assert!(matches!(
+            classify_crop_meta(meta, (1920, 1080)),
+            CropMetaVerdict::Garbage
+        ));
     }
 }
 
@@ -345,15 +386,38 @@ unsafe fn map_keys_values(
     ))
 }
 
-/// Verdict for cropdetect `meta` measured on a `(fw, fh)` chain-output image:
-/// a meaningful strip crop, or `None` for a full frame (probed clean) /
-/// out-of-frame garbage (caller retries).
-fn crop_from_meta(meta: CropMeta, frame: (i64, i64)) -> Option<CropRect> {
+/// Cropdetect metadata classification on a `(fw, fh)` chain-output image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CropMetaVerdict {
+    /// Meaningful strip crop in VO space (caller maps it to decode space).
+    Crop(CropRect),
+    /// Full-frame result: genuinely no strips — the only probed-clean outcome.
+    Clean,
+    /// Implausible reading: outside the measured frame, or a sub-region lock-on
+    /// from near-black content (dark openings, small logos). Never cached — the
+    /// caller retries bounded and re-arms on later events.
+    Garbage,
+}
+
+fn classify_crop_meta(meta: CropMeta, frame: (i64, i64)) -> CropMetaVerdict {
     let (fw, fh) = frame;
-    let ok = crop_meta_in_frame(fw, fh, meta)
-        && crop_meaningful(fw, fh, meta.w, meta.h)
-        && !(meta.x == 0 && meta.y == 0 && meta.w == fw && meta.h == fh);
-    ok.then_some(CropRect {
+    if !crop_meta_in_frame(fw, fh, meta) {
+        return CropMetaVerdict::Garbage;
+    }
+    // cropdetect rounds the reported size down to `DETECT_ROUND`, so a clean
+    // odd-sized frame reports e.g. 852 of 853: within rounding slack it is the
+    // full frame (bars under MIN_BAR_FRAC are noise by the same token).
+    if meta.x == 0
+        && meta.y == 0
+        && fw - meta.w <= DETECT_ROUND
+        && fh - meta.h <= DETECT_ROUND
+    {
+        return CropMetaVerdict::Clean;
+    }
+    if !crop_meaningful(fw, fh, meta.w, meta.h) {
+        return CropMetaVerdict::Garbage;
+    }
+    CropMetaVerdict::Crop(CropRect {
         w: meta.w,
         h: meta.h,
         x: meta.x,

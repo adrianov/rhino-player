@@ -149,6 +149,13 @@ Feature: Fill Screen
     And detection retries a bounded number of times
     And a later filter-chain reconfiguration re-arms detection
 
+  Scenario: Implausible strip reading never caches a clean result
+    Given strip detection started while the video shows mostly dark opening frames
+    When the strip reading covers only a small part of the frame
+    Then no clean result is written to the persistent store
+    And detection retries a bounded number of times
+    And Fill Screen button visibility follows the real strips once a reading succeeds
+
   Scenario: Paused start defers strip detection
     Given a video opened while playback is paused
     When strip detection would start
@@ -179,6 +186,6 @@ Feature: Fill Screen
   `db::media_save_fill_screen`); written only on an explicit button toggle, restored on media open when the viewport can fill.
 - Fill intent carries across sibling transitions: `video_fill::request_fill_carry(&target)` is set before the load in `advance_to_next_sibling` (EOF) and `load_sibling_pick` (buttons / shortcuts / MPRIS / Now Playing) and consumed by `FillSync::reset_preferred` — the carry applies only when the media that actually opened is the bound target (`paths_same_file`), so a failed or abandoned sibling load can never leak it onto an unrelated open. A sibling without its own `media.fill_screen` row inherits the previous video's intent (on or off); an explicit stored row still wins, and any unrelated open keeps the fitted default.
 - Strip probe result persists per video in `media.bar_crop` + `media.bar_crop_mtime_ns` + `media.bar_crop_size` (`db::media_bar_crop` / `db::media_save_bar_crop`): `c` = probed clean (no strips), `d:c` = clean with Bob in vf, `WxH+X+Y` / `d:WxH+X+Y` = crop (`d:` = Bob seen). Reused only when nanosecond mtime and size still match; a cached pre-Bob result still re-arms when Bob attaches later.
-- **No metadata is never a clean verdict**: a gather that ends without readable `cropdetect` metadata (paused start, vf rebuild mid-gather, failed insert, decode size late) stays `Pending` — `black_bars::probe_defer` retries on a bounded chain (`BAR_META_RETRIES` × `META_RETRY`) and never writes the store; `VideoReconfig` (`dispatch_sync_ui_media_change`) re-arms it via `video_fill::request_fill_resync()`, and unpause (`on_pause_event`) via `request_fill_resync_after_unpause()`. A metadata read that decodes inside the frame bounds (`crop_meta_in_frame`) but without meaningful strips is the only probed-clean outcome (`meta_verdict`).
+- **No metadata is never a clean verdict**: a gather that ends without readable `cropdetect` metadata (paused start, vf rebuild mid-gather, failed insert, decode size late) stays `Pending` — `black_bars::probe_defer` retries on a bounded chain (`BAR_META_RETRIES` × `META_RETRY`) and never writes the store; `VideoReconfig` (`dispatch_sync_ui_media_change`) re-arms it via `video_fill::request_fill_resync()`, and unpause (`on_pause_event`) via `request_fill_resync_after_unpause()`. A metadata read is only a probed-clean outcome when it reports the full chain-output frame; readings outside the measured frame (`crop_meta_in_frame`) or sub-region lock-ons from near-black content (`crop_meaningful`) are implausible — retried bounded, never cached (`classify_crop_meta` in `meta_verdict`).
 - The probe's own teardown (cropdetect removal, hwdec restore) generates `VideoReconfig`; `pump_bar_probe` suppresses reconfigs whose vf chain matches the settled post-cleanup chain (`BarProbe::settle_cleanup_vf`) — but only inside a short settle window (`RECONFIG_SETTLE_WINDOW`), so a later decoder readiness change or filter rebuild that keeps the same chain re-arms the probe. The unpause resync (`request_fill_resync_after_unpause`) bypasses that suppression — playback state changed even when the chain did not.
 - Legacy `media.bar_crop` rows (`""` / `d`) predate the probed-clean marker and are decoded as unprobed (`db::decode_bar_crop` → `None`), so the next open re-probes once and rewrites the row in the new format; rows written before the marker were only ever produced from real metadata, so crop rows stay trusted (still validated via `CropRect::parse_video_crop`).
