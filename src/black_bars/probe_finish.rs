@@ -98,9 +98,9 @@ fn meta_verdict(meta: CropMeta, sizes: ChainSizes, saw_deint: bool) -> ProbeOutc
             eprintln!("[rhino] bars: probed clean (full-frame reading)");
             ProbeOutcome::Final(BarState::Clean, saw_deint)
         }
-        CropMetaVerdict::Garbage => {
+        CropMetaVerdict::Garbage(reason) => {
             eprintln!(
-                "[rhino] bars: probe rejected implausible reading {}x{}+{}+{} on {}x{}; retrying",
+                "[rhino] bars: probe rejected ({reason}) {}x{}+{}+{} on {}x{}; retrying",
                 meta.w, meta.h, meta.x, meta.y, sizes.vo.0, sizes.vo.1
             );
             ProbeOutcome::NoData

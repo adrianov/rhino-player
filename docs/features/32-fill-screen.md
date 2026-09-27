@@ -159,6 +159,35 @@ Feature: Fill Screen
     And detection retries a bounded number of times
     And Fill Screen button visibility follows the real strips once a reading succeeds
 
+  Scenario: Both side stripes are never a strip result
+    Given strip detection reports black bands on the left and on the right of the frame
+    When the reading is classified
+    Then it is rejected as not a proper strip crop
+    And no strip result is written to the persistent store
+    And detection retries a bounded number of times
+
+  Scenario: Unequal top and bottom stripes are never a strip result
+    Given strip detection reports a top black band and a bottom black band
+    And those bands differ in height
+    When the reading is classified
+    Then it is rejected as not a proper strip crop
+    And no strip result is written to the persistent store
+    And detection retries a bounded number of times
+
+  Scenario: Dark scene content is not mistaken for side strips
+    Given strip detection runs on a dark title or cave scene
+    And a large dark region sits on one side of the picture as scene content
+    When the reading would crop that side as a strip
+    Then it is rejected as not a proper strip crop
+    And no strip result is written to the persistent store
+    And detection retries a bounded number of times
+
+  Scenario: Proper letterbox strips are still accepted
+    Given strip detection reports full-width top and bottom black bands of equal height
+    And neither side has a black band
+    When the reading is classified
+    Then the strip crop is accepted and stored
+
   Scenario: Paused start defers strip detection
     Given a video opened while playback is paused
     When strip detection would start
@@ -189,6 +218,6 @@ Feature: Fill Screen
   `db::media_save_fill_screen`); written only on an explicit button toggle, restored on media open when the viewport can fill.
 - Fill intent carries across sibling transitions: `video_fill::request_fill_carry(&target)` is set before the load in `advance_to_next_sibling` (EOF) and `load_sibling_pick` (buttons / shortcuts / MPRIS / Now Playing) and consumed by `FillSync::reset_preferred` — the carry applies only when the media that actually opened is the bound target (`paths_same_file`), so a failed or abandoned sibling load can never leak it onto an unrelated open. A sibling without its own `media.fill_screen` row inherits the previous video's intent (on or off); an explicit stored row still wins, and any unrelated open keeps the fitted default.
 - Strip probe result persists per video in `media.bar_crop` + `media.bar_crop_mtime_ns` + `media.bar_crop_size` (`db::media_bar_crop` / `db::media_save_bar_crop`): `c` = probed clean (no strips), `d:c` = clean with Bob in vf, `WxH+X+Y` / `d:WxH+X+Y` = crop (`d:` = Bob seen). Reused only when nanosecond mtime and size still match; a cached pre-Bob result still re-arms when Bob attaches later.
-- **No metadata is never a clean verdict**: a gather that ends without readable `cropdetect` metadata (paused start, vf rebuild mid-gather, failed insert, decode size late) stays `Pending` — `black_bars::probe_defer` retries on a bounded chain (`BAR_META_RETRIES` × `META_RETRY`) and never writes the store; `VideoReconfig` (`dispatch_sync_ui_media_change`) re-arms it via `video_fill::request_fill_resync()`, and unpause (`on_pause_event`) via `request_fill_resync_after_unpause()`. A metadata read is only a probed-clean outcome when it reports the full chain-output frame; readings outside the measured frame (`crop_meta_in_frame`) or sub-region lock-ons from near-black content (`crop_meaningful`) are implausible — retried bounded, never cached (`classify_crop_meta` in `meta_verdict`).
+- **No metadata is never a clean verdict**: a gather that ends without readable `cropdetect` metadata (paused start, vf rebuild mid-gather, failed insert, decode size late) stays `Pending` — `black_bars::probe_defer` retries on a bounded chain (`BAR_META_RETRIES` × `META_RETRY`) and never writes the store; `VideoReconfig` (`dispatch_sync_ui_media_change`) re-arms it via `video_fill::request_fill_resync()`, and unpause (`on_pause_event`) via `request_fill_resync_after_unpause()`. A metadata read is only a probed-clean outcome when it reports the full chain-output frame; readings outside the measured frame (`crop_meta_in_frame`), sub-region lock-ons from near-black content (`crop_meaningful`), or impossible strip geometry (`strip_geometry_ok`) are implausible — retried bounded, never cached (`classify_crop_meta` in `meta_verdict`). Geometry rules (letterbox-shaped only): reject left **and** right bars together; reject when top vs bottom bar heights differ beyond tolerance; reject any meaningful side bar (dark pillars / title cards). Proper cinematic bars stay full-width with equal top/bottom. Rejections log `[rhino] bars: probe rejected …` with the reason on plain `cargo run`. The same geometry gate runs on packed-frame thumb crops (`detect_packed_crop`).
 - The probe's own teardown (cropdetect removal, hwdec restore) generates `VideoReconfig`; `pump_bar_probe` suppresses reconfigs whose vf chain matches the settled post-cleanup chain (`BarProbe::settle_cleanup_vf`) — but only inside a short settle window (`RECONFIG_SETTLE_WINDOW`), so a later decoder readiness change or filter rebuild that keeps the same chain re-arms the probe. The unpause resync (`request_fill_resync_after_unpause`) bypasses that suppression — playback state changed even when the chain did not.
 - Legacy `media.bar_crop` rows (`""` / `d`) predate the probed-clean marker and are decoded as unprobed (`db::decode_bar_crop` → `None`), so the next open re-probes once and rewrites the row in the new format; rows written before the marker were only ever produced from real metadata, so crop rows stay trusted (still validated via `CropRect::parse_video_crop`).

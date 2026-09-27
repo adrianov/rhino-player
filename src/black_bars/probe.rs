@@ -237,10 +237,21 @@ mod probe_tests {
 
     #[test]
     fn classify_keeps_real_strips_measured_in_vo_space() {
-        let meta = CropMeta { w: 1552, h: 719, x: 0, y: 45 };
+        // Equal letterbox on a Smooth-downscaled VO image (top = bottom = 76).
+        let meta = CropMeta {
+            w: 1552,
+            h: 720,
+            x: 0,
+            y: 76,
+        };
         assert_eq!(
             classify_crop_meta(meta, (1552, 872)),
-            CropMetaVerdict::Crop(CropRect { w: 1552, h: 719, x: 0, y: 45 })
+            CropMetaVerdict::Crop(CropRect {
+                w: 1552,
+                h: 720,
+                x: 0,
+                y: 76
+            })
         );
     }
 
@@ -249,7 +260,7 @@ mod probe_tests {
         let meta = CropMeta { w: 1553, h: 800, x: 0, y: 40 };
         assert!(matches!(
             classify_crop_meta(meta, (1552, 872)),
-            CropMetaVerdict::Garbage
+            CropMetaVerdict::Garbage(_)
         ));
     }
 
@@ -271,8 +282,71 @@ mod probe_tests {
         let meta = CropMeta { w: 188, h: 172, x: 858, y: 588 };
         assert!(matches!(
             classify_crop_meta(meta, (1920, 1080)),
-            CropMetaVerdict::Garbage
+            CropMetaVerdict::Garbage(_)
         ));
+    }
+
+    #[test]
+    fn classify_rejects_left_and_right_stripes() {
+        let meta = CropMeta {
+            w: 1600,
+            h: 1080,
+            x: 160,
+            y: 0,
+        };
+        assert_eq!(
+            classify_crop_meta(meta, (1920, 1080)),
+            CropMetaVerdict::Garbage("left+right stripes")
+        );
+    }
+
+    #[test]
+    fn classify_rejects_unequal_top_and_bottom() {
+        let meta = CropMeta {
+            w: 1920,
+            h: 800,
+            x: 0,
+            y: 40,
+        };
+        // bottom = 1080 - 40 - 800 = 240 ≠ 40
+        assert_eq!(
+            classify_crop_meta(meta, (1920, 1080)),
+            CropMetaVerdict::Garbage("unequal top/bottom stripes")
+        );
+    }
+
+    #[test]
+    fn classify_rejects_one_sided_dark_pillar() {
+        // Dark cave/title pillar on the right — scene content, not a bar.
+        let meta = CropMeta {
+            w: 1500,
+            h: 1080,
+            x: 0,
+            y: 0,
+        };
+        assert_eq!(
+            classify_crop_meta(meta, (1920, 1080)),
+            CropMetaVerdict::Garbage("side stripe (not letterbox)")
+        );
+    }
+
+    #[test]
+    fn classify_accepts_equal_letterbox() {
+        let meta = CropMeta {
+            w: 1920,
+            h: 804,
+            x: 0,
+            y: 138,
+        };
+        assert_eq!(
+            classify_crop_meta(meta, (1920, 1080)),
+            CropMetaVerdict::Crop(CropRect {
+                w: 1920,
+                h: 804,
+                x: 0,
+                y: 138
+            })
+        );
     }
 }
 
@@ -393,16 +467,15 @@ enum CropMetaVerdict {
     Crop(CropRect),
     /// Full-frame result: genuinely no strips — the only probed-clean outcome.
     Clean,
-    /// Implausible reading: outside the measured frame, or a sub-region lock-on
-    /// from near-black content (dark openings, small logos). Never cached — the
-    /// caller retries bounded and re-arms on later events.
-    Garbage,
+    /// Implausible reading: outside the measured frame, sub-region lock-on, or
+    /// impossible strip geometry. Never cached — the caller retries bounded.
+    Garbage(&'static str),
 }
 
 fn classify_crop_meta(meta: CropMeta, frame: (i64, i64)) -> CropMetaVerdict {
     let (fw, fh) = frame;
     if !crop_meta_in_frame(fw, fh, meta) {
-        return CropMetaVerdict::Garbage;
+        return CropMetaVerdict::Garbage("outside measured frame");
     }
     // cropdetect rounds the reported size down to `DETECT_ROUND`, so a clean
     // odd-sized frame reports e.g. 852 of 853: within rounding slack it is the
@@ -415,7 +488,10 @@ fn classify_crop_meta(meta: CropMeta, frame: (i64, i64)) -> CropMetaVerdict {
         return CropMetaVerdict::Clean;
     }
     if !crop_meaningful(fw, fh, meta.w, meta.h) {
-        return CropMetaVerdict::Garbage;
+        return CropMetaVerdict::Garbage("sub-region or thin strip lock-on");
+    }
+    if let Err(reason) = strip_geometry_ok(fw, fh, meta.x, meta.y, meta.w, meta.h) {
+        return CropMetaVerdict::Garbage(reason);
     }
     CropMetaVerdict::Crop(CropRect {
         w: meta.w,
