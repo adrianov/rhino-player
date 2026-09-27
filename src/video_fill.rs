@@ -180,7 +180,23 @@ thread_local! {
     static FILL_RESYNC: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     static FILL_SYNC_ONLY: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     static FILL_RESET: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+    /// Shell callback: landscape fit/nudge after a live strip probe finds a crop.
+    static AFTER_BARS_FIT: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     static RESYNC_AFTER_UNPAUSE: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Register the window fit/nudge run after a late strip crop is detected.
+pub fn register_after_bars_fit(cb: Rc<dyn Fn()>) {
+    AFTER_BARS_FIT.with(|c| *c.borrow_mut() = Some(cb));
+}
+
+/// Fit-on-open may have used the full frame before strips were known — re-snap.
+pub(crate) fn request_after_bars_fit() {
+    AFTER_BARS_FIT.with(|s| {
+        if let Some(f) = s.borrow().as_ref() {
+            f();
+        }
+    });
 }
 
 /// Called on `VideoReconfig` / `FileLoaded` to recheck fill and (re)try strip detection.

@@ -40,6 +40,7 @@ fn build_widgets(
     let bottom_shell = crate::macos_bottom_bar::wrap_row(&bottom);
     let video_handle = mount_video_overlay(&groups.gl_area, &groups.recent_scrl);
     crate::video_fill::bind_fill_viewport(&groups.gl_area);
+    register_after_bars_window_fit(player, &groups.win, &groups.gl_area);
 
     WindowWidgets {
         win: groups.win,
@@ -97,4 +98,18 @@ fn build_widgets(
         blackout_sync: buttons.blackout_sync,
         _header_btn_heights: shell._header_btn_heights,
     }
+}
+
+/// Late strip crop → re-run landscape fit/nudge (early fit used the full frame).
+fn register_after_bars_window_fit(
+    player: &Rc<RefCell<Option<MpvBundle>>>,
+    win: &adw::ApplicationWindow,
+    gl: &gtk::GLArea,
+) {
+    let player = Rc::clone(player);
+    let win = win.clone();
+    let gl = gl.clone();
+    crate::video_fill::register_after_bars_fit(Rc::new(move || {
+        schedule_window_fit_h_video(Rc::clone(&player), win.clone(), gl.clone());
+    }));
 }

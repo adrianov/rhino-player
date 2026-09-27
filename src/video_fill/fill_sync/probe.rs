@@ -1,7 +1,7 @@
 //! Bar-probe wiring: kick/resume cropdetect runs and the DB cache round-trip.
 
 use super::FillSync;
-use crate::black_bars::{pump_bar_probe, schedule_bar_probe, BarState, CropRect};
+use crate::black_bars::{crop_geometry_ok, pump_bar_probe, schedule_bar_probe, BarState, CropRect};
 use crate::mpv_embed::MpvBundle;
 use crate::video_fill::current_local_media_path;
 use std::cell::RefCell;
@@ -51,6 +51,14 @@ impl FillSync {
             }
             Some(spec) => match CropRect::parse_video_crop(spec) {
                 Some(rect) => {
+                    if let Some(reason) = cached_crop_geometry_reason(&self.player, rect) {
+                        eprintln!(
+                            "[rhino] bars: cached crop rejected ({reason}) {} path={}",
+                            rect.as_video_crop(),
+                            path.display()
+                        );
+                        return false;
+                    }
                     eprintln!(
                         "[rhino] bars: cached crop={} deint={} path={}",
                         rect.as_video_crop(),
@@ -71,6 +79,38 @@ impl FillSync {
         self.bars.restore_cached(state, cached.saw_deint);
         true
     }
+
+    /// Drop a restored Crop that fails letterbox geometry once coded size is known.
+    pub(super) fn reject_bad_cached_crop(&self) -> bool {
+        let Some(rect) = self.bars.crop() else {
+            return false;
+        };
+        let Some(reason) = cached_crop_geometry_reason(&self.player, rect) else {
+            return false;
+        };
+        eprintln!(
+            "[rhino] bars: cached crop rejected ({reason}) {} — re-probing",
+            rect.as_video_crop()
+        );
+        self.bars.invalidate();
+        *self.last_crop_spec.borrow_mut() = None;
+        if let Some(b) = self.player.borrow().as_ref() {
+            crate::black_bars::clear_video_crop(&b.mpv);
+        }
+        self.kick_bar_probe_live();
+        true
+    }
+}
+
+/// When coded size is known, reject non-letterbox cache rows so we re-probe.
+fn cached_crop_geometry_reason(player: &Player, rect: CropRect) -> Option<&'static str> {
+    let g = player.borrow();
+    let mpv = &g.as_ref()?.mpv;
+    let fw = mpv.get_property::<i64>("width").ok()?;
+    let fh = mpv.get_property::<i64>("height").ok()?;
+    (fw > 0 && fh > 0)
+        .then(|| crop_geometry_ok(fw, fh, rect).err())
+        .flatten()
 }
 
 fn probe_done_cb(player: &Player, bars: &Rc<crate::black_bars::BarProbe>) -> Rc<dyn Fn()> {
@@ -79,6 +119,10 @@ fn probe_done_cb(player: &Player, bars: &Rc<crate::black_bars::BarProbe>) -> Rc<
     Rc::new(move || {
         persist_bar_probe(&player, &bars);
         crate::video_fill::request_fill_sync_only();
+        // Early fit-on-open used the full frame; snap again to strip-free aspect.
+        if matches!(bars.state.get(), BarState::Crop(_)) {
+            crate::video_fill::request_after_bars_fit();
+        }
     })
 }
 

@@ -310,6 +310,14 @@ fn bar_pair_tol(span: i64) -> i64 {
 
 /// Proper baked-in bars are letterbox-shaped: full width, equal top/bottom.
 /// Rejects left+right pairs, unequal top/bottom, and any side bar (dark pillars).
+pub(crate) fn crop_geometry_ok(
+    fw: i64,
+    fh: i64,
+    rect: CropRect,
+) -> Result<(), &'static str> {
+    strip_geometry_ok(fw, fh, rect.x, rect.y, rect.w, rect.h)
+}
+
 fn strip_geometry_ok(fw: i64, fh: i64, x: i64, y: i64, w: i64, h: i64) -> Result<(), &'static str> {
     let (left, right, top, bottom) = crop_bar_edges(fw, fh, x, y, w, h);
     let has_l = bar_present(left, fw);

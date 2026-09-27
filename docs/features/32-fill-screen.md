@@ -188,6 +188,21 @@ Feature: Fill Screen
     When the reading is classified
     Then the strip crop is accepted and stored
 
+  Scenario: Implausible cached strip result is rejected and re-probed
+    Given the persistent store holds a strip crop that is not letterbox-shaped
+    # e.g. a side crop or unequal top/bottom from an older probe
+    When that unchanged video is opened again
+    Then the cached crop is rejected
+    And strip detection runs again
+    And a proper letterbox result is stored when the reading succeeds
+
+  Scenario: Late strip crop refits the windowed picture
+    Given strip detection was not cached for a landscape video
+    And fit-on-open used the full-frame aspect
+    When strip detection finishes with a content crop
+    Then the baked-in strips are cropped out of the picture
+    And the window is fitted or nudged to that content aspect so empty bands from the full frame do not remain
+
   Scenario: Paused start defers strip detection
     Given a video opened while playback is paused
     When strip detection would start
@@ -212,7 +227,7 @@ Feature: Fill Screen
 - Aspect ratio tolerance constant in `src/video_fill.rs` (`AR_TOLERANCE`).
 - Viewport aspect from the video surface widget size (`GLArea`); content aspect from strip `CropRect` when known, else mpv `dwidth` / `dheight`.
 - Button icon: `view-fill-symbolic` (`data/icons/hicolor/scalable/actions/view-fill-symbolic.svg`).
-- Button visibility is refreshed by `video_fill::request_fill_resync()` from `VideoReconfig` and `FileLoaded`, on fullscreen changes, and on video-surface resize after `bind_fill_viewport`; strip probe starts from FileLoaded / path reset unless a fresh cached result exists.
+- Button visibility is refreshed by `video_fill::request_fill_resync()` from `VideoReconfig` and `FileLoaded`, on fullscreen changes, and on video-surface resize after `bind_fill_viewport`; strip probe starts from FileLoaded / path reset unless a fresh cached result exists. Cached crops are re-checked with the same letterbox geometry gate (`crop_geometry_ok`) before restore / `known_bar_crop` use; implausible rows are skipped and a live probe runs (`[rhino] bars: cached crop rejected …`). After a live probe accepts a crop, `request_after_bars_fit` re-snaps the landscape window (see feature 17) so early fit-on-open is not left at the full-frame aspect.
 - Visibility logging is change-only (`FillSync::last_show`): one `[rhino] fill:` line per verdict flip, not per resize/reconfig burst; media changes additionally log one `fill: reset pref … (stored=… carry=…)` line from `reset_preferred`.
 - Fill choice persists per video in `media.fill_screen` (`db::media_fill_screen` /
   `db::media_save_fill_screen`); written only on an explicit button toggle, restored on media open when the viewport can fill.

@@ -109,10 +109,12 @@ impl FillSync {
             BarState::Pending => self.resume_bar_probe(super::take_resync_after_unpause()),
             BarState::Clean | BarState::Crop(_) => {
                 super::take_resync_after_unpause();
-                if let Some(b) = self.player.borrow().as_ref() {
-                    if self.bars.needs_deint_reprobe(&b.mpv) {
-                        eprintln!("[rhino] bars: re-probe after Bob deinterlace attached");
-                        self.kick_bar_probe_live();
+                if !self.reject_bad_cached_crop() {
+                    if let Some(b) = self.player.borrow().as_ref() {
+                        if self.bars.needs_deint_reprobe(&b.mpv) {
+                            eprintln!("[rhino] bars: re-probe after Bob deinterlace attached");
+                            self.kick_bar_probe_live();
+                        }
                     }
                 }
             }
