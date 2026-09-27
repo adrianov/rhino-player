@@ -138,6 +138,12 @@ fn strip_known_bars(mpv: &Mpv, dims: (i64, i64)) -> (i64, i64) {
     let Some(rect) = crate::video_fill::known_bar_crop(mpv) else {
         return dims;
     };
+    // After `video-crop`, display dims already match the content aspect (decode
+    // space or VO-scaled). Scaling the decode-space crop onto those dims again
+    // shrinks a second time (e.g. 1920×804 → 1920×599, or 1696×709 → 1696×528).
+    if dims_match_content_ar(dims, rect) {
+        return dims;
+    }
     let (cw, ch) = content_dims_in_space(mpv, rect, dims);
     let usable = cw > 0 && ch > 0 && cw <= dims.0 && ch <= dims.1;
     if !usable || (cw, ch) == dims {
@@ -150,6 +156,20 @@ fn strip_known_bars(mpv: &Mpv, dims: (i64, i64)) -> (i64, i64) {
         rect.as_video_crop()
     );
     (cw, ch)
+}
+
+/// True when `dims` already has the strip-free content aspect (exact size or
+/// VO-scaled after `video-crop`).
+fn dims_match_content_ar(dims: (i64, i64), rect: crate::black_bars::CropRect) -> bool {
+    if dims == (rect.w, rect.h) {
+        return true;
+    }
+    if dims.0 <= 0 || dims.1 <= 0 || rect.w <= 0 || rect.h <= 0 {
+        return false;
+    }
+    let content_ar = rect.w as f64 / rect.h as f64;
+    let dims_ar = dims.0 as f64 / dims.1 as f64;
+    (content_ar - dims_ar).abs() / content_ar <= 0.02
 }
 
 /// Rect mapped from decode space into `dims` space; identity when they match

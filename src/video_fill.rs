@@ -1,6 +1,10 @@
 //! Fill toggle: zoom video to cover the **viewport** (`panscan`) and crop baked-in
 //! black strips (`video-crop` from a short `cropdetect` probe).
 //!
+//! Known strip crops are applied in the fitted view as well as when Fill is on —
+//! window fit/snap already uses the strip-free content aspect. Fill only adds
+//! `panscan` when the viewport still mismatches that content.
+//!
 //! The header button shows when the video surface aspect differs from the content
 //! aspect (strip crop when known, else decode size). Call [`bind_fill_viewport`]
 //! once the shell mounts the video `GLArea`. `preferred` tracks the user's intent
@@ -32,7 +36,7 @@ const AR_TOLERANCE: f64 = 0.02;
 /// Shared state for the fill button.
 pub struct FillSync {
     btn: gtk::Button,
-    /// Whether fill (panscan / bar crop) is currently applied to mpv.
+    /// Whether fill zoom (`panscan`) is currently applied to mpv.
     active: Cell<bool>,
     /// The user's last explicit choice — restored when the button can show again.
     preferred: Cell<bool>,
@@ -43,6 +47,8 @@ pub struct FillSync {
     bars: Rc<BarProbe>,
     /// Last `sync()` visibility verdict — change-only logging.
     last_show: Cell<Option<bool>>,
+    /// Last `video-crop` spec we pushed (`None` = cleared) — change-only apply/log.
+    last_crop_spec: RefCell<Option<String>>,
 }
 
 /// Aspect ratio of the video surface (`GLArea` allocation).
@@ -68,6 +74,7 @@ pub fn build_fill_header(
         resize_hooked: Cell::new(false),
         bars: Rc::new(BarProbe::new()),
         last_show: Cell::new(None),
+        last_crop_spec: RefCell::new(None),
     });
     connect_fill_clicked(&btn, &sync);
     connect_fullscreen_resync(win, &sync);
