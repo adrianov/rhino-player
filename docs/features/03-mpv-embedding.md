@@ -3,9 +3,8 @@
 ---
 status: done
 priority: p0
-layers: [mpv, ui]
-related: [02, 14, 17, 18, 26]
-mpv_props: [time-pos, duration, pause, eof-reached, path, video-timing-offset, save-position-on-quit, watch-later-dir, write-filename-in-watch-later-config]
+layers: [playback, ui]
+related: [02, 14, 17, 18, 26, 32]
 ---
 
 ## Use cases
@@ -21,7 +20,7 @@ The XDG config tree owns its own `watch_later` directory so resume keys match re
 ## Behavior
 
 ```gherkin
-@status:done @priority:p0 @layer:mpv @area:embed
+@status:done @priority:p0 @layer:playback @area:embed
 Feature: Embedded mpv video surface
 
   Scenario: Resume after partial playback
@@ -52,12 +51,19 @@ Feature: Embedded mpv video surface
     When time-pos, pause, duration, or path change
     Then the relevant UI control updates in response to that event only
     And no polling timer rewrites the same value
+
+  Scenario: Playback surface covers the content area
+    Given a video is playing
+    And the player is windowed
+    When the video surface is displayed
+    Then the video surface covers the full content area beneath the chrome
+    And empty bands from surface geometry do not separate the video surface from the content edges
 ```
 
 ## Notes
-- Render context: `libmpv2` `RenderContext`, OpenGL init via `src/mpv_embed/gl_platform.rs`: Linux uses EGL `eglGetProcAddress` + `libGL` for `GL_FRAMEBUFFER_BINDING`; macOS resolves GL after GTK’s `GLArea` realizes using `dlsym(RTLD_DEFAULT, …)` (same `RenderParam::FlipY` path as Linux).
+- Render context: `libmpv2` `RenderContext`, OpenGL init via `src/mpv_embed/gl_platform.rs`: Linux uses EGL `eglGetProcAddress` + `libGL` for `GL_FRAMEBUFFER_BINDING`; macOS resolves GL after GTK’s `GLArea` realizes using `dlsym(RTLD_DEFAULT, …)` (same `RenderParam::FlipY` path as Linux). Engine props used here: `time-pos`, `duration`, `pause`, `eof-reached`, `path`, `video-timing-offset`, `save-position-on-quit`, `watch-later-dir`, `write-filename-in-watch-later-config`.
 - mpv defaults are kept (`video-timing-offset` ≈ 0.05). **`mpv_render_context_report_swap`** is gated (**`SeqCst`**) with **`video-sync=display-resample`**: **Linux** and **macOS** use **`display-resample`** + swaps for plain **`vo=libmpv`** (**`restore_non_smooth_present_opts`**) and for Smooth **`vf`**; the gate is **off** only when **`restore`** falls back to **`audio`**. **`vf clr`** never disables swap reporting before **`video-sync`** leaves **`display-resample`**.
-- **macOS native layer:** **`sync_layer_frame_now`** mirrors the **`GLArea`** allocation onto **`RhinoMpvGlLayer`** (CATransaction with implicit animations disabled). **`connect_notify_local`** on **`width`** / **`height`** plus GTK ticks (also keyed on rounded origin in window space) keep the layer aligned during live resize and chrome reflow; after each geometry commit **`DriverStateHandle::mark_pending`** nudges **`CVDisplayLink`** so **`mpv_render_context_render`** runs at the new viewport instead of stretching an old frame until the next decoded sample. **`vf clr`** from **`apply_mpv_video`** brackets **`DriverStateHandle::begin_vf_teardown`** / **`end_vf_teardown`** so **`display_now`** / CALayer **`mpv`** draws do not overlap vapoursynth teardown (Smooth **off** mid-play).
+- **macOS native layer:** **`sync_layer_frame_now`** sizes **`RhinoMpvGlLayer`** to the **`NSWindow` `contentView` layer bounds** (the gdk-macos compositing root, which is geometry-flipped) — not the GTK **`GLArea`** allocation — so the video fills the player content area under opaque chrome. The **`GLArea`** remains the transparent hit-target / visibility sizer; overlay hide still follows the continue-grid widget. **`connect_notify_local`** on **`width`** / **`height`** plus GTK ticks (keyed on content-view size) keep the layer aligned during live resize and chrome reflow; after each geometry commit **`DriverStateHandle::mark_pending`** nudges **`CVDisplayLink`** so **`mpv_render_context_render`** runs at the new viewport instead of stretching an old frame until the next decoded sample. **`vf clr`** from **`apply_mpv_video`** brackets **`DriverStateHandle::begin_vf_teardown`** / **`end_vf_teardown`** so **`display_now`** / CALayer **`mpv`** draws do not overlap vapoursynth teardown (Smooth **off** mid-play). Failures that skip a sync log **`[rhino] video-layer:`** on plain **`cargo run`**.
 - Audio output: `ao=pulse` on Linux (PipeWire’s Pulse compat works on typical GNOME systems); `ao=coreaudio` on macOS.
 - Wakeup callback installed via `mpv_set_wakeup_callback`; consumer calls `wait_event(0)` until empty.
 - Transport samples position about once per second (`transport_tick`). Seek-thumb updates stay off while the bottom bar is hidden (avoids invalidating animating chrome). When bars show again, `apply_chrome` nudges a tick so thumb and elapsed time match immediately.
