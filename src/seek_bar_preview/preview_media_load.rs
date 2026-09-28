@@ -127,6 +127,16 @@ pub(crate) fn prepare_preview_player(mpv: &Mpv, load: &str) {
         let _ = mpv.command("vf", &["append", scale.as_str()]);
     }
     crate::mpv_embed::set_preview_tracks(mpv);
+    sync_preview_bar_crop(mpv, load);
+}
+
+/// Keep aux `video-crop` aligned with the main strip verdict for `load`.
+/// Re-call after VO settle so remap tracks the preview scale filter.
+pub(crate) fn sync_preview_bar_crop(mpv: &Mpv, load: &str) {
+    crate::black_bars::apply_video_crop(
+        mpv,
+        crate::video_fill::known_bar_crop_for_path(Path::new(load)),
+    );
 }
 
 /// Revert preview mpv decode prefs without GL calls (safe during main `loadfile`).
@@ -134,5 +144,6 @@ pub(crate) fn reset_preview_player_decode(mpv: &Mpv) {
     let _ = mpv.set_property("hwdec", "no");
     let _ = mpv.set_property("hr-seek", false);
     let _ = mpv.command("vf", &["clr", ""]);
+    crate::black_bars::clear_video_crop(mpv);
     crate::mpv_embed::set_preview_tracks(mpv);
 }

@@ -187,12 +187,16 @@ pub(crate) fn set_preview_size(st: &SeekPreviewState) {
     }
 }
 
-/// Display dimensions of the main player's current video (fallback 1080p when unknown).
+/// Display dimensions for the thumbnail frame: strip-free content when known,
+/// else main `dwidth`/`dheight` (fallback 1080p).
 fn main_player_video_dims(player: &Rc<RefCell<Option<MpvBundle>>>) -> (i32, i32) {
     player
         .borrow()
         .as_ref()
         .map(|b| {
+            if let Some(rect) = crate::video_fill::known_bar_crop(&b.mpv) {
+                return (rect.w.max(1) as i32, rect.h.max(1) as i32);
+            }
             let dw = b.mpv.get_property::<i64>("dwidth").unwrap_or(0) as i32;
             let dh = b.mpv.get_property::<i64>("dheight").unwrap_or(0) as i32;
             (dw.max(1), dh.max(1))

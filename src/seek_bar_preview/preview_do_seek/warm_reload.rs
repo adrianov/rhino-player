@@ -56,6 +56,8 @@ fn warm_seek_or_pump_time(
     vo_ready: bool,
 ) -> Option<f64> {
     set_preview_tracks(&pr.mpv);
+    // VO may have settled since prepare — remap strip crop onto the scaled image.
+    sync_preview_bar_crop(&pr.mpv, tgt.load_s);
     let t = cap_preview_seek_time(tgt.t, tgt.content_dur);
     if instant && vo_ready && preview_run_seek(&pr.mpv, tgt.load_s, t, tgt.optical) {
         crate::preview_debug::info(format!(

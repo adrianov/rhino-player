@@ -122,6 +122,8 @@ fn pump_waits_chain_head(load_s: &str, pr: &MpvPreviewGl, n: &Rc<Cell<i32>>, run
 
 /// Final phase of a ready tick: seek the aux player and queue a render on success.
 fn pump_seek_tick(pr: &MpvPreviewGl, gl: &gtk::GLArea, job: &PumpJob, n: &Rc<Cell<i32>>) {
+    // VO is configured here — apply strip crop with a valid preview VO size.
+    sync_preview_bar_crop(&pr.mpv, &job.load_s);
     let t = cap_preview_seek_time(job.seek_sec, job.content_dur);
     let seek_ok = preview_run_seek(&pr.mpv, &job.load_s, t, job.optical);
     crate::preview_debug::log(format!(
