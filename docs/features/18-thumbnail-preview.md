@@ -80,13 +80,22 @@ Feature: Thumbnails: seek bar preview
       | mode          |
       | normal window |
       | full screen   |
+
+  Scenario: Preview matches strip-cropped main picture
+    Given seek bar preview is on
+    And locally previewable media is open
+    And baked-in letterbox strips are known for that media
+    And the main picture is cropped to the strip-free content
+    When the user hovers the seek bar
+    Then the thumbnail uses the same strip crop as the main picture
+    And the thumbnail fills its frame without empty side bands from the full coded frame
 ```
 
 ## Notes
 - Settings: SQLite `seek_bar_preview` defaults to **on**; toggled from main menu Preferences (gio stateful action `seek-bar-preview`).
 - Hover time is `(x / width) * bar_upper` capped by [seek_bar_label_time]. Pointer release on the seek bar (trough or thumb drag) seeks the main player to that hover time, not the raw GtkRange thumb value; preview off falls back to capped thumb time ([`seek_wiring`](../../src/app/seek_wiring.rs)).
 - Linux: preview **`GtkFrame`** on **`outer_ovl`** above the bottom bar. macOS: the same frame is inside an independent non-modal **`GtkPopover`** surface anchored to the seek bar.
-- Thumbnail sizing follows the source aspect and the bounds in `state_and_vo_pump.rs`.
+- Thumbnail sizing follows the **strip-free** content aspect when known (else main `dwidth`/`dheight`) and the bounds in `state_and_vo_pump.rs`. The auxiliary `MpvPreviewGl` applies the same `video-crop` as main (`sync_preview_bar_crop` in `preview_media_load.rs`) so a cinematic-sized frame is not pillarboxed by the full coded picture.
 - Framed preview opens only when the continue strip is hidden (`recent_visible` false) and an openable target is ready — warm preload behind the browse grid does not count as open playback. Returning to browse dismisses any open framed preview (`dismiss_for_browse`).
 - Motion coalescing uses `PREVIEW_DEBOUNCE`; the debounce and frame pump run at default GLib priority.
 - The `Progress Bar Preview` row is the only preview-related preference; no separate preferences window.

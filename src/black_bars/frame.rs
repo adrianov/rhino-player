@@ -69,15 +69,18 @@ pub fn detect_packed_crop(
     };
     let (top, ch) = vertical_content(&p, w, h);
     let (left, cw) = horizontal_content(&p, w, h);
-    if !crop_meaningful(w as i64, h as i64, cw as i64, ch as i64) {
+    accept_packed_crop(w as i64, h as i64, left as i64, top as i64, cw as i64, ch as i64)
+}
+
+fn accept_packed_crop(fw: i64, fh: i64, x: i64, y: i64, cw: i64, ch: i64) -> Option<CropRect> {
+    if !crop_meaningful(fw, fh, cw, ch) {
         return None;
     }
-    Some(CropRect {
-        x: left as i64,
-        y: top as i64,
-        w: cw as i64,
-        h: ch as i64,
-    })
+    if let Err(reason) = strip_geometry_ok(fw, fh, x, y, cw, ch) {
+        eprintln!("[rhino] bars: packed crop rejected ({reason}) {cw}x{ch}+{x}+{y} on {fw}x{fh}");
+        return None;
+    }
+    Some(CropRect { x, y, w: cw, h: ch })
 }
 
 fn channel_order(fmt: &str) -> Option<(usize, usize, usize)> {

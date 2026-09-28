@@ -1,9 +1,9 @@
 // Native traffic lights for the compact ToolbarView top bar: visibility + frame sync.
 //
 // Y is always computed from fixed TOP_BAR_H (CSS compact header) — never from live
-// reveal height. X is shifted once from AppKit defaults and cached so compositing
-// refresh cannot keep subtracting. Sync is a no-op while buttons are hidden so a
-// mid-hide compositing pass cannot lock a bad X sample.
+// reveal height. X uses AppKit’s slot with a minimum leading inset, cached once so
+// compositing refresh cannot keep adjusting. Sync is a no-op while buttons are
+// hidden so a mid-hide compositing pass cannot lock a bad X sample.
 
 use objc2_foundation::NSPoint;
 
@@ -11,19 +11,17 @@ use objc2_foundation::NSPoint;
 /// (`theme/shell.css` / `macos_header_compact.css`).
 const TOP_BAR_H: f64 = 34.0;
 
-/// AppKit’s default stoplight X sits too far right against our compact header chrome.
-const TRAFFIC_LIGHTS_SHIFT_LEFT: f64 = 8.0;
+/// Minimum leading inset for the close button (titlebar coords). An earlier
+/// fixed left-shift parked the lights on the window edge (~0–4 pt); keep AppKit’s
+/// slot and only nudge up when a sample lands too close to the border.
+const TRAFFIC_LIGHTS_MIN_X: f64 = 12.0;
 
 thread_local! {
     static TRAFFIC_LIGHT_XS: RefCell<Option<(f64, f64, f64)>> = const { RefCell::new(None) };
 }
 
-fn shifted_x(x: f64) -> f64 {
-    if x >= TRAFFIC_LIGHTS_SHIFT_LEFT {
-        (x - TRAFFIC_LIGHTS_SHIFT_LEFT).max(0.0)
-    } else {
-        x
-    }
+fn leading_x(x: f64) -> f64 {
+    x.max(TRAFFIC_LIGHTS_MIN_X)
 }
 
 fn stoplight_y(nswin: &NSWindow) -> Option<f64> {
@@ -46,10 +44,12 @@ fn remember_xs(nswin: &NSWindow) -> Option<(f64, f64, f64)> {
     let close = nswin.standardWindowButton(NSWindowButton::CloseButton)?;
     let mini = nswin.standardWindowButton(NSWindowButton::MiniaturizeButton)?;
     let zoom = nswin.standardWindowButton(NSWindowButton::ZoomButton)?;
+    let close_x = close.frame().origin.x;
+    let nudge = (TRAFFIC_LIGHTS_MIN_X - close_x).max(0.0);
     Some((
-        shifted_x(close.frame().origin.x),
-        shifted_x(mini.frame().origin.x),
-        shifted_x(zoom.frame().origin.x),
+        leading_x(close_x),
+        mini.frame().origin.x + nudge,
+        zoom.frame().origin.x + nudge,
     ))
 }
 

@@ -15,7 +15,9 @@ related: [17, 10]
 
 ## Description
 
-When a video is open and the **current viewport** aspect ratio differs from the picture’s aspect ratio **after baked-in black strips are removed** (or from the full frame when strips are not detected), a **Fill Screen** button appears in the header bar. Activating it zooms and crops so the picture covers the viewport: letterboxing/pillarboxing is removed by fill-zoom, and baked-in strips are cropped out so they leave the viewport. The button acts as a toggle; tapping again restores the fitted view. The button is hidden when the viewport already matches that content aspect (no useful fill).
+Baked-in black strips are removed from the picture as soon as they are known (live detection or a fresh cached result), including in the default fitted view. Window fit and post-resize snap already use that strip-free content aspect; cropping the picture to match is what lets the content fill that window without side bands.
+
+When the **current viewport** aspect still differs from that content aspect, a **Fill Screen** button appears in the header bar. Activating it zooms so the picture covers the viewport (letterboxing/pillarboxing from a mismatched window or fullscreen). The button acts as a toggle; tapping again restores the fitted view. The button is hidden when the viewport already matches the content aspect (no useful fill).
 
 ## Behavior
 
@@ -52,22 +54,23 @@ Feature: Fill Screen
 
   Scenario: Activate fill
     Given the Fill Screen button is visible and inactive
+    And baked-in strips are already cropped when known
     When the user clicks the Fill Screen button
     Then the video zooms to fill the entire viewport
     And the button changes to the active state
 
-  Scenario: Activate fill crops baked-in strips
-    Given the Fill Screen button is visible because strip removal changes the content aspect
-    And the button is inactive
-    When the user clicks the Fill Screen button
-    Then the picture enlarges so the black strips leave the viewport
-    And the button changes to the active state
+  Scenario: Known strips stay cropped in the fitted view
+    Given strip detection finished with a content crop
+    And the Fill Screen button is inactive or hidden
+    When the video is shown in the fitted view
+    Then the baked-in strips are cropped out of the picture
+    And a window sized to that content aspect shows the picture without empty side bands from the full frame
 
   Scenario: Deactivate fill
     Given the Fill Screen button is in the active state
     When the user clicks the Fill Screen button
     Then the video returns to the fitted (letterboxed/pillarboxed) view
-    And baked-in strips are visible again if present in the frames
+    And known baked-in strips remain cropped out of the picture
     And the button returns to the inactive state
 
   Scenario: Fill follows fullscreen exit when windowed viewport still mismatches
@@ -156,6 +159,50 @@ Feature: Fill Screen
     And detection retries a bounded number of times
     And Fill Screen button visibility follows the real strips once a reading succeeds
 
+  Scenario: Both side stripes are never a strip result
+    Given strip detection reports black bands on the left and on the right of the frame
+    When the reading is classified
+    Then it is rejected as not a proper strip crop
+    And no strip result is written to the persistent store
+    And detection retries a bounded number of times
+
+  Scenario: Unequal top and bottom stripes are never a strip result
+    Given strip detection reports a top black band and a bottom black band
+    And those bands differ in height
+    When the reading is classified
+    Then it is rejected as not a proper strip crop
+    And no strip result is written to the persistent store
+    And detection retries a bounded number of times
+
+  Scenario: Dark scene content is not mistaken for side strips
+    Given strip detection runs on a dark title or cave scene
+    And a large dark region sits on one side of the picture as scene content
+    When the reading would crop that side as a strip
+    Then it is rejected as not a proper strip crop
+    And no strip result is written to the persistent store
+    And detection retries a bounded number of times
+
+  Scenario: Proper letterbox strips are still accepted
+    Given strip detection reports full-width top and bottom black bands of equal height
+    And neither side has a black band
+    When the reading is classified
+    Then the strip crop is accepted and stored
+
+  Scenario: Implausible cached strip result is rejected and re-probed
+    Given the persistent store holds a strip crop that is not letterbox-shaped
+    # e.g. a side crop or unequal top/bottom from an older probe
+    When that unchanged video is opened again
+    Then the cached crop is rejected
+    And strip detection runs again
+    And a proper letterbox result is stored when the reading succeeds
+
+  Scenario: Late strip crop refits the windowed picture
+    Given strip detection was not cached for a landscape video
+    And fit-on-open used the full-frame aspect
+    When strip detection finishes with a content crop
+    Then the baked-in strips are cropped out of the picture
+    And the window is fitted or nudged to that content aspect so empty bands from the full frame do not remain
+
   Scenario: Paused start defers strip detection
     Given a video opened while playback is paused
     When strip detection would start
@@ -173,19 +220,19 @@ Feature: Fill Screen
 ## Notes
 
 - Implemented in `src/video_fill.rs` (+ `fill_sync`, + `fill_sync/probe.rs` kick/restore wiring); baked-in strips owned by `src/black_bars` (packed `frame` + lavfi `probe`, + `probe.rs` scheduling, + `probe_finish.rs` gather completion/verdict, + `probe_defer.rs` rescheduling chains).
-- Aspect fill uses mpv `panscan`: `0.0` = fitted (default), `1.0` = fills the video surface, crops symmetrically.
-- Baked-in strips: temporary labeled `cropdetect` vf (FFmpeg lavfi), then mpv `video-crop` (`WxH+X+Y`) while Fill is on; cleared when Fill is off or media changes. Probe timing / shared crop guards live in `black_bars` (`DETECT_DELAY`, `pump_bar_probe` on reconfig, `READY_RETRY` / `READY_RETRY_MAX` fallback). Cropdetect is **appended** (`vf add`) so it runs after Bob deinterlace when present. If a probe finished before Bob attached, `VideoReconfig` / `FileLoaded` re-arms detection once (`BarProbe::needs_deint_reprobe`). Metadata via `MPV_FORMAT_NODE` on `vf-metadata/<label>` only — not per-key `lavfi.cropdetect.*` props (libmpv NULL-tags SIGSEGV). Fill sync leaves panscan alone while decode size (`dwidth`/`dheight`) is briefly unavailable (Bob/reconfig).
-- Crop rect space: the cache (`media.bar_crop`) and `BarState::Crop` are canonical in **decoded-frame space** (`video-params`), while `video-crop` applies to the image the filter chain feeds the VO (`video-out-params`) — Smooth60's size cap downscales that image (e.g. 1552×872 for a 1920×1080 decode), so mpv rejects an unscaled decode-space rect. Mapping lives in `black_bars/crop_space.rs` (`chain_sizes`, `scale_rect_between`, `crop_rect_in_vo_space`): `take_probe_result` snapshots the size pair beside the cropdetect metadata (before teardown) and `probe_finish::meta_verdict` maps the verdict to decode space with it — validity is checked against `ChainSizes.vo` (`crop_from_meta` / `crop_meta_in_frame`), so a clean file probed under a downscaling chain still reads as `Clean`, and a gather with metadata but no readable pair is dropped (`[rhino] bars: probe dropped:`) instead of caching. `apply_video_crop` scales the cached rect into the current VO image.
+- Aspect fill uses mpv `panscan`: `0.0` = fitted (default), `1.0` = fills the video surface, crops symmetrically. Fill no longer gates strip crop.
+- Baked-in strips: temporary labeled `cropdetect` vf (FFmpeg lavfi), then mpv `video-crop` (`WxH+X+Y`) whenever strips are known (`BarState::Crop`) — fitted and filled alike — so a window snapped to the strip-free aspect is not pillarboxed by the full coded frame. Cleared on media change and when the probe settles clean. Probe timing / shared crop guards live in `black_bars` (`DETECT_DELAY`, `pump_bar_probe` on reconfig, `READY_RETRY` / `READY_RETRY_MAX` fallback). Cropdetect is **appended** (`vf add`) so it runs after Bob deinterlace when present. If a probe finished before Bob attached, `VideoReconfig` / `FileLoaded` re-arms detection once (`BarProbe::needs_deint_reprobe`). Metadata via `MPV_FORMAT_NODE` on `vf-metadata/<label>` only — not per-key `lavfi.cropdetect.*` props (libmpv NULL-tags SIGSEGV). Fill sync leaves panscan alone while decode size (`dwidth`/`dheight`) is briefly unavailable (Bob/reconfig).
+- Crop rect space: the cache (`media.bar_crop`) and `BarState::Crop` are canonical in **decoded-frame space** (`video-params` / coded `width`×`height`), while `video-crop` applies to the image the filter chain feeds the VO (`video-out-params`) — Smooth60's size cap downscales that image (e.g. 1696×952 for a 1920×1080 decode), so mpv rejects an unscaled decode-space rect. Mapping lives in `black_bars/crop_space.rs` (`scale_rect_between`, `crop_rect_in_vo_space`): if the rect already fits the VO image it is used as-is; otherwise it is scaled from a containing decode/coded space onto the current VO size (logs `[rhino] bars: video-crop map …`). `FillSync::sync` re-applies the crop after Smooth/reconfig so the mapped property tracks VO size. `take_probe_result` snapshots the size pair beside the cropdetect metadata (before teardown) and `probe_finish::meta_verdict` maps the verdict to decode space with it — validity is checked against `ChainSizes.vo` (`crop_from_meta` / `crop_meta_in_frame`), so a clean file probed under a downscaling chain still reads as `Clean`, and a gather with metadata but no readable pair is dropped (`[rhino] bars: probe dropped:`) instead of caching.
 - Non-copy hardware decode is paused for the probe only (same idea as mpv `autocrop.lua`); restored afterward.
 - Aspect ratio tolerance constant in `src/video_fill.rs` (`AR_TOLERANCE`).
 - Viewport aspect from the video surface widget size (`GLArea`); content aspect from strip `CropRect` when known, else mpv `dwidth` / `dheight`.
 - Button icon: `view-fill-symbolic` (`data/icons/hicolor/scalable/actions/view-fill-symbolic.svg`).
-- Button visibility is refreshed by `video_fill::request_fill_resync()` from `VideoReconfig` and `FileLoaded`, on fullscreen changes, and on video-surface resize after `bind_fill_viewport`; strip probe starts from FileLoaded / path reset unless a fresh cached result exists.
+- Button visibility is refreshed by `video_fill::request_fill_resync()` from `VideoReconfig` and `FileLoaded`, on fullscreen changes, and on video-surface resize after `bind_fill_viewport`; strip probe starts from FileLoaded / path reset unless a fresh cached result exists. Cached crops are re-checked with the same letterbox geometry gate (`crop_geometry_ok`) before restore / `known_bar_crop` use; implausible rows are skipped and a live probe runs (`[rhino] bars: cached crop rejected …`). After a live probe accepts a crop, `request_after_bars_fit` re-snaps the landscape window (see feature 17) so early fit-on-open is not left at the full-frame aspect.
 - Visibility logging is change-only (`FillSync::last_show`): one `[rhino] fill:` line per verdict flip, not per resize/reconfig burst; media changes additionally log one `fill: reset pref … (stored=… carry=…)` line from `reset_preferred`.
 - Fill choice persists per video in `media.fill_screen` (`db::media_fill_screen` /
   `db::media_save_fill_screen`); written only on an explicit button toggle, restored on media open when the viewport can fill.
 - Fill intent carries across sibling transitions: `video_fill::request_fill_carry(&target)` is set before the load in `advance_to_next_sibling` (EOF) and `load_sibling_pick` (buttons / shortcuts / MPRIS / Now Playing) and consumed by `FillSync::reset_preferred` — the carry applies only when the media that actually opened is the bound target (`paths_same_file`), so a failed or abandoned sibling load can never leak it onto an unrelated open. A sibling without its own `media.fill_screen` row inherits the previous video's intent (on or off); an explicit stored row still wins, and any unrelated open keeps the fitted default.
 - Strip probe result persists per video in `media.bar_crop` + `media.bar_crop_mtime_ns` + `media.bar_crop_size` (`db::media_bar_crop` / `db::media_save_bar_crop`): `c` = probed clean (no strips), `d:c` = clean with Bob in vf, `WxH+X+Y` / `d:WxH+X+Y` = crop (`d:` = Bob seen). Reused only when nanosecond mtime and size still match; a cached pre-Bob result still re-arms when Bob attaches later.
-- **No metadata is never a clean verdict**: a gather that ends without readable `cropdetect` metadata (paused start, vf rebuild mid-gather, failed insert, decode size late) stays `Pending` — `black_bars::probe_defer` retries on a bounded chain (`BAR_META_RETRIES` × `META_RETRY`) and never writes the store; `VideoReconfig` (`dispatch_sync_ui_media_change`) re-arms it via `video_fill::request_fill_resync()`, and unpause (`on_pause_event`) via `request_fill_resync_after_unpause()`. A metadata read is only a probed-clean outcome when it reports the full chain-output frame; readings outside the measured frame (`crop_meta_in_frame`) or sub-region lock-ons from near-black content (`crop_meaningful`) are implausible — retried bounded, never cached (`classify_crop_meta` in `meta_verdict`).
+- **No metadata is never a clean verdict**: a gather that ends without readable `cropdetect` metadata (paused start, vf rebuild mid-gather, failed insert, decode size late) stays `Pending` — `black_bars::probe_defer` retries on a bounded chain (`BAR_META_RETRIES` × `META_RETRY`) and never writes the store; `VideoReconfig` (`dispatch_sync_ui_media_change`) re-arms it via `video_fill::request_fill_resync()`, and unpause (`on_pause_event`) via `request_fill_resync_after_unpause()`. A metadata read is only a probed-clean outcome when it reports the full chain-output frame; readings outside the measured frame (`crop_meta_in_frame`), sub-region lock-ons from near-black content (`crop_meaningful`), or impossible strip geometry (`strip_geometry_ok`) are implausible — retried bounded, never cached (`classify_crop_meta` in `meta_verdict`). Geometry rules (letterbox-shaped only): reject left **and** right bars together; reject when top vs bottom bar heights differ beyond tolerance; reject any meaningful side bar (dark pillars / title cards). Proper cinematic bars stay full-width with equal top/bottom. Rejections log `[rhino] bars: probe rejected …` with the reason on plain `cargo run`. The same geometry gate runs on packed-frame thumb crops (`detect_packed_crop`).
 - The probe's own teardown (cropdetect removal, hwdec restore) generates `VideoReconfig`; `pump_bar_probe` suppresses reconfigs whose vf chain matches the settled post-cleanup chain (`BarProbe::settle_cleanup_vf`) — but only inside a short settle window (`RECONFIG_SETTLE_WINDOW`), so a later decoder readiness change or filter rebuild that keeps the same chain re-arms the probe. The unpause resync (`request_fill_resync_after_unpause`) bypasses that suppression — playback state changed even when the chain did not.
 - Legacy `media.bar_crop` rows (`""` / `d`) predate the probed-clean marker and are decoded as unprobed (`db::decode_bar_crop` → `None`), so the next open re-probes once and rewrites the row in the new format; rows written before the marker were only ever produced from real metadata, so crop rows stay trusted (still validated via `CropRect::parse_video_crop`).

@@ -12,6 +12,9 @@ use crate::mpv_embed::MpvBundle;
 const MIN_CONTENT_FRAC: f64 = 0.5;
 /// Ignore strips thinner than this fraction of the frame.
 const MIN_BAR_FRAC: f64 = 0.02;
+/// Top vs bottom bar heights may differ by this fraction of frame height (plus
+/// cropdetect rounding) before the pair is rejected as unequal.
+const BAR_PAIR_TOL_FRAC: f64 = 0.01;
 /// How long a probe's own teardown may swallow matching reconfigs. Scoped so a
 /// later decoder readiness change or filter rebuild that keeps the same vf
 /// chain still re-arms the probe instead of being mistaken for cleanup.
@@ -288,6 +291,49 @@ fn crop_meaningful(fw: i64, fh: i64, cw: i64, ch: i64) -> bool {
         return false;
     }
     (cw as f64) >= fw as f64 * MIN_CONTENT_FRAC && (ch as f64) >= fh as f64 * MIN_CONTENT_FRAC
+}
+
+/// Edge bar thickness for a crop rect in `(fw, fh)`: left, right, top, bottom.
+fn crop_bar_edges(fw: i64, fh: i64, x: i64, y: i64, w: i64, h: i64) -> (i64, i64, i64, i64) {
+    (x, fw - x - w, y, fh - y - h)
+}
+
+fn bar_present(px: i64, span: i64) -> bool {
+    span > 0 && (px as f64) >= (span as f64) * MIN_BAR_FRAC
+}
+
+fn bar_pair_tol(span: i64) -> i64 {
+    let by_frac = ((span as f64) * BAR_PAIR_TOL_FRAC).round() as i64;
+    // DETECT_ROUND lives in the probe module; keep a small absolute floor here.
+    by_frac.max(2)
+}
+
+/// Proper baked-in bars are letterbox-shaped: full width, equal top/bottom.
+/// Rejects left+right pairs, unequal top/bottom, and any side bar (dark pillars).
+pub(crate) fn crop_geometry_ok(
+    fw: i64,
+    fh: i64,
+    rect: CropRect,
+) -> Result<(), &'static str> {
+    strip_geometry_ok(fw, fh, rect.x, rect.y, rect.w, rect.h)
+}
+
+fn strip_geometry_ok(fw: i64, fh: i64, x: i64, y: i64, w: i64, h: i64) -> Result<(), &'static str> {
+    let (left, right, top, bottom) = crop_bar_edges(fw, fh, x, y, w, h);
+    let has_l = bar_present(left, fw);
+    let has_r = bar_present(right, fw);
+    if has_l && has_r {
+        return Err("left+right stripes");
+    }
+    if (top - bottom).abs() > bar_pair_tol(fh) {
+        return Err("unequal top/bottom stripes");
+    }
+    // Side bars (even one side) are almost never real letterbox packing — dark
+    // title/cave pillars lock cropdetect onto scene content.
+    if has_l || has_r {
+        return Err("side stripe (not letterbox)");
+    }
+    Ok(())
 }
 
 include!("black_bars/frame.rs");

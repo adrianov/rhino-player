@@ -21,7 +21,7 @@ impl FillSync {
         self.sync();
     }
 
-    /// Recheck visibility; apply or reset fill to match user preference.
+    /// Recheck visibility; keep strip crop applied; match panscan to preference.
     pub(super) fn sync(&self) {
         let show = self.visibility_show();
         self.log_show_change(show);
@@ -29,14 +29,17 @@ impl FillSync {
         let Some(show) = show else {
             return;
         };
+        // Window fit/snap uses strip-free content AR; crop must follow even when Fill is off,
+        // otherwise a cinematic window pillarboxes the full coded frame and Fill stays hidden.
+        self.sync_bar_crop();
         if show {
             let want = self.preferred.get();
             // Re-apply when on so a late strip crop attaches; skip no-op fitted syncs.
             if want || self.active.get() {
-                self.apply_fill(want);
+                self.apply_panscan(want);
             }
         } else if self.active.get() {
-            self.reset_fill_view();
+            self.apply_panscan(false);
         }
         self.btn.set_visible(show);
     }
@@ -82,11 +85,12 @@ impl FillSync {
         );
         self.preferred.set(next);
         self.bars.invalidate();
+        *self.last_crop_spec.borrow_mut() = None;
         if let Some(b) = self.player.borrow().as_ref() {
             clear_video_crop(&b.mpv);
         }
         if self.active.get() {
-            self.reset_fill_view();
+            self.apply_panscan(false);
         }
         self.btn.set_visible(false);
         self.kick_bar_probe();
@@ -105,10 +109,12 @@ impl FillSync {
             BarState::Pending => self.resume_bar_probe(super::take_resync_after_unpause()),
             BarState::Clean | BarState::Crop(_) => {
                 super::take_resync_after_unpause();
-                if let Some(b) = self.player.borrow().as_ref() {
-                    if self.bars.needs_deint_reprobe(&b.mpv) {
-                        eprintln!("[rhino] bars: re-probe after Bob deinterlace attached");
-                        self.kick_bar_probe_live();
+                if !self.reject_bad_cached_crop() {
+                    if let Some(b) = self.player.borrow().as_ref() {
+                        if self.bars.needs_deint_reprobe(&b.mpv) {
+                            eprintln!("[rhino] bars: re-probe after Bob deinterlace attached");
+                            self.kick_bar_probe_live();
+                        }
                     }
                 }
             }
@@ -127,20 +133,49 @@ impl FillSync {
         })
     }
 
-    pub(super) fn apply_fill(&self, on: bool) {
-        self.active.set(on);
-        self.preferred.set(on);
-        if let Some(b) = self.player.borrow().as_ref() {
-            if on {
-                apply_video_crop(&b.mpv, self.bars.crop());
-                if let Err(e) = b.mpv.set_property("panscan", 1.0f64) {
-                    eprintln!("[rhino] fill: panscan set failed: {e}");
+    /// Keep `video-crop` aligned with the strip probe: apply on `Crop`, clear on `Clean`.
+    /// Leave `Unknown` / `Pending` alone so a mid-probe or just-reset media is not stomped.
+    /// Re-apply on every sync while `Crop` so VO remapping tracks Smooth/reconfig; log change-only.
+    fn sync_bar_crop(&self) {
+        let player = self.player.borrow();
+        let Some(b) = player.as_ref() else {
+            return;
+        };
+        match self.bars.state.get() {
+            BarState::Crop(rect) => {
+                // Re-apply every sync so VO remapping tracks Smooth/reconfig; log once per spec.
+                let spec = rect.as_video_crop();
+                let first = self.last_crop_spec.borrow().as_deref() != Some(spec.as_str());
+                apply_video_crop(&b.mpv, Some(rect));
+                if first {
+                    eprintln!("[rhino] bars: video-crop applied {spec} (fitted or fill)");
+                    *self.last_crop_spec.borrow_mut() = Some(spec);
                 }
-            } else {
+            }
+            BarState::Clean => {
+                if self.last_crop_spec.borrow().is_none() {
+                    return;
+                }
                 clear_video_crop(&b.mpv);
-                if let Err(e) = b.mpv.set_property("panscan", 0.0f64) {
-                    eprintln!("[rhino] fill: panscan set failed: {e}");
-                }
+                eprintln!("[rhino] bars: video-crop cleared (probe clean)");
+                *self.last_crop_spec.borrow_mut() = None;
+            }
+            BarState::Unknown | BarState::Pending => {}
+        }
+    }
+
+    pub(super) fn apply_fill(&self, on: bool) {
+        self.preferred.set(on);
+        self.sync_bar_crop();
+        self.apply_panscan(on);
+    }
+
+    fn apply_panscan(&self, on: bool) {
+        self.active.set(on);
+        if let Some(b) = self.player.borrow().as_ref() {
+            let pan = if on { 1.0f64 } else { 0.0f64 };
+            if let Err(e) = b.mpv.set_property("panscan", pan) {
+                eprintln!("[rhino] fill: panscan set failed: {e}");
             }
         }
         if on {
@@ -149,14 +184,4 @@ impl FillSync {
             self.btn.remove_css_class("rp-fill-on");
         }
     }
-
-    fn reset_fill_view(&self) {
-        self.active.set(false);
-        if let Some(b) = self.player.borrow().as_ref() {
-            clear_video_crop(&b.mpv);
-            let _ = b.mpv.set_property("panscan", 0.0f64);
-        }
-        self.btn.remove_css_class("rp-fill-on");
-    }
 }
-
