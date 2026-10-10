@@ -15,7 +15,7 @@ related: [17, 10]
 
 ## Description
 
-When a video is open and the **current viewport** aspect ratio differs from the picture’s aspect ratio **after baked-in black strips are removed** (or from the full frame when strips are not detected), a **Fill Screen** button appears in the header bar. Activating it zooms and crops so the picture covers the viewport: letterboxing/pillarboxing is removed by fill-zoom, and baked-in strips are cropped out so they leave the viewport. The button acts as a toggle; tapping again restores the fitted view. The button is hidden when the viewport already matches that content aspect (no useful fill).
+When a video is open and the **current viewport** aspect ratio differs from the picture’s aspect ratio **after baked-in black strips are removed** (or from the full frame when strips are not detected), a **Fill Screen** button appears in the header bar. Activating it zooms and crops so the picture covers the viewport: letterboxing/pillarboxing is removed by fill-zoom, and baked-in strips are cropped out so they leave the viewport. The button acts as a toggle; tapping again restores the fitted view. The button is hidden when the viewport already matches that content aspect. In that case the picture fills the viewport on its own: baked-in strips are cropped away so they do not leave a margin around the image.
 
 ## Behavior
 
@@ -50,6 +50,14 @@ Feature: Fill Screen
     When the player shows the video
     Then the Fill Screen button is not visible
 
+  Scenario: Picture fills a viewport that matches the content aspect
+    Given the frames contain detectable black strips
+    And the viewport aspect ratio matches the picture aspect ratio after those strips are removed
+    When the player shows the video
+    Then the picture fills the viewport
+    And the black strips stay outside the viewport
+    And the Fill Screen button is not visible
+
   Scenario: Activate fill
     Given the Fill Screen button is visible and inactive
     When the user clicks the Fill Screen button
@@ -77,10 +85,12 @@ Feature: Fill Screen
     Then the filled view remains
     And the Fill Screen button stays visible and active
 
-  Scenario: Fill resets when the viewport matches content aspect
+  Scenario: Fill zoom ends when the viewport matches the content aspect
     Given the Fill Screen button is in the active state
+    And the frames contain detectable black strips
     When the viewport aspect ratio matches the content aspect ratio
-    Then the fitted view is restored
+    Then the picture fills the viewport without extra zoom
+    And the black strips stay outside the viewport
     And the button is no longer visible
 
   Scenario Outline: Fill carries to an adjacent sibling
@@ -97,12 +107,14 @@ Feature: Fill Screen
 
   Scenario: Fitted choice carries to an adjacent sibling
     Given the Fill Screen button is not in the active state
+    And the next sibling's content aspect differs from the viewport
     When the next sibling video starts after playback ends
     Then the fitted view is shown until fill is activated
 
   Scenario: Sibling's remembered fitted choice wins over carried fill
     Given the Fill Screen button is in the active state
     And the next sibling has a remembered fitted choice
+    And that sibling's content aspect differs from the viewport
     When the next sibling starts after playback ends
     Then the fitted view is shown
     And the Fill Screen button is inactive
@@ -110,7 +122,8 @@ Feature: Fill Screen
   Scenario: Fill resets when an unrelated video opens
     Given the Fill Screen button is in the active state
     When a new video that is neither the next nor the previous sibling starts playing
-    Then the fitted view is restored
+    Then fill zoom is off
+    And the fitted view is shown when the viewport aspect differs from the picture
     And the button visibility reflects the new video's content aspect and the viewport
 
   Scenario: Fill choice remembered for its video
@@ -172,9 +185,9 @@ Feature: Fill Screen
 
 ## Notes
 
-- Implemented in `src/video_fill.rs` (+ `fill_sync`, + `fill_sync/probe.rs` kick/restore wiring); baked-in strips owned by `src/black_bars` (packed `frame` + lavfi `probe`, + `probe.rs` scheduling, + `probe_finish.rs` gather completion/verdict, + `probe_defer.rs` rescheduling chains).
+- Implemented in `src/video_fill.rs` (+ `fill_sync`, + `fill_sync/picture.rs` crop-when-matched, + `fill_sync/probe.rs` kick/restore wiring); baked-in strips owned by `src/black_bars` (packed `frame` + lavfi `probe`, + `probe.rs` scheduling, + `probe_finish.rs` gather completion/verdict, + `probe_defer.rs` rescheduling chains).
 - Aspect fill uses mpv `panscan`: `0.0` = fitted (default), `1.0` = fills the video surface, crops symmetrically.
-- Baked-in strips: temporary labeled `cropdetect` vf (FFmpeg lavfi), then mpv `video-crop` (`WxH+X+Y`) while Fill is on; cleared when Fill is off or media changes. Probe timing / shared crop guards live in `black_bars` (`DETECT_DELAY`, `pump_bar_probe` on reconfig, `READY_RETRY` / `READY_RETRY_MAX` fallback). Cropdetect is **appended** (`vf add`) so it runs after Bob deinterlace when present. If a probe finished before Bob attached, `VideoReconfig` / `FileLoaded` re-arms detection once (`BarProbe::needs_deint_reprobe`). Metadata via `MPV_FORMAT_NODE` on `vf-metadata/<label>` only — not per-key `lavfi.cropdetect.*` props (libmpv NULL-tags SIGSEGV). Fill sync leaves panscan alone while decode size (`dwidth`/`dheight`) is briefly unavailable (Bob/reconfig).
+- Baked-in strips: temporary labeled `cropdetect` vf (FFmpeg lavfi), then mpv `video-crop` (`WxH+X+Y`) while Fill is on, and also when the viewport already matches the picture aspect (`panscan` stays `0` so the cropped picture fills that window). Cleared when Fill is off and the viewport does not match, or when media changes. Probe timing / shared crop guards live in `black_bars` (`DETECT_DELAY`, `pump_bar_probe` on reconfig, `READY_RETRY` / `READY_RETRY_MAX` fallback). Cropdetect is **appended** (`vf add`) so it runs after Bob deinterlace when present. If a probe finished before Bob attached, `VideoReconfig` / `FileLoaded` re-arms detection once (`BarProbe::needs_deint_reprobe`). Metadata via `MPV_FORMAT_NODE` on `vf-metadata/<label>` only — not per-key `lavfi.cropdetect.*` props (libmpv NULL-tags SIGSEGV). Fill sync leaves panscan alone while decode size (`dwidth`/`dheight`) is briefly unavailable (Bob/reconfig).
 - Crop rect space: the cache (`media.bar_crop`) and `BarState::Crop` are canonical in **decoded-frame space** (`video-params`), while `video-crop` applies to the image the filter chain feeds the VO (`video-out-params`) — Smooth60's size cap downscales that image (e.g. 1552×872 for a 1920×1080 decode), so mpv rejects an unscaled decode-space rect. Mapping lives in `black_bars/crop_space.rs` (`chain_sizes`, `scale_rect_between`, `crop_rect_in_vo_space`): `take_probe_result` snapshots the size pair beside the cropdetect metadata (before teardown) and `probe_finish::meta_verdict` maps the verdict to decode space with it — validity is checked against `ChainSizes.vo` (`crop_from_meta` / `crop_meta_in_frame`), so a clean file probed under a downscaling chain still reads as `Clean`, and a gather with metadata but no readable pair is dropped (`[rhino] bars: probe dropped:`) instead of caching. `apply_video_crop` scales the cached rect into the current VO image.
 - Non-copy hardware decode is paused for the probe only (same idea as mpv `autocrop.lua`); restored afterward.
 - Aspect ratio tolerance constant in `src/video_fill.rs` (`AR_TOLERANCE`).

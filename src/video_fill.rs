@@ -1,5 +1,7 @@
 //! Fill toggle: zoom video to cover the **viewport** (`panscan`) and crop baked-in
-//! black strips (`video-crop` from a short `cropdetect` probe).
+//! black strips (`video-crop` from a short `cropdetect` probe). When the viewport
+//! already matches the picture, the strips are cropped with no extra zoom so the
+//! picture fills the window.
 //!
 //! The header button shows when the video surface aspect differs from the content
 //! aspect (strip crop when known, else decode size). Call [`bind_fill_viewport`]
@@ -32,8 +34,11 @@ const AR_TOLERANCE: f64 = 0.02;
 /// Shared state for the fill button.
 pub struct FillSync {
     btn: gtk::Button,
-    /// Whether fill (panscan / bar crop) is currently applied to mpv.
+    /// Whether fill zoom (`panscan`) is currently applied to mpv.
     active: Cell<bool>,
+    /// Last picture-crop key applied for a matching viewport.
+    /// `None` means this path has not cropped the frame.
+    applied: RefCell<Option<String>>,
     /// The user's last explicit choice — restored when the button can show again.
     preferred: Cell<bool>,
     player: Rc<RefCell<Option<MpvBundle>>>,
@@ -62,6 +67,7 @@ pub fn build_fill_header(
     let sync = Rc::new(FillSync {
         btn: btn.clone(),
         active: Cell::new(false),
+        applied: RefCell::new(None),
         preferred: Cell::new(false),
         player: Rc::clone(player),
         viewport: RefCell::new(None),

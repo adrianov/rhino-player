@@ -5,6 +5,7 @@ use crate::black_bars::{apply_video_crop, clear_video_crop, BarState};
 use gtk::prelude::*;
 use std::rc::Rc;
 
+mod picture;
 mod probe;
 
 impl FillSync {
@@ -26,19 +27,10 @@ impl FillSync {
         let show = self.visibility_show();
         self.log_show_change(show);
         // Unknown content AR (decode size missing during Bob/reconfig) — do not clear panscan.
-        let Some(show) = show else {
+        let Some(mismatch) = show else {
             return;
         };
-        if show {
-            let want = self.preferred.get();
-            // Re-apply when on so a late strip crop attaches; skip no-op fitted syncs.
-            if want || self.active.get() {
-                self.apply_fill(want);
-            }
-        } else if self.active.get() {
-            self.reset_fill_view();
-        }
-        self.btn.set_visible(show);
+        self.sync_view(mismatch);
     }
 
     /// `Some(true)` when the viewport aspect diverges from content aspect beyond tolerance.
@@ -82,12 +74,7 @@ impl FillSync {
         );
         self.preferred.set(next);
         self.bars.invalidate();
-        if let Some(b) = self.player.borrow().as_ref() {
-            clear_video_crop(&b.mpv);
-        }
-        if self.active.get() {
-            self.reset_fill_view();
-        }
+        self.reset_fill_view();
         self.btn.set_visible(false);
         self.kick_bar_probe();
     }
@@ -128,6 +115,7 @@ impl FillSync {
     }
 
     pub(super) fn apply_fill(&self, on: bool) {
+        self.applied.borrow_mut().take();
         self.active.set(on);
         self.preferred.set(on);
         if let Some(b) = self.player.borrow().as_ref() {
@@ -151,6 +139,7 @@ impl FillSync {
     }
 
     fn reset_fill_view(&self) {
+        self.applied.borrow_mut().take();
         self.active.set(false);
         if let Some(b) = self.player.borrow().as_ref() {
             clear_video_crop(&b.mpv);
