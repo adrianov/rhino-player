@@ -144,6 +144,8 @@ fn transport_widgets_step(args: &WindowAfterPresentArgs) -> TransportWidgets {
         time_right: wa.6,
         speed_menu: wa.7,
         speed_readout: wa.8,
+        speed_list: args.w.speed_list.clone(),
+        speed_sync: args.w.speed_sync.clone(),
         vol_menu: wb.0,
         vol_header_img: wb.1,
         vol_readout: wb.2,

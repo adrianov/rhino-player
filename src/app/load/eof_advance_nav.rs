@@ -1,5 +1,6 @@
 /// Advance to the next sibling only on mpv **natural** end: `eof-reached` or `EndFile` with EOF reason.
 /// `sibling_eof_done` allows one `try_load` per logical end; cleared when `eof-reached` becomes false.
+/// Returns true when playback stopped because no next file was loaded.
 #[allow(clippy::too_many_arguments)]
 fn maybe_advance_sibling_on_eof(
     player: &Rc<RefCell<Option<MpvBundle>>>,
@@ -20,20 +21,20 @@ fn maybe_advance_sibling_on_eof(
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     playback_focus: Rc<Cell<bool>>,
     on_open_fail: &Rc<dyn Fn(String)>,
-) {
+) -> bool {
     let g = match player.try_borrow() {
         Ok(b) => b,
-        Err(_) => return,
+        Err(_) => return false,
     };
     let Some(pl) = g.as_ref() else {
-        return;
+        return false;
     };
     // Continue grid / warm hover: paused preload only — no sibling auto-advance (would call try_load with play).
     if crate::app::browse_overlay_active(recent) {
-        return;
+        return false;
     }
     if seof.done.get() {
-        return;
+        return false;
     }
     if exit_after_current.get() {
         drop(g);
@@ -46,16 +47,16 @@ fn maybe_advance_sibling_on_eof(
             idle_inhib,
             teardown_after_draw,
         );
-        return;
+        return false;
     }
     let Some(finished) = eof_finished_target(pl, seof, last_path) else {
-        return;
+        return false;
     };
     if seof
         .incomplete_hold
         .hold_instead_of_advance(&pl.mpv, &finished)
     {
-        return;
+        return false;
     }
     drop(g);
     advance_to_next_sibling(
@@ -77,7 +78,7 @@ fn maybe_advance_sibling_on_eof(
         &on_loaded,
         hdr_title_mirror,
         playback_focus,
-    );
+    )
 }
 
 /// Quit-from-EOF: log intent and run the deferred persistence chain.

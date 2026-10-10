@@ -13,6 +13,8 @@ struct TransportWidgets {
     time_right: gtk::Label,
     speed_menu: gtk::MenuButton,
     speed_readout: gtk::Label,
+    speed_list: gtk::ListBox,
+    speed_sync: Rc<Cell<bool>>,
     vol_menu: gtk::MenuButton,
     vol_header_img: gtk::Image,
     vol_readout: gtk::Label,

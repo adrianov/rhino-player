@@ -110,7 +110,7 @@ fn sync_window_aspect_from_player(
 
 fn run_sibling_eof(ctx: &Rc<TransportCtx>) {
     let e = &ctx.eof;
-    maybe_advance_sibling_on_eof(
+    if maybe_advance_sibling_on_eof(
         &ctx.player,
         &e.win,
         &e.gl,
@@ -129,6 +129,32 @@ fn run_sibling_eof(ctx: &Rc<TransportCtx>) {
         e.hdr_title_mirror.clone(),
         Rc::clone(&e.playback_focus),
         &e.on_open_fail,
+    ) {
+        reset_speed_after_stop(ctx);
+    }
+}
+
+/// Natural end with no following file: drop a faster rate back to **1.0×** and refresh the header.
+/// Smooth stays as it was until the next play or file load — a `vf` rebuild here can reload the file.
+fn reset_speed_after_stop(ctx: &TransportCtx) {
+    let Ok(g) = ctx.player.try_borrow() else {
+        eprintln!("[rhino] speed: eof reset skipped, player busy");
+        return;
+    };
+    let Some(b) = g.as_ref() else {
+        return;
+    };
+    let prev = b.mpv.get_property::<f64>("speed").unwrap_or(1.0);
+    if !playback_speed::force_normal(&b.mpv) {
+        return;
+    }
+    eprintln!("[rhino] speed: eof with no next file, reset {prev:.1}× to 1.0×");
+    playback_speed::show_step(
+        &ctx.widgets.speed_sync,
+        &ctx.widgets.speed_list,
+        &ctx.widgets.speed_menu,
+        &ctx.widgets.speed_readout,
+        1.0,
     );
 }
 

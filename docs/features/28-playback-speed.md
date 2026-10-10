@@ -15,7 +15,7 @@ mpv_props: [speed, duration]
 ## Description
 A header **`MenuButton`** lays out the speedometer icon and caption readout in one horizontal row inside it—the same effective toolbar row height as other header icon controls—with one clickable target that opens a `ListBox` of fixed-rate rows (**1.0×**, **1.5×**, **2.0×**, integers **3.0×** through **8.0×**) while media is loaded. Keyboard digits **1**–**8** jump to fixed rates (**13-input-shortcuts**): **3** selects **1.5×**; **1**, **2**, and **4**–**8** select that many times normal speed. Selecting a row sets mpv `speed` to that exact value, syncs the list, and closes the popover. There is no free-form slider in v1.
 
-Speed applies to the current mpv session; mpv generally keeps `speed` across `loadfile` in the same process, except automatic advance to the next file in folder order resets to **1.0×** before the new file loads. The UI re-syncs from `speed` after each load and snaps to the nearest canonical step when mpv reports a value outside the fixed set.
+Speed applies to the current mpv session; mpv generally keeps `speed` across `loadfile` in the same process. It returns to **1.0×** when the current file ends: before the next file in folder order loads, and when playback stops because there is no next file. The UI re-syncs from `speed` after each load and snaps to the nearest canonical step when mpv reports a value outside the fixed set.
 
 ## Behavior
 
@@ -78,6 +78,13 @@ Feature: Fixed-step playback speed
     When the current file ends and the next file in folder order loads automatically
     Then the playback rate is normal (1.0×)
     And the speed list shows normal speed
+
+  Scenario: End with no next video restores normal speed
+    Given the playback rate is faster than normal
+    And the current file has no next video to start
+    When natural end of playback occurs
+    Then the playback rate is normal (1.0×)
+    And the speed list shows normal speed
 ```
 
 ## Notes
@@ -88,5 +95,5 @@ Feature: Fixed-step playback speed
 - Digit **3** sets **1.5×**; digits **1**, **2**, **4**–**8** set **N**× (**13-input-shortcuts**). When playback is paused, that shortcut unpause sequence runs first so rate and Smooth bookkeeping match the bottom-bar play control.
 - Read `speed` after each load; if not within 0.01 of one canonical step, set mpv to the nearest.
 - Header LTR cluster: speed sits left of subtitles, volume, and the hamburger menu.
-- v1 has no SQLite persistence; mpv keeps speed across `loadfile` in one run except sibling-folder auto-advance (see [07-sibling-folder-queue](07-sibling-folder-queue.md)).
+- v1 has no SQLite persistence; mpv keeps speed across `loadfile` in one run except when playback ends — next-file auto-advance, or a stop when there is no next file (see [07-sibling-folder-queue](07-sibling-folder-queue.md)).
 - `RHINO_PLAYBACK_SPEED` (used by [26-sixty-fps-motion](26-sixty-fps-motion.md)) is written from the row value before any vf rebuild.

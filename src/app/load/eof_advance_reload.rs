@@ -35,6 +35,7 @@ struct SiblingReloadRefs<'a> {
 
 /// Load the next file in folder order, or drop the finished title from the continue list and
 /// DB when no follow-up file exists.
+/// Returns true when playback stopped because there is no next file.
 fn advance_to_next_sibling(
     finished: PathBuf,
     t: LoadTargets<'_>,
@@ -42,16 +43,16 @@ fn advance_to_next_sibling(
     on_loaded: &Option<Rc<dyn Fn()>>,
     hdr_title_mirror: Option<Rc<gtk::Label>>,
     playback_focus: Rc<Cell<bool>>,
-) {
+) -> bool {
     r.seof.done.set(true);
     let Some(np) = sibling_advance::next_after_eof(&finished) else {
         // [try_load] only runs on a path change; with no follow-up file, EOF still left the
         // title in the continue list and DB — drop both here.
         remove_continue_entry(&finished);
-        return;
+        return true;
     };
     if crate::video_ext::paths_same_file(&np, &finished) {
-        return;
+        return false;
     }
     crate::video_fill::request_fill_carry(&np);
     if let Err(e) = try_load(
@@ -65,6 +66,7 @@ fn advance_to_next_sibling(
         eprintln!("[rhino] sibling advance: {e}");
         r.seof.done.set(false);
     }
+    false
 }
 
 /// `replace_media` options for the sibling auto-advance (play immediately, speed reset).

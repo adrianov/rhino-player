@@ -29,11 +29,18 @@ pub fn stamp_header(menu: &MenuButton, readout: &Label, canon: f64) {
     }
 }
 
-/// Force **1.0×** when mpv speed differs (folder auto-advance after faster playback).
-pub fn force_normal(mpv: &Mpv) {
-    if (mpv.get_property::<f64>("speed").unwrap_or(1.0) - 1.0).abs() > EPS {
-        let _ = mpv.set_property("speed", 1.0);
+/// Force **1.0×** when mpv speed differs.
+/// `true` when the property changed.
+pub fn force_normal(mpv: &Mpv) -> bool {
+    let cur = mpv.get_property::<f64>("speed").unwrap_or(1.0);
+    if (cur - 1.0).abs() <= EPS {
+        return false;
     }
+    if mpv.set_property("speed", 1.0).is_err() {
+        eprintln!("[rhino] speed: reset to 1.0× failed (was {cur:.1})");
+        return false;
+    }
+    true
 }
 
 /// Nearest [SPEEDS] entry and (if needed) a canonical [speed] for mpv.
@@ -68,25 +75,34 @@ pub fn sync_list(
     readout: &Label,
 ) -> Option<f64> {
     let s = mpv.get_property::<f64>("speed").unwrap_or(1.0);
-    let (i, canon) = nearest(s);
+    let (_, canon) = nearest(s);
     let changed = if (s - canon).abs() > EPS {
         let _ = mpv.set_property("speed", canon);
         true
     } else {
         false
     };
-    stamp_header(menu, readout, canon);
+    show_step(flag, list, menu, readout, canon);
+    changed.then_some(canon)
+}
+
+/// Highlight [canon] on the speed control without reading mpv.
+/// A `get_property` right after `set_property` can still return the previous rate.
+pub fn show_step(
+    flag: &std::rc::Rc<std::cell::Cell<bool>>,
+    list: &ListBox,
+    menu: &MenuButton,
+    readout: &Label,
+    canon: f64,
+) {
+    let (i, v) = nearest(canon);
+    stamp_header(menu, readout, v);
     flag.set(true);
     if let Some(row) = list.row_at_index(i as i32) {
         list.select_row(Some(&row));
     }
     let f = std::rc::Rc::clone(flag);
     let _ = glib::idle_add_local_once(move || f.set(false));
-    if changed {
-        Some(canon)
-    } else {
-        None
-    }
 }
 
 #[cfg(test)]

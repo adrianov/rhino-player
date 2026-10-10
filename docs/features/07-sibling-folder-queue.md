@@ -49,6 +49,7 @@ Feature: Sibling folder queue
     And no later same-series sibling directory under the same immediate enclosing directory holds a next playable file
     When end-of-playback occurs
     Then playback stops without wrapping back to the first folder
+    And the playback rate is the default normal speed
 
   Scenario: Queue does not leave the sibling group for another folder beside it
     Given the current file is last in its directory and playable files exist only under a different directory that is a sibling of the directory that contains the current directory
@@ -125,7 +126,7 @@ Feature: Sibling folder queue
 - When container duration exceeds the decoded tail (common on MKV with mismatched stream lengths), sibling advance uses a wider tail window (`NEAR_END_SEC`) while `core-idle`; transport clamps the seek bar to `time-pos` within that window after playback has entered the tail. Auto-advance requires **playing into** the tail (≥1s of position movement since load), not opening with resume already near end — avoids a chain load on continue-grid open.
 - Unfinished Direct Connect paths (`*.dctmp`): `IncompleteEofHold` pauses on every natural EOF and never auto-advances while the suffix remains (demux `duration` often equals the downloaded prefix). Play/Pause unpause arms continue **before** clearing `pause`, then re-seeks absolute+exact so demux can pick up newly grown bytes.
 - Sibling tooltip labels use `human_media_title` → `peel_download_temp`; strip the incomplete suffix with `str::get` (UTF-8–safe). A trailing byte slice used to panic on some non-Latin names plus odd-length extensions (e.g. `.webm`).
-- Before loading the next sibling after EOF, mpv `speed` is set to **1.0** when it was not already (see [28-playback-speed](28-playback-speed.md)).
+- When playback ends, mpv `speed` is set to **1.0** when it was faster, whether or not a next sibling loads (see [28-playback-speed](28-playback-speed.md)).
 - The last successfully loaded canonical path is used when `path` is empty.
 - Local files only: with no resolvable path, no advance runs.
 - Implementation: `src/sibling_advance.rs`, `src/sibling_advance_series.rs` (exact stem equality after season-marker strip), `src/incomplete_download_eof.rs` (`IncompleteEofHold`), `src/app/load.rs::maybe_advance_sibling_on_eof`, `src/app/transport_events.rs`.
