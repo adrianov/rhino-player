@@ -1,9 +1,9 @@
 // Native traffic lights for the compact ToolbarView top bar: visibility + frame sync.
 //
 // Y is always computed from fixed TOP_BAR_H (CSS compact header) — never from live
-// reveal height. X is shifted once from AppKit defaults and cached so compositing
-// refresh cannot keep subtracting. Sync is a no-op while buttons are hidden so a
-// mid-hide compositing pass cannot lock a bad X sample.
+// reveal height. X is AppKit’s standard slot, cached once so a compositing refresh
+// cannot overwrite it. Sync is a no-op while buttons are hidden so a mid-hide
+// compositing pass cannot lock a bad X sample.
 
 use objc2_foundation::NSPoint;
 
@@ -11,19 +11,8 @@ use objc2_foundation::NSPoint;
 /// (`theme/shell.css` / `macos_header_compact.css`).
 const TOP_BAR_H: f64 = 34.0;
 
-/// AppKit’s default stoplight X sits too far right against our compact header chrome.
-const TRAFFIC_LIGHTS_SHIFT_LEFT: f64 = 8.0;
-
 thread_local! {
     static TRAFFIC_LIGHT_XS: RefCell<Option<(f64, f64, f64)>> = const { RefCell::new(None) };
-}
-
-fn shifted_x(x: f64) -> f64 {
-    if x >= TRAFFIC_LIGHTS_SHIFT_LEFT {
-        (x - TRAFFIC_LIGHTS_SHIFT_LEFT).max(0.0)
-    } else {
-        x
-    }
 }
 
 fn stoplight_y(nswin: &NSWindow) -> Option<f64> {
@@ -47,9 +36,9 @@ fn remember_xs(nswin: &NSWindow) -> Option<(f64, f64, f64)> {
     let mini = nswin.standardWindowButton(NSWindowButton::MiniaturizeButton)?;
     let zoom = nswin.standardWindowButton(NSWindowButton::ZoomButton)?;
     Some((
-        shifted_x(close.frame().origin.x),
-        shifted_x(mini.frame().origin.x),
-        shifted_x(zoom.frame().origin.x),
+        close.frame().origin.x,
+        mini.frame().origin.x,
+        zoom.frame().origin.x,
     ))
 }
 
