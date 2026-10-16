@@ -1,9 +1,9 @@
 //! Attach the native video [`NSView`] to the GTK window's `NSWindow`, mirror a GTK
-//! widget's allocation onto its frame, and own the background `DispatchQueue` that drives
-//! mpv's render path so AppKit modal tracking can never starve it.
+//! widget's allocation onto its frame, and own the `CVDisplayLink` that drives mpv's
+//! render path off the main thread so neither AppKit modal tracking nor GTK work starves it.
 //!
 //! Public entry point: [`NativeVideoSurface::install`]. The returned guard holds the
-//! NSView, the dispatch queue, and the size-tracking signal handler — drop it (or call
+//! NSView, the display link, and the size-tracking signal handler — drop it (or call
 //! [`NativeVideoSurface::detach`]) to tear everything down.
 
 #![allow(deprecated)]

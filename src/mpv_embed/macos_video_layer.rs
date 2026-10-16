@@ -3,10 +3,10 @@
 //! Mirrors IINA's `iina/ViewLayer.swift`:
 //! - we own the [`CGLContextObj`] / [`CGLPixelFormatObj`] up front and override
 //!   `copyCGLPixelFormat:` / `copyCGLContext:` to hand the same pair to AppKit;
-//! - rendering is driven from a background `DispatchQueue` (see [`super::macos_video_attach`]),
-//!   so AppKit's nested run loops (menu / popover tracking) cannot stall video — the layer
-//!   commits frames via an explicit `CATransaction` and the WindowServer composites them
-//!   regardless of what mode the main thread is in.
+//! - rendering is driven from the `CVDisplayLink` thread (see [`super::macos_video_displaylink`]),
+//!   so neither AppKit's nested run loops (menu / popover tracking) nor GTK main-thread work
+//!   can stall video — the layer commits frames via an explicit `CATransaction` and the
+//!   WindowServer composites them regardless of what the main thread is doing.
 //!
 //! The actual mpv `render` call is supplied by the **owner** through [`set_draw_callback`]
 //! so this module stays free of mpv types — keeping the FFI surface small and testable.
@@ -15,7 +15,6 @@
 // OpenGL on this platform; mute the platform-deprecation noise across this single module.
 #![allow(deprecated)]
 
-use std::cell::Cell;
 use std::os::raw::c_int;
 use std::sync::Mutex;
 
@@ -29,7 +28,7 @@ use objc2_foundation::NSObjectProtocol;
 // `CFTimeInterval` is a `c_double` (== `f64`) — use the primitive directly so we can
 // keep `objc2_core_foundation` out of the dep tree explicitly.
 type CFTimeInterval = f64;
-use objc2_quartz_core::{CALayer, CAOpenGLLayer};
+use objc2_quartz_core::{CALayer, CAOpenGLLayer, CATransaction};
 
 use super::macos_video_cgl::{CGLContextObj, CGLPixelFormatObj};
 
@@ -44,19 +43,20 @@ extern "C" {
 
 /// Closure invoked from inside `drawInCGLContext:` with the live `(fbo, width, height)`.
 ///
-/// `Send + Sync + 'static` — the layer schedules display from a background queue, so the
-/// closure can also be called there.
+/// `Send + Sync + 'static` — called on the CVDisplayLink thread, and on the main thread
+/// when CA redraws after a bounds change.
 pub type DrawCallback = Box<dyn Fn(c_int, c_int, c_int) + Send + Sync>;
 
 pub struct LayerIvars {
     pub cgl_pixel_format: CGLPixelFormatObj,
     pub cgl_context: CGLContextObj,
     pub draw_cb: Mutex<Option<DrawCallback>>,
-    pub fbo: Cell<c_int>,
+    /// Serializes whole `display` passes: CA's own GL setup / flush on the shared context
+    /// runs outside `drawInCGLContext:`, and main (bounds change) may race the link thread.
+    display_lock: Mutex<()>,
 }
 
-// SAFETY: pointers are immutable after init; `draw_cb` is `Mutex`-guarded; `fbo` is only
-// touched from inside `drawInCGLContext:` which CALayer serializes per-instance.
+// SAFETY: pointers are immutable after init; `draw_cb` / `display_lock` are `Mutex`-guarded.
 unsafe impl Send for LayerIvars {}
 unsafe impl Sync for LayerIvars {}
 
@@ -96,10 +96,17 @@ define_class!(
             _t: CFTimeInterval,
             _ts: *const CVTimeStamp,
         ) -> bool {
-            // We drive frames imperatively via `display_now` from a CVDisplayLink (background
-            // thread). Always say yes — the displayLink only triggers display when mpv has
-            // produced a new frame, so this never wastes work.
+            // Frames are driven imperatively via `display_now` from the CVDisplayLink thread
+            // only when mpv has produced a new frame, so always say yes.
             true
+        }
+
+        #[unsafe(method(display))]
+        fn display_locked(&self) {
+            let _pass = self.ivars().display_lock.lock();
+            unsafe {
+                let _: () = msg_send![super(self), display];
+            }
         }
 
         #[unsafe(method(drawInCGLContext:pixelFormat:forLayerTime:displayTime:))]
@@ -110,18 +117,16 @@ define_class!(
             _t: CFTimeInterval,
             _ts: *const CVTimeStamp,
         ) {
+            // Held for the whole draw so teardown cannot clear the callback mid-render.
+            let Ok(slot) = self.ivars().draw_cb.lock() else {
+                return;
+            };
             let mut fbo: c_int = 0;
             unsafe { glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &mut fbo) };
-            self.ivars().fbo.set(fbo);
             let mut viewport: [c_int; 4] = [0, 0, 0, 0];
             unsafe { glGetIntegerv(GL_VIEWPORT, viewport.as_mut_ptr()) };
-            let w = viewport[2];
-            let h = viewport[3];
-            let cb_slot = self.ivars().draw_cb.lock();
-            if let Ok(slot) = cb_slot {
-                if let Some(cb) = slot.as_ref() {
-                    cb(fbo, w, h);
-                }
+            if let Some(cb) = slot.as_ref() {
+                cb(fbo, viewport[2], viewport[3]);
             }
             unsafe { glFlush() };
         }
@@ -134,15 +139,13 @@ impl RhinoMpvGlLayer {
             cgl_pixel_format,
             cgl_context,
             draw_cb: Mutex::new(None),
-            fbo: Cell::new(0),
+            display_lock: Mutex::new(()),
         });
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
-        // Asynchronous mode: AppKit drives `drawInCGLContext:` from its CA timer plus
-        // `setNeedsDisplay` notifications. The CVDisplayLink in `macos_video_displaylink`
-        // calls `setNeedsDisplay` from a background thread, which AppKit treats as a
-        // commit hint and schedules the next draw — even during AppKit modal tracking,
-        // because CA's display path runs on `kCFRunLoopCommonModes`.
-        this.setAsynchronous(true);
+        // Synchronous mode: frames are drawn by `display_now` on the CVDisplayLink thread.
+        // Asynchronous mode would make CA call `drawInCGLContext:` on the main run loop, so
+        // any GTK main-thread stall (preview load, thumbnails, layout) froze the video.
+        this.setAsynchronous(false);
         this.setOpaque(true);
         this.setNeedsDisplayOnBoundsChange(true);
         this
@@ -155,14 +158,13 @@ impl RhinoMpvGlLayer {
         }
     }
 
-    /// Mark the layer dirty from the CVDisplayLink callback. With `asynchronous = true`
-    /// AppKit will read this on the next CA commit (which runs in
-    /// `kCFRunLoopCommonModes` — including AppKit modal tracking) and call
-    /// `drawInCGLContext:` on its own scheduling thread. Cheap; safe from any thread.
+    /// Draw one frame on the calling (CVDisplayLink) thread and commit it in an explicit
+    /// `CATransaction`, so the WindowServer composites it without waiting for the main thread.
     pub fn display_now(&self) {
-        unsafe {
-            let _: () = msg_send![self, setNeedsDisplay];
-        }
+        CATransaction::begin();
+        CATransaction::setDisableActions(true);
+        self.display();
+        CATransaction::commit();
     }
 
     /// Update the layer's backing scale (`contentsScale`) so the FBO mpv renders into
