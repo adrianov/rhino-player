@@ -91,27 +91,42 @@ include!("thumb_mpv_node.rs");
 include!("thumb_screenshot_poll.rs");
 include!("thumb_frame_dark.rs");
 
+/// Run `f` on one `screenshot-raw video` frame of `m` (pixels borrowed, freed after `f`).
+pub(crate) fn with_raw_frame<R>(m: &Mpv, f: impl FnOnce(&PackedView<'_>) -> R) -> Option<R> {
+    let mut root = mpv_command_ret(m, &["screenshot-raw", "video"])?;
+    let out = unsafe { packed_view_of(&root) }.map(|(view, _)| f(&view));
+    unsafe {
+        libmpv2_sys::mpv_free_node_contents(&mut root);
+    }
+    out
+}
+
 /// Borrow mpv `screenshot-raw` pixels and hand them to zenwebp without copying.
 unsafe fn encode_screenshot_node(root: &libmpv2_sys::mpv_node, log_blank: bool) -> Option<Capture> {
+    let (view, layout) = packed_view_of(root)?;
+    encode_thumb_capture(&view, layout, log_blank)
+}
+
+/// Packed view over a `screenshot-raw` node's bytes.
+unsafe fn packed_view_of(root: &libmpv2_sys::mpv_node) -> Option<(PackedView<'_>, PixelLayout)> {
     let w = map_i64(root, b"w")? as usize;
     let h = map_i64(root, b"h")? as usize;
-    if w == 0 || h == 0 {
-        return None;
-    }
     let stride = map_i64(root, b"stride")? as isize;
     let fmt = map_format_str(root, b"format").unwrap_or("bgr0");
     let data = map_byte_slice(root, b"data")?;
-    raw_frame_to_webp(w, h, stride, fmt, data, log_blank)
+    packed_view(w, h, stride, fmt, data)
 }
 
-fn raw_frame_to_webp(
+fn packed_view<'a>(
     w: usize,
     h: usize,
     stride: isize,
-    fmt: &str,
-    data: &[u8],
-    log_blank: bool,
-) -> Option<Capture> {
+    fmt: &'a str,
+    data: &'a [u8],
+) -> Option<(PackedView<'a>, PixelLayout)> {
+    if w == 0 || h == 0 {
+        return None;
+    }
     let pf = mpv_packed_fmt(fmt)?;
     let row_stride = packed_frame_dims_ok(w, h, stride, &pf, fmt, data)?;
     let view = PackedView {
@@ -122,7 +137,20 @@ fn raw_frame_to_webp(
         fmt,
         data,
     };
-    encode_thumb_capture(&view, pf.layout, log_blank)
+    Some((view, pf.layout))
+}
+
+#[cfg(test)]
+fn raw_frame_to_webp(
+    w: usize,
+    h: usize,
+    stride: isize,
+    fmt: &str,
+    data: &[u8],
+    log_blank: bool,
+) -> Option<Capture> {
+    let (view, layout) = packed_view(w, h, stride, fmt, data)?;
+    encode_thumb_capture(&view, layout, log_blank)
 }
 
 fn encode_thumb_capture(

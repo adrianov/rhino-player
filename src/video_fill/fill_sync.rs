@@ -79,19 +79,12 @@ impl FillSync {
         self.kick_bar_probe();
     }
 
-    /// FileLoaded / reconfig: start or resume strip probe, then sync visibility.
-    /// The unpause marker is consumed on every entry so a later unrelated
-    /// reconfiguration cannot inherit it and bypass the probe's own-cleanup
-    /// suppression; only the Pending branch acts on it (see `pump_bar_probe`).
+    /// FileLoaded / reconfig / unpause: start or resume strip probe, then sync visibility.
     pub(super) fn on_media_ready(&self) {
         match self.bars.state.get() {
-            BarState::Unknown => {
-                super::take_resync_after_unpause();
-                self.kick_bar_probe();
-            }
-            BarState::Pending => self.resume_bar_probe(super::take_resync_after_unpause()),
+            BarState::Unknown => self.kick_bar_probe(),
+            BarState::Pending => self.resume_bar_probe(),
             BarState::Clean | BarState::Crop(_) => {
-                super::take_resync_after_unpause();
                 if let Some(b) = self.player.borrow().as_ref() {
                     if self.bars.needs_deint_reprobe(&b.mpv) {
                         eprintln!("[rhino] bars: re-probe after Bob deinterlace attached");

@@ -1,107 +1,62 @@
-// Gather completion: timer fires, verdict is read, the probe tears itself down;
-// deciding final vs retry belongs to the probe_defer rescheduling chains.
+// Gather completion: the last sample is in, the verdict is read; deciding final vs
+// retry belongs to the probe_defer rescheduling chains.
 
-fn finish_cropdetect(
-    player: &Player,
-    probe: &Rc<BarProbe>,
-    gen: u64,
-    hw_backup: Option<String>,
-    on_done: Rc<dyn Fn()>,
-) {
-    if probe.gen.get() != gen {
-        eprintln!(
-            "[rhino] bars: probe gather stale: gen {gen} vs live {}",
-            probe.gen.get()
-        );
-        abort_stale_probe(player, probe, hw_backup.as_deref());
-        return;
-    }
+fn finish_gather(run: &GatherRun, gather: Gather) {
+    let probe = &run.probe;
     probe.gathering.set(false);
-    match take_probe_result(player, probe, hw_backup.as_deref()) {
-        ProbeOutcome::Final(state, saw_deint) => {
-            probe.saw_deint.set(saw_deint);
+    match gather_verdict(gather) {
+        ProbeOutcome::Final(state) => {
+            probe.saw_deint.set(deint_in_vf(&run.player));
             probe.state.set(state);
-            on_done();
+            (run.on_done)();
         }
-        ProbeOutcome::NoData => defer_no_data(player, probe, gen, on_done, "no cropdetect metadata"),
+        ProbeOutcome::NoData => defer_no_data(
+            &run.player,
+            probe,
+            run.gen,
+            Rc::clone(&run.on_done),
+            "no picture in sampled frames",
+        ),
     }
 }
 
-fn abort_stale_probe(player: &Player, probe: &Rc<BarProbe>, hw_backup: Option<&str>) {
-    if let Some(b) = player.borrow().as_ref() {
-        remove_cropdetect(&b.mpv);
-        restore_hwdec(&b.mpv, hw_backup);
-        settle_after_teardown(probe, &b.mpv);
-    }
+fn deint_in_vf(player: &Player) -> bool {
+    player.borrow().as_ref().is_some_and(|b| {
+        crate::video_pref::bob_deinterlace_in_vf(&b.mpv.get_property::<String>("vf").unwrap_or_default())
+    })
 }
 
-/// After a probe's own vf/hwdec teardown, record the settled chain: a `VideoReconfig`
-/// still matching it is probe-generated (its own cleanup), never an external change.
-fn settle_after_teardown(probe: &Rc<BarProbe>, mpv: &Mpv) {
-    probe.settle_cleanup_vf(mpv.get_property::<String>("vf").unwrap_or_default());
-}
-
-/// Gather verdict: real cropdetect metadata read (final, persisted) vs nothing read.
+/// Gather verdict: a usable reading (final, persisted) vs nothing usable.
 enum ProbeOutcome {
-    Final(BarState, bool),
-    /// No metadata in the gather window (paused start, vf rebuild, slow decode).
+    Final(BarState),
+    /// Only dark frames, no readable frame, or an implausible reading.
     NoData,
 }
 
-fn take_probe_result(
-    player: &Player,
-    probe: &Rc<BarProbe>,
-    hw_backup: Option<&str>,
-) -> ProbeOutcome {
-    let g = player.borrow();
-    let Some(b) = g.as_ref() else {
+/// Convert the united reading into the probe verdict using the size pair captured
+/// beside it: a meaningful crop (normalized to decoded-frame space), a probed clean
+/// full frame, or `NoData` for implausible readings — the caller retries instead of caching.
+fn gather_verdict(gather: Gather) -> ProbeOutcome {
+    let (Some(sizes), Some(content)) = (gather.sizes, gather.content) else {
         return ProbeOutcome::NoData;
     };
-    let mpv = &b.mpv;
-    let saw_deint = crate::video_pref::bob_deinterlace_in_vf(
-        &mpv.get_property::<String>("vf").unwrap_or_default(),
-    );
-    let meta = read_cropdetect_meta(mpv);
-    // The metadata is measured in the chain-output space of this moment; the
-    // sizes must be captured beside it — the teardown below can change the
-    // chain before the verdict maps the rect, and a stale mapping would cache
-    // a filtered-space crop as decoded-space coordinates.
-    let sizes = chain_sizes(mpv);
-    remove_cropdetect(mpv);
-    restore_hwdec(mpv, hw_backup);
-    settle_after_teardown(probe, mpv);
-    match (meta, sizes) {
-        (Some(m), Some(s)) => meta_verdict(m, s, saw_deint),
-        (Some(_), None) => {
-            eprintln!("[rhino] bars: probe dropped: frame sizes unavailable beside cropdetect metadata");
-            ProbeOutcome::NoData
-        }
-        (None, _) => ProbeOutcome::NoData,
-    }
-}
-
-/// Convert cropdetect metadata into the probe verdict using the size pair
-/// captured beside it: a meaningful crop (normalized to decoded-frame space), a
-/// probed clean full frame, or `NoData` for implausible readings — the caller
-/// retries instead of caching.
-fn meta_verdict(meta: CropMeta, sizes: ChainSizes, saw_deint: bool) -> ProbeOutcome {
-    match classify_crop_meta(meta, sizes.vo) {
-        CropMetaVerdict::Crop(rect) => {
+    match classify_reading(content, sizes.vo) {
+        ReadingVerdict::Crop(rect) => {
             let rect = scale_rect_between(rect, sizes.vo, sizes.decode);
             eprintln!(
                 "[rhino] bars: detected crop={}x{}+{}+{}",
                 rect.w, rect.h, rect.x, rect.y
             );
-            ProbeOutcome::Final(BarState::Crop(rect), saw_deint)
+            ProbeOutcome::Final(BarState::Crop(rect))
         }
-        CropMetaVerdict::Clean => {
+        ReadingVerdict::Clean => {
             eprintln!("[rhino] bars: probed clean (full-frame reading)");
-            ProbeOutcome::Final(BarState::Clean, saw_deint)
+            ProbeOutcome::Final(BarState::Clean)
         }
-        CropMetaVerdict::Garbage => {
+        ReadingVerdict::Garbage => {
             eprintln!(
                 "[rhino] bars: probe rejected implausible reading {}x{}+{}+{} on {}x{}; retrying",
-                meta.w, meta.h, meta.x, meta.y, sizes.vo.0, sizes.vo.1
+                content.w, content.h, content.x, content.y, sizes.vo.0, sizes.vo.1
             );
             ProbeOutcome::NoData
         }

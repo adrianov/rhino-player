@@ -38,13 +38,13 @@ fn channel_order(fmt: &str) -> (usize, usize, usize) {
 }
 
 /// Geometry + bytes for one `screenshot-raw` packed frame.
-struct PackedView<'a> {
-    w: usize,
-    h: usize,
-    row_stride: usize,
-    bpp: usize,
-    fmt: &'a str,
-    data: &'a [u8],
+pub(crate) struct PackedView<'a> {
+    pub(crate) w: usize,
+    pub(crate) h: usize,
+    pub(crate) row_stride: usize,
+    pub(crate) bpp: usize,
+    pub(crate) fmt: &'a str,
+    pub(crate) data: &'a [u8],
 }
 
 /// Sub-rectangle inside a [PackedView] (full frame or bar-cropped picture).

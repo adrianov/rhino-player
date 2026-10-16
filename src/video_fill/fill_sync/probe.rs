@@ -1,4 +1,4 @@
-//! Bar-probe wiring: kick/resume cropdetect runs and the DB cache round-trip.
+//! Bar-probe wiring: kick/resume strip-probe runs and the DB cache round-trip.
 
 use super::FillSync;
 use crate::black_bars::{pump_bar_probe, schedule_bar_probe, BarState, CropRect};
@@ -18,7 +18,7 @@ impl FillSync {
         self.kick_bar_probe_live();
     }
 
-    /// Always run cropdetect (skip DB cache) — used after Bob attaches late.
+    /// Always run the strip probe (skip DB cache) — used after Bob attaches late.
     pub(super) fn kick_bar_probe_live(&self) {
         schedule_bar_probe(
             &self.player,
@@ -27,12 +27,11 @@ impl FillSync {
         );
     }
 
-    pub(super) fn resume_bar_probe(&self, forced: bool) {
+    pub(super) fn resume_bar_probe(&self) {
         pump_bar_probe(
             &self.player,
             &self.bars,
             probe_done_cb(&self.player, &self.bars),
-            forced,
         );
     }
 

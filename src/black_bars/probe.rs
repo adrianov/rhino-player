@@ -1,24 +1,16 @@
-// Temporary lavfi `cropdetect` → mpv `video-crop` for Fill Screen.
+// Fill Screen strip probe: samples displayed frames (`screenshot-raw`) → mpv `video-crop`.
+// Never edits the vf chain: a filter rebuild restarts Smooth's VapourSynth graph (seconds
+// of frozen video) and its black warm-up frames read as huge fake strips.
 
 type Player = Rc<std::cell::RefCell<Option<MpvBundle>>>;
 
-/// Labeled filter so we can remove it without touching Smooth / deinterlace vf.
-const CROPDETECT_LABEL: &str = "rhino-bars";
-/// Delay before insert — avoids black opens / fades; timer is required (cropdetect needs frames).
+/// Delay before sampling — avoids black opens / fades.
 const DETECT_DELAY: Duration = Duration::from_millis(2000);
-const DETECT_GATHER: Duration = Duration::from_millis(1000);
-const DETECT_LIMIT: &str = "24/255";
-const DETECT_ROUND: i64 = 2;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct CropMeta {
-    w: i64,
-    h: i64,
-    x: i64,
-    y: i64,
-}
-
-/// Start a delayed cropdetect for the current path. Earlier probes are cancelled via `gen`.
+/// Frames per gather; their picture bounds are united so one dark-edged frame cannot
+/// shrink the crop. Spaced out so the samples rarely share one dark scene.
+const GATHER_SAMPLES: u8 = 4;
+const SAMPLE_GAP: Duration = Duration::from_millis(2000);
+/// Start a delayed strip probe for the current path. Earlier probes are cancelled via `gen`.
 pub fn schedule_bar_probe(player: &Player, probe: &Rc<BarProbe>, on_done: Rc<dyn Fn()>) {
     let gen = probe.start_gen();
     eprintln!("[rhino] bars: probe scheduled gen {gen}");
@@ -33,33 +25,20 @@ pub fn schedule_bar_probe(player: &Player, probe: &Rc<BarProbe>, on_done: Rc<dyn
             return;
         }
         probe.past_delay.set(true);
-        begin_cropdetect(&player, &probe, gen, on_done);
+        begin_gather(&player, &probe, gen, on_done);
     });
 }
 
-/// FileLoaded / VideoReconfig: if waiting on decode size, start cropdetect as soon as ready.
-/// `forced` bypasses the own-cleanup suppression (unpause resync — the chain did not change,
-/// but playback state did, so a Pending probe must get another chance regardless).
-pub fn pump_bar_probe(player: &Player, probe: &Rc<BarProbe>, on_done: Rc<dyn Fn()>, forced: bool) {
+/// FileLoaded / VideoReconfig / unpause: if a probe is still pending, sample as soon as ready.
+pub fn pump_bar_probe(player: &Player, probe: &Rc<BarProbe>, on_done: Rc<dyn Fn()>) {
     if !probe.past_delay.get() || probe.gathering.get() {
         return;
-    }
-    if !forced && probe.reconfig_is_cleanup(current_vf(player).as_deref()) {
-        return; // this VideoReconfig is the probe's own teardown, not an external change
     }
     if video_ready_state(player) != ReadyState::Ready {
         return;
     }
     let gen = probe.gen.get();
-    begin_cropdetect(player, probe, gen, on_done);
-}
-
-/// Current `vf` chain, if a player holds the property.
-fn current_vf(player: &Player) -> Option<String> {
-    player
-        .borrow()
-        .as_ref()
-        .and_then(|b| b.mpv.get_property::<String>("vf").ok())
+    begin_gather(player, probe, gen, on_done);
 }
 
 /// True when this gen's probe is stale, in flight, or already finished:
@@ -71,7 +50,7 @@ fn probe_start_blocked(probe: &Rc<BarProbe>, gen: u64) -> bool {
         || !matches!(probe.state.get(), BarState::Pending)
 }
 
-fn begin_cropdetect(player: &Player, probe: &Rc<BarProbe>, gen: u64, on_done: Rc<dyn Fn()>) {
+fn begin_gather(player: &Player, probe: &Rc<BarProbe>, gen: u64, on_done: Rc<dyn Fn()>) {
     if probe_start_blocked(probe, gen) {
         eprintln!(
             "[rhino] bars: probe begin blocked: gen {gen} vs live {}, state {:?}",
@@ -91,21 +70,99 @@ fn begin_cropdetect(player: &Player, probe: &Rc<BarProbe>, gen: u64, on_done: Rc
         }
         ReadyState::Ready => {}
     }
-    // Paused playback feeds cropdetect no (or one stale) frame — never probe that.
+    // A paused start shows one frame (often a fade or title card) — wait for playback.
     if probe_paused(player) {
         defer_no_data(player, probe, gen, on_done, "paused");
         return;
     }
-    let Some(hw_backup) = insert_cropdetect(player, probe) else {
-        defer_no_data(player, probe, gen, on_done, "cropdetect insert failed");
-        return;
-    };
     probe.gathering.set(true);
-    let player = Rc::clone(player);
-    let probe = Rc::clone(probe);
-    glib::timeout_add_local_once(DETECT_GATHER, move || {
-        finish_cropdetect(&player, &probe, gen, hw_backup, on_done);
-    });
+    gather_step(
+        Rc::new(GatherRun {
+            player: Rc::clone(player),
+            probe: Rc::clone(probe),
+            gen,
+            on_done,
+        }),
+        Gather::default(),
+        GATHER_SAMPLES,
+    );
+}
+
+/// One in-flight gather: what the sample chain needs to finish or bail out.
+struct GatherRun {
+    player: Player,
+    probe: Rc<BarProbe>,
+    gen: u64,
+    on_done: Rc<dyn Fn()>,
+}
+
+/// Picture bounds united across a gather's samples, in VO-image space.
+#[derive(Clone, Copy, Default)]
+struct Gather {
+    sizes: Option<ChainSizes>,
+    content: Option<CropRect>,
+}
+
+impl Gather {
+    /// Fold one sample in; a changed chain (new sizes) restarts the union.
+    fn absorb(&mut self, sizes: ChainSizes, content: Option<CropRect>) {
+        if self.sizes != Some(sizes) {
+            *self = Self {
+                sizes: Some(sizes),
+                content: None,
+            };
+        }
+        self.content = match (self.content, content) {
+            (Some(a), Some(b)) => Some(union_rect(a, b)),
+            (a, b) => a.or(b),
+        };
+    }
+}
+
+fn gather_step(run: Rc<GatherRun>, mut gather: Gather, left: u8) {
+    if run.probe.gen.get() != run.gen {
+        eprintln!(
+            "[rhino] bars: probe gather stale: gen {} vs live {}",
+            run.gen,
+            run.probe.gen.get()
+        );
+        return;
+    }
+    match sample_frame(&run.player) {
+        Some((sizes, content)) => gather.absorb(sizes, content),
+        None => eprintln!("[rhino] bars: frame sample unavailable"),
+    }
+    if left > 1 {
+        glib::timeout_add_local_once(SAMPLE_GAP, move || gather_step(run, gather, left - 1));
+        return;
+    }
+    finish_gather(&run, gather);
+}
+
+/// Screenshot the displayed frame; picture bounds mapped into the full VO image
+/// (`None` content for an all-dark frame).
+fn sample_frame(player: &Player) -> Option<(ChainSizes, Option<CropRect>)> {
+    let g = player.borrow();
+    let mpv = &g.as_ref()?.mpv;
+    let sizes = chain_sizes(mpv)?;
+    let shown = shown_vo_region(mpv, sizes.vo);
+    let (shot, content) = crate::media_probe::with_raw_frame(mpv, |v| {
+        (
+            (v.w as i64, v.h as i64),
+            content_bounds(v.w, v.h, v.row_stride, v.bpp, v.fmt, v.data),
+        )
+    })?;
+    Some((sizes, content.map(|c| shot_to_vo(c, shot, shown))))
+}
+
+/// Screenshots honor an active crop: map a screenshot rect into the shown VO region.
+fn shot_to_vo(c: CropRect, shot: (i64, i64), shown: CropRect) -> CropRect {
+    let r = scale_rect_between(c, shot, (shown.w, shown.h));
+    CropRect {
+        x: r.x + shown.x,
+        y: r.y + shown.y,
+        ..r
+    }
 }
 
 #[derive(PartialEq, Eq)]
@@ -123,72 +180,9 @@ fn video_ready_state(player: &Player) -> ReadyState {
     }
 }
 
-
-/// Append cropdetect after any Bob/Smooth filters so detection sees progressive frames.
-fn insert_cropdetect(player: &Player, probe: &Rc<BarProbe>) -> Option<Option<String>> {
-    player.borrow().as_ref().and_then(|b| {
-        let mpv = &b.mpv;
-        remove_cropdetect(mpv);
-        let hw_backup = pause_noncopy_hwdec(mpv);
-        let spec = format!(
-            "@{CROPDETECT_LABEL}:cropdetect=limit={DETECT_LIMIT}:round={DETECT_ROUND}:reset=0"
-        );
-        match mpv.command("vf", &["add", &spec]) {
-            Ok(()) => Some(hw_backup),
-            Err(e) => {
-                eprintln!("[rhino] bars: cropdetect insert failed: {e}");
-                restore_hwdec(mpv, hw_backup.as_deref());
-                // The restore can reinit the decoder: record the settled chain so its
-                // own cleanup reconfigs cannot re-arm this Pending probe forever.
-                settle_after_teardown(probe, mpv);
-                None
-            }
-        }
-    })
-}
-
-
 fn video_ready(mpv: &Mpv) -> bool {
     mpv.get_property::<i64>("width").unwrap_or(0) > 0
         && mpv.get_property::<i64>("height").unwrap_or(0) > 0
-}
-
-fn pause_noncopy_hwdec(mpv: &Mpv) -> Option<String> {
-    let current = mpv
-        .get_property::<String>("hwdec-current")
-        .unwrap_or_else(|_| "no".into());
-    let ok = current == "no"
-        || current == "crystalhd"
-        || current == "rkmpp"
-        || current.ends_with("-copy");
-    if ok {
-        return None;
-    }
-    let backup = mpv.get_property::<String>("hwdec").ok();
-    crate::video_pref::ensure_hwdec_vf_copy(mpv);
-    backup
-}
-
-fn restore_hwdec(mpv: &Mpv, backup: Option<&str>) {
-    if let Some(mode) = backup {
-        if let Err(e) = mpv.set_property("hwdec", mode) {
-            eprintln!("[rhino] bars: hwdec restore failed: {e}");
-        }
-    }
-}
-
-fn remove_cropdetect(mpv: &Mpv) {
-    if !mpv
-        .get_property::<String>("vf")
-        .unwrap_or_default()
-        .contains(CROPDETECT_LABEL)
-    {
-        return;
-    }
-    let label = format!("@{CROPDETECT_LABEL}");
-    if let Err(e) = mpv.command("vf", &["remove", &label]) {
-        eprintln!("[rhino] bars: cropdetect remove failed: {e}");
-    }
 }
 
 pub fn apply_video_crop(mpv: &Mpv, rect: Option<CropRect>) {
@@ -206,189 +200,9 @@ pub fn clear_video_crop(mpv: &Mpv) {
     apply_video_crop(mpv, None);
 }
 
-#[cfg(test)]
-mod probe_tests {
-    use super::*;
-
-    #[test]
-    fn crop_rect_formats_mpv_video_crop() {
-        assert_eq!(
-            CropRect {
-                w: 1920,
-                h: 800,
-                x: 0,
-                y: 140
-            }
-            .as_video_crop(),
-            "1920x800+0+140"
-        );
-    }
-
-    #[test]
-    fn classify_full_vo_frame_under_downscale_is_clean() {
-        // A clean file probed while Smooth60 downscales: cropdetect reports the
-        // full chain-output image — genuinely no strips, probed clean.
-        let meta = CropMeta { w: 1552, h: 872, x: 0, y: 0 };
-        assert!(matches!(
-            classify_crop_meta(meta, (1552, 872)),
-            CropMetaVerdict::Clean
-        ));
-    }
-
-    #[test]
-    fn classify_keeps_real_strips_measured_in_vo_space() {
-        let meta = CropMeta { w: 1552, h: 719, x: 0, y: 45 };
-        assert_eq!(
-            classify_crop_meta(meta, (1552, 872)),
-            CropMetaVerdict::Crop(CropRect { w: 1552, h: 719, x: 0, y: 45 })
-        );
-    }
-
-    #[test]
-    fn classify_rejects_metadata_outside_the_measured_frame() {
-        let meta = CropMeta { w: 1553, h: 800, x: 0, y: 40 };
-        assert!(matches!(
-            classify_crop_meta(meta, (1552, 872)),
-            CropMetaVerdict::Garbage
-        ));
-    }
-
-    #[test]
-    fn classify_treats_rounding_shortfall_as_clean() {
-        // Odd-sized clean frame: cropdetect rounds 853 down to 852 — still the
-        // full frame, not a sub-region lock-on.
-        let meta = CropMeta { w: 852, h: 480, x: 0, y: 0 };
-        assert!(matches!(
-            classify_crop_meta(meta, (853, 480)),
-            CropMetaVerdict::Clean
-        ));
-    }
-
-    #[test]
-    fn classify_rejects_subregion_lockon_from_dark_openings() {
-        // Near-black opening frames: cropdetect locks onto a small bright logo
-        // instead of the picture. In-frame but implausible — never "clean".
-        let meta = CropMeta { w: 188, h: 172, x: 858, y: 588 };
-        assert!(matches!(
-            classify_crop_meta(meta, (1920, 1080)),
-            CropMetaVerdict::Garbage
-        ));
-    }
-}
-
-// Parse lavfi cropdetect from `vf-metadata/<label>` as `MPV_FORMAT_NODE` only.
-// Per-key `…/lavfi.cropdetect.*` get_property can SIGSEGV in libmpv (`mp_tags_get_bstr`
-// with NULL tags) while Smooth rebuilds the vf chain.
-
-fn read_cropdetect_meta(mpv: &Mpv) -> Option<CropMeta> {
-    let name = CString::new(format!("vf-metadata/{CROPDETECT_LABEL}")).ok()?;
-    let mut root = std::mem::MaybeUninit::<libmpv2_sys::mpv_node>::uninit();
-    let err = unsafe {
-        libmpv2_sys::mpv_get_property(
-            mpv.ctx.as_ptr(),
-            name.as_ptr(),
-            libmpv2_sys::mpv_format_MPV_FORMAT_NODE,
-            root.as_mut_ptr().cast(),
-        )
-    };
-    if err < 0 {
-        return None;
-    }
-    let mut root = unsafe { root.assume_init() };
-    let meta = unsafe { parse_crop_map(&root) };
-    unsafe { libmpv2_sys::mpv_free_node_contents(&mut root) };
-    meta
-}
-
-unsafe fn parse_crop_map(root: &libmpv2_sys::mpv_node) -> Option<CropMeta> {
-    let (keys, vals) = map_keys_values(root)?;
-    let mut fields = CropFields::default();
-    for (key_ptr, vn) in keys.iter().zip(vals.iter()) {
-        if key_ptr.is_null() {
-            continue;
-        }
-        let key = unsafe { CStr::from_ptr(*key_ptr) }.to_bytes();
-        if let Some(n) = node_number(vn) {
-            fields.absorb(key, n);
-        }
-    }
-    fields.into_meta()
-}
-
-#[derive(Default)]
-struct CropFields {
-    w: Option<i64>,
-    h: Option<i64>,
-    x: Option<i64>,
-    y: Option<i64>,
-}
-
-impl CropFields {
-    fn absorb(&mut self, key: &[u8], n: i64) {
-        match key {
-            b"lavfi.cropdetect.w" => self.w = Some(n),
-            b"lavfi.cropdetect.h" => self.h = Some(n),
-            b"lavfi.cropdetect.x" => self.x = Some(n),
-            b"lavfi.cropdetect.y" => self.y = Some(n),
-            _ => {}
-        }
-    }
-
-    fn into_meta(self) -> Option<CropMeta> {
-        Some(CropMeta {
-            w: self.w?,
-            h: self.h?,
-            x: self.x?,
-            y: self.y?,
-        })
-    }
-}
-
-fn node_number(vn: &libmpv2_sys::mpv_node) -> Option<i64> {
-    if vn.format == libmpv2_sys::mpv_format_MPV_FORMAT_INT64 {
-        return Some(unsafe { vn.u.int64 });
-    }
-    if vn.format == libmpv2_sys::mpv_format_MPV_FORMAT_DOUBLE {
-        return Some(unsafe { vn.u.double_ } as i64);
-    }
-    if vn.format == libmpv2_sys::mpv_format_MPV_FORMAT_STRING {
-        let sp = unsafe { vn.u.string };
-        if sp.is_null() {
-            return None;
-        }
-        return unsafe { CStr::from_ptr(sp) }
-            .to_string_lossy()
-            .trim()
-            .parse()
-            .ok();
-    }
-    None
-}
-
-unsafe fn map_keys_values(
-    entry: &libmpv2_sys::mpv_node,
-) -> Option<(&[*const std::os::raw::c_char], &[libmpv2_sys::mpv_node])> {
-    if entry.format != libmpv2_sys::mpv_format_MPV_FORMAT_NODE_MAP {
-        return None;
-    }
-    let list_ptr = entry.u.list;
-    if list_ptr.is_null() {
-        return None;
-    }
-    let n = unsafe { (*list_ptr).num } as usize;
-    let (keys, vals) = unsafe { ((*list_ptr).keys, (*list_ptr).values) };
-    if keys.is_null() || vals.is_null() || n == 0 {
-        return None;
-    }
-    Some((
-        unsafe { std::slice::from_raw_parts(keys.cast(), n) },
-        unsafe { std::slice::from_raw_parts(vals, n) },
-    ))
-}
-
-/// Cropdetect metadata classification on a `(fw, fh)` chain-output image.
+/// Strip reading classification on a `(fw, fh)` chain-output image.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CropMetaVerdict {
+enum ReadingVerdict {
     /// Meaningful strip crop in VO space (caller maps it to decode space).
     Crop(CropRect),
     /// Full-frame result: genuinely no strips — the only probed-clean outcome.
@@ -399,37 +213,95 @@ enum CropMetaVerdict {
     Garbage,
 }
 
-fn classify_crop_meta(meta: CropMeta, frame: (i64, i64)) -> CropMetaVerdict {
+fn classify_reading(rect: CropRect, frame: (i64, i64)) -> ReadingVerdict {
     let (fw, fh) = frame;
-    if !crop_meta_in_frame(fw, fh, meta) {
-        return CropMetaVerdict::Garbage;
+    if !rect_in_frame(fw, fh, rect) {
+        return ReadingVerdict::Garbage;
     }
-    // cropdetect rounds the reported size down to `DETECT_ROUND`, so a clean
-    // odd-sized frame reports e.g. 852 of 853: within rounding slack it is the
-    // full frame (bars under MIN_BAR_FRAC are noise by the same token).
-    if meta.x == 0
-        && meta.y == 0
-        && fw - meta.w <= DETECT_ROUND
-        && fh - meta.h <= DETECT_ROUND
-    {
-        return CropMetaVerdict::Clean;
+    let rect = centered_rect(rect, frame);
+    // Edges thinner than MIN_BAR_FRAC (scan borders, soft rows) are the full frame.
+    let thin = |full: i64, kept: i64| ((full - kept) as f64) < full as f64 * MIN_BAR_FRAC;
+    if thin(fw, rect.w) && thin(fh, rect.h) {
+        return ReadingVerdict::Clean;
     }
-    if !crop_meaningful(fw, fh, meta.w, meta.h) {
-        return CropMetaVerdict::Garbage;
+    if !crop_meaningful(fw, fh, rect.w, rect.h) {
+        return ReadingVerdict::Garbage;
     }
-    CropMetaVerdict::Crop(CropRect {
-        w: meta.w,
-        h: meta.h,
-        x: meta.x,
-        y: meta.y,
-    })
+    ReadingVerdict::Crop(rect)
 }
 
-fn crop_meta_in_frame(width: i64, height: i64, meta: CropMeta) -> bool {
-    meta.x >= 0
-        && meta.y >= 0
-        && meta.w > 0
-        && meta.h > 0
-        && meta.x + meta.w <= width
-        && meta.y + meta.h <= height
+#[cfg(test)]
+mod probe_tests {
+    use super::*;
+
+    fn rect(w: i64, h: i64, x: i64, y: i64) -> CropRect {
+        CropRect { w, h, x, y }
+    }
+
+    #[test]
+    fn crop_rect_formats_mpv_video_crop() {
+        assert_eq!(rect(1920, 800, 0, 140).as_video_crop(), "1920x800+0+140");
+    }
+
+    #[test]
+    fn classify_full_vo_frame_under_downscale_is_clean() {
+        // A clean file probed while Smooth60 downscales: the reading covers the
+        // full chain-output image — genuinely no strips, probed clean.
+        assert_eq!(classify_reading(rect(1552, 872, 0, 0), (1552, 872)), ReadingVerdict::Clean);
+    }
+
+    #[test]
+    fn classify_keeps_real_strips_measured_in_vo_space() {
+        let r = rect(1552, 720, 0, 76);
+        assert_eq!(classify_reading(r, (1552, 872)), ReadingVerdict::Crop(r));
+    }
+
+    #[test]
+    fn classify_trims_only_the_thinner_margin() {
+        // Night scene: right half dark, no real strips — the full frame.
+        assert_eq!(classify_reading(rect(818, 607, 0, 0), (1600, 680)), ReadingVerdict::Clean);
+        // Letterbox with a dark lower third: only the top strip's width is cropped.
+        assert_eq!(
+            classify_reading(rect(1920, 700, 0, 140), (1920, 1080)),
+            ReadingVerdict::Crop(rect(1920, 800, 0, 140))
+        );
+    }
+
+    #[test]
+    fn classify_rejects_readings_outside_the_measured_frame() {
+        assert_eq!(
+            classify_reading(rect(1553, 800, 0, 40), (1552, 872)),
+            ReadingVerdict::Garbage
+        );
+    }
+
+    #[test]
+    fn classify_treats_thin_edges_as_clean() {
+        // Soft first row, and a film scan with 8 px dark side borders: full frame.
+        assert_eq!(classify_reading(rect(852, 479, 0, 1), (853, 480)), ReadingVerdict::Clean);
+        assert_eq!(classify_reading(rect(1904, 1080, 8, 0), (1920, 1080)), ReadingVerdict::Clean);
+    }
+
+    #[test]
+    fn classify_rejects_subregion_lockon_from_dark_openings() {
+        // Near-black opening frames: only a small bright logo reads as picture.
+        // In-frame but implausible — never "clean".
+        assert_eq!(
+            classify_reading(rect(188, 172, 858, 588), (1920, 1080)),
+            ReadingVerdict::Garbage
+        );
+    }
+
+    #[test]
+    fn gather_unites_samples_and_restarts_on_chain_change() {
+        let a = ChainSizes { decode: (1920, 1080), vo: (1920, 1080) };
+        let b = ChainSizes { decode: (1920, 1080), vo: (1552, 872) };
+        let mut g = Gather::default();
+        g.absorb(a, Some(rect(1800, 800, 60, 140)));
+        g.absorb(a, None);
+        g.absorb(a, Some(rect(1920, 790, 0, 145)));
+        assert_eq!(g.content, Some(rect(1920, 800, 0, 140)));
+        g.absorb(b, Some(rect(1552, 650, 0, 111)));
+        assert_eq!((g.sizes, g.content), (Some(b), Some(rect(1552, 650, 0, 111))));
+    }
 }

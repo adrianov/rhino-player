@@ -121,7 +121,9 @@ fn migrate_media_fill_screen_column(conn: &Connection) {
     );
 }
 
-/// Cached lavfi strip probe (`bar_crop`; freshness via `bar_crop_mtime_ns` + `bar_crop_size`).
+/// Cached strip probe (`bar_crop`; freshness via `bar_crop_mtime_ns` + `bar_crop_size`).
+/// Crop rows from the old lavfi cropdetect probe are often off-center garbage (Smooth
+/// warm-up frames, dark scenes): drop them once so those files re-probe by sampling.
 fn migrate_media_bar_crop_columns(conn: &Connection) {
     for sql in [
         "ALTER TABLE media ADD COLUMN bar_crop TEXT",
@@ -129,6 +131,13 @@ fn migrate_media_bar_crop_columns(conn: &Connection) {
         "ALTER TABLE media ADD COLUMN bar_crop_size INTEGER",
     ] {
         let _ = conn.execute(sql, rusqlite::params![]);
+    }
+    if let Err(e) = conn.execute_batch(
+        "UPDATE media SET bar_crop = NULL WHERE bar_crop NOT IN ('c', 'd:c')
+           AND NOT EXISTS (SELECT 1 FROM settings WHERE k = 'bar_crop_resample_v1');
+         INSERT OR IGNORE INTO settings (k, v) VALUES ('bar_crop_resample_v1', '1');",
+    ) {
+        eprintln!("[rhino] db: bar_crop resample migration: {e}");
     }
 }
 

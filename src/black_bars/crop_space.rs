@@ -1,14 +1,15 @@
 // Crop-space mapping: strip rects are cached in decoded-frame space (the
 // canonical, chain-independent space) while `video-crop` applies to the image
 // the filter chain hands to the VO — Smooth60's size cap downscales that image,
-// so probe verdicts and every set cross the two spaces. The probe captures the
-// size pair beside its metadata (before teardown) and maps the verdict with it;
+// so probe verdicts and every set cross the two spaces. Each probe sample
+// captures the size pair beside its frame and the verdict maps with it;
 // `apply_video_crop` maps to the current pair so mpv accepts the property.
 
 /// Frame sizes across the filter chain: decoded image (`video-params`) vs the
 /// image the chain feeds the VO (`video-out-params`). Smooth60's size cap
-/// downscales the latter; `video-crop` is validated against it, and cropdetect
-/// metadata is measured on it.
+/// downscales the latter; `video-crop` is validated against it, and probe
+/// readings are measured on it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ChainSizes {
     decode: (i64, i64),
     vo: (i64, i64),
@@ -23,6 +24,43 @@ fn chain_sizes(mpv: &Mpv) -> Option<ChainSizes> {
         decode: (dw, dh),
         vo: (ow, oh),
     })
+}
+
+/// Region of the VO image that `video-crop` currently shows (the full image when
+/// uncropped). Screenshots of the displayed frame cover only this region.
+fn shown_vo_region(mpv: &Mpv, vo: (i64, i64)) -> CropRect {
+    let prop = |k: &str| mpv.get_property::<i64>(&format!("video-out-params/crop-{k}")).ok();
+    match (prop("x"), prop("y"), prop("w"), prop("h")) {
+        (Some(x), Some(y), Some(w), Some(h)) if w > 0 && h > 0 => CropRect { w, h, x, y },
+        _ => CropRect { w: vo.0, h: vo.1, x: 0, y: 0 },
+    }
+}
+
+fn union_rect(a: CropRect, b: CropRect) -> CropRect {
+    let (x, y) = (a.x.min(b.x), a.y.min(b.y));
+    CropRect {
+        x,
+        y,
+        w: (a.x + a.w).max(b.x + b.w) - x,
+        h: (a.y + a.h).max(b.y + b.h) - y,
+    }
+}
+
+fn rect_in_frame(width: i64, height: i64, r: CropRect) -> bool {
+    r.x >= 0 && r.y >= 0 && r.w > 0 && r.h > 0 && r.x + r.w <= width && r.y + r.h <= height
+}
+
+/// Baked-in strips are centered: keep only the thinner margin per axis so a
+/// scene that is dark on one side is not cropped as a strip.
+fn centered_rect(r: CropRect, (fw, fh): (i64, i64)) -> CropRect {
+    let mx = r.x.min(fw - r.x - r.w);
+    let my = r.y.min(fh - r.y - r.h);
+    CropRect {
+        x: mx,
+        y: my,
+        w: fw - 2 * mx,
+        h: fh - 2 * my,
+    }
 }
 
 /// Map a crop rect measured in one image space into another (chain output vs

@@ -1,4 +1,4 @@
-// Packed-pixel letterbox / pillarbox crop (continue-grid `screenshot-raw`).
+// Packed-pixel letterbox / pillarbox bounds (`screenshot-raw`: continue-grid thumbs + Fill Screen probe).
 
 /// Near-black channel ceiling (matches the thumb dark-frame sampler).
 const BAR_LUMA_MAX: u8 = 12;
@@ -55,6 +55,20 @@ pub fn detect_packed_crop(
     fmt: &str,
     data: &[u8],
 ) -> Option<CropRect> {
+    content_bounds(w, h, row_stride, bpp, fmt, data)
+        .filter(|c| crop_meaningful(w as i64, h as i64, c.w, c.h))
+}
+
+/// Picture bounds with edge strips trimmed (may be the full frame); `None` for an
+/// all-dark frame, a tiny frame, or an unsupported pixel format.
+fn content_bounds(
+    w: usize,
+    h: usize,
+    row_stride: usize,
+    bpp: usize,
+    fmt: &str,
+    data: &[u8],
+) -> Option<CropRect> {
     if w < 8 || h < 8 {
         return None;
     }
@@ -69,10 +83,7 @@ pub fn detect_packed_crop(
     };
     let (top, ch) = vertical_content(&p, w, h);
     let (left, cw) = horizontal_content(&p, w, h);
-    if !crop_meaningful(w as i64, h as i64, cw as i64, ch as i64) {
-        return None;
-    }
-    Some(CropRect {
+    (ch > 0 && cw > 0).then_some(CropRect {
         x: left as i64,
         y: top as i64,
         w: cw as i64,
@@ -148,5 +159,11 @@ mod frame_tests {
             px[3] = 255;
         }
         assert!(detect_packed_crop(w, h, w * 4, 4, "bgr0", &data).is_none());
+    }
+
+    #[test]
+    fn dark_frame_has_no_content_bounds() {
+        let (w, h) = (32, 24);
+        assert!(content_bounds(w, h, w * 4, 4, "bgr0", &vec![0u8; w * h * 4]).is_none());
     }
 }

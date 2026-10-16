@@ -1,5 +1,5 @@
 //! Fill toggle: zoom video to cover the **viewport** (`panscan`) and crop baked-in
-//! black strips (`video-crop` from a short `cropdetect` probe). When the viewport
+//! black strips (`video-crop` from a short screenshot-sampling probe). When the viewport
 //! already matches the picture, the strips are cropped with no extra zoom so the
 //! picture fills the window.
 //!
@@ -179,7 +179,6 @@ thread_local! {
     static FILL_RESYNC: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     static FILL_SYNC_ONLY: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
     static FILL_RESET: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
-    static RESYNC_AFTER_UNPAUSE: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Called on `VideoReconfig` / `FileLoaded` to recheck fill and (re)try strip detection.
@@ -189,19 +188,6 @@ pub fn request_fill_resync() {
             f();
         }
     });
-}
-
-/// Unpause resync: unlike a `VideoReconfig`, the vf chain may be unchanged, so the
-/// strip probe's own-cleanup suppression must not swallow this re-arm (see
-/// `pump_bar_probe`).
-pub fn request_fill_resync_after_unpause() {
-    RESYNC_AFTER_UNPAUSE.with(|c| c.set(true));
-    request_fill_resync();
-}
-
-/// Consume the unpause marker set by [`request_fill_resync_after_unpause`].
-pub(super) fn take_resync_after_unpause() -> bool {
-    RESYNC_AFTER_UNPAUSE.with(Cell::take)
 }
 
 /// Visibility / apply only (strip probe finished — do not restart detection).
