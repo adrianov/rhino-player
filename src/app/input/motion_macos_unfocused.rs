@@ -18,6 +18,7 @@ fn wire_macos_gl_cursor_while_unfocused(ctx: &WindowInputCtx) {
     wire_unfocused_gl_map_watch(&cursor, &ctl.start);
     wire_unfocused_recent_watch(&cursor, &ctl.start, &ctl.stop);
     watch_window_occlusion(cursor.win.clone(), cursor.clone());
+    wire_blackout_cursor_rearm(&cursor);
 
     if !cursor.win.is_active() {
         (ctl.start)();
@@ -81,7 +82,9 @@ fn wire_unfocused_active_watch(
     cursor.win.connect_is_active_notify(move |w| {
         if w.is_active() {
             stop_act();
-            if !pointer_over_video_gl(w, &c_act.gl) {
+            if pointer_over_video_gl(w, &c_act.gl) {
+                c_act.rearm_hide("window activated");
+            } else {
                 c_act.leave();
             }
             return;
@@ -89,6 +92,12 @@ fn wire_unfocused_active_watch(
         start_act();
         c_act.hide_now_if_over_video();
     });
+}
+
+/// Blackout clear shows the pointer without motion: rearm the idle hide over video.
+fn wire_blackout_cursor_rearm(cursor: &UnfocusedCursor) {
+    let c = cursor.clone();
+    crate::screen_blackout::set_cursor_rearm(Rc::new(move || c.rearm_hide("blackout cleared")));
 }
 
 /// GL area mapped while the window is inactive: start hiding immediately.

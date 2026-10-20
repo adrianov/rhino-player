@@ -19,6 +19,7 @@ fn apply_theater_cursor_hide(
     player: &Rc<RefCell<Option<MpvBundle>>>,
 ) -> bool {
     if !chrome_should_hide_cursor_for_media(player) {
+        eprintln!("[rhino] cursor: hide skipped, no playable media (idle, loading, or busy)");
         return false;
     }
     gl.add_css_class("rp-cursor-hidden");
@@ -54,6 +55,20 @@ fn pointer_over_video_gl(win: &adw::ApplicationWindow, gl: &gtk::GLArea) -> bool
     let gl_w: gtk::Widget = gl.clone().upcast();
     win.pick(x, y, gtk::PickFlags::DEFAULT)
         .is_some_and(|p| p == gl_w)
+}
+
+/// What sits under the pointer instead of the video, for `[rhino] cursor:` skip logs.
+#[cfg(target_os = "macos")]
+fn pointer_pick_name(win: &adw::ApplicationWindow) -> String {
+    use glib::prelude::ObjectExt;
+
+    let Some((x, y)) = pointer_pick_xy_for_win(win) else {
+        return "outside window or covered by another window".into();
+    };
+    win.pick(x, y, gtk::PickFlags::DEFAULT).map_or_else(
+        || format!("nothing at {x:.0},{y:.0}"),
+        |w| format!("{} at {x:.0},{y:.0}", w.type_().name()),
+    )
 }
 
 /// True when mpv has real media (not the idle / welcome state). Used before theater cursor hide.

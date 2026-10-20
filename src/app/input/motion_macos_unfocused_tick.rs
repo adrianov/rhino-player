@@ -35,6 +35,10 @@ impl UnfocusedCursor {
                 return;
             }
             if !pointer_over_video_gl(&s.win, &s.gl) {
+                eprintln!(
+                    "[rhino] cursor: idle hide skipped, pointer not over video ({})",
+                    pointer_pick_name(&s.win)
+                );
                 s.leave();
                 return;
             }
@@ -42,6 +46,16 @@ impl UnfocusedCursor {
                 s.leave();
             }
         });
+    }
+
+    /// Pointer became visible without motion: hide again after idle if it still rests on video.
+    fn rearm_hide(&self, why: &str) {
+        if !self.theater_ready() {
+            return;
+        }
+        eprintln!("[rhino] cursor: re-arm idle hide ({why})");
+        self.ptr.set(true);
+        self.arm_hide_timer();
     }
 
     fn theater_ready(&self) -> bool {

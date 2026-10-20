@@ -93,6 +93,15 @@ fn screen_count_macos() -> usize {
     NSScreen::screens(mtm).len()
 }
 
+thread_local! {
+    /// Re-arms the viewer's idle pointer hide after a clear shows the pointer (set by input wiring).
+    static CURSOR_REARM: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+}
+
+pub fn set_cursor_rearm(f: Rc<dyn Fn()>) {
+    CURSOR_REARM.with(|s| *s.borrow_mut() = Some(f));
+}
+
 fn queue_clear(bo: &mut ScreenBlackout) {
     let old = std::mem::take(&mut bo.windows);
     bo.video_screen_ptr = None;
@@ -100,6 +109,10 @@ fn queue_clear(bo: &mut ScreenBlackout) {
     bo.cover_pending = false;
     if !old.is_empty() {
         hop_appkit(AppkitOp::Clear(old));
+        // The clear shows the pointer without motion; playback may continue under it.
+        if let Some(rearm) = CURSOR_REARM.with(|s| s.borrow().clone()) {
+            rearm();
+        }
     }
 }
 
