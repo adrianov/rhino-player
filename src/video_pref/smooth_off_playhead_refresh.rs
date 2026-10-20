@@ -158,7 +158,7 @@ pub(crate) fn snap_audio_track_av_resync(b: &crate::mpv_embed::MpvBundle) -> Opt
     cancel_deferred_vf_swap();
     let playhead = vf_resync_playhead_sec(mpv, Some(b))?;
     Some(AudioTrackAvSnap {
-        snap: vf_swap_snap(mpv, true),
+        snap: vf_swap_snap(mpv, "audio-track switch"),
         playhead,
     })
 }

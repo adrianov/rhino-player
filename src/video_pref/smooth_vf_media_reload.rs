@@ -4,14 +4,15 @@ use std::cell::Cell;
 
 thread_local! {
     /// Playing Smooth-on reload: stay paused until resume + apply, then unpause.
-    static UNPAUSE_AFTER_SMOOTH_RELOAD: Cell<bool> = const { Cell::new(false) };
+    static UNPAUSE_AFTER_SMOOTH_RELOAD: Cell<Option<crate::stall_log::Hold>> = const { Cell::new(None) };
 }
 
 /// Unpause if [reload_open_media_for_vf_reset] armed a playing-session hold.
 pub(crate) fn maybe_unpause_after_smooth_reload(mpv: &libmpv2::Mpv) {
-    if !UNPAUSE_AFTER_SMOOTH_RELOAD.with(|c| c.replace(false)) {
+    let Some(hold) = UNPAUSE_AFTER_SMOOTH_RELOAD.take() else {
         return;
-    }
+    };
+    hold.end();
     if let Err(e) = mpv.set_property("pause", false) {
         eprintln!("[rhino] video: smooth-on unpause after reload failed: {e:?}");
         return;
@@ -36,10 +37,11 @@ pub(crate) fn reload_open_media_for_vf_reset(b: &MpvBundle, resume_playing: bool
             return false;
         }
     };
+    let hold = resume_playing.then(|| crate::stall_log::Hold::begin("smooth reload", &b.mpv));
     let _ = b.mpv.set_property("pause", true);
     strip_vapoursynth_before_replace_media(b);
     let resume = if pos > 0.05 { Some(pos) } else { None };
-    replace_media_at_pos(b, &path, pos, resume, resume_playing)
+    replace_media_at_pos(b, &path, pos, resume, hold)
 }
 
 /// `loadfile replace` at the playhead; on success arms the unpause hold and drains after load.
@@ -48,18 +50,19 @@ fn replace_media_at_pos(
     path: &std::path::Path,
     pos: f64,
     resume: Option<f64>,
-    resume_playing: bool,
+    hold: Option<crate::stall_log::Hold>,
 ) -> bool {
     match b.load_file_path(path, false, false, false, resume) {
         Ok(()) => {
             eprintln!(
-                "[rhino] video: loadfile replace for vapoursynth reattach path={} pos={pos:.2} resume_playing={resume_playing}",
-                path.display()
+                "[rhino] video: loadfile replace for vapoursynth reattach path={} pos={pos:.2} resume_playing={}",
+                path.display(),
+                hold.is_some()
             );
             // Same media: do not re-run landscape fit / load-nudge (open + manual resize only).
             crate::app::suppress_window_fit_for_load(b.warm_file_gen());
-            if resume_playing {
-                UNPAUSE_AFTER_SMOOTH_RELOAD.with(|c| c.set(true));
+            if hold.is_some() {
+                UNPAUSE_AFTER_SMOOTH_RELOAD.set(hold);
             }
             // Idle only: callers hold `player` borrowed, so an immediate drain cannot `borrow_mut`.
             crate::app::transport_drain_after_loadfile_idle();
@@ -67,7 +70,8 @@ fn replace_media_at_pos(
         }
         Err(e) => {
             eprintln!("[rhino] video: vf reset loadfile failed: {e}");
-            if resume_playing {
+            if let Some(hold) = hold {
+                hold.end();
                 let _ = b.mpv.set_property("pause", false);
             }
             false

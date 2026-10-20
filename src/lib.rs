@@ -61,6 +61,7 @@ mod screen_blackout;
 mod seek_bar_preview;
 mod shell_debug_log;
 mod sibling_advance;
+mod stall_log;
 mod sub_prefs;
 mod sub_track_abbr;
 mod sub_tracks;

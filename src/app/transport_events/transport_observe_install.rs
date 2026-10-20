@@ -46,6 +46,7 @@ fn install_observers_on_bundle(ctx: &Rc<TransportCtx>, b: &mut MpvBundle, trace:
         (PROP_VOLUME_MAX, "volume-max", Format::Double),
         (PROP_PATH, "path", Format::String),
         (PROP_CONTAINER_FPS, "container-fps", Format::Double),
+        (PROP_PAUSED_FOR_CACHE, "paused-for-cache", Format::Flag),
     ]) {
         eprintln!("[rhino] transport observe_props failed: {e}");
         return false;
@@ -91,12 +92,15 @@ fn log_mpv_message(prefix: &str, level: &str, text: &str) {
         );
         return;
     }
+    if crate::stall_log::mpv_warning(prefix, text) {
+        return;
+    }
     eprintln!("[rhino] mpv: [{prefix}] {level}: {}", text.trim_end());
 }
 
 fn drain_into_main(ctx: &Rc<TransportCtx>) {
-    let evs = collect_events(ctx);
-    for e in evs {
+    for e in collect_events(ctx) {
+        crate::stall_log::trigger(format!("{e:?}"));
         dispatch_event(ctx, e);
     }
 }
@@ -144,6 +148,9 @@ fn drained_transport_events(b: &mut MpvBundle, out: &mut Vec<TransportEv>) -> bo
                 out.push(t);
             }
         }
+        Event::Seek | Event::PlaybackRestart | Event::AudioReconfig => {
+            crate::stall_log::trigger(format!("{ev:?}"));
+        }
         Event::FileLoaded => out.push(TransportEv::FileLoaded),
         Event::VideoReconfig => out.push(TransportEv::VideoReconfig),
         Event::EndFile(r) if r == libmpv2::mpv_end_file_reason::Error => {
@@ -170,6 +177,10 @@ fn property_event(id: u64, data: PropertyData<'_>) -> Option<TransportEv> {
         (PROP_VOLUME_MAX, PropertyData::Double(v)) => TransportEv::VolumeMax(*v),
         (PROP_PATH, PropertyData::Str(_)) => TransportEv::PathChanged,
         (PROP_CONTAINER_FPS, PropertyData::Double(_)) => TransportEv::ContainerFpsChanged,
+        (PROP_PAUSED_FOR_CACHE, PropertyData::Flag(v)) => {
+            crate::stall_log::buffering(*v);
+            return None;
+        }
         _ => return None,
     })
 }

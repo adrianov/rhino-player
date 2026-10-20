@@ -74,31 +74,29 @@ fn avsync_drift_tag(avsync: Option<f64>) -> &'static str {
 #[derive(Clone, Copy)]
 pub(crate) struct VfAvSnap {
     pub(crate) was_playing: bool,
-    /// True when this snap called [screen_blackout::begin_tech_hold].
-    tech_hold: bool,
+    /// Set when this snap paused playback and called [screen_blackout::begin_tech_hold].
+    hold: Option<crate::stall_log::Hold>,
 }
 
-/// When [pause_if_playing] is false (first **`vf add`** after open), record play state but do not pause.
-pub(crate) fn vf_swap_snap(mpv: &libmpv2::Mpv, pause_if_playing: bool) -> VfAvSnap {
+/// Pause when playing; [reason] names the swap in the stall log.
+pub(crate) fn vf_swap_snap(mpv: &libmpv2::Mpv, reason: &'static str) -> VfAvSnap {
     let was_playing = !mpv.get_property::<bool>("pause").unwrap_or(true);
-    let mut tech_hold = false;
-    if pause_if_playing && was_playing {
+    let hold = was_playing.then(|| {
         crate::screen_blackout::begin_tech_hold();
-        tech_hold = true;
+        let hold = crate::stall_log::Hold::begin(reason, mpv);
         let _ = mpv.set_property("pause", true);
-    }
-    VfAvSnap {
-        was_playing,
-        tech_hold,
-    }
+        hold
+    });
+    VfAvSnap { was_playing, hold }
 }
 
 pub(crate) fn vf_swap_unpause(mpv: &libmpv2::Mpv, snap: &VfAvSnap) {
     if snap.was_playing {
         let _ = mpv.set_property("pause", false);
     }
-    if snap.tech_hold {
+    if let Some(hold) = snap.hold {
         crate::screen_blackout::end_tech_hold();
+        hold.end();
     }
 }
 

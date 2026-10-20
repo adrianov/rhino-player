@@ -17,6 +17,8 @@ const PROP_MUTE: u64 = 4;
 const PROP_VOLUME_MAX: u64 = 5;
 const PROP_PATH: u64 = 6;
 const PROP_CONTAINER_FPS: u64 = 7;
+/// Logged by [crate::stall_log::buffering] only; no transport event.
+const PROP_PAUSED_FOR_CACHE: u64 = 8;
 
 /// State + UI tick. 1 Hz is enough for the time labels and seek-bar thumb at any speed; sibling
 /// advance fires within a second of mpv reaching `core-idle` near the end.

@@ -194,6 +194,15 @@ rhino-player --diagnostics
 
 Exit status **0** means Smooth prerequisites look usable.
 
+Automatic playback pauses (Smooth A/V resync, cache buffering, mpv desync warnings) are written to the system log with their reason and duration ([feature 41](docs/features/41-playback-stall-log.md)):
+
+```bash
+# macOS (unified log)
+/usr/bin/log show --last 2h --predicate 'process == "rhino-player" AND eventMessage BEGINSWITH "stall:"'
+# Linux (journald)
+journalctl -t rhino-player --since today
+```
+
 ### Linux
 
 #### Install Dependencies

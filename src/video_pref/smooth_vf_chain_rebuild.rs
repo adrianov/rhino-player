@@ -10,7 +10,7 @@ fn smooth_reattach_after_vf_strip(
     cadence_hz: Option<f64>,
 ) -> bool {
     let av_resync = take_reattach_av_resync();
-    let snap = av_resync.then(|| vf_swap_snap(mpv, true));
+    let snap = av_resync.then(|| vf_swap_snap(mpv, "smooth-on reattach"));
     let playhead = av_resync
         .then(|| vf_resync_playhead_sec(mpv, bundle))
         .flatten();
@@ -92,7 +92,7 @@ fn rebuild_smooth_vf_chain(
         }
         return add_smooth_60_with_av_log(mpv, v, speed_hint, bundle, cadence_hz);
     }
-    let snap = vf_swap_snap(mpv, true);
+    let snap = vf_swap_snap(mpv, "smooth graph replace");
     if prep_smooth_60_for_vf(mpv, v, speed_hint, bundle, cadence_hz) {
         vf_swap_unpause(mpv, &snap);
         return true;
@@ -125,7 +125,7 @@ fn strip_unwanted_smooth_vf(mpv: &Mpv, bundle: Option<&MpvBundle>, vlog: bool, w
         b.set_smooth_vf_stripped_this_open(true);
         b.clear_smooth_vf_reload_attempted();
     }
-    let snap = vf_swap_snap(mpv, true);
+    let snap = vf_swap_snap(mpv, "smooth strip");
     clear_vf(mpv, bundle, vlog);
     set_auto_decode(mpv, vlog);
     if !want_60 {
