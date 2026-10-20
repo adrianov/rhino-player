@@ -12,12 +12,23 @@ pub(crate) fn maybe_unpause_after_smooth_reload(mpv: &libmpv2::Mpv) {
     let Some(hold) = UNPAUSE_AFTER_SMOOTH_RELOAD.take() else {
         return;
     };
-    hold.end();
+    end_reload_hold(hold);
     if let Err(e) = mpv.set_property("pause", false) {
         eprintln!("[rhino] video: smooth-on unpause after reload failed: {e:?}");
         return;
     }
     eprintln!("[rhino] video: smooth-on unpause after reload");
+}
+
+/// Engine-held pause: blackout covers stay up across the reload (paired with [end_reload_hold]).
+fn begin_reload_hold(mpv: &libmpv2::Mpv) -> crate::stall_log::Hold {
+    crate::screen_blackout::begin_tech_hold();
+    crate::stall_log::Hold::begin("smooth reload", mpv)
+}
+
+fn end_reload_hold(hold: crate::stall_log::Hold) {
+    crate::screen_blackout::end_tech_hold();
+    hold.end();
 }
 
 /// Reload the open file at the current playhead so mpv can attach vapoursynth again.
@@ -37,7 +48,7 @@ pub(crate) fn reload_open_media_for_vf_reset(b: &MpvBundle, resume_playing: bool
             return false;
         }
     };
-    let hold = resume_playing.then(|| crate::stall_log::Hold::begin("smooth reload", &b.mpv));
+    let hold = resume_playing.then(|| begin_reload_hold(&b.mpv));
     let _ = b.mpv.set_property("pause", true);
     strip_vapoursynth_before_replace_media(b);
     let resume = if pos > 0.05 { Some(pos) } else { None };
@@ -71,7 +82,7 @@ fn replace_media_at_pos(
         Err(e) => {
             eprintln!("[rhino] video: vf reset loadfile failed: {e}");
             if let Some(hold) = hold {
-                hold.end();
+                end_reload_hold(hold);
                 let _ = b.mpv.set_property("pause", false);
             }
             false
