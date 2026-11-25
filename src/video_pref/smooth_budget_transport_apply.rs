@@ -32,10 +32,11 @@ fn apply_budget_actions_after_sample(
                 if cand < o.current_budget_px {
                     state_cell.borrow_mut().recovery_blocked_after_overload_this_open = true;
                 }
-                let _ = persist_budget_and_maybe_rebuild_vf(
+                persist_marked(
                     player,
                     video_pref,
                     cand,
+                    "smooth budget shrink",
                     "(presentation strain — lowering motion budget)",
                 );
                 reset_decoder_state_after_shrink(state_cell, o.now, o.cur_count);
@@ -101,11 +102,24 @@ fn maybe_raise_budget(
         o.current_budget_px,
         recover_to,
     );
-    let _ = persist_budget_and_maybe_rebuild_vf(
+    persist_marked(
         player,
         video_pref,
         recover_to,
+        "smooth budget raise",
         "(presentation quiet — raising motion budget)",
     );
+}
+
+fn persist_marked(
+    player: &Rc<RefCell<Option<crate::mpv_embed::MpvBundle>>>,
+    video_pref: &Rc<RefCell<crate::db::VideoPrefs>>,
+    px: u64,
+    reason: &'static str,
+    suffix: &'static str,
+) {
+    crate::stall_log::with_reason(reason, || {
+        let _ = persist_budget_and_maybe_rebuild_vf(player, video_pref, px, suffix);
+    });
 }
 

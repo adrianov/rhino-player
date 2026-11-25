@@ -16,6 +16,9 @@ thread_local! {
     static TRIGGERS: RefCell<VecDeque<(Instant, String)>> = const { RefCell::new(VecDeque::new()) };
     static OPEN_HOLD: Cell<Option<Hold>> = const { Cell::new(None) };
     static BUFFERING_SINCE: Cell<Option<Instant>> = const { Cell::new(None) };
+    /// Cause of the next [Hold::begin]. Callers set this so a shared pause path can name
+    /// budget shrink, cadence, speed, and the other stalls apart.
+    static ARMED_REASON: Cell<Option<&'static str>> = const { Cell::new(None) };
 }
 
 /// One app-driven pause; [Hold::end] logs how long playback stayed paused.
@@ -25,8 +28,45 @@ pub(crate) struct Hold {
     since: Instant,
 }
 
+/// Name the next pause. Overwrites a reason already armed for this stall.
+pub(crate) fn set_reason(reason: &'static str) {
+    ARMED_REASON.set(Some(reason));
+}
+
+/// Name the next pause only when nothing more specific is armed yet.
+pub(crate) fn set_reason_if_empty(reason: &'static str) {
+    ARMED_REASON.with(|c| {
+        if c.get().is_none() {
+            c.set(Some(reason));
+        }
+    });
+}
+
+/// Drop an armed reason that never became a pause (apply was a no-op).
+pub(crate) fn clear_reason() {
+    ARMED_REASON.set(None);
+}
+
+/// Arm [reason] for pauses inside [body], then drop it so a later stall cannot inherit the name.
+pub(crate) fn with_reason<T>(reason: &'static str, body: impl FnOnce() -> T) -> T {
+    set_reason(reason);
+    let out = body();
+    clear_reason();
+    out
+}
+
+fn take_reason(fallback: &'static str) -> &'static str {
+    ARMED_REASON.take().unwrap_or(fallback)
+}
+
+/// Stall that removes or restores Smooth without the pause/resume pair (external-load strip).
+pub(crate) fn note(reason: &'static str) {
+    emit(&format!("reason={reason}"));
+}
+
 impl Hold {
     pub(crate) fn begin(reason: &'static str, mpv: &libmpv2::Mpv) -> Self {
+        let reason = take_reason(reason);
         if let Some(prev) = OPEN_HOLD.get() {
             emit(&format!(
                 "hold {} never resumed ({:.2}s ago), superseded by {reason}",
@@ -140,4 +180,34 @@ fn emit(msg: &str) {
         return;
     };
     unsafe { libc::syslog(libc::LOG_NOTICE, b"%s\0".as_ptr().cast(), line.as_ptr()) };
+}
+
+#[cfg(test)]
+mod reason_tests {
+    use super::{clear_reason, set_reason, set_reason_if_empty, take_reason, with_reason};
+
+    #[test]
+    fn armed_reason_wins_over_fallback() {
+        clear_reason();
+        set_reason("smooth budget shrink");
+        assert_eq!(take_reason("smooth graph replace"), "smooth budget shrink");
+        assert_eq!(take_reason("smooth graph replace"), "smooth graph replace");
+    }
+
+    #[test]
+    fn specific_reason_is_kept() {
+        clear_reason();
+        set_reason("playback speed");
+        set_reason_if_empty("smooth cadence");
+        assert_eq!(take_reason("smooth strip"), "playback speed");
+    }
+
+    #[test]
+    fn with_reason_does_not_outlive_the_call() {
+        clear_reason();
+        with_reason("smooth budget shrink", || {
+            assert_eq!(take_reason("smooth resync"), "smooth budget shrink");
+        });
+        assert_eq!(take_reason("smooth resync"), "smooth resync");
+    }
 }

@@ -92,6 +92,7 @@ fn rebuild_smooth_vf_chain(
         }
         return add_smooth_60_with_av_log(mpv, v, speed_hint, bundle, cadence_hz);
     }
+    crate::stall_log::set_reason_if_empty(graph_replace_reason(mpv, v, bundle, cadence_hz));
     let snap = vf_swap_snap(mpv, "smooth graph replace");
     if prep_smooth_60_for_vf(mpv, v, speed_hint, bundle, cadence_hz) {
         vf_swap_unpause(mpv, &snap);
@@ -125,6 +126,7 @@ fn strip_unwanted_smooth_vf(mpv: &Mpv, bundle: Option<&MpvBundle>, vlog: bool, w
         b.set_smooth_vf_stripped_this_open(true);
         b.clear_smooth_vf_reload_attempted();
     }
+    crate::stall_log::set_reason_if_empty(strip_stall_reason(mpv, bundle, want_60));
     let snap = vf_swap_snap(mpv, "smooth strip");
     clear_vf(mpv, bundle, vlog);
     set_auto_decode(mpv, vlog);
@@ -134,6 +136,73 @@ fn strip_unwanted_smooth_vf(mpv: &Mpv, bundle: Option<&MpvBundle>, vlog: bool, w
         vf_swap_unpause(mpv, &snap);
         vf_av_ping_render(bundle);
     }
+}
+
+/// Cause of a live-graph rebuild when the caller did not arm a more specific reason.
+fn graph_replace_reason(
+    mpv: &Mpv,
+    v: &VideoPrefs,
+    bundle: Option<&MpvBundle>,
+    cadence_hz: Option<f64>,
+) -> &'static str {
+    if cadence_changed(cadence_hz) {
+        return "smooth cadence";
+    }
+    if !bundled_me_budget_vf_matches_prefs(mpv, v, bundle) {
+        return "smooth budget";
+    }
+    if smooth_script_differs(mpv, v) {
+        return "smooth script";
+    }
+    if smooth_opts_differ(mpv, bundle) {
+        return "smooth options";
+    }
+    "smooth resync"
+}
+
+/// Both sides known and different. A missing read is not a cadence change — that would hide
+/// budget, script, and option stalls while VapourSynth blanks the container rate.
+fn cadence_changed(fps_opt: Option<f64>) -> bool {
+    let Some(want) = fps_opt.filter(|hz| hz.is_finite()) else {
+        return false;
+    };
+    std::env::var(crate::paths::RHINO_SOURCE_FPS_VAR)
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .filter(|hz| hz.is_finite())
+        .is_some_and(|have| (want - have).abs() >= 1e-5)
+}
+
+fn smooth_script_differs(mpv: &Mpv, v: &VideoPrefs) -> bool {
+    let Some(script) = resolve_vs_script_path(v) else {
+        return false;
+    };
+    mpv.get_property::<String>("vf")
+        .ok()
+        .is_some_and(|vf| !vf_smooth_script_matches(&vf, &script))
+}
+
+fn smooth_opts_differ(mpv: &Mpv, bundle: Option<&MpvBundle>) -> bool {
+    mpv.get_property::<String>("vf")
+        .ok()
+        .is_some_and(|vf| !vf_smooth_opts_match(mpv, &vf, bundle))
+}
+
+/// Cause of a filter strip when the caller did not arm a more specific reason.
+fn strip_stall_reason(mpv: &Mpv, bundle: Option<&MpvBundle>, want_60: bool) -> &'static str {
+    if smooth_load_hold_active() {
+        return "smooth load hold";
+    }
+    if !want_60 {
+        return "smooth off";
+    }
+    if !mvtools_vf_eligible(mpv, None) {
+        return "playback speed";
+    }
+    if smooth_prefers_display_resample_bundle(mpv, bundle) || bob_blocks_smooth_vf(mpv, bundle) {
+        return "smooth cadence";
+    }
+    "smooth strip"
 }
 
 fn apply_mpv_video_without_mvtools(

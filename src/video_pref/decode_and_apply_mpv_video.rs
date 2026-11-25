@@ -28,6 +28,7 @@ pub fn apply_mpv_video(
 ) -> MpvVideoApply {
     let g = player.borrow();
     let Some(b) = g.as_ref() else {
+        crate::stall_log::clear_reason();
         return MpvVideoApply::default();
     };
     apply_mpv_video_impl(&b.mpv, Some(b), Some(player), v, speed_hint)
@@ -80,6 +81,7 @@ fn apply_mpv_video_impl(
     log_apply(v);
     if bundle.is_some_and(|b| b.smooth_vf_attach_pending()) {
         eprintln!("[rhino] video: apply_mpv_video skipped (vapoursynth attach in flight)");
+        crate::stall_log::clear_reason();
         return MpvVideoApply::default();
     }
     let plan = SmoothApplyPlan::probe(mpv, bundle, v, speed_hint);
@@ -100,6 +102,7 @@ fn apply_mpv_video_impl(
     if open {
         bob_finish_apply(mpv, bundle, plan.want_60, speed_hint, vlog);
     }
+    crate::stall_log::clear_reason();
     outcome
 }
 

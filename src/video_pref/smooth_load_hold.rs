@@ -92,6 +92,7 @@ pub(crate) fn enter_smooth_load_hold(
     process_cpu_frac: Option<f64>,
 ) {
     arm_hold_until(std::time::Instant::now());
+    crate::stall_log::note("smooth load hold");
     eprintln!(
         "[rhino] smooth: decision load_hold secs={LOAD_HOLD_SECS} loadavg_per_cpu={} process_cpu_frac={} (external load — motion budget unchanged)",
         fmt_cpu_frac(loadavg_per_cpu()),
@@ -123,8 +124,11 @@ pub(crate) fn smooth_load_hold_on_tick(
     }
     smooth_load_hold_clear();
     eprintln!("[rhino] smooth: decision load_hold_resume (pause elapsed — restoring Smooth)");
-    let mut vp = video_pref.borrow_mut();
-    let _ = apply_mpv_video(player, &mut vp, None);
+    crate::stall_log::note("smooth load-hold resume");
+    crate::stall_log::with_reason("smooth load-hold resume", || {
+        let mut vp = video_pref.borrow_mut();
+        let _ = apply_mpv_video(player, &mut vp, None);
+    });
     true
 }
 

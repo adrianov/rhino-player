@@ -142,5 +142,5 @@ pub fn refresh_smooth_for_playback_speed(
         None => set_playback_speed_env_from_mpv(mpv),
     }
     drop(g);
-    apply_mpv_video(player, v, speed_hint)
+    crate::stall_log::with_reason("playback speed", || apply_mpv_video(player, v, speed_hint))
 }
