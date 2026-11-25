@@ -1,4 +1,4 @@
-//! Human-friendly labels from release-style video filenames (dots, SxxExx, tech tags).
+//! Human-friendly labels from release-style video filenames (dots, SxxExx, Eyy, tech tags).
 //! Inspired by Transmission’s `formatHumanTitle`; omits resolution suffixes such as `#1080p`.
 
 use regex::Regex;
@@ -10,6 +10,8 @@ include!("human_media_title/cleanup.rs");
 
 #[path = "human_media_title/download_temp.rs"]
 mod download_temp;
+#[path = "human_media_title/episode.rs"]
+mod episode;
 use download_temp::peel_download_temp;
 pub(crate) use download_temp::{finished_download_path, is_incomplete_download_path};
 
@@ -32,7 +34,7 @@ fn try_short_circuit(trimmed: &str) -> Option<String> {
     if no_ext.contains(['.', '_', '|']) {
         return None;
     }
-    if patterns().tech_hint.is_match(no_ext) {
+    if patterns().tech_hint.is_match(no_ext) || episode::is_match(no_ext) {
         return None;
     }
     // Glued tags (`HDTV1080p`) miss `tech_hint` word boundaries.
@@ -107,6 +109,7 @@ enum Tail {
     SeasonEp { s: u32, e: u32 },
     SeasonRange { a: u32, b: u32 },
     SeasonOnly(u32),
+    EpisodeOnly(u32),
 }
 
 fn parse_tail_strip_markers(work: &mut String) -> Tail {
@@ -120,10 +123,20 @@ fn parse_tail_strip_markers(work: &mut String) -> Tail {
     if let Some(n) = take_tail_nums(work, &p.n_by_ep, 2) {
         return Tail::SeasonEp { s: n[0], e: n[1] };
     }
-    if let Some(n) = take_tail_nums(work, &p.season_only, 1) {
-        return Tail::SeasonOnly(n[0]);
+    loose_season_episode(work)
+}
+
+/// Season code and episode marker that are not glued together (`S01` … `E06`).
+fn loose_season_episode(work: &mut String) -> Tail {
+    match (
+        take_tail_nums(work, &patterns().season_only, 1).map(|n| n[0]),
+        episode::take(work),
+    ) {
+        (Some(s), Some(e)) => Tail::SeasonEp { s, e },
+        (Some(s), None) => Tail::SeasonOnly(s),
+        (None, Some(e)) => Tail::EpisodeOnly(e),
+        (None, None) => Tail::None,
     }
-    Tail::None
 }
 
 /// Capture `count` numeric groups from `re`'s first match, then blank every match out.
@@ -145,6 +158,9 @@ fn compose_tail(mut base: String, tail: Tail) -> String {
         }
         Tail::SeasonOnly(s) => {
             base.push_str(&format!(" — Season {s}"));
+        }
+        Tail::EpisodeOnly(e) => {
+            base.push_str(&format!(" — Episode {e}"));
         }
     }
     collapse_ws_inplace(&mut base);

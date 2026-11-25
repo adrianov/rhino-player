@@ -47,7 +47,7 @@ fn core_regexes() -> (Regex, Regex, Regex) {
 
 fn season_regexes() -> (Regex, Regex, Regex, Regex) {
     (
-        regex(r"(?i)\bS(\d{1,2})E(\d{1,3})\b", "se"),
+        regex(r"(?i)\bS(\d{1,2})[\s._-]*E(\d{1,3})\b", "se"),
         regex(r"(?i)\bS(\d{1,2})[-–](\d{1,2})\b", "sr"),
         // Two-digit episode segment avoids matching encoder tokens like `10x264`.
         regex(r"(?i)\b(\d{1,2})x(\d{2})\b", "nx"),

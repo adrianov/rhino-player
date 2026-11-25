@@ -74,6 +74,43 @@ fn alternate_nx_episode() {
 }
 
 #[test]
+fn separated_episode_joins_season() {
+    assert_eq!(
+        human_media_title("Polden.S01.E06.2026.mkv"),
+        "Polden 2026 — Season 1, Episode 6"
+    );
+    assert_eq!(
+        human_media_title("Polden.E06.2026.S01.mkv"),
+        "Polden 2026 — Season 1, Episode 6"
+    );
+    assert_eq!(
+        human_media_title("Polden E06 2026 S01.mkv"),
+        "Polden 2026 — Season 1, Episode 6"
+    );
+}
+
+#[test]
+fn episode_token_without_season() {
+    assert_eq!(
+        human_media_title("Polden.E06.2026.mkv"),
+        "Polden 2026 — Episode 6"
+    );
+    assert_eq!(human_media_title("Show.EP06.1080p.mkv"), "Show — Episode 6");
+    assert_eq!(human_media_title("Show E06.mkv"), "Show — Episode 6");
+    assert_eq!(
+        human_media_title("Экспроприатор (11 сер.).mkv"),
+        "Экспроприатор — Episode 11"
+    );
+    assert_eq!(human_media_title("Лучший сериал.mkv"), "Лучший сериал");
+}
+
+#[test]
+fn episode_marker_stays_a_word() {
+    assert_eq!(human_media_title("Show 11 episodes.mkv"), "Show 11 episodes");
+    assert_eq!(human_media_title("Show сер 6.mkv"), "Show — Episode 6");
+}
+
+#[test]
 fn empty_returns_empty() {
     assert_eq!(human_media_title(""), "");
     assert_eq!(human_media_title("   "), "");
